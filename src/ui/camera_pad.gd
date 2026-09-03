@@ -15,7 +15,21 @@ extends Control
 
 signal dragged(delta: Vector2)
 
+## Positive pinches in, negative spreads out. Emitted in pixels of change in the
+## gap between two fingers, so the rig can scale it however it likes.
+signal pinched(amount: float)
+
+## Mouse wheel, in notches. Separate from the pinch because the two have
+## completely different units and pretending otherwise makes one of them wrong.
+signal wheeled(notches: float)
+
 var _active_index := -1
+
+## Every finger currently down on this pad, by index. A pinch needs two, and the
+## viewport routes each finger back to the control it landed on, so tracking
+## them here is enough — no global input state.
+var _fingers: Dictionary = {}
+var _pinch_gap := -1.0
 
 func _init() -> void:
 	# set_anchors_preset alone leaves a code-created Control at zero size, which
@@ -26,13 +40,49 @@ func _init() -> void:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
-		if event.pressed and _active_index < 0:
-			_active_index = event.index
-		elif not event.pressed and event.index == _active_index:
-			_active_index = -1
+		if event.pressed:
+			_fingers[event.index] = event.position
+			if _active_index < 0:
+				_active_index = event.index
+		else:
+			_fingers.erase(event.index)
+			if event.index == _active_index:
+				_active_index = -1
+			# A pinch ends the moment either finger lifts, so the next one
+			# starts from a fresh gap instead of jumping.
+			_pinch_gap = -1.0
 		accept_event()
-	elif event is InputEventScreenDrag and event.index == _active_index:
-		# screen_relative, not relative: inside _gui_input the latter is scaled
-		# by the stretch transform, so camera speed would change with resolution.
-		dragged.emit(event.screen_relative)
+		return
+
+	if event is InputEventScreenDrag:
+		_fingers[event.index] = event.position
+
+		# Two fingers down means the player is sizing the view, not turning it.
+		# Turning is suppressed entirely while pinching, because a pinch always
+		# carries some rotation and the camera would spin as it zoomed.
+		if _fingers.size() >= 2:
+			var points := _fingers.values()
+			var gap: float = (points[0] as Vector2).distance_to(points[1] as Vector2)
+			if _pinch_gap >= 0.0:
+				pinched.emit(gap - _pinch_gap)
+			_pinch_gap = gap
+			accept_event()
+			return
+
+		if event.index == _active_index:
+			# screen_relative, not relative: inside _gui_input the latter is
+			# scaled by the stretch transform, so camera speed would change
+			# with resolution.
+			dragged.emit(event.screen_relative)
 		accept_event()
+		return
+
+	# The desktop equivalent, so the game can be developed and played with a
+	# mouse without a second code path.
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			wheeled.emit(1.0)
+			accept_event()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			wheeled.emit(-1.0)
+			accept_event()

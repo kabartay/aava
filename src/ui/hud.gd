@@ -16,6 +16,7 @@ const BUTTON := 96.0
 const MARGIN := 26.0
 
 signal camera_dragged(delta: Vector2)
+signal camera_zoomed(amount: float)
 ## Press and release, not a single tap: the strength of a kick is how long the
 ## button is held, so the interface has to report both ends of it.
 signal kick_started()
@@ -47,6 +48,10 @@ func _ready() -> void:
 	var pad := CameraPad.new()
 	pad.name = "CameraPad"
 	pad.dragged.connect(func(delta: Vector2) -> void: camera_dragged.emit(delta))
+	pad.pinched.connect(func(amount: float) -> void:
+		camera_zoomed.emit(amount * CameraRig.ZOOM_PER_PIXEL))
+	pad.wheeled.connect(func(notches: float) -> void:
+		camera_zoomed.emit(notches * CameraRig.ZOOM_PER_NOTCH))
 	add_child(pad)
 
 	# Godot 4.7 ships this node; writing one by hand is both unnecessary and,

@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_check_goals_are_judged()
 	_check_kick_can_be_aimed()
 	_check_rocks_are_jumpable()
+	_check_the_camera_zooms()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -564,3 +565,48 @@ func _check_rocks_are_jumpable() -> void:
 		_fail("a jump reaches %.2f m but rocks stand up to %.2f m" % [apex, Boulders.MAX_HEIGHT])
 	else:
 		_ok("a jump clears %.2f m, well over the tallest rock" % apex)
+
+## Zoom has to reach both ends and stop at them, and it must not quietly turn
+## the camera while it does.
+func _check_the_camera_zooms() -> void:
+	print("the camera zooms")
+	var player := Player.new()
+	get_root().add_child(player)
+	var rig := CameraRig.new(player)
+	player.add_child(rig)
+
+	var start_yaw := rig.yaw
+	var start_pitch := rig.pitch
+
+	# Pushed all the way out, and no further.
+	for _i in 200:
+		rig.zoom(-CameraRig.ZOOM_PER_NOTCH)
+	if not is_equal_approx(rig.wanted_distance, CameraRig.ARM_MAX):
+		_fail("zooming out stopped at %.1f m instead of %.1f" % [rig.wanted_distance, CameraRig.ARM_MAX])
+	else:
+		_ok("zooms out to %.0f m and stops" % CameraRig.ARM_MAX)
+
+	# Pulled all the way in, and no further — a negative arm would put the
+	# camera in front of the player, which is a very confusing bug to look at.
+	for _i in 200:
+		rig.zoom(CameraRig.ZOOM_PER_NOTCH)
+	if not is_equal_approx(rig.wanted_distance, CameraRig.ARM_MIN):
+		_fail("zooming in stopped at %.1f m instead of %.1f" % [rig.wanted_distance, CameraRig.ARM_MIN])
+	elif CameraRig.ARM_MIN <= 0.0:
+		_fail("the closest zoom is %.1f m, which is in front of the player" % CameraRig.ARM_MIN)
+	else:
+		_ok("zooms in to %.1f m and stops, never past the player" % CameraRig.ARM_MIN)
+
+	if not is_equal_approx(rig.yaw, start_yaw) or not is_equal_approx(rig.pitch, start_pitch):
+		_fail("zooming also turned the camera")
+	else:
+		_ok("zooming changes distance only, not where the camera points")
+
+	# And the far end has to be far enough to be worth having: a valley view
+	# should see well past the pitch you are standing on.
+	if CameraRig.ARM_MAX < 12.0:
+		_fail("the widest view is only %.0f m back — not a view of anything" % CameraRig.ARM_MAX)
+	else:
+		_ok("the widest view stands %.0f m back, enough to survey" % CameraRig.ARM_MAX)
+
+	player.queue_free()

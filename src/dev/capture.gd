@@ -20,6 +20,7 @@ extends Node3D
 ##                  than an empty valley
 ##   --build=1      open build mode with the ghost preview showing
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
+##   --zoom=METRES  pull the camera this far further out than its default
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
 ##   --power=0..1   how hard to kick it
 ##   --loft=0..1    how high: 0 along the ground, 1 chipped over the top
@@ -48,6 +49,7 @@ var _at_pitch := false
 var _kick_after := 0.0
 var _kick_strength := 1.0
 var _kick_loft := 0.25
+var _zoom := 0.0
 var _structures: Structures
 var _birds: Birds
 var _inventory: Inventory
@@ -107,6 +109,8 @@ func _spawn_player() -> void:
 	_rig = CameraRig.new(_player)
 	_rig.yaw = deg_to_rad(_yaw)
 	_rig.pitch = deg_to_rad(_pitch)
+	if not is_zero_approx(_zoom):
+		_rig.zoom(-_zoom)
 	_player.add_child(_rig)
 	_camera = _rig.camera
 	_camera.current = true
@@ -332,6 +336,9 @@ func _parse_arguments() -> void:
 				_kick_strength = value.to_float()
 			"loft":
 				_kick_loft = value.to_float()
+			"zoom":
+				# Metres to pull the camera out from its default.
+				_zoom = value.to_float()
 			"pos":
 				_camera_position = _to_vector(value, _camera_position)
 			"look":

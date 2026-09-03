@@ -20,6 +20,7 @@ static func connect_hud(
 	on_jump: Callable
 ) -> void:
 	hud.camera_dragged.connect(camera_rig.orbit)
+	hud.camera_zoomed.connect(camera_rig.zoom)
 	hud.build_toggled.connect(build_mode.set_active)
 	hud.build_selected.connect(build_mode.select)
 	hud.build_place.connect(on_place)
