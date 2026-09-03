@@ -229,9 +229,7 @@ static func _box(
 		tool.add_vertex(transform * vertices[indices[i]])
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, color: Color) -> void:
-	for vertex in [a, b, c]:
-		tool.set_color(color)
-		tool.add_vertex(vertex)
-	for vertex in [a, c, d]:
+	var winding: Array[Vector3] = [a, b, c, a, c, d]
+	for vertex in winding:
 		tool.set_color(color)
 		tool.add_vertex(vertex)
