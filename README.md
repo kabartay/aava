@@ -3,7 +3,7 @@
 An open world that comes alive as you build in it.
 
 A 3D exploration-and-building game made for two brothers, aged 10 and 6, with a
-1.5-year-old and their parents living in the world as its first inhabitants.
+2-year-old and their parents living in the world as its first inhabitants.
 
 You arrive in an empty valley. Everything you build makes it more alive, and the
 more alive it is, the more it gives back: plant a grove and birds arrive, dig a
