@@ -14,7 +14,7 @@ Three things carry the game instead:
 2. **The world answers what he builds.** In Minecraft you build and the world
    stays indifferent. Here every structure has a consequence, and consequences
    generate themselves.
-3. **His family lives in the world.** His parents and his 1.5-year-old sibling
+3. **His family lives in the world.** His parents and his 2-year-old sibling
    are inhabitants. No studio can produce that, and it costs us nothing.
 
 The third point is the only honest answer to "why not just play Minecraft".
@@ -77,7 +77,7 @@ a lock.
 
 ## The family
 
-The 1.5-year-old is a villager: he toddles after you, laughs, claps when
+The 2-year-old is a villager: he toddles after you, laughs, claps when
 something is finished. The parents live there too and make small requests. None
 of them is a playable mode; they are presence.
 
