@@ -26,6 +26,10 @@ const MOUNTAIN_START := 210.0
 ## high rather than as a big green lump.
 const TREELINE := 86.0
 
+## How high the football pitch sits. Fixed rather than sampled from the natural
+## ground, because a pitch has to be level and a level surface needs one number.
+const PITCH_LEVEL := 2.4
+
 var seed: int
 
 var _plains := FastNoiseLite.new()
@@ -110,6 +114,14 @@ func height_at(x: float, z: float) -> float:
 
 	floor_height += _detail.get_noise_2d(x, z) * 0.5
 
+	# The football pitch levels the ground beneath it. This happens here, in the
+	# height field, rather than in some node that draws a pitch — so the terrain
+	# mesh, the collision heightmap, the trees, the pickups and the ball all
+	# agree about where the ground is without any of them knowing a pitch exists.
+	var pitch := Pitch.influence(x, z)
+	if pitch > 0.0:
+		floor_height = lerpf(floor_height, PITCH_LEVEL, pitch)
+
 	return floor_height
 
 ## Surface normal from the analytic gradient of the height function.
@@ -134,6 +146,11 @@ func steepness_at(x: float, z: float) -> float:
 func forest_density_at(x: float, z: float) -> float:
 	var height := height_at(x, z)
 	if height > TREELINE or height < WATER_LEVEL + 0.8:
+		return 0.0
+
+	# Nothing grows on the pitch or its apron. A tree on the halfway line is
+	# funny once and then it is just in the way.
+	if Pitch.influence(x, z) > 0.35:
 		return 0.0
 
 	var density := (_forest.get_noise_2d(x, z) + 1.0) * 0.5

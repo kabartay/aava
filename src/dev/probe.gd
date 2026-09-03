@@ -23,7 +23,8 @@ func _initialize() -> void:
 	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var grid := 17
-	for pick in [0, grid * 4 + 4, grid * 8 + 8, grid * 12 + 12, grid * 16 + 16]:
+	var picks := PackedInt32Array([0, grid * 4 + 4, grid * 8 + 8, grid * 12 + 12, grid * 16 + 16])
+	for pick in picks:
 		print("  v%-5d pos=%v  n=%v  color=%s" % [pick, vertices[pick], normals[pick], colors[pick]])
 
 	print("--- how much of a chunk is each tint")

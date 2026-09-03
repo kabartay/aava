@@ -28,6 +28,18 @@ const COLOR_MEADOW := Color(0.52, 0.68, 0.30)
 const COLOR_ROCK := Color(0.44, 0.43, 0.44)
 const COLOR_SNOW := Color(0.92, 0.94, 0.97)
 
+## Mown grass, and the paint on it. Two tones of green rather than one, because
+## a pitch that is the same colour as the meadow does not read as a pitch.
+const COLOR_PITCH_DARK := Color(0.21, 0.47, 0.22)
+const COLOR_PITCH_LIGHT := Color(0.34, 0.65, 0.30)
+const COLOR_PITCH_LINE := Color(0.93, 0.95, 0.92)
+
+## Width of the painted lines, in metres.
+const LINE_WIDTH := 0.24
+
+## Width of a mown stripe. Stripes are what make grass read as tended.
+const STRIPE_WIDTH := 5.0
+
 ## Which detail ring a chunk at this Chebyshev distance belongs to, or -1 if it
 ## is beyond the last ring and should not exist.
 static func ring_for(chebyshev_distance: int) -> int:

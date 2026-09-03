@@ -15,6 +15,7 @@ var field: HeightField
 var terrain: Terrain
 var vegetation: Vegetation
 var pickups: Pickups
+var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
 
@@ -38,6 +39,10 @@ func _ready() -> void:
 	pickups = Pickups.new(field, world_seed)
 	pickups.name = "Pickups"
 	add_child(pickups)
+
+	football = FootballGround.new(field)
+	football.name = "Football"
+	add_child(football)
 
 	water = Water.new()
 	water.name = "Water"

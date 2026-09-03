@@ -65,6 +65,11 @@ func _init(player: Player) -> void:
 	add_child(camera)
 
 func _ready() -> void:
+	# The arm sweeps a sphere backwards from the player's shoulder, and without
+	# this it hits the player's own capsule first and collapses to nothing —
+	# the camera ends up inside the head, which is exactly what it looks like.
+	_arm.add_excluded_object(_player.get_rid())
+
 	rotation.y = yaw
 	_arm.rotation.x = pitch
 	# Start settled, or the first frame shows the camera flying in from the origin.

@@ -164,6 +164,14 @@ func _physics_process(delta: float) -> void:
 		_last_reported = global_position
 		moved.emit(global_position)
 
+## Which way the body is actually facing, on the ground plane. Used by the kick
+## so that striking a ball you are standing on top of still sends it forwards.
+func facing() -> Vector3:
+	return Vector3(-sin(_visual.rotation.y), 0.0, -cos(_visual.rotation.y))
+
+func is_sprinting() -> bool:
+	return Input.is_action_pressed(InputActions.SPRINT) and run_fraction() > 0.4
+
 ## Current planar speed as a fraction of a full run. Drives the camera's field
 ## of view and, later, animation blending.
 func run_fraction() -> float:

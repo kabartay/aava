@@ -79,6 +79,11 @@ func _init(
 			continue
 		if field.steepness_at(world_x, world_z) > 0.5:
 			continue
+		# Nothing grows on a mown pitch. Grass tufts are placed by their own
+		# rule rather than by forest density, so suppressing trees there was
+		# not enough — long grass came straight up through the markings.
+		if Pitch.is_levelled(world_x, world_z):
+			continue
 		local.y = height
 		var scale := rng.randf_range(0.75, 1.45)
 		tufts.append(Transform3D(

@@ -67,6 +67,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	birds.name = "Birds"
 	add_child(birds)
 
+	world.football.goal_scored.connect(_on_goal)
+	if save.has("football"):
+		world.football.from_data(save["football"])
+
 	player = Player.new()
 	player.name = "Player"
 	var start := spawn
@@ -95,7 +99,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud = Hud.new()
 	hud.name = "Hud"
 	add_child(hud)
-	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place)
+	hud.set_score(world.football.score)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick)
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
@@ -113,6 +118,14 @@ func _process(delta: float) -> void:
 	world.pickups.check_reach(player.global_position)
 	build_mode.aim(player.global_position, camera_rig.yaw)
 
+	# The kick button appears only with a ball at your feet, and the keyboard
+	# shortcut is checked here rather than in the player so that both paths run
+	# through exactly the same code.
+	var ball := world.football.ball_near(player.global_position)
+	hud.set_ball_in_reach(ball != null)
+	if ball != null and Input.is_action_just_pressed(InputActions.KICK):
+		_on_kick()
+
 	_autosave -= delta
 	if _autosave <= 0.0:
 		_autosave = AUTOSAVE_SECONDS
@@ -120,6 +133,16 @@ func _process(delta: float) -> void:
 
 func _on_collected(kind: StringName, _at: Vector3) -> void:
 	inventory.add(kind, 1)
+
+func _on_kick() -> void:
+	var ball := world.football.ball_near(player.global_position)
+	if ball == null:
+		return
+	ball.kick(player.global_position, player.facing(), player.is_sprinting())
+
+func _on_goal(_index: int, total: int) -> void:
+	hud.set_score(total)
+	hud.announce("GOAL", 2.0)
 
 func _on_place() -> void:
 	if build_mode.place():
@@ -157,6 +180,7 @@ func _write_save() -> void:
 		"inventory": inventory.to_data(),
 		"structures": structures.to_data(),
 		"pickups_taken": world.pickups.to_data(),
+		"football": world.football.to_data(),
 	})
 
 func _seed_from_command_line() -> int:

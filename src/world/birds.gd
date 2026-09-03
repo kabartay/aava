@@ -91,7 +91,8 @@ func _spawn_bird(index: int) -> Dictionary:
 	node.add_child(body)
 
 	var wings: Array[MeshInstance3D] = []
-	for side in [-1.0, 1.0]:
+	var sides := PackedFloat32Array([-1.0, 1.0])
+	for side in sides:
 		var wing := MeshInstance3D.new()
 		wing.mesh = _wing
 		wing.material_override = _material

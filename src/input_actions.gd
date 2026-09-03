@@ -15,6 +15,7 @@ const MOVE_FORWARD := &"move_forward"
 const MOVE_BACK := &"move_back"
 const SPRINT := &"sprint"
 const JUMP := &"jump"
+const KICK := &"kick"
 
 ## Keyboard bindings exist for one reason: this game is developed on a desktop
 ## and played on a tablet, and the desktop has to be able to drive it.
@@ -25,6 +26,7 @@ const KEYS := {
 	MOVE_BACK: [KEY_S, KEY_DOWN],
 	SPRINT: [KEY_SHIFT],
 	JUMP: [KEY_SPACE],
+	KICK: [KEY_E, KEY_ENTER],
 }
 
 static func register() -> void:

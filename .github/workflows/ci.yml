@@ -54,6 +54,17 @@ jobs:
             exit 1
           fi
 
+      # GDScript cannot infer a type from an untyped array literal, so
+      # `for x in [1.0, 2.0]` makes every `var y := x * 2` a parse error. It has
+      # cost this project four separate rounds of debugging, and it is trivially
+      # greppable, so it is now simply banned.
+      - name: No untyped array literals in for loops
+        run: |
+          if grep -rnE "^[[:space:]]*for [A-Za-z_]+ in \[" --include="*.gd" src; then
+            echo "::error::iterate a typed array (PackedFloat32Array, Array[Vector3], ...) — GDScript cannot infer element types from a bare literal"
+            exit 1
+          fi
+
       - name: Checks
         run: ~/godot/godot --headless --path . --script src/dev/ci_check.gd
 

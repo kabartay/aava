@@ -26,6 +26,12 @@ walking into things is something a six-year-old understands without being told.
 Tap **build** to open the palette; the ghost shows what will be placed, green
 when it can be and red with the reason when it cannot.
 
+Walk south-west and you find a football pitch by the river. Stand next to a
+ball and a **kick** button appears; press it, or `E`, and the ball goes. Run at
+it and it goes much harder — that is the whole skill of shooting, and it is
+worth more to a six-year-old than any charge-up meter. Balls that end up in the
+river come back on their own.
+
 Plant three saplings close together, keep playing, and they grow. When all three
 are full trees the place becomes a grove and birds arrive. That loop — build,
 and the world answers — is what the whole game is for. The stick is Godot 4.7's native
@@ -61,6 +67,8 @@ godot --path . res://dev/capture.tscn -- \
 | `--yaw=DEG`, `--pitch=DEG` | aim that camera |
 | `--demo=1` | stand a finished camp and a grown grove in front of the player |
 | `--build=1` | open build mode with the ghost preview showing |
+| `--atpitch=1` | stand the player on the football pitch |
+| `--kick=SEC` | kick the nearest ball, then watch it fly for this long |
 
 The last two exist because a screenshot cannot tell you whether the colours are
 wrong or the light is wrong, and guessing between the two is expensive. The tool
@@ -155,6 +163,11 @@ src/
     world.gd           assembles the above; the one place a world comes from
     pickups.gd         sticks, stones, reeds and seeds, streamed and gathered
     birds.gd           the world answering: birds over feeders and groves
+    pitch.gd           where the football pitch is, and how it levels the ground
+  football/
+    ball.gd            a football, with physics rather than an animation
+    goal.gd            posts you can hit and netting that kills the ball
+    football_ground.gd goals, balls, scoring, and fetching strays
   player/
     player.gd          the controller: acceleration, coyote time, jump buffer
     camera_rig.gd      third-person camera that glides instead of ticking

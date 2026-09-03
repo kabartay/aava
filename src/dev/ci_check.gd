@@ -22,6 +22,8 @@ func _initialize() -> void:
 	_check_a_grove_forms()
 	_check_save_round_trip()
 	_check_nothing_is_missing()
+	_check_the_pitch_is_playable()
+	_check_goals_are_judged()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -329,6 +331,7 @@ func _check_nothing_is_missing() -> void:
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
 		"BuildKinds", "Structures", "BuildMode",
+		"Pitch", "Ball", "Goal", "FootballGround",
 	])
 	var missing := PackedStringArray()
 	for name in required:
@@ -346,3 +349,101 @@ func _class_exists(name: String) -> bool:
 		if String(entry.get("class", "")) == name:
 			return true
 	return false
+
+## Football on a slope is not football. The pitch must be flat, dry, clear of
+## trees, and reachable on foot from where the player wakes up.
+func _check_the_pitch_is_playable() -> void:
+	print("the pitch is playable")
+	var field := HeightField.new(20260903)
+	var centre := Pitch.centre()
+
+	var lowest := INF
+	var highest := -INF
+	var steepest := 0.0
+	var x := -Pitch.HALF_LENGTH
+	while x <= Pitch.HALF_LENGTH:
+		var z := -Pitch.HALF_WIDTH
+		while z <= Pitch.HALF_WIDTH:
+			var height := field.height_at(centre.x + x, centre.z + z)
+			lowest = minf(lowest, height)
+			highest = maxf(highest, height)
+			steepest = maxf(steepest, field.steepness_at(centre.x + x, centre.z + z))
+			z += 2.0
+		x += 2.0
+
+	var unevenness := highest - lowest
+	# A ball will not sit still on more than a few centimetres of fall.
+	if unevenness > 0.12:
+		_fail("the pitch varies by %.2f m — a ball would roll away" % unevenness)
+	else:
+		_ok("flat to within %.0f mm across the whole surface" % (unevenness * 1000.0))
+
+	if lowest < HeightField.WATER_LEVEL + 1.0:
+		_fail("the pitch is at %.2f m, too close to the water line" % lowest)
+	else:
+		_ok("dry, %.1f m above the water" % (lowest - HeightField.WATER_LEVEL))
+
+	var forest := 0.0
+	x = -Pitch.HALF_LENGTH
+	while x <= Pitch.HALF_LENGTH:
+		var z := -Pitch.HALF_WIDTH
+		while z <= Pitch.HALF_WIDTH:
+			forest = maxf(forest, field.forest_density_at(centre.x + x, centre.z + z))
+			z += 4.0
+		x += 4.0
+	if forest > 0.0:
+		_fail("trees would grow on the pitch (density %.2f)" % forest)
+	else:
+		_ok("no trees on the pitch")
+
+	# It has to be findable by a six-year-old, which means walkable, not across
+	# the river and not over a mountain.
+	var spawn := field.find_spawn_point()
+	var walk := Vector2(centre.x - spawn.x, centre.z - spawn.z).length()
+	var crosses_river := signf(spawn.x - field.river_centre_x(spawn.z)) != signf(centre.x - field.river_centre_x(centre.z))
+	if walk > 140.0:
+		_fail("the pitch is %.0f m from the spawn — too far to stumble across" % walk)
+	elif crosses_river:
+		_fail("the pitch is on the far bank, so a child needs a bridge to reach it")
+	else:
+		_ok("%.0f m walk from the spawn, same side of the river" % walk)
+
+## The one rule the whole game of football rests on.
+func _check_goals_are_judged() -> void:
+	print("goals are judged")
+	for index in 2:
+		var mouth := Pitch.goal_centre(index)
+		var outward := -1.0 if index == 0 else 1.0
+
+		# Well over the line, central, low: a goal.
+		var scored := mouth + Vector3(outward * (Ball.RADIUS + 0.5), 0.3, 0.0)
+		if not Pitch.is_goal(index, scored, Ball.RADIUS):
+			_fail("goal %d: a ball over the line was not given" % index)
+
+		# Resting exactly on the line: not a goal, because the whole ball must
+		# be over it. This also stops a ball on the line scoring every frame.
+		var on_line := mouth + Vector3(0.0, 0.3, 0.0)
+		if Pitch.is_goal(index, on_line, Ball.RADIUS):
+			_fail("goal %d: a ball on the line was given" % index)
+
+		# Wide of the post.
+		var wide := mouth + Vector3(outward * (Ball.RADIUS + 0.5), 0.3, Pitch.GOAL_WIDTH * 0.5 + 0.4)
+		if Pitch.is_goal(index, wide, Ball.RADIUS):
+			_fail("goal %d: a ball wide of the post was given" % index)
+
+		# Over the bar.
+		var over := mouth + Vector3(outward * (Ball.RADIUS + 0.5), Pitch.GOAL_HEIGHT + 0.5, 0.0)
+		if Pitch.is_goal(index, over, Ball.RADIUS):
+			_fail("goal %d: a ball over the bar was given" % index)
+
+		# Far behind the goal, having flown straight through: not a goal.
+		var behind := mouth + Vector3(outward * (Pitch.GOAL_DEPTH + 4.0), 0.3, 0.0)
+		if Pitch.is_goal(index, behind, Ball.RADIUS):
+			_fail("goal %d: a ball miles behind the net was given" % index)
+
+		# And the same ball at the other end must not score in this goal.
+		var other := Pitch.goal_centre(1 - index) + Vector3(-outward * (Ball.RADIUS + 0.5), 0.3, 0.0)
+		if Pitch.is_goal(index, other, Ball.RADIUS):
+			_fail("goal %d: a ball at the far end was given" % index)
+
+	_ok("both goals: over the line given; on the line, wide, over the bar and through the net all refused")

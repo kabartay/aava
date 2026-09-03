@@ -19,6 +19,8 @@ extends Node3D
 ##                  the player, so a screenshot shows the whole game rather
 ##                  than an empty valley
 ##   --build=1      open build mode with the ghost preview showing
+##   --atpitch=1    stand the player on the football pitch instead of the spawn
+##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
 ##   --nowater=1    leave the water sheet out, to see the ground under it
 ##   --unshaded=1   draw the terrain as flat vertex colour, no lighting at all,
 ##                  which separates "the colours are wrong" from "the light is"
@@ -40,6 +42,8 @@ var _player: Player
 var _rig: CameraRig
 var _demo := false
 var _build := false
+var _at_pitch := false
+var _kick_after := 0.0
 var _structures: Structures
 var _birds: Birds
 var _inventory: Inventory
@@ -86,6 +90,11 @@ func _ready() -> void:
 func _spawn_player() -> void:
 	InputActions.register()
 	var spawn := _world.field.find_spawn_point()
+	if _at_pitch:
+		# Right beside the middle ball, facing the goal at negative x, so the
+		# picture shows what a child sees when he walks up to kick it.
+		spawn = Pitch.centre() + Vector3(1.1, 0.0, 0.0)
+		spawn.y = _world.field.height_at(spawn.x, spawn.z)
 	_player = Player.new()
 	_player.position = spawn + Vector3.UP * 1.2
 	_player.set_physics_process(false)
@@ -110,7 +119,11 @@ func _spawn_player() -> void:
 	add_child(_hud)
 	# The same wiring the game uses, from the same place, so this tool cannot
 	# photograph a game that is connected differently from the real one.
-	Wiring.connect_hud(_hud, _build_mode, _rig, _inventory, func() -> void: _build_mode.place())
+	Wiring.connect_hud(
+		_hud, _build_mode, _rig, _inventory,
+		func() -> void: _build_mode.place(),
+		func() -> void: _kick_nearest()
+	)
 
 	if _demo:
 		_stand_up_a_camp(spawn)
@@ -160,6 +173,11 @@ func _stand_up_a_camp(spawn: Vector3) -> void:
 		elapsed += 2.0
 	_birds.set_points(_structures.attract_points())
 
+func _kick_nearest() -> void:
+	var ball := _world.football.ball_near(_player.global_position)
+	if ball != null:
+		ball.kick(_player.global_position, _player.facing(), false)
+
 func _wait_for_world() -> void:
 	var frames := 0
 	while frames < _warmup_frames:
@@ -176,6 +194,15 @@ func _wait_for_world() -> void:
 	if _player != null:
 		_player.set_physics_process(true)
 		for _i in 40:
+			await RenderingServer.frame_post_draw
+
+	# Strike a ball and watch it go, so the picture proves the kick rather than
+	# merely showing a ball sitting on the grass.
+	if _kick_after > 0.0:
+		_kick_nearest()
+		var flying := 0.0
+		while flying < _kick_after:
+			flying += 1.0 / 60.0
 			await RenderingServer.frame_post_draw
 	# A few extra frames so shadow splits and the sky have settled, and so the
 	# build ghost has been aimed at least once.
@@ -219,10 +246,30 @@ func _report_scene() -> void:
 	print("bounds: %v size %v" % [bounds.position, bounds.size])
 	print("camera: pos=%v looking=%v fov=%.0f far=%.0f" % [
 		_camera.global_position, -_camera.global_transform.basis.z, _camera.fov, _camera.far])
+	# What is actually near the camera, and what it is. A screenshot cannot tell
+	# a football from a rock, and guessing between them has already cost a round.
+	if _player != null and _world != null:
+		var near: Array[String] = []
+		for node in _world.football.get_children():
+			var at: Vector3 = node.global_position if node is Node3D else Vector3.ZERO
+			if at.distance_to(_player.global_position) < 14.0:
+				near.append("%s@%v" % [node.get_class() if node.get_script() == null else str(node.get_script().resource_path).get_file(), at])
+		print("football nodes near player: %s" % ", ".join(near))
+		var strays: Array[String] = []
+		for node in _world.pickups.get_children():
+			for item in node.get_children():
+				var at: Vector3 = (item as Node3D).global_position
+				if at.distance_to(_player.global_position) < 8.0:
+					strays.append("%v" % at)
+		print("pickups within 8 m: %d" % strays.size())
+
 	if _structures != null:
 		print("built: %d structures, %d grove(s), %d bird point(s)" % [
 			_structures.to_data().size(), _structures.grove_count(),
 			_structures.attract_points().size()])
+	if _player != null and _camera != null:
+		var back := _camera.global_position.distance_to(_player.global_position)
+		print("camera stands %.2f m from the player (arm is %.2f)" % [back, CameraRig.ARM_LENGTH])
 	if _player != null:
 		print("player: pos=%v grounded=%s ground_exists=%s" % [
 			_player.global_position, _player.is_on_floor(),
@@ -266,6 +313,11 @@ func _parse_arguments() -> void:
 				_demo = value.to_int() != 0
 			"build":
 				_build = value.to_int() != 0
+			"atpitch":
+				_at_pitch = value.to_int() != 0
+			"kick":
+				# Seconds of flight to watch after striking the ball.
+				_kick_after = value.to_float()
 			"pos":
 				_camera_position = _to_vector(value, _camera_position)
 			"look":

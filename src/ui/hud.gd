@@ -16,6 +16,7 @@ const BUTTON := 96.0
 const MARGIN := 26.0
 
 signal camera_dragged(delta: Vector2)
+signal kick_pressed()
 signal build_toggled(enabled: bool)
 signal build_selected(kind: StringName)
 signal build_place()
@@ -31,6 +32,8 @@ var _status: Label
 var _message: Label
 var _message_timer := 0.0
 var _building := false
+var _kick_button: Button
+var _score: Label
 
 func _ready() -> void:
 	var pad := CameraPad.new()
@@ -64,6 +67,17 @@ func _ready() -> void:
 	_message = _label(30, Color(1.0, 1.0, 1.0))
 	_message.modulate.a = 0.0
 	add_child(_message)
+
+	# The kick button only appears when there is a ball to kick, so it never
+	# sits on screen as a control that does nothing.
+	_kick_button = _button("kick", Color(0.98, 0.84, 0.36))
+	_kick_button.pressed.connect(func() -> void: kick_pressed.emit())
+	_kick_button.visible = false
+	add_child(_kick_button)
+
+	_score = _label(34, Color(1.0, 0.94, 0.72))
+	_score.visible = false
+	add_child(_score)
 
 	_build_button = _button("build", Color(0.42, 0.72, 0.98))
 	_build_button.pressed.connect(_on_build_pressed)
@@ -159,6 +173,21 @@ func set_build_state(kind: StringName, valid: bool, reason: String) -> void:
 	_status.text = BuildKinds.label(kind) if valid else "%s — %s" % [BuildKinds.label(kind), reason]
 	_layout()
 
+## Show or hide the kick button. Driven by whether a ball is actually in reach.
+func set_ball_in_reach(in_reach: bool) -> void:
+	if _kick_button.visible == in_reach:
+		return
+	_kick_button.visible = in_reach
+	_layout()
+
+## The running total of goals. Hidden until the first one, because a scoreboard
+## reading zero before anyone has played is just clutter.
+func set_score(goals: int) -> void:
+	_score.text = "%d" % goals
+	if not _score.visible and goals > 0:
+		_score.visible = true
+		_layout()
+
 ## A short, centred announcement. Used for the things the world does in reply.
 func announce(text: String, seconds := 3.2) -> void:
 	_message.text = text
@@ -194,6 +223,14 @@ func _layout() -> void:
 	)
 
 	_place_button.position = _build_button.position - Vector2(0.0, BUTTON + 16.0)
+
+	# Above the build button when build mode is closed, above the place button
+	# when it is open, so the two never overlap.
+	var kick_stack := 1 if not _building else 2
+	_kick_button.position = _build_button.position - Vector2(0.0, (BUTTON + 16.0) * float(kick_stack))
+
+	_score.size.x = view.x
+	_score.position = Vector2(0.0, safe.position.y + MARGIN)
 
 	var palette_width := float(BuildKinds.ALL.size()) * (BUTTON + 12.0)
 	_palette.position = Vector2(
