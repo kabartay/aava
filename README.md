@@ -64,6 +64,36 @@ There is also a numeric probe for questions an image cannot answer at all:
 godot --headless --path . --script src/dev/probe.gd
 ```
 
+## On an Android tablet
+
+The Android preset is committed, so a build is one command. It uses Godot's
+prebuilt template rather than a Gradle build, which means no Gradle and no
+Android project directory — just the SDK and a JDK.
+
+```sh
+godot --headless --path . --export-debug "Android" build/aava.apk
+adb install -r build/aava.apk
+```
+
+What has to be set once, in Godot's editor settings:
+
+| Setting | Value |
+| --- | --- |
+| `export/android/android_sdk_path` | `~/Library/Android/sdk` |
+| `export/android/java_sdk_path` | a real JDK 17+ |
+| `export/android/debug_keystore` | a debug keystore |
+| `export/android/debug_keystore_user` | `androiddebugkey` |
+| `export/android/debug_keystore_pass` | `android` |
+
+Two things that cost time if you do not know them. `/usr/bin/java` on macOS is a
+stub that only tells you to install Java, so `java -version` succeeding proves
+nothing — point `java_sdk_path` at a real JDK, such as the one Android Studio
+bundles at `Contents/jbr/Contents/Home`. And
+`rendering/textures/vram_compression/import_etc2_astc` must be on or the export
+aborts, because Android requires ETC2/ASTC textures.
+
+iPad needs a paid Apple developer account and is not set up yet.
+
 ## Layout
 
 ```
