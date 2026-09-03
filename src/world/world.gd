@@ -13,6 +13,7 @@ signal ready_at_spawn(spawn_point: Vector3)
 var world_seed: int
 var field: HeightField
 var terrain: Terrain
+var vegetation: Vegetation
 var atmosphere: Atmosphere
 var water: Water
 
@@ -29,6 +30,10 @@ func _ready() -> void:
 	terrain.name = "Terrain"
 	add_child(terrain)
 
+	vegetation = Vegetation.new(field, world_seed)
+	vegetation.name = "Vegetation"
+	add_child(vegetation)
+
 	water = Water.new()
 	water.name = "Water"
 	add_child(water)
@@ -40,4 +45,5 @@ func _ready() -> void:
 ## Keeps streamed content centred on whoever is looking at it.
 func follow(world_position: Vector3) -> void:
 	terrain.follow(world_position)
+	vegetation.follow(world_position)
 	water.follow(world_position)

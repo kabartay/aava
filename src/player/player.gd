@@ -1,0 +1,170 @@
+class_name Player
+extends CharacterBody3D
+
+## The player.
+##
+## How this feels is not a detail. Walking is what the child does for most of
+## every session, so the difference between "a box that slides" and "someone
+## walking" is most of the game's quality. Hence acceleration curves, coyote
+## time, a jump buffer, and a body that does not stutter over rolling ground.
+
+const WALK_SPEED := 3.4
+const RUN_SPEED := 6.6
+const GROUND_ACCELERATION := 26.0
+const GROUND_FRICTION := 22.0
+const AIR_ACCELERATION := 7.0
+const JUMP_VELOCITY := 8.2
+
+## Grace period after walking off an edge during which a jump still works.
+## Children mash the button slightly late, constantly, and without this the game
+## simply feels broken to them.
+const COYOTE_TIME := 0.13
+
+## Grace period before landing during which a jump is remembered and fires on
+## touchdown. The other half of the same problem.
+const JUMP_BUFFER := 0.14
+
+const HEIGHT := 1.55
+const RADIUS := 0.34
+
+signal moved(world_position: Vector3)
+
+var camera_yaw := 0.0
+
+var _coyote := 0.0
+var _buffered_jump := 0.0
+var _gravity := 24.0
+var _last_reported := Vector3(1e9, 1e9, 1e9)
+var _visual: Node3D
+
+func _init() -> void:
+	# Measured on rolling procedural terrain: at a run, the default snap length
+	# of 0.1 lets the body leave the floor for a frame dozens of times a minute,
+	# which reads as a stutter. Half a metre removes it entirely.
+	floor_snap_length = 0.5
+	floor_constant_speed = true
+	floor_max_angle = deg_to_rad(52.0)
+	safe_margin = 0.02
+	slide_on_ceiling = false
+
+	var shape := CapsuleShape3D.new()
+	shape.height = HEIGHT
+	shape.radius = RADIUS
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	collider.position.y = HEIGHT * 0.5
+	add_child(collider)
+
+func _ready() -> void:
+	_visual = _build_visual()
+	add_child(_visual)
+
+## A placeholder body, built from primitives. It exists so that movement can be
+## judged now; CC0 character models replace it without touching the controller.
+func _build_visual() -> Node3D:
+	var root := Node3D.new()
+
+	var body := MeshInstance3D.new()
+	var capsule := CapsuleMesh.new()
+	capsule.height = HEIGHT * 0.66
+	capsule.radius = RADIUS
+	body.mesh = capsule
+	# Half its own height, so the body rests on the ground plane instead of
+	# hovering a hand's width above it.
+	body.position.y = HEIGHT * 0.33
+	var cloth := StandardMaterial3D.new()
+	cloth.albedo_color = Color(0.30, 0.47, 0.72)
+	cloth.roughness = 0.9
+	body.material_override = cloth
+	root.add_child(body)
+
+	var head := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.21
+	sphere.height = 0.42
+	head.mesh = sphere
+	head.position.y = HEIGHT * 0.79
+	var skin := StandardMaterial3D.new()
+	skin.albedo_color = Color(0.93, 0.78, 0.62)
+	skin.roughness = 0.85
+	head.material_override = skin
+	root.add_child(head)
+
+	# A nose, purely so that which way the character is facing is unmistakable
+	# while the controller is being tuned.
+	var nose := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.06
+	cone.height = 0.14
+	nose.mesh = cone
+	nose.rotation = Vector3(deg_to_rad(-90.0), 0.0, 0.0)
+	nose.position = Vector3(0.0, HEIGHT * 0.79, -0.20)
+	nose.material_override = skin
+	root.add_child(nose)
+
+	return root
+
+func _physics_process(delta: float) -> void:
+	# get_gravity() is zero on the first physics frame, before the server has
+	# populated the body's state, so the last good value is kept.
+	var measured := get_gravity()
+	if measured.length_squared() > 0.0:
+		_gravity = -measured.y
+
+	var grounded := is_on_floor()
+	_coyote = COYOTE_TIME if grounded else maxf(0.0, _coyote - delta)
+	_buffered_jump = maxf(0.0, _buffered_jump - delta)
+	if Input.is_action_just_pressed(InputActions.JUMP):
+		_buffered_jump = JUMP_BUFFER
+
+	if not grounded:
+		velocity.y -= _gravity * delta
+
+	if _buffered_jump > 0.0 and _coyote > 0.0:
+		velocity.y = JUMP_VELOCITY
+		_buffered_jump = 0.0
+		_coyote = 0.0
+
+	var input := Input.get_vector(
+		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+		InputActions.MOVE_FORWARD, InputActions.MOVE_BACK
+	)
+	# Movement is relative to where the camera looks, which is the only scheme a
+	# child reads instantly: push the stick up, go the way you are looking.
+	var basis := Basis(Vector3.UP, camera_yaw)
+	var wish := basis * Vector3(input.x, 0.0, input.y)
+	if wish.length_squared() > 1.0:
+		wish = wish.normalized()
+
+	var speed := RUN_SPEED if Input.is_action_pressed(InputActions.SPRINT) else WALK_SPEED
+	var target := wish * speed
+	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+
+	var rate := GROUND_ACCELERATION if grounded else AIR_ACCELERATION
+	if wish.length_squared() < 0.01 and grounded:
+		rate = GROUND_FRICTION
+	horizontal = horizontal.move_toward(target, rate * delta)
+
+	velocity.x = horizontal.x
+	velocity.z = horizontal.z
+
+	# move_and_slide reads delta itself; pre-multiplying makes speed depend on
+	# frame rate, which is the classic way to get a controller that feels fine
+	# on a desktop and wrong on a tablet.
+	move_and_slide()
+
+	if horizontal.length_squared() > 0.05:
+		var facing := atan2(-horizontal.x, -horizontal.z)
+		_visual.rotation.y = lerp_angle(_visual.rotation.y, facing, 1.0 - exp(-14.0 * delta))
+
+	# The world streams around wherever the player is, but only when they have
+	# actually gone somewhere worth regenerating for.
+	if global_position.distance_squared_to(_last_reported) > 16.0:
+		_last_reported = global_position
+		moved.emit(global_position)
+
+## Current planar speed as a fraction of a full run. Drives the camera's field
+## of view and, later, animation blending.
+func run_fraction() -> float:
+	return clampf(Vector3(velocity.x, 0.0, velocity.z).length() / RUN_SPEED, 0.0, 1.0)

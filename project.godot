@@ -11,6 +11,10 @@ config/description="An open world that comes alive as you build in it."
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
+; Pin the save directory now. On desktop it is otherwise derived from
+; config/name, so renaming the project later would orphan every save file.
+config/use_custom_user_dir=true
+config/custom_user_dir_name="Aava"
 
 [display]
 
@@ -25,20 +29,49 @@ window/handheld/orientation=1
 [input_devices]
 
 ; The same code path must serve a finger on a tablet and a mouse on the desktop,
-; so touch events are synthesised from the mouse during development.
+; so touch events are synthesised from the mouse during development. Android
+; ignores this setting because it has a real touchscreen, which is what we want.
 pointing/emulate_touch_from_mouse=true
+; And the reverse must be off. It defaults to true and fires a synthetic mouse
+; click BEFORE the real touch for the first finger, so every tap arrives twice.
+pointing/emulate_mouse_from_touch=false
 
 [physics]
 
 common/physics_ticks_per_second=60
+; Required for Node3D.get_global_transform_interpolated(), which is how the
+; camera follows a body that moves at 60 Hz without inheriting its staircase.
+common/physics_interpolation=true
+common/max_physics_steps_per_frame=8
 3d/default_gravity=24.0
 
 [rendering]
 
-renderer/rendering_method="mobile"
+renderer/rendering_method="forward_plus"
+; This literal key is what the Android exporter reads to decide on Vulkan.
 renderer/rendering_method.mobile="mobile"
+rendering_device/fallback_to_opengl3=true
+
+; Mandatory: without it the Android export fails outright with
+; "ETC2/ASTC texture compression is required for Android export."
+textures/vram_compression/import_etc2_astc=true
+
+; Measured on 64 m chunks: thresholds of 1 and 2 reduce nothing at all, 8 cuts
+; terrain triangles by about 85%. The default is calibrated for imported props,
+; not for meshes this large.
+mesh_lod/lod_change/threshold_pixels=8.0
 textures/default_filters/anisotropic_filtering_level=2
 anti_aliasing/quality/msaa_3d=2
 lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/size.mobile=2048
+lights_and_shadows/directional_shadow/16_bits=true
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
+; The mobile default is hard shadows, which makes shadow_blur look broken while
+; still costing the same depth bias.
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=1
+anti_aliasing/quality/use_debanding=true
+
+; TIME wraps at this value and every wind animation visibly jumps when it does.
+; A tablet left running all afternoon will hit the default; 300 s is a whole
+; number of wind periods, so the wrap is invisible.
+limits/time/time_rollover_secs=300

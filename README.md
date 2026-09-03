@@ -19,6 +19,11 @@ godot --path .                       # play
 godot --path . -- --seed=12345       # play a different valley
 ```
 
+Move with the on-screen stick or WASD, look around by dragging anywhere else on
+the screen, sprint with shift, jump with space. The stick is Godot 4.7's native
+`VirtualJoystick`, so both fingers work at once without any index bookkeeping:
+the viewport keeps routing each finger to the control it first landed on.
+
 Every world is one integer. There is no hand-placed scene content anywhere in
 this project: the valley, the river, the mountains and everything scattered on
 them are generated from the seed, which is the only way one person can make a
@@ -44,6 +49,8 @@ godot --path . res://dev/capture.tscn -- \
 | `--seed=N` | which valley |
 | `--nowater=1` | hide the water sheet, to see the ground under it |
 | `--unshaded=1` | draw terrain as flat vertex colour, no lighting |
+| `--player=1` | spawn the real player and shoot through the game camera |
+| `--yaw=DEG`, `--pitch=DEG` | aim that camera |
 
 The last two exist because a screenshot cannot tell you whether the colours are
 wrong or the light is wrong, and guessing between the two is expensive. The tool
@@ -69,7 +76,17 @@ src/
     terrain_chunk.gd   one square of ground: mesh, vertex colours, collision
     water.gd           the water sheet and its shader
     atmosphere.gd      sky, sun, time of day
+    plant_meshes.gd    trees and grass, built from primitives in code
+    vegetation.gd      planting, streamed in tiles around the player
+    vegetation_tile.gd one tile of planting: a MultiMesh per plant kind
     world.gd           assembles the above; the one place a world comes from
+  player/
+    player.gd          the controller: acceleration, coyote time, jump buffer
+    camera_rig.gd      third-person camera that glides instead of ticking
+  ui/
+    camera_pad.gd      the look-around touch layer
+    hud.gd             the two on-screen controls, and nothing else
+  input_actions.gd     input actions, registered in code
   dev/
     capture.gd         screenshot tool
     probe.gd           headless numeric probe

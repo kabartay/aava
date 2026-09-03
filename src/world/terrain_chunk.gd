@@ -118,7 +118,7 @@ func _tint(field: HeightField, x: float, z: float, height: float) -> Color:
 	color = color.lerp(TerrainSpec.COLOR_MEADOW, clampf((height - 1.0) / 14.0, 0.0, 1.0))
 
 	# A beach follows the water line wherever it goes.
-	var shore := 1.0 - smoothstep(0.2, 2.6, height - HeightField.WATER_LEVEL)
+	var shore := 1.0 - smoothstep(0.05, 1.15, height - HeightField.WATER_LEVEL)
 	color = color.lerp(TerrainSpec.COLOR_SAND, clampf(shore, 0.0, 1.0))
 
 	# Rock where nothing could root.

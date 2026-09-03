@@ -12,6 +12,9 @@ extends Node3D
 ##         --pos=0,12,40 --look=0,2,0 --seed=20260903
 ##
 ## Debug switches, because a screenshot of a wrong scene is worse than none:
+##   --player=1     spawn the real player and shoot through the game camera
+##   --yaw=DEG      camera yaw in player mode
+##   --pitch=DEG    camera pitch in player mode
 ##   --nowater=1    leave the water sheet out, to see the ground under it
 ##   --unshaded=1   draw the terrain as flat vertex colour, no lighting at all,
 ##                  which separates "the colours are wrong" from "the light is"
@@ -26,6 +29,11 @@ var _seed := 20260903
 var _warmup_frames := 900
 var _hide_water := false
 var _unshaded := false
+var _with_player := false
+var _yaw := 0.0
+var _pitch := -16.0
+var _player: Player
+var _rig: CameraRig
 
 var _world: World
 var _camera: Camera3D
@@ -40,12 +48,15 @@ func _ready() -> void:
 	if _unshaded:
 		_world.terrain.set_unshaded(true)
 
-	_camera = Camera3D.new()
-	_camera.fov = 62.0
-	_camera.far = 4000.0
-	_camera.position = _camera_position
-	add_child(_camera)
-	_camera.look_at(_look_at, Vector3.UP)
+	if _with_player:
+		_spawn_player()
+	else:
+		_camera = Camera3D.new()
+		_camera.fov = 62.0
+		_camera.far = 4000.0
+		_camera.position = _camera_position
+		add_child(_camera)
+		_camera.look_at(_look_at, Vector3.UP)
 
 	_world.atmosphere.set_time(_time)
 	# Terrain streams a couple of chunks per frame, so a capture taken on frame
@@ -59,6 +70,29 @@ func _ready() -> void:
 
 ## Wait until the terrain has actually finished streaming, with a hard cap so a
 ## generation bug shows up as a bad screenshot instead of a hung process.
+## Player mode: the same objects the game builds, aimed by flags so a shot can
+## be composed from the terminal.
+func _spawn_player() -> void:
+	InputActions.register()
+	var spawn := _world.field.find_spawn_point()
+	_player = Player.new()
+	_player.position = spawn + Vector3.UP * 1.2
+	_player.set_physics_process(false)
+	add_child(_player)
+
+	_rig = CameraRig.new(_player)
+	_rig.yaw = deg_to_rad(_yaw)
+	_rig.pitch = deg_to_rad(_pitch)
+	_player.add_child(_rig)
+	_camera = _rig.camera
+	_camera.current = true
+
+	var hud := Hud.new()
+	hud.camera_dragged.connect(_rig.orbit)
+	add_child(hud)
+
+	_world.follow(spawn)
+
 func _wait_for_world() -> void:
 	var frames := 0
 	while frames < _warmup_frames:
@@ -66,10 +100,16 @@ func _wait_for_world() -> void:
 		_world.atmosphere.set_time(_time)
 		await RenderingServer.frame_post_draw
 		frames += 1
-		if _world.terrain.is_idle() and frames > 8:
+		if _world.terrain.is_idle() and _world.vegetation.is_idle() and frames > 8:
 			break
-	if not _world.terrain.is_idle():
-		printerr("terrain still streaming after %d frames" % frames)
+	if not _world.terrain.is_idle() or not _world.vegetation.is_idle():
+		printerr("world still streaming after %d frames" % frames)
+	# Let the player fall the last centimetres onto ground that now exists, and
+	# the camera settle behind them.
+	if _player != null:
+		_player.set_physics_process(true)
+		for _i in 40:
+			await RenderingServer.frame_post_draw
 	# A few extra frames so shadow splits and the sky have settled.
 	for _i in 6:
 		_world.atmosphere.set_time(_time)
@@ -99,10 +139,20 @@ func _report_scene() -> void:
 			var box := visual.get_aabb()
 			box.position += child.position
 			bounds = box if chunks == 1 else bounds.merge(box)
-	print("scene: chunks=%d surfaces=%d triangles=%d" % [chunks, surfaces, triangles])
+	var plants := 0
+	for tile in _world.vegetation.get_children():
+		for layer in tile.get_children():
+			var multi := layer as MultiMeshInstance3D
+			if multi != null:
+				plants += multi.multimesh.instance_count
+	print("scene: chunks=%d surfaces=%d triangles=%d plants=%d" % [chunks, surfaces, triangles, plants])
 	print("bounds: %v size %v" % [bounds.position, bounds.size])
 	print("camera: pos=%v looking=%v fov=%.0f far=%.0f" % [
 		_camera.global_position, -_camera.global_transform.basis.z, _camera.fov, _camera.far])
+	if _player != null:
+		print("player: pos=%v grounded=%s ground_exists=%s" % [
+			_player.global_position, _player.is_on_floor(),
+			_world.terrain.has_ground_at(_player.global_position)])
 
 func _capture() -> void:
 	var image := get_viewport().get_texture().get_image()
@@ -132,6 +182,12 @@ func _parse_arguments() -> void:
 				_hide_water = value.to_int() != 0
 			"unshaded":
 				_unshaded = value.to_int() != 0
+			"player":
+				_with_player = value.to_int() != 0
+			"yaw":
+				_yaw = value.to_float()
+			"pitch":
+				_pitch = value.to_float()
 			"pos":
 				_camera_position = _to_vector(value, _camera_position)
 			"look":

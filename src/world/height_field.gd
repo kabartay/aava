@@ -22,12 +22,17 @@ const VALLEY_HALF_WIDTH := 38.0
 ## Distance from the origin where the ground starts climbing into mountains.
 const MOUNTAIN_START := 210.0
 
+## Nothing grows above this. A bare treeline is what makes a mountain read as
+## high rather than as a big green lump.
+const TREELINE := 86.0
+
 var seed: int
 
 var _plains := FastNoiseLite.new()
 var _hills := FastNoiseLite.new()
 var _mountains := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
+var _forest := FastNoiseLite.new()
 
 func _init(world_seed: int) -> void:
 	seed = world_seed
@@ -52,6 +57,14 @@ func _init(world_seed: int) -> void:
 	_mountains.fractal_type = FastNoiseLite.FRACTAL_RIDGED
 	_mountains.frequency = 0.0012
 	_mountains.fractal_octaves = 5
+
+	# Where the forest wants to be thick. Low frequency, so woods come in stands
+	# of a few hundred metres with meadows between them, rather than as an even
+	# sprinkle of trees over everything.
+	_forest.seed = world_seed + 4
+	_forest.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_forest.frequency = 0.0038
+	_forest.fractal_octaves = 3
 
 	# High-frequency grain, applied everywhere at small amplitude so slopes
 	# catch the light instead of looking like polished plastic.
@@ -111,6 +124,32 @@ func normal_at(x: float, z: float, epsilon := 0.75) -> Vector3:
 ## trees off slopes they would visibly lean out of.
 func steepness_at(x: float, z: float) -> float:
 	return clampf(1.0 - normal_at(x, z).y, 0.0, 1.0) / 0.55
+
+## How thick the forest wants to be at this point, from 0 to 1.
+##
+## Part of the height field rather than of the planting code, because it is a
+## property of the world's shape: the same question asked twice must give the
+## same answer, whether it is asked when planting a tree or when deciding where
+## a deer wanders.
+func forest_density_at(x: float, z: float) -> float:
+	var height := height_at(x, z)
+	if height > TREELINE or height < WATER_LEVEL + 0.8:
+		return 0.0
+
+	var density := (_forest.get_noise_2d(x, z) + 1.0) * 0.5
+	density = smoothstep(0.42, 0.78, density)
+
+	# A clearing along the river. Rivers cut through forests in life, and here it
+	# also keeps the most walkable part of the world open for building.
+	density *= smoothstep(10.0, 34.0, distance_to_river(x, z))
+
+	# Trees thin out as the ground steepens and stop where nothing could root.
+	density *= 1.0 - smoothstep(0.28, 0.62, steepness_at(x, z))
+
+	# And they thin towards the treeline instead of stopping at a hard line.
+	density *= 1.0 - smoothstep(TREELINE - 26.0, TREELINE, height)
+
+	return clampf(density, 0.0, 1.0)
 
 ## A calm, flat, dry spot near the river to put the player and the first camp.
 func find_spawn_point() -> Vector3:
