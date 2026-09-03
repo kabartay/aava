@@ -1,44 +1,82 @@
 extends Node3D
 
-## Entry point.
+## Entry point, and the only place that knows about both the world and the game.
 ##
-## The whole world is one integer: there is no hand-placed scene content in this
-## project, because a generated world is the only kind a single developer can
-## make large enough. It also means any bug can be reproduced by sharing a seed.
+## The world does not know it is being played: it streams terrain and scatters
+## sticks and asks nothing of anyone. The game — carrying, building, and the
+## world's answer to it — is wired together here.
 
 const DEFAULT_SEED := 20260903
 
-## How far above the ground the player is placed, so that they settle onto the
+## How far above the ground the player is placed, so they settle onto the
 ## terrain rather than starting a fraction of a metre inside it.
 const SPAWN_CLEARANCE := 1.2
+
+## Autosave interval. Frequent enough that nothing a child built is ever lost,
+## cheap enough that it is never noticed.
+const AUTOSAVE_SECONDS := 20.0
 
 var world: World
 var player: Player
 var camera_rig: CameraRig
 var hud: Hud
+var inventory: Inventory
+var structures: Structures
+var build_mode: BuildMode
+var birds: Birds
 
 var _waiting_for_ground := false
+var _autosave := AUTOSAVE_SECONDS
+var _seen_first_grove := false
 
 func _ready() -> void:
 	InputActions.register()
 
-	var seed_value := DEFAULT_SEED
+	var save := SaveGame.read()
+	var seed_value := int(save.get("seed", DEFAULT_SEED))
 	var override := _seed_from_command_line()
 	if override != 0:
 		seed_value = override
+		save = {}
+
+	inventory = Inventory.new()
+	if save.has("inventory"):
+		inventory.from_data(save["inventory"])
 
 	world = World.new(seed_value)
 	world.name = "World"
-	world.ready_at_spawn.connect(_on_world_ready)
+	world.ready_at_spawn.connect(_on_world_ready.bind(save))
 	add_child(world)
 
-func _on_world_ready(spawn: Vector3) -> void:
+func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
+	if save.has("pickups_taken"):
+		world.pickups.from_data(save["pickups_taken"])
+	if save.has("time_of_day"):
+		world.atmosphere.set_time(float(save["time_of_day"]))
+	world.pickups.collected.connect(_on_collected)
+
+	structures = Structures.new(world.field)
+	structures.name = "Structures"
+	structures.matured.connect(_on_matured)
+	structures.groves_changed.connect(_on_groves_changed)
+	add_child(structures)
+	if save.has("structures"):
+		structures.from_data(save["structures"])
+
+	birds = Birds.new()
+	birds.name = "Birds"
+	add_child(birds)
+
 	player = Player.new()
 	player.name = "Player"
-	player.position = spawn + Vector3.UP * SPAWN_CLEARANCE
+	var start := spawn
+	if save.has("player"):
+		var at: Dictionary = save["player"]
+		start = Vector3(at.get("x", spawn.x), at.get("y", spawn.y), at.get("z", spawn.z))
+	player.position = start + Vector3.UP * SPAWN_CLEARANCE
 	# Terrain arrives a few chunks per frame, so for the first instants there is
 	# nothing under the player's feet. Physics stays off until the ground they
-	# are standing on actually exists, otherwise the game opens with a fall.
+	# are standing on exists, or the game opens with a fall.
 	player.set_physics_process(false)
 	_waiting_for_ground = true
 	player.moved.connect(world.follow)
@@ -46,21 +84,80 @@ func _on_world_ready(spawn: Vector3) -> void:
 
 	camera_rig = CameraRig.new(player)
 	camera_rig.name = "CameraRig"
+	if save.has("camera_yaw"):
+		camera_rig.yaw = float(save["camera_yaw"])
 	player.add_child(camera_rig)
+
+	build_mode = BuildMode.new(world.field, structures, inventory)
+	build_mode.name = "BuildMode"
+	add_child(build_mode)
 
 	hud = Hud.new()
 	hud.name = "Hud"
-	hud.camera_dragged.connect(camera_rig.orbit)
 	add_child(hud)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place)
 
-	print("Aava seed %d, spawn %v" % [world.world_seed, spawn])
+	world.follow(start)
+	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
 
-func _process(_delta: float) -> void:
-	if not _waiting_for_ground:
+func _process(delta: float) -> void:
+	if player == null:
 		return
-	if world.terrain.has_ground_at(player.global_position):
-		player.set_physics_process(true)
-		_waiting_for_ground = false
+
+	if _waiting_for_ground:
+		if world.terrain.has_ground_at(player.global_position):
+			player.set_physics_process(true)
+			_waiting_for_ground = false
+		return
+
+	world.pickups.check_reach(player.global_position)
+	build_mode.aim(player.global_position, camera_rig.yaw)
+
+	_autosave -= delta
+	if _autosave <= 0.0:
+		_autosave = AUTOSAVE_SECONDS
+		_write_save()
+
+func _on_collected(kind: StringName, _at: Vector3) -> void:
+	inventory.add(kind, 1)
+
+func _on_place() -> void:
+	if build_mode.place():
+		return
+	# A refused build is the moment a child most needs to be told why, and the
+	# ghost's colour alone does not say it.
+	hud.announce("not here")
+
+func _on_matured(_kind: StringName, _at: Vector3) -> void:
+	hud.announce("your tree has grown")
+
+func _on_groves_changed(centres: Array) -> void:
+	birds.set_points(structures.attract_points())
+	if centres.is_empty():
+		return
+	if not _seen_first_grove:
+		_seen_first_grove = true
+		hud.announce("a grove — and the birds have found it", 5.0)
+
+func _notification(what: int) -> void:
+	# Both of these arrive when the game is closing: the desktop window button,
+	# and Android's back gesture.
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_write_save()
+
+func _write_save() -> void:
+	if player == null or world == null:
+		return
+	var at := player.global_position
+	SaveGame.write({
+		"seed": world.world_seed,
+		"time_of_day": world.atmosphere.time_of_day,
+		"player": {"x": at.x, "y": at.y, "z": at.z},
+		"camera_yaw": camera_rig.yaw,
+		"inventory": inventory.to_data(),
+		"structures": structures.to_data(),
+		"pickups_taken": world.pickups.to_data(),
+	})
 
 func _seed_from_command_line() -> int:
 	for argument in OS.get_cmdline_user_args():

@@ -15,6 +15,10 @@ extends Node3D
 ##   --player=1     spawn the real player and shoot through the game camera
 ##   --yaw=DEG      camera yaw in player mode
 ##   --pitch=DEG    camera pitch in player mode
+##   --demo=1       stock the inventory and stand a finished camp in front of
+##                  the player, so a screenshot shows the whole game rather
+##                  than an empty valley
+##   --build=1      open build mode with the ghost preview showing
 ##   --nowater=1    leave the water sheet out, to see the ground under it
 ##   --unshaded=1   draw the terrain as flat vertex colour, no lighting at all,
 ##                  which separates "the colours are wrong" from "the light is"
@@ -34,6 +38,13 @@ var _yaw := 0.0
 var _pitch := -16.0
 var _player: Player
 var _rig: CameraRig
+var _demo := false
+var _build := false
+var _structures: Structures
+var _birds: Birds
+var _inventory: Inventory
+var _build_mode: BuildMode
+var _hud: Hud
 
 var _world: World
 var _camera: Camera3D
@@ -87,11 +98,67 @@ func _spawn_player() -> void:
 	_camera = _rig.camera
 	_camera.current = true
 
-	var hud := Hud.new()
-	hud.camera_dragged.connect(_rig.orbit)
-	add_child(hud)
+	_inventory = Inventory.new()
+	_structures = Structures.new(_world.field)
+	add_child(_structures)
+	_birds = Birds.new()
+	add_child(_birds)
+	_build_mode = BuildMode.new(_world.field, _structures, _inventory)
+	add_child(_build_mode)
+
+	_hud = Hud.new()
+	add_child(_hud)
+	# The same wiring the game uses, from the same place, so this tool cannot
+	# photograph a game that is connected differently from the real one.
+	Wiring.connect_hud(_hud, _build_mode, _rig, _inventory, func() -> void: _build_mode.place())
+
+	if _demo:
+		_stand_up_a_camp(spawn)
+	if _build:
+		# Through the HUD, so the palette and the place button open exactly as
+		# they do for a player pressing the button.
+		_hud.set_building(true)
+		_build_mode.select(BuildKinds.FEEDER)
 
 	_world.follow(spawn)
+
+## A camp as a child would leave it: a fire, a fence, a path, a feeder, and a
+## grove of three grown trees with birds over it. Built here rather than
+## screenshotted from a save so that the picture always matches the code.
+func _stand_up_a_camp(spawn: Vector3) -> void:
+	for kind in ItemKinds.ALL:
+		_inventory.add(kind, 12)
+
+	var forward := Vector3(-sin(deg_to_rad(_yaw)), 0.0, -cos(deg_to_rad(_yaw)))
+	var right := Vector3(forward.z, 0.0, -forward.x)
+	var placements: Array = [
+		[BuildKinds.CAMPFIRE, forward * 5.0],
+		[BuildKinds.FENCE, forward * 6.5 + right * 3.0],
+		[BuildKinds.FENCE, forward * 7.6 + right * 3.6],
+		[BuildKinds.PATH, forward * 2.6],
+		[BuildKinds.PATH, forward * 3.8 - right * 0.6],
+		[BuildKinds.FEEDER, forward * 6.0 - right * 4.0],
+		[BuildKinds.SAPLING, forward * 12.0 - right * 2.0],
+		[BuildKinds.SAPLING, forward * 15.5 + right * 2.5],
+		[BuildKinds.SAPLING, forward * 18.0 - right * 3.0],
+	]
+	for entry in placements:
+		var kind: StringName = entry[0]
+		var offset: Vector3 = entry[1]
+		var at := spawn + offset
+		at.y = _world.field.height_at(at.x, at.z)
+		if not _inventory.spend(BuildKinds.cost(kind)):
+			continue
+		_structures.place(kind, at, deg_to_rad(_yaw))
+
+	# Push every sapling straight to full growth: the point of the picture is
+	# what a grove looks like, not how long it takes.
+	var grown := BuildKinds.GROWTH_STAGE_SECONDS * float(BuildKinds.GROWTH_STAGES) + 1.0
+	var elapsed := 0.0
+	while elapsed < grown:
+		_structures._process(2.0)
+		elapsed += 2.0
+	_birds.set_points(_structures.attract_points())
 
 func _wait_for_world() -> void:
 	var frames := 0
@@ -100,7 +167,7 @@ func _wait_for_world() -> void:
 		_world.atmosphere.set_time(_time)
 		await RenderingServer.frame_post_draw
 		frames += 1
-		if _world.terrain.is_idle() and _world.vegetation.is_idle() and frames > 8:
+		if _world.terrain.is_idle() and _world.vegetation.is_idle() and _world.pickups.is_idle() and frames > 8:
 			break
 	if not _world.terrain.is_idle() or not _world.vegetation.is_idle():
 		printerr("world still streaming after %d frames" % frames)
@@ -110,9 +177,12 @@ func _wait_for_world() -> void:
 		_player.set_physics_process(true)
 		for _i in 40:
 			await RenderingServer.frame_post_draw
-	# A few extra frames so shadow splits and the sky have settled.
+	# A few extra frames so shadow splits and the sky have settled, and so the
+	# build ghost has been aimed at least once.
 	for _i in 6:
 		_world.atmosphere.set_time(_time)
+		if _build and _player != null:
+			_build_mode.aim(_player.global_position, _rig.yaw)
 		await RenderingServer.frame_post_draw
 	print("world ready after %d frames" % frames)
 
@@ -145,10 +215,14 @@ func _report_scene() -> void:
 			var multi := layer as MultiMeshInstance3D
 			if multi != null:
 				plants += multi.multimesh.instance_count
-	print("scene: chunks=%d surfaces=%d triangles=%d plants=%d" % [chunks, surfaces, triangles, plants])
+	print("scene: chunks=%d surfaces=%d triangles=%d plants=%d pickups=%d" % [chunks, surfaces, triangles, plants, _world.pickups.count_active()])
 	print("bounds: %v size %v" % [bounds.position, bounds.size])
 	print("camera: pos=%v looking=%v fov=%.0f far=%.0f" % [
 		_camera.global_position, -_camera.global_transform.basis.z, _camera.fov, _camera.far])
+	if _structures != null:
+		print("built: %d structures, %d grove(s), %d bird point(s)" % [
+			_structures.to_data().size(), _structures.grove_count(),
+			_structures.attract_points().size()])
 	if _player != null:
 		print("player: pos=%v grounded=%s ground_exists=%s" % [
 			_player.global_position, _player.is_on_floor(),
@@ -188,6 +262,10 @@ func _parse_arguments() -> void:
 				_yaw = value.to_float()
 			"pitch":
 				_pitch = value.to_float()
+			"demo":
+				_demo = value.to_int() != 0
+			"build":
+				_build = value.to_int() != 0
 			"pos":
 				_camera_position = _to_vector(value, _camera_position)
 			"look":

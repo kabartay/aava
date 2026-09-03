@@ -20,7 +20,15 @@ godot --path . -- --seed=12345       # play a different valley
 ```
 
 Move with the on-screen stick or WASD, look around by dragging anywhere else on
-the screen, sprint with shift, jump with space. The stick is Godot 4.7's native
+the screen, sprint with shift, jump with space. Walk over a stick, a stone, a
+reed or a seed and you pick it up — there is no button for gathering, because
+walking into things is something a six-year-old understands without being told.
+Tap **build** to open the palette; the ghost shows what will be placed, green
+when it can be and red with the reason when it cannot.
+
+Plant three saplings close together, keep playing, and they grow. When all three
+are full trees the place becomes a grove and birds arrive. That loop — build,
+and the world answers — is what the whole game is for. The stick is Godot 4.7's native
 `VirtualJoystick`, so both fingers work at once without any index bookkeeping:
 the viewport keeps routing each finger to the control it first landed on.
 
@@ -51,6 +59,8 @@ godot --path . res://dev/capture.tscn -- \
 | `--unshaded=1` | draw terrain as flat vertex colour, no lighting |
 | `--player=1` | spawn the real player and shoot through the game camera |
 | `--yaw=DEG`, `--pitch=DEG` | aim that camera |
+| `--demo=1` | stand a finished camp and a grown grove in front of the player |
+| `--build=1` | open build mode with the ghost preview showing |
 
 The last two exist because a screenshot cannot tell you whether the colours are
 wrong or the light is wrong, and guessing between the two is expensive. The tool
@@ -63,6 +73,17 @@ There is also a numeric probe for questions an image cannot answer at all:
 ```sh
 godot --headless --path . --script src/dev/probe.gd
 ```
+
+And the checks CI runs, which are worth running by hand before a commit:
+
+```sh
+godot --headless --path . --script src/dev/ci_check.gd
+```
+
+Every assertion in there corresponds to a bug that actually happened. The one
+that earns its keep most often is the pickup count: it caught a world with
+nothing to find, because resources were being built in `_ready`, which never
+runs for a node used before the scene tree starts.
 
 ## On an Android tablet
 
@@ -110,9 +131,20 @@ src/
     vegetation.gd      planting, streamed in tiles around the player
     vegetation_tile.gd one tile of planting: a MultiMesh per plant kind
     world.gd           assembles the above; the one place a world comes from
+    pickups.gd         sticks, stones, reeds and seeds, streamed and gathered
+    birds.gd           the world answering: birds over feeders and groves
   player/
     player.gd          the controller: acceleration, coyote time, jump buffer
     camera_rig.gd      third-person camera that glides instead of ticking
+  build/
+    build_kinds.gd     what can be built, what it costs, what it grows into
+    structures.gd      what has been built, and what it has since become
+    build_mode.gd      the ghost preview, snapping, and the one overlap rule
+  game/
+    item_kinds.gd      what can be picked up
+    inventory.gd       what is being carried
+    save_game.gd       the one save file, as readable JSON
+    wiring.gd          how the interface and the game are connected, once
   ui/
     camera_pad.gd      the look-around touch layer
     hud.gd             the two on-screen controls, and nothing else

@@ -73,8 +73,8 @@ var _centre := Vector2i(9999, 9999)
 func _init(height_field: HeightField, seed_value: int) -> void:
 	field = height_field
 	world_seed = seed_value
-
-func _ready() -> void:
+	# Built here, not in _ready: a node used before the tree starts processing
+	# never receives _ready, and the failure is silent.
 	_conifer = PlantMeshes.conifer(6.4)
 	_broadleaf = PlantMeshes.broadleaf(5.2)
 	_grass = PlantMeshes.grass_tuft(0.34, 5)

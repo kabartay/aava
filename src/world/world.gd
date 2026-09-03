@@ -14,6 +14,7 @@ var world_seed: int
 var field: HeightField
 var terrain: Terrain
 var vegetation: Vegetation
+var pickups: Pickups
 var atmosphere: Atmosphere
 var water: Water
 
@@ -34,6 +35,10 @@ func _ready() -> void:
 	vegetation.name = "Vegetation"
 	add_child(vegetation)
 
+	pickups = Pickups.new(field, world_seed)
+	pickups.name = "Pickups"
+	add_child(pickups)
+
 	water = Water.new()
 	water.name = "Water"
 	add_child(water)
@@ -46,4 +51,5 @@ func _ready() -> void:
 func follow(world_position: Vector3) -> void:
 	terrain.follow(world_position)
 	vegetation.follow(world_position)
+	pickups.follow(world_position)
 	water.follow(world_position)

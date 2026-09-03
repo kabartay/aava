@@ -16,6 +16,11 @@ func _initialize() -> void:
 	_check_chunks_have_geometry()
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
+	_check_pickups_are_findable()
+	_check_inventory_arithmetic()
+	_check_build_costs_are_real()
+	_check_a_grove_forms()
+	_check_save_round_trip()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -148,3 +153,162 @@ func _check_forest_density_is_sane() -> void:
 		_fail("%.1f%% of the world is dense forest — there is nowhere to walk" % (share * 100.0))
 	else:
 		_ok("%.1f%% of sampled ground is forest" % (share * 100.0))
+
+## A world with nothing to pick up gives a child nothing to do, and a world
+## carpeted in sticks makes finding one meaningless.
+func _check_pickups_are_findable() -> void:
+	print("pickups are findable")
+	var field := HeightField.new(20260903)
+	var pickups := Pickups.new(field, 20260903)
+	get_root().add_child(pickups)
+	pickups.follow(field.find_spawn_point())
+	for _i in 200:
+		pickups._process(0.016)
+		if pickups.is_idle():
+			break
+	var found := pickups.count_active()
+	if found < 20:
+		_fail("only %d pickups within reach of the spawn — too little to find" % found)
+	elif found > 900:
+		_fail("%d pickups around the spawn — the ground is a carpet" % found)
+	else:
+		_ok("%d pickups scattered near the spawn" % found)
+	pickups.queue_free()
+
+func _check_inventory_arithmetic() -> void:
+	print("inventory arithmetic")
+	var inventory := Inventory.new()
+	inventory.add(ItemKinds.STICK, 3)
+	inventory.add(ItemKinds.STONE, 1)
+	var cost := {ItemKinds.STICK: 3, ItemKinds.STONE: 2}
+	if inventory.can_afford(cost):
+		_fail("claims to afford 2 stones while holding 1")
+	elif inventory.spend(cost):
+		_fail("spent a cost it could not afford")
+	elif inventory.count(ItemKinds.STICK) != 3:
+		_fail("a refused purchase took %d sticks anyway" % (3 - inventory.count(ItemKinds.STICK)))
+	else:
+		_ok("a refused purchase spends nothing")
+
+	inventory.add(ItemKinds.STONE, 1)
+	if not inventory.spend(cost):
+		_fail("refused an affordable cost")
+	elif inventory.count(ItemKinds.STICK) != 0 or inventory.count(ItemKinds.STONE) != 0:
+		_fail("spending left %d sticks and %d stones behind" % [
+			inventory.count(ItemKinds.STICK), inventory.count(ItemKinds.STONE)])
+	else:
+		_ok("spending takes exactly the cost")
+
+## A build whose cost names an item that does not exist can never be afforded,
+## and the piece is silently unbuildable with no error anywhere.
+func _check_build_costs_are_real() -> void:
+	print("build costs are real")
+	for kind in BuildKinds.ALL:
+		var cost := BuildKinds.cost(kind)
+		if cost.is_empty():
+			_fail("%s is free" % kind)
+			continue
+		for item in cost:
+			if not ItemKinds.INFO.has(item):
+				_fail("%s costs unknown item %s" % [kind, item])
+		if BuildKinds.footprint(kind) <= 0.0:
+			_fail("%s has no footprint, so it can overlap anything" % kind)
+	if BuildKinds.build_mesh(BuildKinds.SAPLING, 0) == BuildKinds.build_mesh(BuildKinds.SAPLING, 2):
+		_fail("a sprout and a grown tree are the same mesh, so growth is invisible")
+	else:
+		_ok("%d pieces, all payable, and growth changes the mesh" % BuildKinds.ALL.size())
+
+## The whole promise of the game in one test: plant three trees close together,
+## let them grow, and the world answers.
+func _check_a_grove_forms() -> void:
+	print("a grove forms")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+
+	var spawn := field.find_spawn_point()
+	var offsets: Array[Vector3] = [Vector3(0, 0, 0), Vector3(6, 0, 2), Vector3(3, 0, 7)]
+	for offset in offsets:
+		var at := spawn + offset
+		at.y = field.height_at(at.x, at.z)
+		structures.place(BuildKinds.SAPLING, at, 0.0)
+
+	if structures.grove_count() != 0:
+		_fail("three sprouts already count as a grove")
+
+	# Long enough for every stage; growth is driven by elapsed play time.
+	var total := BuildKinds.GROWTH_STAGE_SECONDS * float(BuildKinds.GROWTH_STAGES) + 1.0
+	var elapsed := 0.0
+	while elapsed < total:
+		structures._process(1.0)
+		elapsed += 1.0
+
+	if structures.grove_count() < 1:
+		_fail("three grown trees six metres apart did not make a grove")
+	elif structures.attract_points().is_empty():
+		_fail("a grove formed but nothing was there to draw birds")
+	else:
+		_ok("three saplings grew into a grove with %d place(s) for birds" % structures.attract_points().size())
+
+	# And a lone tree must not count, or the reward means nothing.
+	var lonely := Structures.new(field)
+	get_root().add_child(lonely)
+	var far := spawn + Vector3(120.0, 0.0, 0.0)
+	far.y = field.height_at(far.x, far.z)
+	lonely.place(BuildKinds.SAPLING, far, 0.0)
+	elapsed = 0.0
+	while elapsed < total:
+		lonely._process(1.0)
+		elapsed += 1.0
+	if lonely.grove_count() != 0:
+		_fail("a single tree counts as a grove")
+	else:
+		_ok("one tree on its own is not a grove")
+	structures.queue_free()
+	lonely.queue_free()
+
+## An afternoon of building has to survive closing the game.
+func _check_save_round_trip() -> void:
+	print("save round trip")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var spawn := field.find_spawn_point()
+	structures.place(BuildKinds.CAMPFIRE, spawn, 1.0)
+	structures.place(BuildKinds.SAPLING, spawn + Vector3(4.0, 0.0, 0.0), 2.0)
+
+	var inventory := Inventory.new()
+	inventory.add(ItemKinds.REED, 7)
+
+	var written := SaveGame.write({
+		"seed": 20260903,
+		"structures": structures.to_data(),
+		"inventory": inventory.to_data(),
+		"pickups_taken": ["1:2:3"],
+	})
+	if not written:
+		_fail("could not write the save file")
+		return
+
+	var read := SaveGame.read()
+	if read.is_empty():
+		_fail("the save file read back empty")
+		return
+
+	var restored := Structures.new(field)
+	get_root().add_child(restored)
+	restored.from_data(read["structures"])
+	var restored_inventory := Inventory.new()
+	restored_inventory.from_data(read["inventory"])
+
+	if restored.to_data().size() != 2:
+		_fail("saved 2 structures, restored %d" % restored.to_data().size())
+	elif restored_inventory.count(ItemKinds.REED) != 7:
+		_fail("saved 7 reeds, restored %d" % restored_inventory.count(ItemKinds.REED))
+	elif read["pickups_taken"].size() != 1:
+		_fail("collected pickups did not survive the round trip")
+	else:
+		_ok("structures, inventory and collected pickups all survive a round trip")
+
+	structures.queue_free()
+	restored.queue_free()
