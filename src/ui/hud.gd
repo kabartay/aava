@@ -20,6 +20,7 @@ signal camera_dragged(delta: Vector2)
 ## button is held, so the interface has to report both ends of it.
 signal kick_started()
 signal kick_released()
+signal jump_pressed()
 signal build_toggled(enabled: bool)
 signal build_selected(kind: StringName)
 signal build_place()
@@ -37,6 +38,7 @@ var _message_timer := 0.0
 var _building := false
 var _kick_button: Button
 var _score: Label
+var _jump_button: Button
 var _power_bar: ColorRect
 var _power_fill: ColorRect
 var _aim_label: Label
@@ -106,6 +108,12 @@ func _ready() -> void:
 	_score = _label(34, Color(1.0, 0.94, 0.72))
 	_score.visible = false
 	add_child(_score)
+
+	# Jump is always available, unlike kick and build, so it sits at the bottom
+	# of the stack where a thumb rests.
+	_jump_button = _button("jump", Color(0.62, 0.90, 0.68))
+	_jump_button.pressed.connect(func() -> void: jump_pressed.emit())
+	add_child(_jump_button)
 
 	_build_button = _button("build", Color(0.42, 0.72, 0.98))
 	_build_button.pressed.connect(_on_build_pressed)
@@ -273,6 +281,9 @@ func _layout() -> void:
 		safe.position.x + safe.size.x - BUTTON - MARGIN,
 		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
+
+	# Left of build, so the right thumb reaches jump without leaving the corner.
+	_jump_button.position = _build_button.position - Vector2(BUTTON + 16.0, 0.0)
 
 	_place_button.position = _build_button.position - Vector2(0.0, BUTTON + 16.0)
 

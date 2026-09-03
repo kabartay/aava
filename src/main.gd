@@ -68,6 +68,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	add_child(birds)
 
 	world.football.goal_scored.connect(_on_goal)
+	world.boulders.jumped.connect(_on_boulder_jumped)
+	if save.has("boulders"):
+		world.boulders.from_data(save["boulders"])
 	if save.has("football"):
 		world.football.from_data(save["football"])
 
@@ -100,7 +103,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	hud.set_score(world.football.score)
-	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump)
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
@@ -116,6 +119,9 @@ func _process(delta: float) -> void:
 		return
 
 	world.pickups.check_reach(player.global_position)
+	# The rocks watch the player rather than the player reporting to them, so
+	# nothing in the controller has to know that jumping rocks is a game.
+	world.boulders.watch(player.global_position, not player.is_on_floor())
 	build_mode.aim(player.global_position, camera_rig.yaw)
 
 	# The kick button appears only with a ball at your feet. The keyboard runs
@@ -147,6 +153,9 @@ func _process(delta: float) -> void:
 func _on_collected(kind: StringName, _at: Vector3) -> void:
 	inventory.add(kind, 1)
 
+func _on_jump() -> void:
+	player.request_jump()
+
 func _on_kick_start() -> void:
 	if world.football.ball_near(player.global_position) != null:
 		player.start_charging()
@@ -166,6 +175,9 @@ func _on_kick_release() -> void:
 		maxf(strength, 0.12),
 		camera_rig.aim_height()
 	)
+
+func _on_boulder_jumped(_at: Vector3, total: int) -> void:
+	hud.announce("cleared it — %d" % total, 1.8)
 
 func _on_goal(_index: int, total: int) -> void:
 	hud.set_score(total)
@@ -208,6 +220,7 @@ func _write_save() -> void:
 		"structures": structures.to_data(),
 		"pickups_taken": world.pickups.to_data(),
 		"football": world.football.to_data(),
+		"boulders": world.boulders.to_data(),
 	})
 
 func _seed_from_command_line() -> int:

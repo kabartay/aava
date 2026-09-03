@@ -25,6 +25,7 @@ func _initialize() -> void:
 	_check_the_pitch_is_playable()
 	_check_goals_are_judged()
 	_check_kick_can_be_aimed()
+	_check_rocks_are_jumpable()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -332,7 +333,7 @@ func _check_nothing_is_missing() -> void:
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
 		"BuildKinds", "Structures", "BuildMode",
-		"Pitch", "Ball", "Goal", "FootballGround",
+		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
 	for name in required:
@@ -524,3 +525,42 @@ func _check_kick_can_be_aimed() -> void:
 		_fail("running at the ball does not hit it harder")
 	else:
 		_ok("running adds %.1f m/s over the same swing" % (running - standing))
+
+## Rocks have to be there, be low enough to clear, and stay off the pitch.
+func _check_rocks_are_jumpable() -> void:
+	print("rocks are jumpable")
+	var field := HeightField.new(20260903)
+	var rocks := Boulders.new(field, 20260903)
+	get_root().add_child(rocks)
+	rocks.follow(field.find_spawn_point())
+	for _i in 300:
+		rocks._process(0.016)
+		if rocks.is_idle():
+			break
+
+	var found := rocks.count_active()
+	if found < 8:
+		_fail("only %d rocks in the whole area — nothing to jump" % found)
+	elif found > 600:
+		_fail("%d rocks — the meadow is a boulder field" % found)
+	else:
+		_ok("%d rocks scattered within reach" % found)
+
+	# None of them may sit on the football pitch.
+	var on_pitch := 0
+	var centre := Pitch.centre()
+	for x in range(-24, 25, 3):
+		for z in range(-17, 18, 3):
+			if rocks._suits(centre.x + float(x), centre.z + float(z)):
+				on_pitch += 1
+	if on_pitch > 0:
+		_fail("%d rock positions fall on the pitch" % on_pitch)
+	else:
+		_ok("no rocks on the football pitch")
+
+	# A jump has to be clearable: the player rises JUMP_VELOCITY^2 / 2g.
+	var apex := (Player.JUMP_VELOCITY * Player.JUMP_VELOCITY) / (2.0 * 24.0)
+	if apex < Boulders.MAX_HEIGHT + 0.3:
+		_fail("a jump reaches %.2f m but rocks stand up to %.2f m" % [apex, Boulders.MAX_HEIGHT])
+	else:
+		_ok("a jump clears %.2f m, well over the tallest rock" % apex)

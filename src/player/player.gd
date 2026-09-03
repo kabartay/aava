@@ -138,11 +138,28 @@ func _physics_process(delta: float) -> void:
 	# child reads instantly: push the stick up, go the way you are looking.
 	var basis := Basis(Vector3.UP, camera_yaw)
 	var wish := basis * Vector3(input.x, 0.0, input.y)
-	if wish.length_squared() > 1.0:
-		wish = wish.normalized()
 
-	var speed := RUN_SPEED if Input.is_action_pressed(InputActions.SPRINT) else WALK_SPEED
-	var target := wish * speed
+	# How far the stick is pushed is how fast you go. Normalising the direction
+	# and throwing the magnitude away — which is what this did — meant a barely
+	# nudged stick ran at exactly the same speed as a stick pushed to the rim,
+	# so there was no way to creep up on anything or to walk gently.
+	var push := clampf(wish.length(), 0.0, 1.0)
+	if push > 0.001:
+		wish /= wish.length()
+
+	# The keyboard has no analogue stick, so a key press means full speed.
+	if push > 0.0 and not Input.is_action_pressed(InputActions.SPRINT):
+		push = maxf(push, 0.0)
+
+	# Pushing past three quarters breaks into a run without touching sprint,
+	# which is how a thumbstick is expected to behave and means a six-year-old
+	# never has to find a second control to run.
+	var top := lerpf(WALK_SPEED, RUN_SPEED, smoothstep(0.72, 1.0, push))
+	if Input.is_action_pressed(InputActions.SPRINT):
+		top = RUN_SPEED
+		push = maxf(push, 1.0)
+
+	var target := wish * top * minf(push, 1.0)
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 
 	var rate := GROUND_ACCELERATION if grounded else AIR_ACCELERATION
@@ -167,6 +184,12 @@ func _physics_process(delta: float) -> void:
 	if global_position.distance_squared_to(_last_reported) > 16.0:
 		_last_reported = global_position
 		moved.emit(global_position)
+
+## Ask for a jump from the interface. It goes through the same buffer as the
+## key, so a tapped button and a tapped key behave identically — including the
+## grace period that lets a slightly early press still work on landing.
+func request_jump() -> void:
+	_buffered_jump = JUMP_BUFFER
 
 ## How long the kick button has been held, as 0 to 1.
 ##

@@ -127,7 +127,8 @@ func _spawn_player() -> void:
 		_hud, _build_mode, _rig, _inventory,
 		func() -> void: _build_mode.place(),
 		func() -> void: _player.start_charging(),
-		func() -> void: _kick_nearest()
+		func() -> void: _kick_nearest(),
+		func() -> void: _player.request_jump()
 	)
 
 	if _demo:
@@ -194,7 +195,7 @@ func _wait_for_world() -> void:
 		_world.atmosphere.set_time(_time)
 		await RenderingServer.frame_post_draw
 		frames += 1
-		if _world.terrain.is_idle() and _world.vegetation.is_idle() and _world.pickups.is_idle() and frames > 8:
+		if _world.terrain.is_idle() and _world.vegetation.is_idle() and _world.pickups.is_idle() and _world.boulders.is_idle() and frames > 8:
 			break
 	if not _world.terrain.is_idle() or not _world.vegetation.is_idle():
 		printerr("world still streaming after %d frames" % frames)
@@ -251,7 +252,7 @@ func _report_scene() -> void:
 			var multi := layer as MultiMeshInstance3D
 			if multi != null:
 				plants += multi.multimesh.instance_count
-	print("scene: chunks=%d surfaces=%d triangles=%d plants=%d pickups=%d" % [chunks, surfaces, triangles, plants, _world.pickups.count_active()])
+	print("scene: chunks=%d surfaces=%d triangles=%d plants=%d pickups=%d rocks=%d" % [chunks, surfaces, triangles, plants, _world.pickups.count_active(), _world.boulders.count_active()])
 	print("bounds: %v size %v" % [bounds.position, bounds.size])
 	print("camera: pos=%v looking=%v fov=%.0f far=%.0f" % [
 		_camera.global_position, -_camera.global_transform.basis.z, _camera.fov, _camera.far])
