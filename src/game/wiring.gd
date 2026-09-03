@@ -15,13 +15,15 @@ static func connect_hud(
 	camera_rig: CameraRig,
 	inventory: Inventory,
 	on_place: Callable,
-	on_kick: Callable
+	on_kick_start: Callable,
+	on_kick_release: Callable
 ) -> void:
 	hud.camera_dragged.connect(camera_rig.orbit)
 	hud.build_toggled.connect(build_mode.set_active)
 	hud.build_selected.connect(build_mode.select)
 	hud.build_place.connect(on_place)
-	hud.kick_pressed.connect(on_kick)
+	hud.kick_started.connect(on_kick_start)
+	hud.kick_released.connect(on_kick_release)
 	build_mode.preview_changed.connect(hud.set_build_state)
 
 	inventory.changed.connect(hud.set_item_count)

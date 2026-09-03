@@ -16,7 +16,10 @@ const BUTTON := 96.0
 const MARGIN := 26.0
 
 signal camera_dragged(delta: Vector2)
-signal kick_pressed()
+## Press and release, not a single tap: the strength of a kick is how long the
+## button is held, so the interface has to report both ends of it.
+signal kick_started()
+signal kick_released()
 signal build_toggled(enabled: bool)
 signal build_selected(kind: StringName)
 signal build_place()
@@ -34,6 +37,9 @@ var _message_timer := 0.0
 var _building := false
 var _kick_button: Button
 var _score: Label
+var _power_bar: ColorRect
+var _power_fill: ColorRect
+var _aim_label: Label
 
 func _ready() -> void:
 	var pad := CameraPad.new()
@@ -71,9 +77,31 @@ func _ready() -> void:
 	# The kick button only appears when there is a ball to kick, so it never
 	# sits on screen as a control that does nothing.
 	_kick_button = _button("kick", Color(0.98, 0.84, 0.36))
-	_kick_button.pressed.connect(func() -> void: kick_pressed.emit())
+	# button_down / button_up rather than pressed, because a kick is a hold.
+	_kick_button.button_down.connect(func() -> void: kick_started.emit())
+	_kick_button.button_up.connect(func() -> void: kick_released.emit())
 	_kick_button.visible = false
 	add_child(_kick_button)
+
+	# A power bar that fills while the button is held. Without it, strength is
+	# an invisible number a child has to guess at, and the same press produces
+	# a different kick depending on how long the finger happened to rest.
+	_power_bar = ColorRect.new()
+	_power_bar.color = Color(0.0, 0.0, 0.0, 0.45)
+	_power_bar.visible = false
+	_power_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_power_bar)
+
+	_power_fill = ColorRect.new()
+	_power_fill.color = Color(0.98, 0.78, 0.28)
+	_power_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_power_bar.add_child(_power_fill)
+
+	# And a word for where it will go, because "look up to chip it" is not
+	# something a six-year-old will work out unaided.
+	_aim_label = _label(24, Color(0.98, 0.90, 0.62))
+	_aim_label.visible = false
+	add_child(_aim_label)
 
 	_score = _label(34, Color(1.0, 0.94, 0.72))
 	_score.visible = false
@@ -180,6 +208,30 @@ func set_ball_in_reach(in_reach: bool) -> void:
 	_kick_button.visible = in_reach
 	_layout()
 
+## Show the kick strength and where it is aimed, while the button is held.
+##
+## Both numbers run 0 to 1. The words matter more than the bar for the younger
+## child: "low", "along the ground", "high" is something he can act on, where a
+## bar is only something to watch fill.
+func set_kick_preview(charging: bool, strength: float, loft: float) -> void:
+	_power_bar.visible = charging
+	_aim_label.visible = charging
+	if not charging:
+		return
+
+	var width := _power_bar.size.x - 8.0
+	_power_fill.position = Vector2(4.0, 4.0)
+	_power_fill.size = Vector2(maxf(0.0, width * clampf(strength, 0.0, 1.0)), _power_bar.size.y - 8.0)
+	# Yellow through to red, so a full-power shot looks like one.
+	_power_fill.color = Color(0.98, 0.78, 0.28).lerp(Color(0.96, 0.38, 0.26), strength)
+
+	var aim := "along the ground"
+	if loft > 0.66:
+		aim = "high over the top"
+	elif loft > 0.3:
+		aim = "up and over"
+	_aim_label.text = aim
+
 ## The running total of goals. Hidden until the first one, because a scoreboard
 ## reading zero before anyone has played is just clutter.
 func set_score(goals: int) -> void:
@@ -228,6 +280,17 @@ func _layout() -> void:
 	# when it is open, so the two never overlap.
 	var kick_stack := 1 if not _building else 2
 	_kick_button.position = _build_button.position - Vector2(0.0, (BUTTON + 16.0) * float(kick_stack))
+
+	# The bar sits above the kick button, wide enough to read at a glance from
+	# the far side of a tablet.
+	var bar_width := 300.0
+	_power_bar.size = Vector2(bar_width, 34.0)
+	_power_bar.position = Vector2(
+		view.x * 0.5 - bar_width * 0.5,
+		_kick_button.position.y - 58.0
+	)
+	_aim_label.size.x = view.x
+	_aim_label.position = Vector2(0.0, _power_bar.position.y - 36.0)
 
 	_score.size.x = view.x
 	_score.position = Vector2(0.0, safe.position.y + MARGIN)

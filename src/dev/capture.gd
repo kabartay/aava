@@ -21,6 +21,8 @@ extends Node3D
 ##   --build=1      open build mode with the ghost preview showing
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
+##   --power=0..1   how hard to kick it
+##   --loft=0..1    how high: 0 along the ground, 1 chipped over the top
 ##   --nowater=1    leave the water sheet out, to see the ground under it
 ##   --unshaded=1   draw the terrain as flat vertex colour, no lighting at all,
 ##                  which separates "the colours are wrong" from "the light is"
@@ -44,6 +46,8 @@ var _demo := false
 var _build := false
 var _at_pitch := false
 var _kick_after := 0.0
+var _kick_strength := 1.0
+var _kick_loft := 0.25
 var _structures: Structures
 var _birds: Birds
 var _inventory: Inventory
@@ -122,6 +126,7 @@ func _spawn_player() -> void:
 	Wiring.connect_hud(
 		_hud, _build_mode, _rig, _inventory,
 		func() -> void: _build_mode.place(),
+		func() -> void: _player.start_charging(),
 		func() -> void: _kick_nearest()
 	)
 
@@ -175,8 +180,12 @@ func _stand_up_a_camp(spawn: Vector3) -> void:
 
 func _kick_nearest() -> void:
 	var ball := _world.football.ball_near(_player.global_position)
-	if ball != null:
-		ball.kick(_player.global_position, _player.facing(), false)
+	if ball == null:
+		return
+	ball.kick(
+		_player.global_position, _player.facing(), false,
+		_kick_strength, _kick_loft
+	)
 
 func _wait_for_world() -> void:
 	var frames := 0
@@ -318,6 +327,10 @@ func _parse_arguments() -> void:
 			"kick":
 				# Seconds of flight to watch after striking the ball.
 				_kick_after = value.to_float()
+			"power":
+				_kick_strength = value.to_float()
+			"loft":
+				_kick_loft = value.to_float()
 			"pos":
 				_camera_position = _to_vector(value, _camera_position)
 			"look":

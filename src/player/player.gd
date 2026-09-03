@@ -105,6 +105,10 @@ func _build_visual() -> Node3D:
 
 	return root
 
+func _process(delta: float) -> void:
+	if _charging:
+		kick_charge = minf(kick_charge + delta / Ball.CHARGE_TIME, 1.0)
+
 func _physics_process(delta: float) -> void:
 	# get_gravity() is zero on the first physics frame, before the server has
 	# populated the body's state, so the last good value is kept.
@@ -163,6 +167,30 @@ func _physics_process(delta: float) -> void:
 	if global_position.distance_squared_to(_last_reported) > 16.0:
 		_last_reported = global_position
 		moved.emit(global_position)
+
+## How long the kick button has been held, as 0 to 1.
+##
+## Kept here rather than in the ball or the interface because it is input state,
+## and because both the touch button and the keyboard have to feed the same
+## number or the two controls would kick differently.
+var kick_charge := 0.0
+
+var _charging := false
+
+## Begin winding up a kick. Called on button press and on key down.
+func start_charging() -> void:
+	_charging = true
+	kick_charge = 0.0
+
+## Release, returning the charge that was built up.
+func release_charge() -> float:
+	var charged := kick_charge
+	_charging = false
+	kick_charge = 0.0
+	return charged
+
+func is_charging() -> bool:
+	return _charging
 
 ## Which way the body is actually facing, on the ground plane. Used by the kick
 ## so that striking a ball you are standing on top of still sends it forwards.

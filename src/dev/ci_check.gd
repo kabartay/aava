@@ -24,6 +24,7 @@ func _initialize() -> void:
 	_check_nothing_is_missing()
 	_check_the_pitch_is_playable()
 	_check_goals_are_judged()
+	_check_kick_can_be_aimed()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -447,3 +448,79 @@ func _check_goals_are_judged() -> void:
 			_fail("goal %d: a ball at the far end was given" % index)
 
 	_ok("both goals: over the line given; on the line, wide, over the bar and through the net all refused")
+
+## A kick with one setting is a kick a child masters in ten seconds and then
+## has no reason to take again. These assertions are about range: a tap must be
+## a nudge, a full swing must reach the goal, and looking up must actually
+## change the shape of the shot.
+func _check_kick_can_be_aimed() -> void:
+	print("the kick can be aimed")
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+
+	var stand := Pitch.centre() + Vector3(1.1, 0.0, 0.0)
+	stand.y = field.height_at(stand.x, stand.z)
+	var ball := ground.ball_near(stand)
+	if ball == null:
+		_fail("no ball within reach of a player standing next to one")
+		return
+
+	# A tap has to move the ball, but only a little.
+	ball.reset_to(Pitch.centre())
+	var tap := ball.kick(stand, Vector3.LEFT, false, 0.12, 0.2)
+	if tap <= 0.0:
+		_fail("the softest tap does nothing at all")
+	elif tap > 6.0:
+		_fail("the softest tap is %.1f m/s — dribbling would be impossible" % tap)
+	else:
+		_ok("a tap moves it at %.1f m/s" % tap)
+
+	# A full swing has to be able to reach a goal from the halfway line, which
+	# is Pitch.HALF_LENGTH away.
+	ball.reset_to(Pitch.centre())
+	var full := ball.kick(stand, Vector3.LEFT, false, 1.0, 0.25)
+	# Range of a projectile launched at this speed, ignoring drag: enough to
+	# tell "can reach the goal" from "cannot".
+	var lift := ball.linear_velocity.y
+	var flat := Vector2(ball.linear_velocity.x, ball.linear_velocity.z).length()
+	var flight := 2.0 * lift / 20.0
+	var reach := flat * maxf(flight, 0.9)
+	if full <= tap * 2.0:
+		_fail("a full swing (%.1f m/s) is barely harder than a tap (%.1f)" % [full, tap])
+	elif reach < Pitch.HALF_LENGTH:
+		_fail("a full swing carries about %.0f m; the goal is %.0f m away" % [reach, Pitch.HALF_LENGTH])
+	else:
+		_ok("a full swing at %.1f m/s carries about %.0f m, past the %.0f m goal" % [full, reach, Pitch.HALF_LENGTH])
+
+	# Aim has to change the shape of the shot, not just its speed.
+	ball.reset_to(Pitch.centre())
+	ball.kick(stand, Vector3.LEFT, false, 0.8, 0.0)
+	var driven := ball.linear_velocity
+	ball.reset_to(Pitch.centre())
+	ball.kick(stand, Vector3.LEFT, false, 0.8, 1.0)
+	var chipped := ball.linear_velocity
+
+	if chipped.y <= driven.y * 3.0:
+		_fail("looking up barely lifts the ball: %.2f vs %.2f m/s upward" % [chipped.y, driven.y])
+	elif driven.y > 1.5:
+		_fail("even a flat drive goes up at %.2f m/s — there is no ground pass" % driven.y)
+	else:
+		_ok("flat drive rises %.2f m/s, chip rises %.2f m/s" % [driven.y, chipped.y])
+
+	# And a chip must not be faster than a drive, or "high" would also mean
+	# "harder" and the two controls would not be separable.
+	if absf(chipped.length() - driven.length()) > 0.6:
+		_fail("aiming changes the speed as well: %.1f vs %.1f m/s" % [chipped.length(), driven.length()])
+	else:
+		_ok("aiming changes only the angle, not the power")
+
+	# Running at it still helps, on top of the charge.
+	ball.reset_to(Pitch.centre())
+	var running := ball.kick(stand, Vector3.LEFT, true, 0.8, 0.25)
+	ball.reset_to(Pitch.centre())
+	var standing := ball.kick(stand, Vector3.LEFT, false, 0.8, 0.25)
+	if running <= standing:
+		_fail("running at the ball does not hit it harder")
+	else:
+		_ok("running adds %.1f m/s over the same swing" % (running - standing))

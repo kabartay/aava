@@ -100,7 +100,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	hud.set_score(world.football.score)
-	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release)
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
@@ -118,13 +118,26 @@ func _process(delta: float) -> void:
 	world.pickups.check_reach(player.global_position)
 	build_mode.aim(player.global_position, camera_rig.yaw)
 
-	# The kick button appears only with a ball at your feet, and the keyboard
-	# shortcut is checked here rather than in the player so that both paths run
-	# through exactly the same code.
+	# The kick button appears only with a ball at your feet. The keyboard runs
+	# through the same two calls as the button, so the two controls cannot end
+	# up kicking differently.
 	var ball := world.football.ball_near(player.global_position)
 	hud.set_ball_in_reach(ball != null)
 	if ball != null and Input.is_action_just_pressed(InputActions.KICK):
-		_on_kick()
+		_on_kick_start()
+	if player.is_charging() and Input.is_action_just_released(InputActions.KICK):
+		_on_kick_release()
+
+	# While winding up, show how hard and how high — and drop the wind-up if the
+	# ball is kicked away or walked away from, so the bar never lies.
+	if player.is_charging():
+		if ball == null:
+			player.release_charge()
+			hud.set_kick_preview(false, 0.0, 0.0)
+		else:
+			hud.set_kick_preview(true, player.kick_charge, camera_rig.aim_height())
+	else:
+		hud.set_kick_preview(false, 0.0, 0.0)
 
 	_autosave -= delta
 	if _autosave <= 0.0:
@@ -134,11 +147,25 @@ func _process(delta: float) -> void:
 func _on_collected(kind: StringName, _at: Vector3) -> void:
 	inventory.add(kind, 1)
 
-func _on_kick() -> void:
+func _on_kick_start() -> void:
+	if world.football.ball_near(player.global_position) != null:
+		player.start_charging()
+
+func _on_kick_release() -> void:
+	var strength := player.release_charge()
+	hud.set_kick_preview(false, 0.0, 0.0)
 	var ball := world.football.ball_near(player.global_position)
 	if ball == null:
 		return
-	ball.kick(player.global_position, player.facing(), player.is_sprinting())
+	# A tap is a nudge and a hold is a shot, but even the very shortest tap has
+	# to move the ball, or a child taps and concludes the button is broken.
+	ball.kick(
+		player.global_position,
+		player.facing(),
+		player.is_sprinting(),
+		maxf(strength, 0.12),
+		camera_rig.aim_height()
+	)
 
 func _on_goal(_index: int, total: int) -> void:
 	hud.set_score(total)

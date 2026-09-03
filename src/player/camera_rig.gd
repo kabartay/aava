@@ -101,6 +101,16 @@ func _process(delta: float) -> void:
 
 	_player.camera_yaw = yaw
 
+## Where the camera is looking, as 0 for straight along the ground and 1 for as
+## high as the camera will go. This is what aims a kick: look up to chip it,
+## look down to drive it flat. Nothing new to learn, because looking around is
+## already how you see anything.
+func aim_height() -> float:
+	# The camera looks down for most of its range, which is right for walking
+	# around but means "level" sits well up the range. Only the upper part maps
+	# to loft, so a normal walking view gives a normal low shot.
+	return clampf(inverse_lerp(deg_to_rad(-24.0), PITCH_MAX, pitch), 0.0, 1.0)
+
 ## Screen drag from the touch layer, in pixels.
 func orbit(drag: Vector2) -> void:
 	yaw -= drag.x * DRAG_SENSITIVITY

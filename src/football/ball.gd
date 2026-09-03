@@ -22,17 +22,37 @@ const BOUNCE := 0.62
 
 ## Rolling drag. Without it a ball on level ground never stops, and a pitch
 ## strewn with balls that will not settle is unplayable.
-const ROLL_DAMP := 0.55
+## Rolling drag. Lowered along with the kick ceiling — a hard shot that stops
+## dead after ten metres reads as hitting an invisible wall.
+const ROLL_DAMP := 0.32
 const SPIN_DAMP := 1.35
 
-## How hard the player kicks, and how much of that goes upward. The lift is what
-## turns a shot into something you can put over a keeper — or over the bar.
-const KICK_SPEED := 9.5
-const KICK_LIFT := 0.38
+## The range of kick strength, from the gentlest tap to a full swing.
+##
+## The floor matters as much as the ceiling: a child needs to be able to nudge
+## the ball two metres to line up a shot, and if the softest possible kick sends
+## it forty metres then dribbling is impossible and the pitch is useless.
+const KICK_SPEED_MIN := 3.2
+## The ceiling is set by the pitch, not by taste: a full swing from the halfway
+## line has to reach the goal, or the only way to score is to dribble the ball
+## in, and shooting stops being worth trying.
+const KICK_SPEED_MAX := 26.0
 
-## Running into the ball hits it harder. This is the entire skill of shooting,
-## and it is worth more to a six-year-old than any charge-up meter.
-const SPRINT_BONUS := 5.5
+## How long the button must be held to go from the softest kick to the hardest.
+## Short enough that a full-power shot is one deliberate press rather than a
+## wait, long enough that a quick tap is reliably gentle.
+const CHARGE_TIME := 0.85
+
+## Running at the ball adds to whatever the charge gave. Kept as a bonus rather
+## than folded into the charge so that a six-year-old who never holds the button
+## still has a way to hit it hard: just run at it.
+const SPRINT_BONUS := 4.5
+
+## How much of the kick goes upward, from a flat drive along the ground to a
+## lofted chip. Chosen by where the camera is looking, so aiming high is done
+## by looking up.
+const LIFT_FLAT := 0.02
+const LIFT_HIGH := 1.35
 
 ## How close the player must be to strike it.
 ##
@@ -45,7 +65,9 @@ const KICK_REACH := 1.9
 ## Below this speed the ball counts as at rest.
 const AT_REST_SPEED := 0.35
 
-signal kicked(power: float)
+## Emitted with the strength of the kick, from 0 to 1, and its loft, also 0 to
+## 1. The interface uses these to say what is about to happen.
+signal kicked(strength: float, loft: float)
 
 var home := Vector3.ZERO
 
@@ -132,9 +154,12 @@ func _build_mesh() -> Mesh:
 	tool.generate_normals()
 	return tool.commit()
 
-## Strike the ball away from the striker, with lift. Returns the power of the
-## kick, or zero if the striker was not close enough.
-func kick(from: Vector3, facing: Vector3, sprinting: bool) -> float:
+## Strike the ball. `strength` and `loft` both run from 0 to 1: strength is how
+## long the button was held, loft is how high the camera was looking.
+##
+## Returns the resulting speed in metres per second, or zero if the striker was
+## not close enough to reach it.
+func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25) -> float:
 	var offset := position - from
 	offset.y = 0.0
 	if offset.length() > KICK_REACH + RADIUS:
@@ -144,8 +169,17 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool) -> float:
 	# happens to be facing. A child aims by walking at the ball, and being sent
 	# somewhere else because the camera had swung feels like a bug.
 	var direction := offset.normalized() if offset.length_squared() > 0.02 else facing
-	var speed := KICK_SPEED + (SPRINT_BONUS if sprinting else 0.0)
-	var launch := (direction + Vector3.UP * KICK_LIFT).normalized() * speed
+
+	var charged := clampf(strength, 0.0, 1.0)
+	# Squared, so the first half of the hold barely adds anything and the last
+	# quarter adds a lot. A linear charge feels like the ball is being dragged
+	# up to speed; this feels like winding up to hit it.
+	var speed := lerpf(KICK_SPEED_MIN, KICK_SPEED_MAX, charged * charged)
+	if sprinting:
+		speed += SPRINT_BONUS
+
+	var lift := lerpf(LIFT_FLAT, LIFT_HIGH, clampf(loft, 0.0, 1.0))
+	var launch := (direction + Vector3.UP * lift).normalized() * speed
 
 	sleeping = false
 	# The velocity is set outright rather than applied as an impulse. An impulse
@@ -156,9 +190,11 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool) -> float:
 	# whatever it was already doing.
 	linear_velocity = launch
 	# A little sidespin off the striking foot, so the ball visibly turns over.
-	angular_velocity = direction.cross(Vector3.UP) * speed * 0.9
+	# Backspin on a lofted chip, topspin on a flat drive, because that is what
+	# the striking foot would actually impart and it reads correctly in flight.
+	angular_velocity = direction.cross(Vector3.UP) * speed * lerpf(1.1, -0.7, clampf(loft, 0.0, 1.0))
 
-	kicked.emit(speed)
+	kicked.emit(charged, clampf(loft, 0.0, 1.0))
 	return speed
 
 func speed() -> float:
