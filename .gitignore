@@ -1,0 +1,18 @@
+# Godot
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+*.translation
+
+# Build output
+build/
+android/build/
+*.apk
+*.aab
+*.keystore
+
+# Local
+.DS_Store
+*.local
+dev/out/

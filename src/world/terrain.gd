@@ -1,0 +1,115 @@
+class_name Terrain
+extends Node3D
+
+## Chunked terrain built from the height field, streamed around the player.
+##
+## The world is not stored anywhere: a chunk is generated from the seed when the
+## player comes near and thrown away when they leave. That is what lets the world
+## be large on a tablet — memory holds only what is currently in view.
+##
+## Detail drops with distance in rings. Because neighbouring rings sample the
+## height field at different steps, their edges do not line up, so every chunk
+## carries a skirt: a border of vertices dropped straight down. The crack is
+## still there, it is simply behind a wall of ground-coloured geometry, which is
+## far cheaper than stitching meshes together.
+
+## Chunks built per frame while streaming. Low enough that walking never stutters.
+const CHUNKS_PER_FRAME := 3
+
+var field: HeightField
+
+var _material: StandardMaterial3D
+var _chunks: Dictionary = {}
+var _queue: Array[Vector2i] = []
+var _centre := Vector2i(9999, 9999)
+
+func _init(height_field: HeightField) -> void:
+	field = height_field
+
+func _ready() -> void:
+	_material = StandardMaterial3D.new()
+	# The terrain carries its biome in vertex colours, so one material covers
+	# sand, grass, rock and snow without a single texture being loaded.
+	_material.vertex_color_use_as_albedo = true
+	# The tint colours are written as sRGB values, which is how they were picked.
+	# Without this they are read as linear and the whole valley turns near-black.
+	_material.vertex_color_is_srgb = true
+	_material.roughness = 0.95
+	_material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+
+## Draw the ground as flat vertex colour with no lighting. A diagnostic, not a
+## look: it answers "are the colours wrong or is the light wrong", which are
+## indistinguishable in a screenshot otherwise.
+func set_unshaded(enabled: bool) -> void:
+	_material.shading_mode = (
+		BaseMaterial3D.SHADING_MODE_UNSHADED if enabled
+		else BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	)
+
+## Terrain follows the player rather than the player asking for terrain, so
+## nothing else in the game has to know that the world is streamed.
+func follow(world_position: Vector3) -> void:
+	var chunk := TerrainSpec.chunk_at(world_position)
+	if chunk == _centre:
+		return
+	_centre = chunk
+	_rebuild_queue()
+
+func _rebuild_queue() -> void:
+	var wanted: Dictionary = {}
+	var max_radius: int = TerrainSpec.RINGS[TerrainSpec.RINGS.size() - 1]["radius"]
+	for dz in range(-max_radius, max_radius + 1):
+		for dx in range(-max_radius, max_radius + 1):
+			var coord := _centre + Vector2i(dx, dz)
+			var ring := TerrainSpec.ring_for(maxi(absi(dx), absi(dz)))
+			if ring < 0:
+				continue
+			wanted[coord] = ring
+
+	# Drop what fell out of range before adding, so memory never spikes.
+	for coord in _chunks.keys():
+		if not wanted.has(coord):
+			_chunks[coord].queue_free()
+			_chunks.erase(coord)
+
+	_queue.clear()
+	var pending: Array[Vector2i] = []
+	for coord in wanted.keys():
+		var existing = _chunks.get(coord)
+		if existing == null or existing.ring != wanted[coord]:
+			pending.append(coord)
+
+	# Nearest first: the ground under the player must exist before scenery does.
+	pending.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - _centre).length_squared() < (b - _centre).length_squared())
+	_queue = pending
+
+func _process(_delta: float) -> void:
+	var built := 0
+	while built < CHUNKS_PER_FRAME and not _queue.is_empty():
+		var coord: Vector2i = _queue.pop_front()
+		var ring := TerrainSpec.ring_for(maxi(absi(coord.x - _centre.x), absi(coord.y - _centre.y)))
+		if ring < 0:
+			continue
+		_build_chunk(coord, ring)
+		built += 1
+
+## True when every chunk in range has been built. The screenshot tool waits on
+## this instead of guessing a frame count, so a capture never photographs a
+## half-generated world.
+func is_idle() -> bool:
+	return _queue.is_empty()
+
+## True once the ground the player is standing on is guaranteed to exist.
+func has_ground_at(world_position: Vector3) -> bool:
+	return _chunks.has(TerrainSpec.chunk_at(world_position))
+
+func _build_chunk(coord: Vector2i, ring: int) -> void:
+	var previous = _chunks.get(coord)
+	if previous != null:
+		previous.queue_free()
+
+	var step: int = TerrainSpec.RINGS[ring]["step"]
+	var chunk := TerrainChunk.new(field, coord, step, ring, _material, TerrainSpec.RINGS[ring]["collide"])
+	add_child(chunk)
+	_chunks[coord] = chunk

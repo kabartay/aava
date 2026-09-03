@@ -1,0 +1,43 @@
+class_name World
+extends Node3D
+
+## The world itself: ground, water, sky and time.
+##
+## Kept separate from the game so that anything which needs a world can build
+## one — the game, and the screenshot tool that judges how the world looks.
+## A tool that renders a different world than the game does is worse than no
+## tool at all, so there is exactly one place a world comes from.
+
+signal ready_at_spawn(spawn_point: Vector3)
+
+var world_seed: int
+var field: HeightField
+var terrain: Terrain
+var atmosphere: Atmosphere
+var water: Water
+
+func _init(seed_value: int) -> void:
+	world_seed = seed_value
+	field = HeightField.new(seed_value)
+
+func _ready() -> void:
+	atmosphere = Atmosphere.new()
+	atmosphere.name = "Atmosphere"
+	add_child(atmosphere)
+
+	terrain = Terrain.new(field)
+	terrain.name = "Terrain"
+	add_child(terrain)
+
+	water = Water.new()
+	water.name = "Water"
+	add_child(water)
+
+	var spawn := field.find_spawn_point()
+	follow(spawn)
+	ready_at_spawn.emit(spawn)
+
+## Keeps streamed content centred on whoever is looking at it.
+func follow(world_position: Vector3) -> void:
+	terrain.follow(world_position)
+	water.follow(world_position)

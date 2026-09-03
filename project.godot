@@ -1,0 +1,44 @@
+; Aava — project configuration.
+; Everything in this project is authored as text and built from code:
+; there is no hand-placed scene content, because the world is generated.
+
+config_version=5
+
+[application]
+
+config/name="Aava"
+config/description="An open world that comes alive as you build in it."
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7", "Mobile")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+; expand_keep_size keeps one world scale across phone and tablet aspect ratios
+; instead of squashing the view on unusual screens.
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+
+[input_devices]
+
+; The same code path must serve a finger on a tablet and a mouse on the desktop,
+; so touch events are synthesised from the mouse during development.
+pointing/emulate_touch_from_mouse=true
+
+[physics]
+
+common/physics_ticks_per_second=60
+3d/default_gravity=24.0
+
+[rendering]
+
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+textures/default_filters/anisotropic_filtering_level=2
+anti_aliasing/quality/msaa_3d=2
+lights_and_shadows/directional_shadow/size=4096
+lights_and_shadows/directional_shadow/size.mobile=2048
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
