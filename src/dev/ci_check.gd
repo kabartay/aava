@@ -21,6 +21,7 @@ func _initialize() -> void:
 	_check_build_costs_are_real()
 	_check_a_grove_forms()
 	_check_save_round_trip()
+	_check_nothing_is_missing()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -312,3 +313,36 @@ func _check_save_round_trip() -> void:
 
 	structures.queue_free()
 	restored.queue_free()
+
+## Every class the game references must actually exist.
+##
+## This is the check CI earned. A `build/` line in .gitignore also matched
+## src/build/, so an entire subsystem was absent from the pushed tree while
+## working perfectly on the machine that wrote it. A missing script is invisible
+## locally and fatal everywhere else, so the classes the game cannot run without
+## are named here explicitly rather than discovered.
+func _check_nothing_is_missing() -> void:
+	print("nothing is missing")
+	var required := PackedStringArray([
+		"HeightField", "TerrainSpec", "Terrain", "TerrainChunk", "Water",
+		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
+		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
+		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
+		"BuildKinds", "Structures", "BuildMode",
+	])
+	var missing := PackedStringArray()
+	for name in required:
+		# A global class registers as a named script; if the file never made it
+		# into the tree, the name is simply not in the list.
+		if not _class_exists(name):
+			missing.append(name)
+	if missing.is_empty():
+		_ok("all %d classes the game needs are present" % required.size())
+	else:
+		_fail("missing classes: %s" % ", ".join(missing))
+
+func _class_exists(name: String) -> bool:
+	for entry in ProjectSettings.get_global_class_list():
+		if String(entry.get("class", "")) == name:
+			return true
+	return false

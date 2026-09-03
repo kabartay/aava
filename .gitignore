@@ -4,9 +4,11 @@
 export.cfg
 *.translation
 
-# Build output
-build/
-android/build/
+# Build output. These are anchored with a leading slash on purpose: an
+# unanchored "build/" also matches src/build/, and silently kept the entire
+# building system out of a commit that claimed to add it.
+/build/
+/android/build/
 *.apk
 *.aab
 *.keystore

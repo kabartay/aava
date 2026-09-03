@@ -36,14 +36,21 @@ jobs:
           mv Godot_v${GODOT_VERSION}_linux.x86_64 godot
           chmod +x godot
 
-      # Import is not a formality: global class names only exist after it has
-      # written .godot/global_script_class_cache.cfg, and a cyclic class_name
-      # dependency fails here rather than at run time.
+      # Import runs twice. Global class names only exist once
+      # .godot/global_script_class_cache.cfg has been written, and on a clean
+      # checkout that file is written by the same pass that parses the scripts.
+      # The first pass is therefore allowed to complain; only the second has to
+      # be silent.
+      - name: Import project (first pass writes the class cache)
+        run: ~/godot/godot --headless --path . --import > first-import.log 2>&1 || true
+
       - name: Import project
         run: |
           ~/godot/godot --headless --path . --import 2>&1 | tee import.log
           if grep -qE "SCRIPT ERROR|Parse Error|Failed to load script" import.log; then
             echo "::error::import reported script errors"
+            echo "--- first pass, for comparison:"
+            grep -E "SCRIPT ERROR|Parse Error" first-import.log | head -20 || true
             exit 1
           fi
 

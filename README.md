@@ -115,6 +115,28 @@ aborts, because Android requires ETC2/ASTC textures.
 
 iPad needs a paid Apple developer account and is not set up yet.
 
+## Two traps worth knowing
+
+**Anchor ignore patterns.** A plain `build/` line in `.gitignore` matches at
+every level, including `src/build/`. The whole building system was silently kept
+out of the commit that added it: the game ran perfectly here and CI failed with
+`Could not find type "Structures"`, because CI was the first machine to see the
+tree as it had actually been pushed. Ignore patterns for build output are now
+written `/build/`.
+
+**Import twice on a clean checkout.** Global `class_name` types only exist once
+`.godot/global_script_class_cache.cfg` has been written, and on a fresh clone
+that file is written by the same pass that parses the scripts. Your own machine
+never shows this, because the cache is left over from last time.
+
+```sh
+godot --headless --path . --import   # writes the class cache
+godot --headless --path . --import   # this one should be silent
+```
+
+To see the project as a fresh clone sees it, delete `.godot/` first — and check
+`git ls-files src` against what is actually on disk.
+
 ## Layout
 
 ```
