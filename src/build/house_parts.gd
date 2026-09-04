@@ -163,30 +163,52 @@ static func _floor() -> Mesh:
 		_box(tool, Vector3(0.0, 0.17, offset), Vector3(MODULE, 0.03, 0.06), TIMBER_DARK)
 	return _finish(tool)
 
-## A roof slope, or the ridge piece that caps two of them.
+## A roof: a ridge running along the module, or a single slope for a lean-to.
+##
+## Both sit with their lowest edge at y = 0, so a roof placed one storey up
+## rests exactly on top of the walls below it. The earlier version was a tilted
+## box whose centre was at the placement point, which left roofs hanging in the
+## air at an angle over the walls they were meant to cover.
 static func _roof(peak: bool) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
+	var half := MODULE * 0.5
+	# Slight overhang, because a roof flush with the wall reads as a lid.
+	var eaves := half + 0.16
+	var rise := 1.5 if peak else 1.0
+
 	if peak:
-		# A prism: two slopes meeting at a ridge, for the top of the house.
-		var half := MODULE * 0.5
-		var rise := 1.5
-		var points: Array[Vector3] = [
-			Vector3(-half, 0.0, -half), Vector3(half, 0.0, -half),
-			Vector3(half, 0.0, half), Vector3(-half, 0.0, half),
-			Vector3(0.0, rise, -half), Vector3(0.0, rise, half),
-		]
-		_quad(tool, points[0], points[1], points[4], points[4], TILE)
-		_quad(tool, points[3], points[2], points[5], points[5], TILE)
-		_quad(tool, points[0], points[4], points[5], points[3], TILE)
-		_quad(tool, points[1], points[2], points[5], points[4], TILE)
+		# A ridge along z: two slopes meeting over the middle of the square.
+		var ridge_front := Vector3(0.0, rise, -eaves)
+		var ridge_back := Vector3(0.0, rise, eaves)
+		var left_front := Vector3(-eaves, 0.0, -eaves)
+		var left_back := Vector3(-eaves, 0.0, eaves)
+		var right_front := Vector3(eaves, 0.0, -eaves)
+		var right_back := Vector3(eaves, 0.0, eaves)
+
+		_quad(tool, left_front, left_back, ridge_back, ridge_front, TILE)
+		_quad(tool, ridge_front, ridge_back, right_back, right_front, TILE)
+		# Gable ends, so the roof is solid rather than an open tent.
+		_tri(tool, left_front, ridge_front, right_front, PLASTER)
+		_tri(tool, right_back, ridge_back, left_back, PLASTER)
 		return _finish(tool)
 
-	# A single sloping panel, thick enough to have an edge.
-	var slope := 1.1
-	_box(tool, Vector3(0.0, slope * 0.5, 0.0), Vector3(MODULE, 0.16, MODULE * 1.18), TILE, deg_to_rad(-28.0))
+	# A lean-to: one slope, high at the back.
+	var low_front := Vector3(-eaves, 0.0, -eaves)
+	var low_front_right := Vector3(eaves, 0.0, -eaves)
+	var high_back := Vector3(-eaves, rise, eaves)
+	var high_back_right := Vector3(eaves, rise, eaves)
+	_quad(tool, low_front, low_front_right, high_back_right, high_back, TILE)
+	_tri(tool, low_front, high_back, Vector3(-eaves, 0.0, eaves), PLASTER)
+	_tri(tool, low_front_right, Vector3(eaves, 0.0, eaves), high_back_right, PLASTER)
 	return _finish(tool)
+
+static func _tri(tool: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, color: Color) -> void:
+	var winding: Array[Vector3] = [a, b, c]
+	for vertex in winding:
+		tool.set_color(color)
+		tool.add_vertex(vertex)
 
 static func _stairs() -> Mesh:
 	var tool := SurfaceTool.new()
