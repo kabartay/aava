@@ -131,10 +131,22 @@ Last updated: 2026-09-04.
 | World reset | Done | Behind a confirmation, separate from the language control. |
 | Sound | Done | 12 sounds synthesised at runtime; no audio files. |
 
+## Players, maps and worlds
+
+| Part | State | Notes |
+|---|---|---|
+| Player profiles | Done | Each child a name and their own progress. Latin and Cyrillic names. |
+| Map templates | Done | A map is a seed — the same valley for everybody, like a Call of Duty map. |
+| World instances | Done | A world is one copy of a map. Two children can each have their own copy of the same valley. |
+| Invitations | Done | Being invited puts you in *that* copy — you walk into your friend's house, not a picture of it. |
+| Shared vs private state | Done | Buildings, felled trees and dams belong to the world; bag, coins and journal to the child. |
+| Migration | Done | A valley built before profiles existed becomes the first world rather than being abandoned. |
+| Networking | **Not started** | The file layout is the shape a network needs; the transport is not written. |
+| Voice chat | **Not started** | The hardest part, with real safety implications. See ROADMAP.md. |
+
 ## Not started
 
-Named here so they are not mistaken for oversights: horse, bow and arrow,
-swimming pool, playground, café, paths and roads, beaver dams, and everything
-under networking (accounts, multiple maps, invitations, voice chat).
+Named here so they are not mistaken for oversights: a road leading off the map,
+network transport, and voice chat.
 
 See ROADMAP.md for the order these are worth doing in and what each depends on.

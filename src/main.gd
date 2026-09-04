@@ -34,6 +34,7 @@ var tasks: Tasks
 var wallet: Wallet
 var vitals: Vitals
 var journal: Journal
+var profiles: Profiles
 var today: Today
 var lantern: Lantern
 
@@ -44,12 +45,45 @@ var _seen_first_grove := false
 func _ready() -> void:
 	InputActions.register()
 
-	var save := SaveGame.read()
+	profiles = Profiles.new()
+	profiles.load_index()
+	# A player named on the command line, so a second child can be started on
+	# the same machine without touching the interface.
+	var wanted := _profile_from_command_line()
+	if not wanted.is_empty() and profiles.players.has(wanted):
+		profiles.choose_player(wanted)
+
+	# There must always be somewhere to play. On a first run that means one copy
+	# of the home valley, made before anyone has chosen a name — a child should
+	# reach the game, not a form.
+	if profiles.current_world.is_empty():
+		var existing := profiles.worlds_for(profiles.current_player)
+		if existing.is_empty():
+			profiles.choose_world(
+				profiles.create_world(Profiles.HOME_MAP, profiles.current_player)
+			)
+		else:
+			profiles.choose_world(existing[0])
+
+	# A valley built before profiles existed becomes that first world, rather
+	# than being quietly abandoned.
+	SaveGame.migrate_legacy(profiles.current_save_path())
+
+	var save := SaveGame.read(profiles.current_save_path())
+	# The valley's own state, shared by everyone in this copy. Merged over the
+	# player's file so that a save written before the split still loads: the old
+	# single file holds both, and the world file simply wins where it exists.
+	var shared := SaveGame.read(profiles.current_world_path())
+	for key in shared:
+		save[key] = shared[key]
 	# The language is read before anything is built, so the first frame is
 	# already in the right one rather than flashing English.
 	Text.set_language(StringName(save.get("language", Text.EN)))
 
-	var seed_value := int(save.get("seed", DEFAULT_SEED))
+	# The world's map decides the seed, not the save: everyone in one copy of the
+	# valley must get the same ground, even though their own progress is in
+	# separate files.
+	var seed_value := profiles.seed_of_world(profiles.current_world)
 	var override := _seed_from_command_line()
 	if override != 0:
 		seed_value = override
@@ -213,7 +247,12 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 
 	world.follow(start)
-	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
+	print("Aava seed %d, spawn %v, player '%s' in world '%s', save at %s" % [
+		world.world_seed, start,
+		profiles.current_player if not profiles.current_player.is_empty() else "(nobody yet)",
+		profiles.current_world,
+		SaveGame.absolute_path(profiles.current_save_path())
+	])
 
 func _process(delta: float) -> void:
 	if player == null:
@@ -748,28 +787,51 @@ func _write_save() -> void:
 		return
 	# What was done this session becomes what the greeting reports next time.
 	journal.depart()
+	SaveGame.write(_save_data(), profiles.current_save_path())
+	SaveGame.write(_world_data(), profiles.current_world_path())
+
+## What one child carries: their bag, their coins, where they are standing, what
+## they did yesterday. Two children in the same valley each have their own.
+func _save_data() -> Dictionary:
 	var at := player.global_position
-	SaveGame.write({
+	return {
 		"seed": world.world_seed,
 		"language": String(Text.language()),
-		"time_of_day": world.atmosphere.time_of_day,
 		"player": {"x": at.x, "y": at.y, "z": at.z},
 		"camera_yaw": camera_rig.yaw,
 		"inventory": inventory.to_data(),
+		"tasks": tasks.to_data(),
+		"wallet": wallet.to_data(),
+		"vitals": vitals.to_data(),
+		"journal": journal.to_data(),
+		"today": today.to_data(),
+	}
+
+## What the valley itself holds: what has been built, felled, dammed and taken.
+## Shared by everyone in this copy of the map, which is what makes an invitation
+## mean something — you walk into the house your friend built, not a picture of
+## it.
+func _world_data() -> Dictionary:
+	return {
+		"seed": world.world_seed,
+		"time_of_day": world.atmosphere.time_of_day,
 		"structures": structures.to_data(),
 		"pickups_taken": world.pickups.to_data(),
 		"football": world.football.to_data(),
 		"boulders": world.boulders.to_data(),
-		"tasks": tasks.to_data(),
-		"wallet": wallet.to_data(),
-		"vitals": vitals.to_data(),
 		"animals": world.animals.to_data(),
-		"journal": journal.to_data(),
-		"today": today.to_data(),
 		"dams": world.dams.to_data(),
 		"felled": world.felled.to_data(),
 		"mounts": world.mounts.to_data(),
-	})
+	}
+
+## A profile named on the command line: --player=Name. Lets a second child be
+## started on the same machine without going through the interface.
+func _profile_from_command_line() -> String:
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--player="):
+			return argument.substr(9).strip_edges()
+	return ""
 
 func _seed_from_command_line() -> int:
 	for argument in OS.get_cmdline_user_args():

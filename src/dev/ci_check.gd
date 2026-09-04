@@ -46,6 +46,7 @@ func _initialize() -> void:
 	_check_paths_lead_somewhere()
 	_check_dams_change_the_world()
 	_check_one_thing_a_day()
+	_check_players_and_worlds()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -361,7 +362,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -2020,3 +2021,125 @@ func _check_one_thing_a_day() -> void:
 				"day %d's task reads in %s" % [day, code]
 			)
 	Text.set_language(Text.EN)
+
+## Players, map templates and the worlds made from them.
+##
+## The distinction these checks are really about: a map is the same valley for
+## everybody, the way a Call of Duty map is, and a world is one copy of it that
+## a child actually plays in. Two children can each have their own copy of the
+## same valley, and an invitation puts one of them in the *other's* copy rather
+## than in a copy of their own.
+func _check_players_and_worlds() -> void:
+	print("players, maps and the worlds made from them")
+	var profiles := Profiles.new()
+	profiles.load_index()
+
+	_expect(profiles.maps.has(Profiles.HOME_MAP), "there is a home valley to make copies of")
+
+	# Names become file paths, so they are restricted rather than sanitised.
+	_expect(Profiles.is_valid_name("Amir"), "a latin name is allowed")
+	_expect(Profiles.is_valid_name("Мурат"), "a cyrillic name is allowed")
+	_expect(Profiles.is_valid_name("Ali-2"), "hyphens and digits are allowed")
+	_expect(not Profiles.is_valid_name(""), "an empty name is not")
+	_expect(not Profiles.is_valid_name("   "), "nor is whitespace")
+	_expect(not Profiles.is_valid_name("a/b"), "nor a name with a path separator in it")
+	_expect(not Profiles.is_valid_name("../etc"), "nor one that climbs out of the folder")
+	_expect(not Profiles.is_valid_name("x".repeat(Profiles.MAX_NAME + 1)), "nor one that is too long")
+
+	_expect(profiles.add_player("Amir"), "a player can be added")
+	_expect(not profiles.add_player("Amir"), "but not twice")
+	_expect(profiles.add_player("Мурат"), "and a second player can be added")
+
+	# The key property: two worlds from one map are the same ground and
+	# different afternoons.
+	var first := profiles.create_world(Profiles.HOME_MAP, "Amir")
+	var second := profiles.create_world(Profiles.HOME_MAP, "Мурат")
+	_expect(not first.is_empty() and not second.is_empty(), "two copies of the valley can exist at once")
+	_expect(first != second, "and they are different worlds")
+	_expect(
+		profiles.seed_of_world(first) == profiles.seed_of_world(second),
+		"both copies have the same ground, because they are the same map"
+	)
+	_expect(
+		profiles.world_path_for(first) != profiles.world_path_for(second),
+		"but what is built in one is not in the other"
+	)
+
+	# Playing alone.
+	_expect(profiles.owner_of(first) == "Amir", "a world belongs to whoever made it")
+	_expect(profiles.may_enter(first, "Amir"), "who can walk into it")
+	_expect(not profiles.may_enter(first, "Мурат"), "and nobody else can, uninvited")
+
+	# Inviting a friend puts them in *this* copy.
+	_expect(profiles.invite(first, "Мурат"), "a friend can be invited")
+	_expect(profiles.may_enter(first, "Мурат"), "and can then walk in")
+	_expect(not profiles.invite(first, "Мурат"), "inviting twice does nothing")
+	_expect(not profiles.invite(first, "Amir"), "and an owner cannot be their own guest")
+	_expect(not profiles.invite(first, "Nobody"), "nor can somebody who does not exist")
+	_expect(not profiles.invite("no-such-world", "Мурат"), "nor into a world that does not exist")
+
+	# A guest's own progress is still their own, even in someone else's valley.
+	_expect(
+		profiles.save_path_for("Amir", first) != profiles.save_path_for("Мурат", first),
+		"two children in one valley each keep their own bag and coins"
+	)
+	# But the ground they change is shared, which is what makes the invitation
+	# worth anything.
+	_expect(
+		profiles.world_path_for(first) == profiles.world_path_for(first),
+		"and they change the same ground"
+	)
+
+	# The same child in two worlds is two separate afternoons.
+	_expect(
+		profiles.save_path_for("Мурат", first) != profiles.save_path_for("Мурат", second),
+		"the same child in two valleys has two separate afternoons"
+	)
+
+	_expect(profiles.uninvite(first, "Мурат"), "an invitation can be withdrawn")
+	_expect(not profiles.may_enter(first, "Мурат"), "and then they cannot walk in")
+	profiles.invite(first, "Мурат")
+
+	# What each child sees when choosing where to play.
+	var amir_sees := profiles.worlds_for("Amir")
+	var murat_sees := profiles.worlds_for("Мурат")
+	_expect(amir_sees.size() == 1, "Amir sees the one world he made")
+	_expect(murat_sees.size() == 2, "Мурат sees his own and the one he was invited to")
+
+	# A new map template is a new kind of valley, with its own ground.
+	_expect(profiles.add_map("river", 771234), "a new map can be added")
+	_expect(not profiles.add_map("river", 9), "but not one that already exists")
+	_expect(
+		profiles.seed_of("river") != profiles.seed_of(Profiles.HOME_MAP),
+		"and it is a different valley"
+	)
+	var elsewhere := profiles.create_world("river", "Amir")
+	_expect(
+		profiles.seed_of_world(elsewhere) != profiles.seed_of_world(first),
+		"a world made from it has different ground"
+	)
+	_expect(profiles.create_world("nowhere", "Amir").is_empty(), "no world can be made from a map that does not exist")
+
+	# Everything must survive a restart, or a child loses their friends' valleys.
+	profiles.choose_player("Amir")
+	profiles.choose_world(first)
+	profiles.save_index()
+
+	var restarted := Profiles.new()
+	restarted.load_index()
+	_expect(restarted.players.has("Amir") and restarted.players.has("Мурат"), "players survive a restart")
+	_expect(restarted.worlds.has(first), "so do the worlds")
+	_expect(restarted.may_enter(first, "Мурат"), "and so do the invitations")
+	_expect(restarted.current_player == "Amir", "and who was playing")
+	_expect(restarted.current_world == first, "and where")
+
+	# Removing a player must not take the shared valley with them.
+	_expect(restarted.remove_player("Мурат"), "a player can be removed")
+	_expect(restarted.worlds.has(first), "and the valley they were invited to survives")
+	_expect(not restarted.may_enter(first, "Мурат"), "though they are no longer a guest")
+
+	# Leave no test data behind for the next run.
+	var folder := DirAccess.open(Profiles.FOLDER)
+	if folder != null:
+		for file in folder.get_files():
+			DirAccess.remove_absolute(ProjectSettings.globalize_path("%s/%s" % [Profiles.FOLDER, file]))

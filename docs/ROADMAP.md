@@ -109,13 +109,24 @@ The largest item by a wide margin, and worth being honest about: accounts,
 several maps, invitations, and voice chat between children is not a feature, it
 is a second project. Sketch of the order it would go in:
 
-1. **Local profiles** — several named saves on one device. Small, and useful
-   immediately even without networking.
+1. ~~**Local profiles**~~ — **Done**, and with the right shape underneath:
+   a *map* is a template (a seed, the same valley for everybody), a *world* is
+   one copy of it that is actually played in, and a *player* owns worlds and can
+   be invited into someone else's. Two children can each have their own copy of
+   the same valley; an invitation puts one of them in the other's copy. What is
+   built, felled and dammed belongs to the world; the bag, coins and journal
+   belong to the child.
 2. **A shared world on a LAN** — one device hosts, others join. Godot's
-   high-level multiplayer handles this; the hard part is deciding what is
-   authoritative. The height field is a pure function of the seed, so terrain
-   costs nothing to share; structures and animals must be reconciled.
-3. **Invitations and several maps** — each map its own seed and save.
+   high-level multiplayer handles the transport; the hard part is deciding what
+   is authoritative. The ground costs nothing to share, because the height field
+   is a pure function of the seed and both machines can generate it from the map
+   name alone. What has to travel is exactly what is in the world file today:
+   structures, felled trees, dams, and where the other child is standing.
+   Joining is opening someone else's world instead of your own, which is now a
+   real operation rather than a hypothetical.
+3. ~~**Invitations and several maps**~~ — **Done** locally. Over a network an
+   invitation additionally has to carry an address; the permission model is
+   already there.
 4. **Voice** — the hardest, and the part with real safety implications, since
    the children are young. Push-to-talk between known devices only.
 
