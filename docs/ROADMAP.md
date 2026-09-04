@@ -61,22 +61,23 @@ an arrow can reach.
 
 ## 5. Places worth walking to
 
-The valley is large and evenly interesting, which means nowhere in particular is
-worth going. Each of these is a destination.
+**Done.** Playground, pool and café stand around the camp, spread far enough
+apart that going between them means crossing the valley.
 
-- **Playground** — swings and a slide that actually move the player. The
-  two-year-old's entry point; he cannot manage the stick reliably but can press
-  a button and watch something happen.
-- **Swimming pool** — needs swimming, which the river currently does not have.
-  Doing this properly also fixes the river.
-- **Café** — somewhere to spend coins on food that restores energy. Closes the
-  energy loop from the other end.
+Swimming came with the pool and fixed the river, which had been a wall: walking
+in meant sinking to the bed and trudging along the bottom. It is deliberately
+forgiving — no drowning, no stamina, and buoyancy that pushes a child back to
+the surface. Slower than walking, so it reads as crossing something rather than
+as a shortcut.
+
+Still worth doing here: the slide does not actually slide a child down it, and
+the swing does not carry them. Both are currently things to watch rather than
+things to ride.
 
 ## 6. Paths and roads
 
-Asked for. A path is a strong signal about where to go, which is what the valley
-lacks. Worth doing after there are destinations for paths to connect, not
-before, or they lead nowhere.
+Asked for, and now unblocked: there are four destinations for paths to connect
+(camp, playground, pool, café) plus the pitch and the archery range.
 
 Needs: a road layer in the height field (paths should flatten slightly, as the
 pitch does), and a mesh that follows terrain without floating.

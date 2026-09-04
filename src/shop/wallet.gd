@@ -37,6 +37,16 @@ func buy(item: StringName, price: int) -> bool:
 	bought.emit(item)
 	return true
 
+## Pay for something that is not kept — a meal, a ride. `buy` records what was
+## bought and refuses to charge twice for it, which is right for a bicycle and
+## wrong for lunch.
+func spend(amount: int) -> bool:
+	if amount <= 0 or coins < amount:
+		return false
+	coins -= amount
+	changed.emit(coins)
+	return true
+
 func to_data() -> Dictionary:
 	return {"coins": coins, "owned": owned.keys()}
 

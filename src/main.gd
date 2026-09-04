@@ -237,6 +237,17 @@ func _process(delta: float) -> void:
 		camera_rig.set_eye_lift(0.0)
 		sounds.play(Sounds.Sound.REFUSE)
 
+	# The player is told how deep the water is; it knows nothing about rivers or
+	# pools itself. The river's depth comes from the height field, the pool's
+	# from the pool.
+	var at := player.global_position
+	var river_depth := maxf(0.0, HeightField.WATER_LEVEL - world.field.height_at(at.x, at.z))
+	player.water_depth = maxf(river_depth, world.places.water_depth_at(at.x, at.z))
+
+	# Whatever the place a child is standing in offers.
+	var here := world.places.nearest(at)
+	hud.set_place_offer(_offer_at(here))
+
 	hud.set_on_shooting_line(
 		player.global_position.distance_to(world.archery.shooting_line()) < SHOOTING_LINE_REACH
 	)
@@ -351,6 +362,7 @@ func _handlers() -> Dictionary:
 		&"ride": _on_ride,
 		&"shoot_start": _on_shoot_start,
 		&"shoot_release": _on_shoot_release,
+		&"visit": _on_place_used,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -400,6 +412,42 @@ const WOOD_PER_TREE := 4
 
 ## How close to the shooting line a child must stand to draw a bow.
 const SHOOTING_LINE_REACH := 6.0
+
+## What the place a child is standing in is offering, as a label — or nothing.
+func _offer_at(place: StringName) -> String:
+	match place:
+		Places.PLAYGROUND:
+			return Text.of("ui_swing")
+		Places.CAFE:
+			return Text.of("ui_eat")
+		_:
+			# The pool needs no button: a child walks in and swims. Offering
+			# "swim" beside water you are already standing in is noise.
+			return ""
+
+func _on_place_used() -> void:
+	var here := world.places.nearest(player.global_position)
+	match here:
+		Places.PLAYGROUND:
+			if world.places.push_swing():
+				sounds.play(Sounds.Sound.JUMP, 1.2)
+		Places.CAFE:
+			_eat()
+
+## A meal at the café: coins for energy. This closes the energy loop from the
+## other end — animals earn coins, the café turns coins back into a full bar.
+func _eat() -> void:
+	if wallet.coins < Places.MEAL_PRICE:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.format("say_no_coins", [Places.MEAL_PRICE]), 2.2)
+		return
+	wallet.spend(Places.MEAL_PRICE)
+	vitals.energy = minf(
+		Vitals.MAX_ENERGY, vitals.energy + Vitals.MAX_ENERGY * Places.MEAL_RESTORE
+	)
+	_refresh_vitals()
+	sounds.play(Sounds.Sound.PICKUP, 0.9)
+	hud.announce(Text.of("say_ate"), 2.0)
 
 func _on_shoot_start() -> void:
 	player.start_charging()

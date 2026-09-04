@@ -1,0 +1,86 @@
+class_name PlaceSpec
+extends RefCounted
+
+## Where the playground, pool and café stand, and how flat the ground under
+## them has to be.
+##
+## This is a dependency-free leaf script for the same reason `terrain_spec.gd`
+## is: the height field has to level the ground under these places, and `Places`
+## has to ask the height field where the ground is. Putting the positions in
+## either one makes the two reference each other, and a cyclic `class_name`
+## dependency does not produce an error in Godot — the import simply never
+## finishes. See LESSONS.md.
+##
+## The camp offset is fixed rather than passed in, because the height field is a
+## pure function of position and a seed and must stay that way: anything that
+## can be set at runtime cannot be part of it.
+
+## Where each place sits relative to the camp, spread rather than in a row so
+## that walking between them means crossing the valley.
+const OFFSETS := {
+	&"playground": Vector3(14.0, 0.0, 12.0),
+	&"cafe": Vector3(-16.0, 0.0, -9.0),
+	&"pool": Vector3(22.0, 0.0, -14.0),
+}
+
+## How much flat ground each place needs, and how far out the levelling fades.
+## Each radius must cover the structure that stands on it. The playground's
+## frame and slide together span about seven metres, so a six-metre radius left
+## the slide's foot on a slope.
+const RADIUS := {
+	&"playground": 11.0,
+	&"cafe": 7.0,
+	&"pool": 13.0,
+}
+## Half the width of the structure that actually stands at each place. The
+## levelled radius has to comfortably exceed this, because the outer part of
+## that radius is the feathered edge where the ground slopes back into the
+## valley — flat ground is only guaranteed inside the footprint.
+const FOOTPRINT := {
+	&"playground": 5.0,
+	&"cafe": 2.5,
+	&"pool": 7.0,
+}
+
+const FEATHER := 7.0
+
+## How much of the levelling applies at a point, from 1 at the centre to 0
+## outside the feathered edge. Zero for every point far from all three, which is
+## almost everywhere, so this is cheap.
+static func influence(x: float, z: float, camp: Vector3) -> float:
+	var strongest := 0.0
+	for place in OFFSETS:
+		var centre: Vector3 = camp + OFFSETS[place]
+		var distance := sqrt(
+			(x - centre.x) * (x - centre.x) + (z - centre.z) * (z - centre.z)
+		)
+		var radius: float = RADIUS[place]
+		if distance > radius + FEATHER:
+			continue
+		strongest = maxf(strongest, 1.0 - smoothstep(radius, radius + FEATHER, distance))
+	return strongest
+
+static func centre_of(place: StringName, camp: Vector3) -> Vector3:
+	return camp + OFFSETS[place]
+
+## How deep the pool is, and how far its walls reach. Declared here rather than
+## in Places because the height field has to dig the hole: a pool drawn as a
+## rim on flat ground is a white square painted on the grass, which is exactly
+## what the first version looked like.
+const POOL_DEPTH := 1.9
+const POOL_HALF := 6.0
+
+## How much the ground is cut away at a point, in metres. Zero everywhere but
+## inside the pool.
+##
+## Excavated in the height field so the terrain mesh, the collision heightmap,
+## the grass and the pickups all agree there is a hole here — the same reason
+## the football pitch is levelled here rather than by a node that draws a pitch.
+static func excavation(x: float, z: float, camp: Vector3) -> float:
+	var centre: Vector3 = camp + OFFSETS[&"pool"]
+	var inside := maxf(absf(x - centre.x), absf(z - centre.z))
+	if inside > POOL_HALF:
+		return 0.0
+	# Shelving at the edge, so a child steps in rather than falling in. Matches
+	# the depth Places reports for swimming.
+	return POOL_DEPTH * (1.0 - smoothstep(POOL_HALF - 1.6, POOL_HALF, inside))

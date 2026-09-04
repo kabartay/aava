@@ -87,6 +87,17 @@ Last updated: 2026-09-04.
 | Bow | Done | Held to draw, released to loose — the same gesture as the kick. |
 | No hunting | Done, enforced | The bow tests arrows against target faces and the ground and nothing else. A check reads the source to keep it that way. |
 
+## Places worth walking to
+
+| Part | State | Notes |
+|---|---|---|
+| Swimming | Done | The river was a wall before this. Forgiving by design: no drowning, no stamina, buoyancy pushes a child back up. |
+| Swimming pool | Done | Dug into the height field, so the hole and the water are the same shape by construction. Shelves at the edge. |
+| Playground | Done | Swing and slide. The simplest thing in the game, and the two-year-old's entry point. |
+| Café | Done | 3 coins for a meal that restores 55% of the energy bar — closes the energy loop from the other end. |
+| Levelled ground | Done | Playground, pool and café are flat by construction, like the football pitch. |
+| Paths and roads | **Not started** | Worth doing now that there are destinations for paths to connect. |
+
 ## Riding
 
 | Part | State | Notes |

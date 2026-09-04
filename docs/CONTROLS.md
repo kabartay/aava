@@ -16,6 +16,8 @@ a control a child has to be told about is a control he forgets.
 | Care for an animal | **feed** / **pet** when one is close | same |
 | Drink | **drink**, shown only when the bottle has water | same |
 | Fill the bottle | walk into the shallows | same |
+| Swim | walk into the water | same |
+| Swing, eat | **swing** / **eat** at the playground or café | same |
 | Shoot | hold **shoot** at the range, release to loose | hold `E` |
 | Ride / get off | **ride** when a horse or bicycle is close | same |
 | Chop a tree | **chop**, once the axe is bought | same |
@@ -52,6 +54,13 @@ stranded. Rest for about five seconds and you can run again, or drink.
 
 **The bottle fills by walking into the river.** There is no button for it. It
 holds four drinks.
+
+**You can swim.** Walk into the river or the pool and you float. There is no
+drowning and no way to be dragged under — jump to stroke upwards and get out.
+Swimming is slower than walking, so crossing the river is a decision.
+
+**The café turns coins into energy.** A meal costs 3 coins and fills over half
+the bar. Looking after one beaver pays for lunch.
 
 **The lantern lights itself.** Once bought, it comes on as it gets dark and goes
 out at dawn. There is no switch, because there is no interesting decision in

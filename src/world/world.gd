@@ -20,6 +20,7 @@ var animals: Animals
 var felled: Felled
 var mounts: Mounts
 var archery: Archery
+var places: Places
 var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
@@ -54,6 +55,10 @@ func _ready() -> void:
 	# already been cut down.
 	vegetation.felled = felled
 
+	places = Places.new(field)
+	places.name = "Places"
+	add_child(places)
+
 	archery = Archery.new(field)
 	archery.name = "Archery"
 	add_child(archery)
@@ -80,6 +85,10 @@ func _ready() -> void:
 	# The range points away from the camp and away from the pitch, so no arrow
 	# ever flies towards somewhere a child stands.
 	archery.stand_up(spawn + Vector3(-9.0, 0.0, 6.0), Vector3(-0.35, 0.0, 1.0))
+	# The camp constant, not the spawn search: the ground under these is
+	# levelled by the height field against that same constant, so using
+	# anything else would stand them beside their own flat patch.
+	places.stand_up(field.camp_centre())
 	follow(spawn)
 	ready_at_spawn.emit(spawn)
 

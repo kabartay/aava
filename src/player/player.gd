@@ -24,6 +24,22 @@ const COYOTE_TIME := 0.13
 ## touchdown. The other half of the same problem.
 const JUMP_BUFFER := 0.14
 
+## Swimming. The river was a wall before this: walk in and you sank to the bed
+## and trudged along the bottom, which read as a bug and made the far bank
+## unreachable without a horse. Water is now something a child floats in.
+##
+## Deliberately forgiving: there is no drowning, no stamina, and no way to be
+## dragged under. Water in a game for a six-year-old should be a place, not a
+## hazard.
+const SWIM_DEPTH := 1.05
+const SWIM_SPEED := 2.6
+## How hard the water pushes back up towards the surface. Strong enough that a
+## child who jumps in bobs back up on their own.
+const BUOYANCY := 9.0
+## The most the water lets you sink or rise, so bobbing does not turn into
+## bouncing.
+const SWIM_DAMP := 0.86
+
 const HEIGHT := 1.55
 const RADIUS := 0.34
 
@@ -35,6 +51,11 @@ signal jumped()
 signal landed(speed: float)
 
 var camera_yaw := 0.0
+
+## How deep the water is at the player's feet, set by the game each frame. The
+## player knows nothing about where the river or the pool are; it is told.
+var water_depth := 0.0
+var is_swimming := false
 
 ## What the player is riding, or an empty name when on foot. Set by the game.
 ##
@@ -135,16 +156,33 @@ func _physics_process(delta: float) -> void:
 	if measured.length_squared() > 0.0:
 		_gravity = -measured.y
 
-	var grounded := is_on_floor()
+	# How deep the water is here, if there is any. Set by the game each frame,
+	# because the player knows nothing about rivers or pools.
+	var afloat := water_depth > SWIM_DEPTH
+	if is_swimming != afloat:
+		is_swimming = afloat
+
+	var grounded := is_on_floor() and not afloat
 	_coyote = COYOTE_TIME if grounded else maxf(0.0, _coyote - delta)
 	_buffered_jump = maxf(0.0, _buffered_jump - delta)
 	if Input.is_action_just_pressed(InputActions.JUMP):
 		_buffered_jump = JUMP_BUFFER
 
-	if not grounded:
+	if afloat:
+		# Pushed towards the surface rather than pulled to the bed, and damped
+		# so the child settles at the waterline instead of bobbing forever.
+		var to_surface := water_depth - SWIM_DEPTH
+		velocity.y += BUOYANCY * to_surface * delta
+		velocity.y *= SWIM_DAMP
+		# Jump becomes a stroke upwards, which is how a child expects to get
+		# out of a pool.
+		if _buffered_jump > 0.0:
+			velocity.y = maxf(velocity.y, JUMP_VELOCITY * 0.42)
+			_buffered_jump = 0.0
+	elif not grounded:
 		velocity.y -= _gravity * delta
 
-	if _buffered_jump > 0.0 and _coyote > 0.0:
+	if _buffered_jump > 0.0 and _coyote > 0.0 and not afloat:
 		velocity.y = JUMP_VELOCITY
 		_buffered_jump = 0.0
 		_coyote = 0.0
@@ -179,7 +217,11 @@ func _physics_process(delta: float) -> void:
 		top = RUN_SPEED
 		push = maxf(push, 1.0)
 
-	if riding != &"":
+	if afloat:
+		# One speed in water, and slower than walking. Swimming should feel like
+		# crossing something rather than like a faster way to travel.
+		top = SWIM_SPEED * minf(push, 1.0)
+	elif riding != &"":
 		# A mount has one speed, reached by pushing the stick, and no walk/run
 		# distinction — a child on a horse is not choosing a gait.
 		top = MountKinds.speed(riding) * minf(push, 1.0)

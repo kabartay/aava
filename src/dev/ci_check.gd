@@ -40,6 +40,8 @@ func _initialize() -> void:
 	_check_riding()
 	_check_the_bow()
 	_check_night_is_dark()
+	_check_places_worth_walking_to()
+	_check_every_handler_is_reachable()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -355,7 +357,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1513,3 +1515,154 @@ func _check_night_is_dark() -> void:
 
 	lantern.queue_free()
 	atmosphere.queue_free()
+
+## The playground, the pool and the café. The valley was large and evenly
+## interesting, which meant nowhere in particular was worth going.
+func _check_places_worth_walking_to() -> void:
+	print("there are places worth walking to")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+
+	# The ground under each must actually be flat, or a pool sits on a slope
+	# and a slide's foot hangs in the air.
+	for place in PlaceSpec.OFFSETS:
+		var centre: Vector3 = PlaceSpec.centre_of(place, camp)
+		var lowest := 1e9
+		var highest := -1e9
+		# Probed over the structure's own footprint, not the whole levelling
+		# radius: the outer part of that radius is the feathered edge, where
+		# ground is meant to slope back into the valley.
+		var footprint: float = PlaceSpec.FOOTPRINT[place]
+		for dx in range(-4, 5):
+			for dz in range(-4, 5):
+				var step := footprint / 4.0
+				var px := centre.x + float(dx) * step
+				var pz := centre.z + float(dz) * step
+				# The excavation is added back, because the pool is *meant* to
+				# be 1.9 m below the rest. What is being checked is that the
+				# ground the buildings stand on is level, not that nothing was
+				# dug into it.
+				var h := field.height_at(px, pz) + PlaceSpec.excavation(px, pz, camp)
+				lowest = minf(lowest, h)
+				highest = maxf(highest, h)
+		var spread := highest - lowest
+		_expect(
+			spread < 0.12,
+			"the ground under the %s is flat to %.3f m across its %.1f m footprint" % [
+				place, spread, footprint * 2.0
+			]
+		)
+
+	# They must be far enough apart that going from one to another is a walk.
+	var names := PlaceSpec.OFFSETS.keys()
+	var all_apart := true
+	for i in names.size():
+		for j in range(i + 1, names.size()):
+			var a: Vector3 = PlaceSpec.centre_of(names[i], camp)
+			var b: Vector3 = PlaceSpec.centre_of(names[j], camp)
+			if a.distance_to(b) < 18.0:
+				all_apart = false
+				printerr("  %s and %s are only %.1f m apart" % [names[i], names[j], a.distance_to(b)])
+	_expect(all_apart, "no two places are within 18 m of each other")
+
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+	for place in Places.ALL:
+		_expect(places.exists(place), "the %s was built" % place)
+
+	# Standing in one offers it; standing in the valley offers nothing.
+	for place in Places.ALL:
+		_expect(
+			places.nearest(places.position_of(place)) == place,
+			"standing at the %s offers the %s" % [place, place]
+		)
+	_expect(places.nearest(camp + Vector3(0.0, 0.0, 120.0)) == &"", "the open valley offers nothing")
+
+	# The pool must be deep enough to swim in rather than wade through, and dry
+	# everywhere else.
+	var pool := places.position_of(Places.POOL)
+	_expect(
+		places.water_depth_at(pool.x, pool.z) > Player.SWIM_DEPTH,
+		"the pool is deep enough to float in"
+	)
+	# The hole and the water must be the same shape, or a child floats above the
+	# floor or stands in the water. Both come from PlaceSpec.excavation, and
+	# this is what proves it.
+	var same_shape := true
+	for dx in range(-6, 7):
+		var px := pool.x + float(dx)
+		var dug := PlaceSpec.excavation(px, pool.z, camp)
+		var wet := places.water_depth_at(px, pool.z)
+		if absf(dug - wet) > 0.001:
+			same_shape = false
+	_expect(same_shape, "the water is exactly as deep as the hole is deep")
+	_expect(
+		is_zero_approx(places.water_depth_at(pool.x + 40.0, pool.z)),
+		"and the grass beside it is dry"
+	)
+	# A step-in rather than a drop at the edge.
+	var edge := places.water_depth_at(pool.x + Places.POOL_HALF - 0.4, pool.z)
+	_expect(
+		edge > 0.0 and edge < Places.POOL_DEPTH,
+		"the pool shelves at the edge (%.2f m) rather than dropping" % edge
+	)
+
+	_expect(places.push_swing(), "the swing can be pushed")
+	_expect(places.swinging(), "and it swings")
+
+	# Swimming itself: forgiving by design. No drowning, and slower than
+	# walking so it reads as crossing something rather than as a shortcut.
+	_expect(Player.SWIM_SPEED < Player.WALK_SPEED, "swimming is slower than walking")
+	_expect(Player.BUOYANCY > 0.0, "water pushes a child back up, so nobody sinks")
+
+	# The café closes the energy loop: coins back into energy.
+	var wallet := Wallet.new()
+	_expect(not wallet.spend(Places.MEAL_PRICE), "an empty purse buys no lunch")
+	wallet.earn(Places.MEAL_PRICE)
+	_expect(wallet.spend(Places.MEAL_PRICE), "a meal costs %d coins" % Places.MEAL_PRICE)
+	_expect(wallet.coins == 0, "and the coins are actually gone")
+	# Unlike a shop item, lunch is not recorded as owned — it can be bought again.
+	wallet.earn(Places.MEAL_PRICE)
+	_expect(wallet.spend(Places.MEAL_PRICE), "and lunch can be bought a second time")
+
+	_expect(
+		Places.MEAL_PRICE <= AnimalKinds.coins(AnimalKinds.BEAVER),
+		"one animal cared for pays for a meal"
+	)
+
+	for place in Places.ALL:
+		for code in [Text.EN, Text.FR, Text.RU]:
+			Text.set_language(code)
+			_expect(
+				not Text.of("place_%s" % place).begins_with("?"),
+				"the %s is named in %s" % [place, code]
+			)
+	Text.set_language(Text.EN)
+
+	places.queue_free()
+
+## Handlers are passed to the interface as a dictionary keyed by name. A
+## duplicate key silently replaces the earlier handler rather than erroring,
+## which is exactly how the place button nearly stopped building from working:
+## both wanted to be called "place".
+func _check_every_handler_is_reachable() -> void:
+	print("every control has its own handler")
+	var seen: Dictionary = {}
+	var unique := true
+	for name in Wiring.HANDLERS:
+		if seen.has(name):
+			unique = false
+			printerr("  '%s' is listed twice" % name)
+		seen[name] = true
+	_expect(unique, "all %d handler names are distinct" % Wiring.HANDLERS.size())
+
+	# And the source must connect one signal per handler, so a name that is
+	# listed but never wired up is caught here rather than as a dead button.
+	var source := FileAccess.get_file_as_string("res://src/game/wiring.gd")
+	var wired := true
+	for name in Wiring.HANDLERS:
+		if not source.contains('&"%s"' % name):
+			wired = false
+			printerr("  '%s' is never connected" % name)
+	_expect(wired, "every handler name is actually connected to a signal")

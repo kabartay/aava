@@ -39,6 +39,9 @@ recur.
 | `global_position` / `look_at` before entering the tree | Butts and arrows placed at the origin | Build the `Transform3D` directly |
 | Aim flattened, then nudged upward | Every arrow flew 1.2 m over the gold | Shoot down the line the player is looking |
 | `PackedFloat32Array` as a `const` | "isn't a constant expression" — second time | `Array[float]` |
+| Two handlers named `place` | The later key silently replaced building | `_check_every_handler_is_reachable` |
+| Pool drawn as a rim on flat ground | A white square painted on the grass | Excavated in the height field |
+| Same shape computed in two files | Water and hole would drift apart | Both call `PlaceSpec.excavation` |
 
 
 ## Godot 4.7
@@ -192,3 +195,24 @@ tree first called a `rebuild_all` that rebuilt every loaded tile synchronously:
 dozens of tiles of forty-six candidates each, plus grass, in one frame. The
 streaming queue already spreads that work over frames, and the fix was to put
 the rebuild through it rather than around it.
+
+**A dictionary of named handlers hides a duplicate key.** Replacing seventeen
+positional arguments with a dictionary fixed the counting problem and introduced
+a quieter one: adding a `place` handler for the playground silently replaced the
+`place` handler that put down building pieces, because a repeated key overwrites
+rather than erroring. Building would simply have stopped working. There is now a
+check that every handler name is distinct and that each one is actually
+connected to a signal.
+
+**Anything that shapes the ground belongs in the height field.** The pool was
+first built as a rim and four walls standing on levelled grass, which rendered
+as a white square painted on a lawn — there was no hole. Digging it inside
+`height_at` means the terrain mesh, the collision heightmap, the grass and the
+pickups all agree there is a hollow there, for the same reason the football
+pitch is levelled there rather than by a node that draws a pitch.
+
+**Two formulas for one shape will drift.** The depth of the pool decided where
+the terrain was cut away *and* how deep the water was for swimming. Written
+twice, they would eventually disagree and a child would float above the floor or
+stand in the water. Both now call one `PlaceSpec.excavation`, and a check
+compares them across the whole pool.

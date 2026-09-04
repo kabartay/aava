@@ -16,7 +16,7 @@ extends RefCounted
 ## Every handler the interface can call. A missing one is reported by name.
 const HANDLERS := [
 	&"place", &"kick_start", &"kick_release", &"jump", &"remove",
-	&"language", &"reset", &"care", &"shop", &"buy", &"drink", &"whistle", &"chop", &"ride", &"shoot_start", &"shoot_release",
+	&"language", &"reset", &"care", &"shop", &"buy", &"drink", &"whistle", &"chop", &"ride", &"shoot_start", &"shoot_release", &"visit",
 ]
 
 static func connect_hud(
@@ -55,6 +55,7 @@ static func connect_hud(
 	hud.ride_pressed.connect(handlers.get(&"ride", Callable()))
 	hud.shoot_started.connect(handlers.get(&"shoot_start", Callable()))
 	hud.shoot_released.connect(handlers.get(&"shoot_release", Callable()))
+	hud.place_used.connect(handlers.get(&"visit", Callable()))
 
 	# The map is attached here rather than by the caller, because the
 	# screenshot tool built its own interface and silently had no map — exactly

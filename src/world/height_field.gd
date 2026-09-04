@@ -86,6 +86,35 @@ func distance_to_river(x: float, z: float) -> float:
 	return absf(x - river_centre_x(z))
 
 func height_at(x: float, z: float) -> float:
+	var floor_height := _raw_height(x, z)
+
+	# The football pitch levels the ground beneath it. This happens here, in the
+	# height field, rather than in some node that draws a pitch — so the terrain
+	# mesh, the collision heightmap, the trees, the pickups and the ball all
+	# agree about where the ground is without any of them knowing a pitch exists.
+	var pitch := Pitch.influence(x, z)
+	if pitch > 0.0:
+		floor_height = lerpf(floor_height, PITCH_LEVEL, pitch)
+
+	# The playground, pool and café stand on levelled ground the same way. The
+	# camp is a constant rather than the result of find_spawn_point(), because
+	# that function calls height_at: asking it here would recurse, and a height
+	# field that depends on a search is no longer a pure function of position
+	# and seed — which is the property every other system relies on.
+	var places := PlaceSpec.influence(x, z, camp_centre())
+	if places > 0.0:
+		floor_height = lerpf(floor_height, _place_level(), places)
+		# And the pool is dug out of that levelled ground. Done here so the
+		# terrain mesh, the collision heightmap, the grass and the pickups all
+		# agree there is a hole, rather than a rim being drawn on flat grass.
+		floor_height -= PlaceSpec.excavation(x, z, camp_centre())
+
+	return floor_height
+
+## The terrain before anything is levelled into it. Separated from height_at so
+## that the level the flattening aims at can be read without recursing through
+## the flattening itself.
+func _raw_height(x: float, z: float) -> float:
 	var to_river := distance_to_river(x, z)
 	var from_origin := sqrt(x * x + z * z)
 
@@ -113,14 +142,6 @@ func height_at(x: float, z: float) -> float:
 		floor_height += pow(ridge, 1.30) * 240.0 * mountain_mask
 
 	floor_height += _detail.get_noise_2d(x, z) * 0.5
-
-	# The football pitch levels the ground beneath it. This happens here, in the
-	# height field, rather than in some node that draws a pitch — so the terrain
-	# mesh, the collision heightmap, the trees, the pickups and the ball all
-	# agree about where the ground is without any of them knowing a pitch exists.
-	var pitch := Pitch.influence(x, z)
-	if pitch > 0.0:
-		floor_height = lerpf(floor_height, PITCH_LEVEL, pitch)
 
 	return floor_height
 
@@ -167,6 +188,28 @@ func forest_density_at(x: float, z: float) -> float:
 	density *= 1.0 - smoothstep(TREELINE - 26.0, TREELINE, height)
 
 	return clampf(density, 0.0, 1.0)
+
+## Where the camp is. Fixed rather than searched for, because the ground under
+## the camp's buildings is levelled inside height_at and a search would have to
+## call it — see the note there.
+##
+## Chosen by walking the same ring pattern find_spawn_point used, on the raw
+## terrain, and taking a spot that is dry, gentle and clear of the river.
+func camp_centre() -> Vector3:
+	return Vector3(0.0, 0.0, 18.0)
+
+## The height the levelled ground around the camp settles at. Read from the raw
+## terrain at the camp so the buildings sit at the valley's own level rather
+## than on a plateau of their own.
+func _place_level() -> float:
+	if _cached_place_level < -1e8:
+		var camp := camp_centre()
+		# Deliberately not height_at: that would recurse straight back into the
+		# levelling this value is for.
+		_cached_place_level = _raw_height(camp.x, camp.z)
+	return _cached_place_level
+
+var _cached_place_level := -1e9
 
 ## A calm, flat, dry spot near the river to put the player and the first camp.
 func find_spawn_point() -> Vector3:

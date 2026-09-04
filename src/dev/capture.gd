@@ -192,6 +192,7 @@ func _spawn_player() -> void:
 			&"ride": func() -> void: pass,
 			&"shoot_start": func() -> void: pass,
 			&"shoot_release": func() -> void: pass,
+			&"visit": func() -> void: pass,
 		}
 	)
 

@@ -184,6 +184,27 @@ const STRINGS := {
 	"back_welcome": {
 		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
 	},
+	"place_playground": {
+		EN: "playground", FR: "aire de jeux", RU: "площадка",
+	},
+	"place_pool": {
+		EN: "pool", FR: "piscine", RU: "бассейн",
+	},
+	"place_cafe": {
+		EN: "cafe", FR: "café", RU: "кафе",
+	},
+	"ui_swing": {
+		EN: "swing", FR: "balancer", RU: "качаться",
+	},
+	"ui_eat": {
+		EN: "eat", FR: "manger", RU: "поесть",
+	},
+	"say_ate": {
+		EN: "that was good", FR: "c'était bon", RU: "вкусно",
+	},
+	"say_no_coins": {
+		EN: "you need %d coins", FR: "il te faut %d pièces", RU: "нужно монет: %d",
+	},
 	"ui_shoot": {
 		EN: "shoot", FR: "tirer", RU: "стрелять",
 	},

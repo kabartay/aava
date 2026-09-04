@@ -38,6 +38,7 @@ signal chop_pressed()
 signal ride_pressed()
 signal shoot_started()
 signal shoot_released()
+signal place_used()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -80,6 +81,7 @@ var _whistle_button: Button
 var _chop_button: Button
 var _ride_button: Button
 var _shoot_button: Button
+var _visit_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -247,6 +249,14 @@ func _ready() -> void:
 	_shoot_button.button_down.connect(func() -> void: shoot_started.emit())
 	_shoot_button.button_up.connect(func() -> void: shoot_released.emit())
 	add_child(_shoot_button)
+
+	# One button for whatever the place a child is standing in offers, labelled
+	# by the place. A separate control per destination would mean three buttons
+	# of which two are always inert.
+	_visit_button = _button(Text.of("ui_swing"), Color(0.72, 0.92, 0.78))
+	_visit_button.visible = false
+	_visit_button.pressed.connect(func() -> void: place_used.emit())
+	add_child(_visit_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -508,6 +518,15 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 	var can_drink := carries_bottle and water > 0.0
 	if _drink_button.visible != can_drink:
 		_drink_button.visible = can_drink
+		_layout()
+
+## What the place a child is standing in offers, or nothing at all.
+func set_place_offer(label: String) -> void:
+	var wanted := not label.is_empty()
+	if wanted and _visit_button.text != label:
+		_visit_button.text = label
+	if _visit_button.visible != wanted:
+		_visit_button.visible = wanted
 		_layout()
 
 ## Whether the shooting line is close enough to draw a bow.
@@ -896,6 +915,13 @@ func _layout() -> void:
 	_shoot_button.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _shoot_button.size.x * 0.5,
 		safe.position.y + safe.size.y - BUTTON - MARGIN
+	)
+
+	# Above the centre buttons, so it never lands under a thumb already busy
+	# with the kick.
+	_visit_button.position = Vector2(
+		safe.position.x + safe.size.x * 0.5 - _visit_button.size.x * 0.5,
+		safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN * 2.0
 	)
 
 	# Centred low, where the kick button sits, since the two never both apply.
