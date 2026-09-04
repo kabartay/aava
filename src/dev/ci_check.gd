@@ -28,6 +28,7 @@ func _initialize() -> void:
 	_check_rocks_are_jumpable()
 	_check_the_camera_zooms()
 	_check_a_house_can_be_built_and_unbuilt()
+	_check_every_language_is_complete()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -334,7 +335,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -719,3 +720,55 @@ func _check_a_house_can_be_built_and_unbuilt() -> void:
 
 	structures.queue_free()
 	build.queue_free()
+
+## A half-translated interface is worse than an untranslated one: a child sees
+## his own language and then a word of someone else's, and concludes the game is
+## broken. These checks make a missing translation a build failure.
+func _check_every_language_is_complete() -> void:
+	print("every language is complete")
+
+	var missing := PackedStringArray()
+	for key in Text.STRINGS:
+		var entry: Dictionary = Text.STRINGS[key]
+		for code in Text.LANGUAGES:
+			if not entry.has(code) or String(entry[code]).strip_edges().is_empty():
+				missing.append("%s/%s" % [key, code])
+	if missing.is_empty():
+		_ok("%d strings, all present in %d languages" % [Text.STRINGS.size(), Text.LANGUAGES.size()])
+	else:
+		_fail("missing translations: %s" % ", ".join(missing))
+
+	# A format string that takes a value must take it in every language, or the
+	# translated one silently drops the number it was meant to show.
+	for key in Text.STRINGS:
+		var entry: Dictionary = Text.STRINGS[key]
+		var english := String(entry[Text.EN])
+		var slots := english.count("%")
+		for code in Text.LANGUAGES:
+			if String(entry[code]).count("%") != slots:
+				_fail("'%s' has %d value slots in English but a different number in %s" % [key, slots, code])
+
+	# Every name the game asks for must exist. This is what catches a new item
+	# or building added without its words.
+	for kind in ItemKinds.ALL:
+		if ItemKinds.label(kind).begins_with("?"):
+			_fail("item %s has no name" % kind)
+	for kind in BuildKinds.ALL:
+		if BuildKinds.label(kind).begins_with("?"):
+			_fail("building %s has no name" % kind)
+	for kind in HouseParts.ALL:
+		if HouseParts.label(kind).begins_with("?"):
+			_fail("house part %s has no name" % kind)
+	_ok("every item, building and house part is named in all three languages")
+
+	# And switching language actually changes what comes out.
+	Text.set_language(Text.RU)
+	var russian := ItemKinds.label(ItemKinds.STONE)
+	Text.set_language(Text.FR)
+	var french := ItemKinds.label(ItemKinds.STONE)
+	Text.set_language(Text.EN)
+	var english := ItemKinds.label(ItemKinds.STONE)
+	if russian == english or french == english or russian == french:
+		_fail("switching language returned the same word: %s / %s / %s" % [english, french, russian])
+	else:
+		_ok("switching gives %s / %s / %s" % [english, french, russian])

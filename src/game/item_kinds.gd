@@ -25,8 +25,10 @@ const INFO := {
 	CONE: {"label": "cone", "icon": "A", "color": Color(0.52, 0.34, 0.20)},
 }
 
+## The name shown to the player, in whatever language is set. The English in
+## INFO stays as the key's documentation and as the fallback.
 static func label(kind: StringName) -> String:
-	return INFO[kind]["label"]
+	return Text.of("item_" + String(kind))
 
 static func icon(kind: StringName) -> String:
 	return INFO[kind]["icon"]

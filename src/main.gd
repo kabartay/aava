@@ -38,6 +38,10 @@ func _ready() -> void:
 	InputActions.register()
 
 	var save := SaveGame.read()
+	# The language is read before anything is built, so the first frame is
+	# already in the right one rather than flashing English.
+	Text.set_language(StringName(save.get("language", Text.EN)))
+
 	var seed_value := int(save.get("seed", DEFAULT_SEED))
 	var override := _seed_from_command_line()
 	if override != 0:
@@ -108,7 +112,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	hud.set_score(world.football.score)
-	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump, _on_remove)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump, _on_remove, _on_language, _on_reset)
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
@@ -158,6 +162,50 @@ func _process(delta: float) -> void:
 func _on_collected(kind: StringName, _at: Vector3) -> void:
 	inventory.add(kind, 1)
 
+## Switching language rebuilds the interface rather than trying to retranslate
+## it in place. Every button was created with its text baked in, and hunting
+## down each one to update it is the kind of job that is always one label short.
+func _on_language(code: StringName) -> void:
+	Text.set_language(code)
+	_write_save()
+	_rebuild_hud()
+
+## Throw the valley away and start it over, keeping the same seed so it is the
+## same place rather than a different one.
+##
+## Everything a child made goes: what they carried, what they built, which
+## pickups they had taken, the score. The seed stays because "start again"
+## should mean a clean morning in the valley you know, not exile to a new one.
+func _on_reset() -> void:
+	if structures != null:
+		structures.from_data([])
+	inventory.from_data({})
+	world.pickups.from_data([])
+	world.boulders.from_data({})
+	world.football.from_data({})
+	birds.set_points([])
+	_seen_first_grove = false
+	world.follow(player.global_position)
+	_write_save()
+	_rebuild_hud()
+	hud.announce(Text.of("say_reset"), 3.0)
+
+func _rebuild_hud() -> void:
+	var was_building := build_mode.active
+	if hud != null:
+		hud.queue_free()
+	hud = Hud.new()
+	hud.name = "Hud"
+	add_child(hud)
+	Wiring.connect_hud(
+		hud, build_mode, camera_rig, inventory,
+		_on_place, _on_kick_start, _on_kick_release,
+		_on_jump, _on_remove, _on_language, _on_reset
+	)
+	hud.set_score(world.football.score)
+	if was_building:
+		hud.set_building(true)
+
 func _on_jump() -> void:
 	player.request_jump()
 
@@ -169,7 +217,7 @@ func _on_jump() -> void:
 func _on_remove() -> void:
 	var record := structures.nearest(player.global_position, REMOVE_REACH)
 	if record.is_empty():
-		hud.announce("nothing to take down here")
+		hud.announce(Text.of("say_nothing_here"))
 		return
 	var kind := structures.remove(record)
 	if kind == &"":
@@ -180,9 +228,9 @@ func _on_remove() -> void:
 	)
 	for item in cost:
 		inventory.add(item, int(cost[item]))
-	hud.announce("took the %s back" % (
+	hud.announce(Text.format("say_took_back", [
 		HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
-	), 1.6)
+	]), 1.6)
 
 func _on_kick_start() -> void:
 	if world.football.ball_near(player.global_position) != null:
@@ -205,21 +253,21 @@ func _on_kick_release() -> void:
 	)
 
 func _on_boulder_jumped(_at: Vector3, total: int) -> void:
-	hud.announce("cleared it — %d" % total, 1.8)
+	hud.announce(Text.format("say_cleared", [total]), 1.8)
 
 func _on_goal(_index: int, total: int) -> void:
 	hud.set_score(total)
-	hud.announce("GOAL", 2.0)
+	hud.announce(Text.of("say_goal"), 2.0)
 
 func _on_place() -> void:
 	if build_mode.place():
 		return
 	# A refused build is the moment a child most needs to be told why, and the
 	# ghost's colour alone does not say it.
-	hud.announce("not here")
+	hud.announce(Text.of("say_not_here"))
 
 func _on_matured(_kind: StringName, _at: Vector3) -> void:
-	hud.announce("your tree has grown")
+	hud.announce(Text.of("say_grown"))
 
 func _on_groves_changed(centres: Array) -> void:
 	birds.set_points(structures.attract_points())
@@ -227,7 +275,7 @@ func _on_groves_changed(centres: Array) -> void:
 		return
 	if not _seen_first_grove:
 		_seen_first_grove = true
-		hud.announce("a grove — and the birds have found it", 5.0)
+		hud.announce(Text.of("say_grove"), 5.0)
 
 func _notification(what: int) -> void:
 	# Both of these arrive when the game is closing: the desktop window button,
@@ -241,6 +289,7 @@ func _write_save() -> void:
 	var at := player.global_position
 	SaveGame.write({
 		"seed": world.world_seed,
+		"language": String(Text.language()),
 		"time_of_day": world.atmosphere.time_of_day,
 		"player": {"x": at.x, "y": at.y, "z": at.z},
 		"camera_yaw": camera_rig.yaw,

@@ -146,16 +146,16 @@ func _evaluate() -> void:
 
 	if not inventory.can_afford(cost):
 		_valid = false
-		_reason = "need " + _cost_text(cost)
+		_reason = Text.format("why_need", [_cost_text(cost)])
 	elif _target.y < HeightField.WATER_LEVEL + 0.15:
 		_valid = false
-		_reason = "too wet"
+		_reason = Text.of("why_wet")
 	elif field.steepness_at(_target.x, _target.z) > MAX_SLOPE:
 		_valid = false
-		_reason = "too steep"
+		_reason = Text.of("why_steep")
 	elif not structures.is_clear(_target, _footprint_of(selected)):
 		_valid = false
-		_reason = "no room"
+		_reason = Text.of("why_no_room")
 
 	_material.albedo_color = (
 		Color(0.45, 1.0, 0.55, 0.5) if _valid

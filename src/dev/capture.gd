@@ -20,6 +20,7 @@ extends Node3D
 ##                  than an empty valley
 ##   --build=1      open build mode with the ghost preview showing
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
+##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
 ##   --power=0..1   how hard to kick it
@@ -51,6 +52,7 @@ var _kick_strength := 1.0
 var _kick_loft := 0.25
 var _zoom := 0.0
 var _house := false
+var _language := "en"
 var _structures: Structures
 var _birds: Birds
 var _inventory: Inventory
@@ -62,6 +64,7 @@ var _camera: Camera3D
 
 func _ready() -> void:
 	_parse_arguments()
+	Text.set_language(StringName(_language))
 
 	_world = World.new(_seed)
 	add_child(_world)
@@ -137,7 +140,9 @@ func _spawn_player() -> void:
 		func() -> void:
 			var record := _structures.nearest(_player.global_position, 4.0)
 			if not record.is_empty():
-				_structures.remove(record)
+				_structures.remove(record),
+		func(code: StringName) -> void: Text.set_language(code),
+		func() -> void: pass
 	)
 
 	if _demo:
@@ -393,6 +398,8 @@ func _parse_arguments() -> void:
 				_kick_loft = value.to_float()
 			"house":
 				_house = value.to_int() != 0
+			"lang":
+				_language = value
 			"zoom":
 				# Metres to pull the camera out from its default.
 				_zoom = value.to_float()

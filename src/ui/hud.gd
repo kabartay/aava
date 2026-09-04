@@ -27,6 +27,8 @@ signal build_selected(kind: StringName)
 signal build_place()
 signal build_remove()
 signal build_tab(house: bool)
+signal language_chosen(code: StringName)
+signal reset_requested()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -37,6 +39,15 @@ var _tabs: HBoxContainer
 var _place_button: Button
 var _remove_button: Button
 var _showing_house := false
+var _menu: VBoxContainer
+var _menu_button: Button
+## How long the reset must be held. Long enough that a child cannot do it by
+## accident or by curiosity, short enough that a parent does not wonder whether
+## it is working.
+const RESET_HOLD := 5.0
+
+var _reset_button: Button
+var _reset_held := 0.0
 var _status: Label
 var _message: Label
 var _message_timer := 0.0
@@ -90,7 +101,7 @@ func _ready() -> void:
 
 	# The kick button only appears when there is a ball to kick, so it never
 	# sits on screen as a control that does nothing.
-	_kick_button = _button("kick", Color(0.98, 0.84, 0.36))
+	_kick_button = _button(Text.of("ui_kick"), Color(0.98, 0.84, 0.36))
 	# button_down / button_up rather than pressed, because a kick is a hold.
 	_kick_button.button_down.connect(func() -> void: kick_started.emit())
 	_kick_button.button_up.connect(func() -> void: kick_released.emit())
@@ -123,11 +134,11 @@ func _ready() -> void:
 
 	# Jump is always available, unlike kick and build, so it sits at the bottom
 	# of the stack where a thumb rests.
-	_jump_button = _button("jump", Color(0.62, 0.90, 0.68))
+	_jump_button = _button(Text.of("ui_jump"), Color(0.62, 0.90, 0.68))
 	_jump_button.pressed.connect(func() -> void: jump_pressed.emit())
 	add_child(_jump_button)
 
-	_build_button = _button("build", Color(0.42, 0.72, 0.98))
+	_build_button = _button(Text.of("ui_build"), Color(0.42, 0.72, 0.98))
 	_build_button.pressed.connect(_on_build_pressed)
 	add_child(_build_button)
 
@@ -142,6 +153,14 @@ func _ready() -> void:
 	_remove_button.pressed.connect(func() -> void: build_remove.emit())
 	_remove_button.visible = false
 	add_child(_remove_button)
+
+	_menu_button = _button("≡", Color(0.86, 0.90, 0.96))
+	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
+	_menu_button.pressed.connect(_toggle_menu)
+	add_child(_menu_button)
+
+	_menu = _build_menu()
+	add_child(_menu)
 
 	_layout()
 	get_viewport().size_changed.connect(_layout)
@@ -165,18 +184,65 @@ func _build_palette() -> HBoxContainer:
 
 ## Two tabs, because eight house parts and five objects on one row is thirteen
 ## buttons and a six-year-old cannot find anything in thirteen buttons.
+## The settings panel: a language for each child who reads a different one, and
+## a way to start the valley over.
+##
+## Starting over is behind a second press rather than a confirmation dialog. A
+## dialog is a wall of text a six-year-old cannot read; pressing the same button
+## twice is a rule he can be told once.
+func _build_menu() -> VBoxContainer:
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 8)
+	column.visible = false
+
+	var heading := Label.new()
+	heading.text = Text.of("ui_language")
+	heading.add_theme_font_size_override("font_size", 20)
+	heading.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.55))
+	column.add_child(heading)
+
+	for code in Text.LANGUAGES:
+		var button := _button(Text.ENDONYM[code], Color(0.90, 0.93, 0.97))
+		button.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
+		button.add_theme_font_size_override("font_size", 22)
+		button.pressed.connect(func() -> void: language_chosen.emit(code))
+		column.add_child(button)
+
+	# Erasing the world is a parent's action, not a child's.
+	#
+	# The valley is shared: two brothers build in the same world, and a button
+	# one of them can press deletes the other's afternoon. That is not a game
+	# mechanic, it is a fight. So it is held rather than pressed — five seconds
+	# is beyond a child's patience for a button whose effect he cannot see, and
+	# nothing about it is discoverable by poking.
+	_reset_button = _button(Text.of("ui_reset_hold"), Color(0.98, 0.66, 0.56))
+	_reset_button.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
+	_reset_button.add_theme_font_size_override("font_size", 18)
+	_reset_button.button_down.connect(func() -> void: _reset_held = 0.001)
+	_reset_button.button_up.connect(func() -> void:
+		_reset_held = 0.0
+		_reset_button.text = Text.of("ui_reset_hold"))
+	column.add_child(_reset_button)
+	return column
+
+func _toggle_menu() -> void:
+	_menu.visible = not _menu.visible
+	_reset_held = 0.0
+	_reset_button.text = Text.of("ui_reset_hold")
+	_layout()
+
 func _build_tabs() -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	row.visible = false
 
-	var things := _button("things", Color(0.86, 0.90, 0.96))
+	var things := _button(Text.of("ui_things"), Color(0.86, 0.90, 0.96))
 	things.custom_minimum_size = Vector2(BUTTON * 1.6, BUTTON * 0.7)
 	things.add_theme_font_size_override("font_size", 22)
 	things.pressed.connect(func() -> void: _show_house(false))
 	row.add_child(things)
 
-	var house := _button("house", Color(0.86, 0.90, 0.96))
+	var house := _button(Text.of("ui_house"), Color(0.86, 0.90, 0.96))
 	house.custom_minimum_size = Vector2(BUTTON * 1.6, BUTTON * 0.7)
 	house.add_theme_font_size_override("font_size", 22)
 	house.pressed.connect(func() -> void: _show_house(true))
@@ -230,7 +296,7 @@ func set_building(enabled: bool) -> void:
 	_remove_button.visible = enabled
 	if enabled:
 		_show_house(_showing_house)
-	_build_button.text = "x" if enabled else "build"
+	_build_button.text = Text.of("ui_close") if enabled else Text.of("ui_build")
 	_status.text = ""
 	build_toggled.emit(enabled)
 	_layout()
@@ -277,11 +343,11 @@ func set_kick_preview(charging: bool, strength: float, loft: float) -> void:
 	# Yellow through to red, so a full-power shot looks like one.
 	_power_fill.color = Color(0.98, 0.78, 0.28).lerp(Color(0.96, 0.38, 0.26), strength)
 
-	var aim := "along the ground"
+	var aim := Text.of("aim_ground")
 	if loft > 0.66:
-		aim = "high over the top"
+		aim = Text.of("aim_high")
 	elif loft > 0.3:
-		aim = "up and over"
+		aim = Text.of("aim_over")
 	_aim_label.text = aim
 
 ## The running total of goals. Hidden until the first one, because a scoreboard
@@ -299,6 +365,20 @@ func announce(text: String, seconds := 3.2) -> void:
 	_layout()
 
 func _process(delta: float) -> void:
+	if _reset_held > 0.0:
+		_reset_held += delta
+		if _reset_held >= RESET_HOLD:
+			_reset_held = 0.0
+			_reset_button.text = Text.of("ui_reset_hold")
+			reset_requested.emit()
+		else:
+			# Counting down out loud, so a parent holding it knows it is
+			# working and a child watching gets bored before it finishes.
+			_reset_button.text = "%s %d" % [
+				Text.of("ui_reset_holding"),
+				int(ceil(RESET_HOLD - _reset_held))
+			]
+
 	if _message_timer <= 0.0:
 		return
 	_message_timer -= delta
@@ -321,6 +401,12 @@ func _layout() -> void:
 
 	# Down the right-hand side, under the score, clear of the build buttons in
 	# the corner below it.
+	_menu_button.position = Vector2(
+		safe.position.x + MARGIN,
+		safe.position.y + MARGIN
+	)
+	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
+
 	_backpack.position = Vector2(
 		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
 		safe.position.y + MARGIN + 52.0

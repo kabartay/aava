@@ -59,7 +59,7 @@ const INFO := {
 }
 
 static func label(kind: StringName) -> String:
-	return INFO[kind]["label"]
+	return Text.of("build_" + String(kind))
 
 static func icon(kind: StringName) -> String:
 	return INFO[kind]["icon"]
