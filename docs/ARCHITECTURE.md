@@ -3,6 +3,34 @@
 How Aava is put together, and why. Read `DESIGN.md` first for what the game is
 trying to be; this document is about the code.
 
+## Systems added after the first release
+
+**`src/game/vitals.gd`** — energy and water as a plain `RefCounted` with signals
+and no node of its own. It is a model: it knows nothing about the player, the
+river, or the interface, which is why it can be exhaustively checked without
+constructing a world. The game feeds it what the player did each frame and reads
+back whether running is still allowed.
+
+**`src/world/animals.gd`** — streaming, wandering, shyness, and the care
+transaction. Animals are `Dictionary` records rather than a class, which is
+adequate at four species and will not be at ten (see ROADMAP.md, Known debt).
+
+**`src/shop/`** — `wallet.gd` holds coins and what has been bought;
+`shop_stock.gd` is a dependency-free leaf listing prices. The split follows the
+same rule as `terrain_spec.gd`: anything two systems both need to know sits in a
+leaf that references nothing.
+
+**Handlers are named, not positional.** `Wiring.connect_hud` takes a dictionary
+of callables keyed by name and reports any that are missing. It reached
+seventeen positional parameters first, which made adding a control an exercise
+in counting commas at three call sites.
+
+**Icons are drawn, not rendered.** `part_icon.gd` and `shop_icon.gd` use the 2D
+primitives rather than a viewport per thumbnail. A viewport per button would
+cost eight extra render passes to show eight pictures, and a wall seen head-on
+is a rectangle either way. Both draw against `custom_minimum_size`, never
+`size` — see LESSONS.md for why.
+
 ## The one rule
 
 **The height field is the single source of truth for where the ground is.**

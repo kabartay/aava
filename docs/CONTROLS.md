@@ -13,6 +13,10 @@ a control a child has to be told about is a control he forgets.
 | Kick | hold **kick**; look up to chip, down to drive | hold `E` |
 | Build | **build**, then a tab and a piece, then `+` | same |
 | Remove | `−` next to a piece | same |
+| Care for an animal | **feed** / **pet** when one is close | same |
+| Drink | **drink**, shown only when the bottle has water | same |
+| Fill the bottle | walk into the shallows | same |
+| Shop | the coin count, top right | same |
 | Map | tap it to cycle small, large, hidden | click it |
 | Language, reset | `≡` top left | same |
 
@@ -30,6 +34,20 @@ says which floor the piece will land on.
 
 **Removing gives everything back.** There is no penalty for trying something and
 changing your mind — that is the point.
+
+**Animals want different things.** A cat wants stroking and asks for nothing. A
+dog and a beaver want a stick, a squirrel wants a cone. Anything living far from
+the river may want a drink instead, if you are carrying water. The button says
+what the animal in front of you wants, so there is nothing to memorise.
+
+**The rarer the animal, the better it pays.** A beaver is worth more than a cat,
+which is why it is worth crossing the river.
+
+**Energy only limits running.** Walking is never affected — you cannot be
+stranded. Rest for about five seconds and you can run again, or drink.
+
+**The bottle fills by walking into the river.** There is no button for it. It
+holds four drinks.
 
 **Resetting the world is held for five seconds**, not pressed. The valley is
 shared between brothers, and a button either of them can press deletes the

@@ -5,6 +5,33 @@ guarded by a check or a lint. They are written down because most of them are
 properties of Godot or of this project's shape rather than of any one mistake,
 and they will otherwise be made again.
 
+## The catalogue at a glance
+
+Sorted by how much time each cost, worst first. The right-hand column is what
+stops it happening again — where that column says "nothing", the bug can still
+recur.
+
+| Bug | Symptom it presented as | Now guarded by |
+|---|---|---|
+| Inverted triangle winding | Terrain invisible from above; looked like generation had failed | Screenshot review |
+| Cyclic `class_name` dependency | Import hangs forever, no error | Leaf-script rule; CI import |
+| Resources built in `_ready` | Null members, or objects with no mesh — four separate times | `_check_nodes_are_usable_immediately` |
+| `.gitignore` `build/` matched `src/build/` | Whole building system absent from the repo while working locally | CI on a clean checkout |
+| Untyped array literal | Every inferred variable downstream fails to parse | CI grep lint |
+| Control drawn at zero size in a container | Icons blank, never redraw; looks like a broken draw routine | LESSONS + comment in `shop_icon.gd` |
+| Positional wiring reached 17 arguments | "Expected at least 17, received 14" instead of the missing name | Named handler dictionary with key check |
+| Cooldown checked in the query, not the payout | An animal could be paid for twice | `_check_caring_pays` |
+| Mesh separated from its material | Four identical white animals in the capture tool | Material attached in `build_mesh` |
+| `tonemap_white = 6.0` | Whole scene four times too dark | Nothing — a value, not a class of bug |
+| Objects positioned before entering the tree | Balls 56 m from where they appeared | Screenshot statistics |
+| `SpringArm3D` colliding with the player | Camera inside the player's head | `add_excluded_object` |
+| Houses built on a slope | Pieces leaning downhill by up to 1.8 m | `nearby_datum`; check for a level row |
+| `DEPTH_TEXTURE` removed in 4.7 | Water shader fails to compile | Rewritten to use the river formula |
+| `PanelContainer` stretching a child | Map dot became a white sheet | Dot moved into the canvas |
+| Map redrew only when asked | Capture showed an empty panel | Map self-drives via `_process` |
+| Killing processes by name | Killed the user's running game, twice | Kill capture processes by PID only |
+
+
 ## Godot 4.7
 
 **A cyclic `class_name` dependency hangs the loader.** Two scripts that declare
