@@ -31,6 +31,7 @@ var build_mode: BuildMode
 var birds: Birds
 var sounds: Sounds
 var tasks: Tasks
+var wallet: Wallet
 
 var _waiting_for_ground := false
 var _autosave := AUTOSAVE_SECONDS
@@ -62,6 +63,10 @@ func _ready() -> void:
 	tasks.name = "Tasks"
 	add_child(tasks)
 
+	wallet = Wallet.new()
+	if save.has("wallet"):
+		wallet.from_data(save["wallet"])
+
 	world = World.new(seed_value)
 	world.name = "World"
 	world.ready_at_spawn.connect(_on_world_ready.bind(save))
@@ -92,6 +97,13 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		world.boulders.from_data(save["boulders"])
 	if save.has("tasks"):
 		tasks.from_data(save["tasks"])
+	if save.has("animals"):
+		world.animals.from_data(save["animals"])
+
+	world.animals.cared_for.connect(func(_kind: StringName, _coins: int, _at: Vector3) -> void: pass)
+	world.animals.befriended.connect(func(kind: StringName) -> void:
+		hud.announce(Text.format("say_friend", [AnimalKinds.label(kind)]), 4.0))
+	wallet.changed.connect(func(total: int) -> void: hud.set_coins(total))
 
 	# The reward line is an announcement; the instruction is a standing label.
 	# Keeping them separate is what stops the screen filling with old advice.
@@ -134,7 +146,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	hud.set_score(world.football.score)
-	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump, _on_remove, _on_language, _on_reset, world.field, player, structures)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
@@ -153,6 +165,14 @@ func _process(delta: float) -> void:
 	# The rocks watch the player rather than the player reporting to them, so
 	# nothing in the controller has to know that jumping rocks is a game.
 	world.boulders.watch(player.global_position, not player.is_on_floor())
+	world.animals.watch(player.global_position, inventory)
+
+	# The care button says what the animal in front of you wants, at the moment
+	# you can do something about it.
+	var near_animal := world.animals.nearest_caring(player.global_position, inventory)
+	hud.set_animal_in_reach(
+		AnimalKinds.wish(near_animal["kind"]) if not near_animal.is_empty() else ""
+	)
 	tasks.on_moved(player.global_position)
 	build_mode.aim(player.global_position, camera_rig.yaw)
 	hud.set_storey(build_mode.storey(), build_mode.active and HouseParts.is_house_part(build_mode.selected))
@@ -227,14 +247,49 @@ func _rebuild_hud() -> void:
 	hud = Hud.new()
 	hud.name = "Hud"
 	add_child(hud)
-	Wiring.connect_hud(
-		hud, build_mode, camera_rig, inventory,
-		_on_place, _on_kick_start, _on_kick_release,
-		_on_jump, _on_remove, _on_language, _on_reset, world.field, player, structures
-	)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 	hud.set_score(world.football.score)
 	if was_building:
 		hud.set_building(true)
+
+## Every control's handler in one place, named rather than ordered.
+func _handlers() -> Dictionary:
+	return {
+		&"place": _on_place,
+		&"kick_start": _on_kick_start,
+		&"kick_release": _on_kick_release,
+		&"jump": _on_jump,
+		&"remove": _on_remove,
+		&"language": _on_language,
+		&"reset": _on_reset,
+		&"care": _on_care,
+		&"shop": _on_shop,
+		&"buy": _on_buy,
+	}
+
+## Feeding or stroking whatever is in front of the player.
+func _on_care() -> void:
+	var animal := world.animals.nearest_caring(player.global_position, inventory)
+	if animal.is_empty():
+		return
+	var coins := world.animals.care_for(animal, inventory)
+	if coins <= 0:
+		return
+	wallet.earn(coins)
+	sounds.play(Sounds.Sound.CHIME, 1.15)
+	hud.announce(Text.format("say_fed", [coins]), 1.4)
+
+func _on_shop() -> void:
+	hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
+
+func _on_buy(item: StringName) -> void:
+	if wallet.buy(item, ShopStock.price(item)):
+		sounds.play(Sounds.Sound.GOAL)
+		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 3.0)
+	else:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_too_dear"), 2.0)
+	hud.set_shop_open(true, wallet.coins, wallet.owned)
 
 func _on_jump() -> void:
 	player.request_jump()
@@ -339,6 +394,8 @@ func _write_save() -> void:
 		"football": world.football.to_data(),
 		"boulders": world.boulders.to_data(),
 		"tasks": tasks.to_data(),
+		"wallet": wallet.to_data(),
+		"animals": world.animals.to_data(),
 	})
 
 func _seed_from_command_line() -> int:

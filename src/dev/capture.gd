@@ -22,6 +22,8 @@ extends Node3D
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
+##   --shop=1  open the shop panel, with coins to spend
+##   --animals=1  place one of every animal in front of the camera
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
 ##   --power=0..1   how hard to kick it
 ##   --loft=0..1    how high: 0 along the ground, 1 chipped over the top
@@ -51,6 +53,9 @@ var _kick_after := 0.0
 var _kick_strength := 1.0
 var _kick_loft := 0.25
 var _zoom := 0.0
+var _shop := false
+var _animals := false
+var _coins := 40
 var _house := false
 var _language := "en"
 var _structures: Structures
@@ -115,6 +120,7 @@ func _spawn_player() -> void:
 	_rig.pitch = deg_to_rad(_pitch)
 	if not is_zero_approx(_zoom):
 		_rig.zoom(-_zoom)
+
 	_player.add_child(_rig)
 	_camera = _rig.camera
 	_camera.current = true
@@ -132,18 +138,22 @@ func _spawn_player() -> void:
 	# The same wiring the game uses, from the same place, so this tool cannot
 	# photograph a game that is connected differently from the real one.
 	Wiring.connect_hud(
-		_hud, _build_mode, _rig, _inventory,
-		func() -> void: _build_mode.place(),
-		func() -> void: _player.start_charging(),
-		func() -> void: _kick_nearest(),
-		func() -> void: _player.request_jump(),
-		func() -> void:
-			var record := _structures.nearest(_player.global_position, 4.0)
-			if not record.is_empty():
-				_structures.remove(record),
-		func(code: StringName) -> void: Text.set_language(code),
-		func() -> void: pass,
-		_world.field, _player, _structures
+		_hud, _build_mode, _rig, _inventory, _world.field, _player, _structures,
+		{
+			&"place": func() -> void: _build_mode.place(),
+			&"kick_start": func() -> void: _player.start_charging(),
+			&"kick_release": func() -> void: _kick_nearest(),
+			&"jump": func() -> void: _player.request_jump(),
+			&"remove": func() -> void:
+				var record := _structures.nearest(_player.global_position, 4.0)
+				if not record.is_empty():
+					_structures.remove(record),
+			&"language": func(code: StringName) -> void: Text.set_language(code),
+			&"reset": func() -> void: pass,
+			&"care": func() -> void: pass,
+			&"shop": func() -> void: pass,
+			&"buy": func(_item: StringName) -> void: pass,
+		}
 	)
 
 	if _demo:
@@ -164,6 +174,13 @@ func _spawn_player() -> void:
 ## A camp as a child would leave it: a fire, a fence, a path, a feeder, and a
 ## grove of three grown trees with birds over it. Built here rather than
 ## screenshotted from a save so that the picture always matches the code.
+
+	# After the interface exists, or these paint onto nothing.
+	_hud.set_coins(_coins)
+	if _shop:
+		_hud.set_shop_open(true, _coins, {})
+	if _animals:
+		_gather_animals()
 func _stand_up_a_camp(spawn: Vector3) -> void:
 	for kind in ItemKinds.ALL:
 		_inventory.add(kind, 12)
@@ -404,6 +421,12 @@ func _parse_arguments() -> void:
 			"zoom":
 				# Metres to pull the camera out from its default.
 				_zoom = value.to_float()
+			"shop":
+				_shop = value.to_int() != 0
+			"animals":
+				_animals = value.to_int() != 0
+			"coins":
+				_coins = value.to_int()
 			"pos":
 				_camera_position = _to_vector(value, _camera_position)
 			"look":
@@ -414,3 +437,27 @@ func _to_vector(text: String, fallback: Vector3) -> Vector3:
 	if parts.size() != 3:
 		return fallback
 	return Vector3(parts[0].to_float(), parts[1].to_float(), parts[2].to_float())
+
+## Bring one of every animal into view, so a screenshot can show whether they
+## read as a cat, a dog, a squirrel and a beaver rather than as four blobs.
+func _gather_animals() -> void:
+	var origin := _player.global_position if _with_player else _look_at
+	# _yaw is stored in degrees, as the flag is written; the rig converts it on
+	# use. Reading it as radians put three of the four animals behind us.
+	var heading := deg_to_rad(_yaw)
+	# Godot faces -Z, so forward is negated. Without this the animals were
+	# arranged neatly behind the camera.
+	var forward := -Vector3(sin(heading), 0.0, cos(heading))
+	var across := Vector3(forward.z, 0.0, -forward.x)
+	for i in AnimalKinds.ALL.size():
+		var kind: StringName = AnimalKinds.ALL[i]
+		var spot := origin + forward * 3.2 + across * (float(i) - 1.5) * 2.4
+		spot.y = _world.field.height_at(spot.x, spot.z)
+		var body := MeshInstance3D.new()
+		body.mesh = AnimalKinds.build_mesh(kind)
+		# Facing the camera, so a screenshot shows heads rather than tails.
+		body.rotation.y = heading
+		add_child(body)
+		# After add_child, or the position is overwritten by the parent's.
+		body.global_position = spot
+		print("  %s at (%.1f, %.1f, %.1f) size %.2f" % [kind, spot.x, spot.y, spot.z, AnimalKinds.size_of(kind)])

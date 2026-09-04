@@ -16,6 +16,7 @@ var terrain: Terrain
 var vegetation: Vegetation
 var pickups: Pickups
 var boulders: Boulders
+var animals: Animals
 var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
@@ -45,6 +46,10 @@ func _ready() -> void:
 	boulders.name = "Boulders"
 	add_child(boulders)
 
+	animals = Animals.new(field, world_seed)
+	animals.name = "Animals"
+	add_child(animals)
+
 	football = FootballGround.new(field)
 	football.name = "Football"
 	add_child(football)
@@ -63,4 +68,5 @@ func follow(world_position: Vector3) -> void:
 	vegetation.follow(world_position)
 	pickups.follow(world_position)
 	boulders.follow(world_position)
+	animals.follow(world_position)
 	water.follow(world_position)

@@ -56,12 +56,17 @@ var _valid := false
 var _reason := ""
 var _last_signature := ""
 
+## Everything is built here rather than in _ready, because add_child() defers
+## _ready until the tree next processes — so a caller that adds this node and
+## then immediately calls set_active() would find no ghost to show. That has
+## now cost us three separate bugs (pickups with no mesh, balls placed 56 m
+## away, this one). Nodes that a caller may use on the line after add_child
+## build their resources in _init.
 func _init(height_field: HeightField, structure_store: Structures, player_inventory: Inventory) -> void:
 	field = height_field
 	structures = structure_store
 	inventory = player_inventory
 
-func _ready() -> void:
 	_material = StandardMaterial3D.new()
 	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -75,6 +80,45 @@ func _ready() -> void:
 	_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_ghost.visible = false
 	add_child(_ghost)
+
+	# The ground tile answers "where exactly does this land?". It is a flat
+	# square one module across, so the scale applied when previewing is simply
+	# the piece's footprint in modules.
+	_tile_material = StandardMaterial3D.new()
+	_tile_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_tile_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_tile_material.no_depth_test = true
+	_tile_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_tile_material.albedo_color = Color(0.45, 1.0, 0.55, 0.28)
+
+	var quad := PlaneMesh.new()
+	quad.size = Vector2(HouseParts.MODULE, HouseParts.MODULE)
+	_tile = MeshInstance3D.new()
+	_tile.mesh = quad
+	_tile.material_override = _tile_material
+	_tile.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_tile.visible = false
+	add_child(_tile)
+
+	# Four outlines, one per neighbouring square, shown only where something
+	# already stands. Brighter and warmer than the tile so "you will join this"
+	# reads differently from "you will stand here".
+	var outline_material := StandardMaterial3D.new()
+	outline_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	outline_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	outline_material.no_depth_test = true
+	outline_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	outline_material.albedo_color = Color(1.0, 0.86, 0.42, 0.42)
+
+	for _i in 4:
+		var marker := MeshInstance3D.new()
+		marker.mesh = quad
+		marker.material_override = outline_material
+		marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		marker.visible = false
+		add_child(marker)
+		_neighbour_markers.append(marker)
+
 	_refresh_mesh()
 
 func set_active(enabled: bool) -> void:

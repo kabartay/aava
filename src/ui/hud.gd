@@ -29,6 +29,9 @@ signal build_remove()
 signal build_tab(house: bool)
 signal language_chosen(code: StringName)
 signal reset_requested()
+signal care_pressed()
+signal shop_toggled()
+signal shop_buy(item: StringName)
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -63,6 +66,10 @@ var _power_fill: ColorRect
 var _aim_label: Label
 var _storey_label: Label
 var _task_label: Label
+var _care_button: Button
+var _coins_label: Label
+var _shop: PanelContainer
+var _shop_rows: Dictionary = {}
 
 func _ready() -> void:
 	var pad := CameraPad.new()
@@ -179,6 +186,21 @@ func _ready() -> void:
 	_task_label = _label(26, Color(1.0, 0.94, 0.74))
 	_task_label.visible = false
 	add_child(_task_label)
+
+	# Appears only with an animal in reach, like the kick button — a control
+	# that does nothing is a control a child learns to ignore.
+	_care_button = _button("", Color(0.96, 0.82, 0.52))
+	_care_button.pressed.connect(func() -> void: care_pressed.emit())
+	_care_button.visible = false
+	add_child(_care_button)
+
+	# Coins sit beside the bag, because they are the other thing you have.
+	_coins_label = _label(26, Color(1.0, 0.90, 0.52))
+	_coins_label.visible = false
+	add_child(_coins_label)
+
+	_shop = _build_shop()
+	add_child(_shop)
 
 	_menu_button = _button("≡", Color(0.86, 0.90, 0.96))
 	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
@@ -311,6 +333,142 @@ func _build_danger() -> PanelContainer:
 		_layout())
 	column.add_child(back)
 	return panel
+
+## The shop: one row per thing, showing what it does and what it costs.
+##
+## Everything is visible from the first coin, including what cannot yet be
+## afforded. Hiding the bicycle until a child can buy it removes the only reason
+## to keep going; showing it greyed with its price is the reason.
+func _build_shop() -> PanelContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.10, 0.13, 0.94)
+	style.set_corner_radius_all(16)
+	style.content_margin_left = 20.0
+	style.content_margin_right = 20.0
+	style.content_margin_top = 16.0
+	style.content_margin_bottom = 16.0
+	style.border_color = Color(1.0, 0.90, 0.52, 0.35)
+	style.set_border_width_all(1)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.visible = false
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	panel.add_child(column)
+
+	var heading := Label.new()
+	heading.text = Text.of("ui_shop")
+	heading.add_theme_font_size_override("font_size", 24)
+	heading.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
+	column.add_child(heading)
+
+	# Each row is icon | name and description | price, in fixed columns, so the
+	# prices line up and can be compared down the list. Centred text in one
+	# blob made "which of these can I afford" a reading exercise.
+	for item in ShopStock.ALL:
+		var row := Button.new()
+		row.custom_minimum_size = Vector2(BUTTON * 4.8, BUTTON * 0.86)
+		row.focus_mode = Control.FOCUS_NONE
+		row.pressed.connect(func() -> void: shop_buy.emit(item))
+		column.add_child(row)
+
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 12)
+		line.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		line.offset_left = 14.0
+		line.offset_right = -14.0
+		# The label must not swallow the press, or the row stops buying.
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(line)
+
+		var icon := ShopIcon.new(item)
+		icon.custom_minimum_size = Vector2(BUTTON * 0.62, BUTTON * 0.62)
+		line.add_child(icon)
+
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.add_theme_constant_override("separation", 0)
+		words.alignment = BoxContainer.ALIGNMENT_CENTER
+		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		line.add_child(words)
+
+		var name_label := Label.new()
+		name_label.text = ShopStock.label(item)
+		name_label.add_theme_font_size_override("font_size", 19)
+		name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		words.add_child(name_label)
+
+		var note := Label.new()
+		note.text = ShopStock.description(item)
+		note.add_theme_font_size_override("font_size", 14)
+		note.add_theme_color_override("font_color", Color(0.72, 0.76, 0.82))
+		note.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		words.add_child(note)
+
+		var price := Label.new()
+		price.add_theme_font_size_override("font_size", 20)
+		price.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
+		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		price.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		price.custom_minimum_size = Vector2(BUTTON * 0.86, 0.0)
+		price.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		line.add_child(price)
+
+		_shop_rows[item] = {"button": row, "price": price, "icon": icon}
+
+	var close := _button(Text.of("ui_back"), Color(0.90, 0.93, 0.97))
+	close.custom_minimum_size = Vector2(BUTTON * 4.6, BUTTON * 0.62)
+	close.add_theme_font_size_override("font_size", 18)
+	close.pressed.connect(func() -> void: shop_toggled.emit())
+	column.add_child(close)
+	return panel
+
+## Show or hide the shop, and refresh every row against the current purse.
+func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
+	_shop.visible = open
+	if open:
+		for item in ShopStock.ALL:
+			var parts: Dictionary = _shop_rows[item]
+			var row: Button = parts["button"]
+			var price_label: Label = parts["price"]
+			var price := ShopStock.price(item)
+			var mine: bool = owned.has(item)
+			if mine:
+				price_label.text = "✓"
+				price_label.add_theme_color_override("font_color", Color(0.62, 0.92, 0.66))
+				row.modulate = Color(0.80, 0.96, 0.82)
+			else:
+				# The coin is drawn next to the number, because a bare "12" does
+				# not say what it is asking for.
+				price_label.text = "%d ●" % price
+				price_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
+				# Affordable rows stand out; the rest stay legible so the price
+				# of the next thing is always readable.
+				row.modulate = (
+					Color.WHITE if coins >= price else Color(1.0, 1.0, 1.0, 0.45)
+				)
+			row.disabled = mine
+	_layout()
+
+func is_shop_open() -> bool:
+	return _shop.visible
+
+## Show the care button when an animal is within reach, labelled with what it
+## wants, so the child is told the answer at the moment he can act on it.
+func set_animal_in_reach(wish: String) -> void:
+	var showing := not wish.is_empty()
+	if _care_button.visible == showing and _care_button.text == wish:
+		return
+	_care_button.visible = showing
+	_care_button.text = wish
+	_layout()
+
+func set_coins(total: int) -> void:
+	_coins_label.text = "%d ●" % total
+	if not _coins_label.visible and total > 0:
+		_coins_label.visible = true
+	_layout()
 
 func _toggle_map() -> void:
 	if _minimap == null:
@@ -602,6 +760,25 @@ func _layout() -> void:
 
 	_task_label.size.x = view.x
 	_task_label.position = Vector2(0.0, safe.position.y + MARGIN + 44.0)
+
+	# Under the bag, aligned to its right edge.
+	_coins_label.size.x = Backpack.WIDTH
+	_coins_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_coins_label.position = Vector2(
+		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
+		_backpack.position.y + _backpack.size.y + 8.0
+	)
+
+	# Centred low, where the kick button sits, since the two never both apply.
+	_care_button.position = Vector2(
+		safe.position.x + safe.size.x * 0.5 - _care_button.size.x * 0.5,
+		safe.position.y + safe.size.y - BUTTON - MARGIN
+	)
+
+	_shop.position = Vector2(
+		safe.position.x + safe.size.x * 0.5 - _shop.size.x * 0.5,
+		safe.position.y + safe.size.y * 0.5 - _shop.size.y * 0.5
+	)
 
 	var shown := HouseParts.ALL.size() if _showing_house else BuildKinds.ALL.size()
 	var palette_width := float(shown) * (BUTTON + 12.0)

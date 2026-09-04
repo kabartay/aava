@@ -130,6 +130,62 @@ const STRINGS := {
 		RU: "долина твоя",
 	},
 
+	# Animals, and what they are asking for.
+	"animal_cat": {EN: "cat", FR: "chat", RU: "кошка"},
+	"animal_dog": {EN: "dog", FR: "chien", RU: "собака"},
+	"animal_squirrel": {EN: "squirrel", FR: "écureuil", RU: "белка"},
+	"animal_beaver": {EN: "beaver", FR: "castor", RU: "бобр"},
+	"wish_stroke": {EN: "wants a stroke", FR: "veut une caresse", RU: "хочет, чтобы её погладили"},
+	"wish_give": {EN: "wants a %s", FR: "veut %s", RU: "хочет %s"},
+	"say_fed": {EN: "+%d", FR: "+%d", RU: "+%d"},
+	"say_friend": {
+		EN: "%s is your friend now",
+		FR: "%s est ton ami maintenant",
+		RU: "%s теперь твой друг",
+	},
+
+	# The shop, and what each thing is for. Descriptions say what it does rather
+	# than what it is, because a child buys a verb.
+	"ui_shop": {EN: "shop", FR: "boutique", RU: "магазин"},
+	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
+	"ui_owned": {EN: "yours", FR: "à toi", RU: "твоё"},
+	"say_bought": {EN: "%s is yours", FR: "%s est à toi", RU: "%s теперь твой"},
+	"say_too_dear": {
+		EN: "not enough coins yet",
+		FR: "pas encore assez de pièces",
+		RU: "пока не хватает монет",
+	},
+	"shop_bottle": {EN: "water bottle", FR: "gourde", RU: "фляга"},
+	"shop_bottle_what": {
+		EN: "carry water, and give animals a drink",
+		FR: "porte de l'eau et fais boire les animaux",
+		RU: "носи воду и пои животных",
+	},
+	"shop_axe": {EN: "axe", FR: "hache", RU: "топор"},
+	"shop_axe_what": {
+		EN: "fell a tree for its wood",
+		FR: "abats un arbre pour son bois",
+		RU: "сруби дерево ради древесины",
+	},
+	"shop_lantern": {EN: "lantern", FR: "lanterne", RU: "фонарь"},
+	"shop_lantern_what": {
+		EN: "see in the dark",
+		FR: "vois dans le noir",
+		RU: "видеть в темноте",
+	},
+	"shop_whistle": {EN: "whistle", FR: "sifflet", RU: "свисток"},
+	"shop_whistle_what": {
+		EN: "your friends come when you call",
+		FR: "tes amis viennent quand tu appelles",
+		RU: "друзья приходят на зов",
+	},
+	"shop_bicycle": {EN: "bicycle", FR: "vélo", RU: "велосипед"},
+	"shop_bicycle_what": {
+		EN: "ride instead of walking",
+		FR: "roule au lieu de marcher",
+		RU: "катайся вместо ходьбы",
+	},
+
 	"say_reset": {
 		EN: "the valley is new again",
 		FR: "la vallée est neuve",

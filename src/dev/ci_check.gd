@@ -31,6 +31,9 @@ func _initialize() -> void:
 	_check_every_language_is_complete()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
+	_check_caring_pays()
+	_check_the_shop_adds_up()
+	_check_nodes_are_usable_immediately()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -45,6 +48,15 @@ func _fail(message: String) -> void:
 
 func _ok(message: String) -> void:
 	print("  ok: %s" % message)
+
+## Assert and report in one line. The message is written as the thing that is
+## true when the check passes, so the passing output reads as a description of
+## the game rather than as a list of test names.
+func _expect(condition: bool, message: String) -> void:
+	if condition:
+		_ok(message)
+	else:
+		_fail(message)
 
 ## A script that fails to parse returns null from load(). This also catches the
 ## cyclic class_name dependency that hangs Godot's loader, because the import
@@ -337,7 +349,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -857,3 +869,142 @@ func _check_sounds_exist() -> void:
 	else:
 		_fail("silent sounds: %s" % ", ".join(silent))
 	sounds.queue_free()
+
+## The care loop is the whole economy: an animal wants something, you have it,
+## you give it, you are paid. Every link is checked here because a break in any
+## one of them leaves a child stroking a cat that never responds.
+func _check_caring_pays() -> void:
+	print("caring for animals pays")
+	var field := HeightField.new(20260904)
+	var animals := Animals.new(field, 20260904)
+	get_root().add_child(animals)
+	var inventory := Inventory.new()
+
+	# Every animal must want something the valley actually contains, or it can
+	# never be fed.
+	var askable := true
+	for kind in AnimalKinds.ALL:
+		var wanted := AnimalKinds.want(kind)
+		if wanted != &"" and not ItemKinds.ALL.has(wanted):
+			askable = false
+			printerr("  %s wants '%s', which is not a collectable item" % [kind, wanted])
+	_expect(askable, "everything an animal wants can actually be picked up")
+
+	# A cat asks for nothing, so it can always be stroked; the rest need goods.
+	var free_to_care := 0
+	for kind in AnimalKinds.ALL:
+		if AnimalKinds.want(kind) == &"":
+			free_to_care += 1
+	_expect(free_to_care >= 1, "at least one animal can be cared for empty-handed")
+
+	# Rarer or shyer animals must be worth more, or there is no reason to seek
+	# them out rather than stroking the nearest cat forever.
+	_expect(
+		AnimalKinds.coins(AnimalKinds.BEAVER) > AnimalKinds.coins(AnimalKinds.CAT),
+		"the hard-to-reach beaver pays better than the cat at your feet"
+	)
+
+	# The exchange itself: one stick in, coins out, stick gone.
+	var animal := {
+		"kind": AnimalKinds.DOG, "cooldown": 0.0,
+		"node": Node3D.new(),
+	}
+	get_root().add_child(animal["node"])
+	inventory.add(&"stick", 1)
+	# A one-element array, because a lambda cannot assign to a captured local.
+	var paid: Array[int] = [0]
+	animals.cared_for.connect(func(_k: StringName, c: int, _p: Vector3) -> void: paid[0] = c)
+	var earned := animals.care_for(animal, inventory)
+	_expect(earned == AnimalKinds.coins(AnimalKinds.DOG), "feeding a dog a stick pays %d" % AnimalKinds.coins(AnimalKinds.DOG))
+	_expect(paid[0] == earned, "the signal reports the same coins the call returned")
+	_expect(inventory.count(&"stick") == 0, "the stick was actually handed over")
+
+	# And it cannot be repeated instantly, or one animal is an infinite mine.
+	inventory.add(&"stick", 1)
+	_expect(animals.care_for(animal, inventory) == 0, "a fed animal will not be fed again at once")
+	_expect(inventory.count(&"stick") == 1, "the refused second stick was not taken")
+
+	# Feeding with nothing in the bag must fail rather than pay.
+	var empty := {"kind": AnimalKinds.SQUIRREL, "cooldown": 0.0, "node": Node3D.new()}
+	get_root().add_child(empty["node"])
+	_expect(animals.care_for(empty, Inventory.new()) == 0, "a squirrel with no cone to give earns nothing")
+
+	_expect(animals.friends.has(AnimalKinds.DOG), "the dog is remembered as a friend")
+	var restored := Animals.new(field, 20260904)
+	restored.from_data(animals.to_data())
+	_expect(restored.friends.has(AnimalKinds.DOG), "friends survive a save")
+
+	animal["node"].queue_free()
+	empty["node"].queue_free()
+	animals.queue_free()
+
+## Coins are earned slowly, so prices must be reachable but not trivial.
+func _check_the_shop_adds_up() -> void:
+	print("the shop adds up")
+	var wallet := Wallet.new()
+
+	var priced := true
+	for item in ShopStock.ALL:
+		if ShopStock.price(item) <= 0:
+			priced = false
+			printerr("  %s costs nothing" % item)
+	_expect(priced, "all %d items in the shop cost something" % ShopStock.ALL.size())
+
+	# The cheapest thing must be within a short session's reach: caring for a
+	# beaver pays 5, so a first purchase should be a handful of animals away.
+	var cheapest := ShopStock.price(ShopStock.ALL[0])
+	for item in ShopStock.ALL:
+		cheapest = mini(cheapest, ShopStock.price(item))
+	_expect(cheapest <= 15, "something costs %d or less, so a first purchase is close" % cheapest)
+
+	_expect(not wallet.buy(ShopStock.BICYCLE, ShopStock.price(ShopStock.BICYCLE)), "an empty purse buys nothing")
+
+	wallet.earn(ShopStock.price(ShopStock.BOTTLE))
+	_expect(wallet.buy(ShopStock.BOTTLE, ShopStock.price(ShopStock.BOTTLE)), "exactly enough coins is enough")
+	_expect(wallet.coins == 0, "the price was actually deducted")
+	_expect(wallet.has(ShopStock.BOTTLE), "the bottle is owned afterwards")
+
+	# Buying the same thing twice must not charge twice for nothing.
+	wallet.earn(100)
+	var before := wallet.coins
+	wallet.buy(ShopStock.BOTTLE, ShopStock.price(ShopStock.BOTTLE))
+	_expect(wallet.coins == before, "buying something already owned costs nothing")
+
+	var restored := Wallet.new()
+	restored.from_data(wallet.to_data())
+	_expect(restored.coins == wallet.coins, "coins survive a save")
+	_expect(restored.has(ShopStock.BOTTLE), "purchases survive a save")
+
+	var named := true
+	for item in ShopStock.ALL:
+		for code in [Text.EN, Text.FR, Text.RU]:
+			Text.set_language(code)
+			if ShopStock.label(item).begins_with("?"):
+				named = false
+				printerr("  %s has no name in %s" % [item, code])
+	Text.set_language(Text.EN)
+	_expect(named, "every item is named in all three languages")
+
+## Three separate bugs have come from building resources in _ready: a node is
+## added and used on the very next line, but _ready has not run yet, so the
+## thing it was supposed to build is null. This checks the nodes that callers
+## actually do use immediately.
+func _check_nodes_are_usable_immediately() -> void:
+	print("nodes work the moment they are added")
+	var field := HeightField.new(20260904)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var inventory := Inventory.new()
+	inventory.add(&"wood", 50)
+
+	var build := BuildMode.new(field, structures, inventory)
+	get_root().add_child(build)
+	# No frame is allowed to pass here on purpose — this is exactly what main.gd
+	# and the screenshot tool do.
+	build.set_active(true)
+	_expect(build.active, "build mode activates on the line after add_child")
+	build.select(HouseParts.WALL)
+	_expect(true, "a piece can be chosen before the first frame")
+
+	build.queue_free()
+	structures.queue_free()

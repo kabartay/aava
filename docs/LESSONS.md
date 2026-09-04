@@ -98,3 +98,41 @@ fix, and every control added there forces both call sites to agree.
 **Measure before believing a screenshot.** Balls appeared 56 m from where they
 were; footballs looked like blackberries; a valley looked flat and was. In each
 case the picture was ambiguous and one printed number was decisive.
+
+**Build resources in `_init`, not `_ready`.** `add_child()` does not run
+`_ready` — the tree does, on its next pass. Any caller that adds a node and
+uses it on the following line finds whatever `_ready` was going to build still
+null. This has now cost four bugs: pickups with no mesh, footballs placed 56 m
+away, a build ghost that would not appear, and the ground tile and neighbour
+outlines going missing entirely. If a node can be used immediately, it must be
+ready immediately.
+
+**A `Control` inside a container has zero size when `_draw` first runs.**
+Icons drawn against `size` produced nothing and were never redrawn, which looks
+identical to a broken drawing routine. Draw against `custom_minimum_size`, which
+the caller sets up front. Connecting `resized` to `queue_redraw` seems like the
+obvious fix and is not: it makes redraw and relayout trigger each other and
+hangs the process outright.
+
+**Ship the material with the mesh.** `build_mesh()` returned geometry whose
+colours live entirely in vertex data, and the one place that knew to set
+`vertex_color_use_as_albedo` was the streaming system. The screenshot tool
+attached the same meshes and got four identical white animals. A mesh that only
+looks right under a particular material should carry that material.
+
+**Positional arguments stop scaling at about a dozen.** Shared wiring reached
+seventeen parameters, at which point adding a control meant counting commas at
+three call sites and a mistake surfaced as "expected at least 17, received 14"
+rather than as the name of the thing forgotten. A dictionary of named handlers,
+checked against a list of expected keys, reports the missing one by name.
+
+**Size and colour alone do not distinguish creatures.** Four animals at
+different scales and tints read on screen as one rounded lump repeated. What
+separated them was silhouette: body length and height per species, a neck that
+lifts the head clear of the shoulders, and a tail placed outside the body rather
+than inside it.
+
+**A shop of words excludes the child most likely to be saving up.** Five text
+rows are a reading exercise. Icons carry the meaning, a fixed price column lets
+prices be compared down the list, and a coin beside the number says what is
+being asked for.
