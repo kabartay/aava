@@ -37,6 +37,7 @@ func _initialize() -> void:
 	_check_energy_never_strands()
 	_check_the_valley_remembers()
 	_check_a_tree_can_be_felled()
+	_check_riding()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -352,7 +353,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1274,3 +1275,107 @@ func _check_a_tree_can_be_felled() -> void:
 		Text.set_language(code)
 		_expect(not Text.of("ui_chop").begins_with("?"), "the axe is labelled in %s" % code)
 	Text.set_language(Text.EN)
+
+## A horse and a bicycle are the same problem solved once. These checks are
+## mostly about the ways riding could take something away from a child: being
+## stranded, losing the mount, or being charged energy for sitting down.
+func _check_riding() -> void:
+	print("a horse and a bicycle can be ridden")
+	var field := HeightField.new(20260904)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+
+	# The reason to own both.
+	_expect(
+		MountKinds.speed(MountKinds.BICYCLE) > MountKinds.speed(MountKinds.HORSE),
+		"the bicycle is faster on the flat (%.1f vs %.1f m/s)" % [
+			MountKinds.speed(MountKinds.BICYCLE), MountKinds.speed(MountKinds.HORSE)
+		]
+	)
+	_expect(
+		MountKinds.max_slope(MountKinds.HORSE) > MountKinds.max_slope(MountKinds.BICYCLE),
+		"but the horse climbs what the bicycle cannot"
+	)
+	_expect(MountKinds.fords_water(MountKinds.HORSE), "the horse fords the river")
+	_expect(not MountKinds.fords_water(MountKinds.BICYCLE), "the bicycle does not")
+	for kind in MountKinds.ALL:
+		_expect(
+			MountKinds.speed(kind) > Player.RUN_SPEED,
+			"%s is faster than running, or there is no point riding it" % kind
+		)
+
+	var spot := field.find_spawn_point()
+	_expect(not mounts.exists(MountKinds.HORSE), "no horse before one is placed")
+	mounts.place(MountKinds.HORSE, spot + Vector3(2.0, 0.0, 0.0))
+	_expect(mounts.exists(MountKinds.HORSE), "the horse stands where it was put")
+
+	# Reach.
+	_expect(mounts.nearest(spot) == MountKinds.HORSE, "a horse two metres away is within reach")
+	_expect(mounts.nearest(spot + Vector3(40.0, 0.0, 0.0)) == &"", "one forty metres away is not")
+
+	_expect(mounts.mount(MountKinds.HORSE), "it can be mounted")
+	_expect(mounts.riding == MountKinds.HORSE, "and the game knows what is being ridden")
+	_expect(not mounts.mount(MountKinds.HORSE), "it cannot be mounted twice")
+	_expect(mounts.nearest(spot) == &"", "nothing else is offered while riding")
+
+	# Dismounting leaves it where the child left it, which is where they will
+	# look for it.
+	var elsewhere := spot + Vector3(30.0, 0.0, -18.0)
+	_expect(mounts.dismount(elsewhere) == MountKinds.HORSE, "it can be dismounted")
+	_expect(mounts.riding == &"", "and riding stops")
+	var left_at := mounts.position_of(MountKinds.HORSE)
+	_expect(
+		absf(left_at.x - elsewhere.x) < 0.01 and absf(left_at.z - elsewhere.z) < 0.01,
+		"the horse is left where the child got off, not where it started"
+	)
+	_expect(
+		is_equal_approx(left_at.y, field.height_at(elsewhere.x, elsewhere.z)),
+		"and it stands on the ground rather than in the air"
+	)
+	_expect(mounts.dismount(elsewhere) == &"", "dismounting twice does nothing")
+
+	# The property that matters most: a bicycle must refuse ground it cannot
+	# take, so that a child is put down rather than carried somewhere they then
+	# cannot leave.
+	mounts.place(MountKinds.BICYCLE, spot)
+	var deep := Vector3(field.river_centre_x(spot.z), HeightField.WATER_LEVEL - 1.0, spot.z)
+	_expect(
+		not mounts.can_ride_over(MountKinds.BICYCLE, deep),
+		"a bicycle refuses deep water"
+	)
+	_expect(
+		mounts.can_ride_over(MountKinds.HORSE, deep) or field.steepness_at(deep.x, deep.z) > MountKinds.max_slope(MountKinds.HORSE),
+		"a horse fords the same water, unless the bank there is too steep"
+	)
+
+	var flat := spot
+	flat.y = field.height_at(flat.x, flat.z)
+	_expect(mounts.can_ride_over(MountKinds.BICYCLE, flat), "and it rides happily on the flat")
+
+	# Riding must not cost the child's own energy.
+	var rider := Player.new()
+	rider.riding = MountKinds.HORSE
+	_expect(not rider.is_running, "sitting on a horse is not running")
+	rider.queue_free()
+
+	var restored := Mounts.new(field)
+	get_root().add_child(restored)
+	restored.from_data(mounts.to_data())
+	_expect(restored.exists(MountKinds.HORSE), "the horse survives a save")
+	var recalled := restored.position_of(MountKinds.HORSE)
+	_expect(
+		absf(recalled.x - left_at.x) < 0.01 and absf(recalled.z - left_at.z) < 0.01,
+		"and is still where it was left"
+	)
+
+	for kind in MountKinds.ALL:
+		for code in [Text.EN, Text.FR, Text.RU]:
+			Text.set_language(code)
+			_expect(
+				not MountKinds.label(kind).begins_with("?"),
+				"%s is named in %s" % [kind, code]
+			)
+	Text.set_language(Text.EN)
+
+	mounts.queue_free()
+	restored.queue_free()

@@ -184,6 +184,21 @@ const STRINGS := {
 	"back_welcome": {
 		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
 	},
+	"mount_horse": {
+		EN: "horse", FR: "cheval", RU: "конь",
+	},
+	"mount_bicycle": {
+		EN: "bicycle", FR: "vélo", RU: "велосипед",
+	},
+	"ui_ride": {
+		EN: "ride", FR: "monter", RU: "сесть",
+	},
+	"ui_getoff": {
+		EN: "get off", FR: "descendre", RU: "слезть",
+	},
+	"say_mounted": {
+		EN: "you are riding the %s", FR: "tu montes le %s", RU: "ты едешь: %s",
+	},
 	"ui_chop": {
 		EN: "chop", FR: "couper", RU: "срубить",
 	},

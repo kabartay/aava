@@ -47,6 +47,14 @@ const AIM_LAMBDA := 14.0
 const FOV_WALK := 66.0
 const FOV_RUN := 74.0
 
+## Raised while riding, so a child on a horse looks over its head rather than
+## through it. Eased rather than snapped: mounting should feel like rising, and
+## an instant jump of a metre reads as a glitch.
+const LIFT_LAMBDA := 6.0
+
+var _eye_lift := 0.0
+var _eye_lift_target := 0.0
+
 var yaw := 0.0
 var pitch := deg_to_rad(-16.0)
 
@@ -64,7 +72,7 @@ var _player: Player
 
 func _init(player: Player) -> void:
 	_player = player
-	position.y = SHOULDER_HEIGHT
+	position.y = SHOULDER_HEIGHT + _eye_lift
 
 	_arm = SpringArm3D.new()
 	_arm.spring_length = ARM_LENGTH
@@ -96,10 +104,19 @@ func _ready() -> void:
 	_arm.rotation.x = pitch
 	# Start settled, or the first frame shows the camera flying in from the origin.
 	camera.global_position = _tip.global_position
-	_aim = _player.global_position + Vector3.UP * AIM_HEIGHT
+	_aim = _player.global_position + Vector3.UP * (AIM_HEIGHT + _eye_lift)
 	camera.look_at(_aim, Vector3.UP)
 
+## How much higher the camera sits than when on foot.
+func set_eye_lift(metres: float) -> void:
+	_eye_lift_target = maxf(metres, 0.0)
+
 func _process(delta: float) -> void:
+	_eye_lift = lerpf(
+		_eye_lift, _eye_lift_target, 1.0 - exp(-LIFT_LAMBDA * delta)
+	)
+	position.y = SHOULDER_HEIGHT + _eye_lift
+
 	rotation.y = yaw
 	_arm.rotation.x = pitch
 
@@ -120,7 +137,7 @@ func _process(delta: float) -> void:
 	var follow := 1.0 - exp(-FOLLOW_LAMBDA * delta)
 	camera.global_position = camera.global_position.lerp(_tip.global_position, follow)
 
-	var aim_target := anchor + Vector3.UP * AIM_HEIGHT
+	var aim_target := anchor + Vector3.UP * (AIM_HEIGHT + _eye_lift)
 	_aim = _aim.lerp(aim_target, 1.0 - exp(-AIM_LAMBDA * delta))
 	if camera.global_position.distance_squared_to(_aim) > 0.04:
 		camera.look_at(_aim, Vector3.UP)

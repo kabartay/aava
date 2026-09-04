@@ -23,6 +23,7 @@ extends Node3D
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
 ##   --shop=1  open the shop panel, with coins to spend
+##   --mounts=1  put a horse and a bicycle in front of the camera
 ##   --chop=N  fell the N nearest trees before the shot, to show a clearing
 ##   --energy=N  draw the energy bar at this fraction (0..1)
 ##   --water=N  draw the bottle at this fraction, and carry one
@@ -59,6 +60,7 @@ var _zoom := 0.0
 var _shop := false
 var _energy := 1.0
 var _chop := 0
+var _mounts := false
 var _water := -1.0
 var _animals := false
 var _coins := 40
@@ -100,6 +102,20 @@ func _ready() -> void:
 	_world.follow(_camera_position)
 
 	await _wait_for_world()
+
+	# After streaming, not before: felling searches the forest and queues tile
+	# rebuilds, and doing that against a half-built world hangs the process.
+	if _animals:
+		_gather_animals()
+	if _chop > 0:
+		_fell_nearby()
+	if _mounts:
+		_show_mounts()
+	if _chop > 0 or _mounts:
+		# Let the queued rebuilds actually run before the shutter opens.
+		for _i in 12:
+			await get_tree().process_frame
+
 	_report_scene()
 	await _capture()
 	get_tree().quit()
@@ -162,6 +178,7 @@ func _spawn_player() -> void:
 			&"drink": func() -> void: pass,
 			&"whistle": func() -> void: pass,
 			&"chop": func() -> void: pass,
+			&"ride": func() -> void: pass,
 		}
 	)
 
@@ -198,10 +215,7 @@ func _spawn_player() -> void:
 		_hud.set_owned(owned)
 	if _shop:
 		_hud.set_shop_open(true, _coins, {})
-	if _animals:
-		_gather_animals()
-	if _chop > 0:
-		_fell_nearby()
+
 func _stand_up_a_camp(spawn: Vector3) -> void:
 	for kind in ItemKinds.ALL:
 		_inventory.add(kind, 12)
@@ -448,6 +462,8 @@ func _parse_arguments() -> void:
 				_energy = value.to_float()
 			"chop":
 				_chop = value.to_int()
+			"mounts":
+				_mounts = value.to_int() != 0
 			"water":
 				_water = value.to_float()
 			"animals":
@@ -468,7 +484,7 @@ func _to_vector(text: String, fallback: Vector3) -> Vector3:
 ## Bring one of every animal into view, so a screenshot can show whether they
 ## read as a cat, a dog, a squirrel and a beaver rather than as four blobs.
 func _gather_animals() -> void:
-	var origin := _player.global_position if _with_player else _look_at
+	var origin := _player.global_position if _player != null else _look_at
 	# _yaw is stored in degrees, as the flag is written; the rig converts it on
 	# use. Reading it as radians put three of the four animals behind us.
 	var heading := deg_to_rad(_yaw)
@@ -492,13 +508,27 @@ func _gather_animals() -> void:
 ## Fell the nearest trees, so a screenshot can show that the forest really
 ## changed rather than that a record was written.
 func _fell_nearby() -> void:
-	var at := _player.global_position if _with_player else _look_at
+	var at := _player.global_position if _player != null else _look_at
 	var cut := 0
 	for _i in _chop:
-		var tree := _world.vegetation.nearest_tree(at, 30.0)
-		if tree.is_zero_approx():
+		var answer := _world.vegetation.nearest_tree_found(at, 30.0)
+		if not bool(answer[1]):
 			break
+		var tree: Vector3 = answer[0]
 		_world.felled.fell(tree)
 		_world.vegetation.rebuild_around(tree)
 		cut += 1
 	print("felled %d trees; %d stumps recorded" % [cut, _world.felled.count()])
+
+## A horse and a bicycle side by side, so a screenshot shows whether each reads
+## as what it is.
+func _show_mounts() -> void:
+	var origin := _player.global_position if _player != null else _look_at
+	var heading := deg_to_rad(_yaw)
+	var forward := -Vector3(sin(heading), 0.0, cos(heading))
+	var across := Vector3(forward.z, 0.0, -forward.x)
+	for i in MountKinds.ALL.size():
+		var kind: StringName = MountKinds.ALL[i]
+		var spot := origin + forward * 5.0 + across * (float(i) - 0.5) * 3.4
+		_world.mounts.place(kind, spot)
+		print("  %s at (%.1f, %.1f)" % [kind, spot.x, spot.z])

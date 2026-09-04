@@ -74,8 +74,18 @@ Last updated: 2026-09-04.
 | Axe (20) | Done | Fells a tree for 4 wood, leaving a stump. The felling is saved. |
 | Lantern (28) | **Stub** | Purchasable; does not light anything. |
 | Whistle (34) | Done | Calls every animal within 46 m for six seconds, shy ones included. |
-| Bicycle (60) | **Stub** | Purchasable; cannot be ridden. |
+| Bicycle (60) | Done | Rideable, faster than the horse on the flat, refuses hills and water. Appears at camp when bought. |
 | Energy | Done | Running drains, walking and resting restore. At zero, walking is unaffected. |
+
+## Riding
+
+| Part | State | Notes |
+|---|---|---|
+| Horse | Done | Waits near the spawn. Fords the river, climbs what a bicycle cannot. |
+| Bicycle | Done | Faster on the flat; refuses steep ground and deep water. |
+| Mounted state | Done | The mount follows the player rather than carrying them — a body parented to a moving node inherits its rotation. |
+| Camera lift | Done | Eased, not snapped: mounting feels like rising rather than teleporting. |
+| Put down, not stranded | Done | Riding onto ground the mount cannot take dismounts the child rather than trapping them. |
 
 ## Coming back
 

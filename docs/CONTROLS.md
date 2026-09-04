@@ -16,6 +16,9 @@ a control a child has to be told about is a control he forgets.
 | Care for an animal | **feed** / **pet** when one is close | same |
 | Drink | **drink**, shown only when the bottle has water | same |
 | Fill the bottle | walk into the shallows | same |
+| Ride / get off | **ride** when a horse or bicycle is close | same |
+| Chop a tree | **chop**, once the axe is bought | same |
+| Call animals | **whistle**, once bought | same |
 | Shop | the coin count, top right | same |
 | Map | tap it to cycle small, large, hidden | click it |
 | Language, reset | `≡` top left | same |
@@ -48,6 +51,10 @@ stranded. Rest for about five seconds and you can run again, or drink.
 
 **The bottle fills by walking into the river.** There is no button for it. It
 holds four drinks.
+
+**The horse fords the river; the bicycle does not.** The bicycle is faster on
+flat ground and refuses hills and deep water. Ride one somewhere it cannot go
+and you are simply put down — you are never stranded.
 
 **Resetting the world is held for five seconds**, not pressed. The valley is
 shared between brothers, and a button either of them can press deletes the

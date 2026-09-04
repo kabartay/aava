@@ -32,6 +32,10 @@ recur.
 | Killing processes by name | Killed the user's running game, twice | Kill capture processes by PID only |
 | Duplicated an RNG sequence in two places | Trees found a metre from where they were drawn | One `generate_trees`, two callers |
 | Rebuilt every vegetation tile in one frame | Looked exactly like a hang; timed out at four minutes | Rebuilds go through the streaming queue |
+| `Vector3.ZERO` used to mean "nothing found" | A tree at the origin would read as no tree | Return `[value, found]` instead |
+| Per-frame search over nine tiles | ~400 noise lookups a frame to decide one button | Cached until the player moves a metre |
+| `TorusMesh` rotated about Y | Bicycle wheels lay flat like dropped hoops | Rotate about X — a torus lies in XZ |
+| Placed props before the world streamed | Hang, because felling searched a half-built forest | Props are placed after `_wait_for_world` |
 
 
 ## Godot 4.7

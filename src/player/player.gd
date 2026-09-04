@@ -36,6 +36,14 @@ signal landed(speed: float)
 
 var camera_yaw := 0.0
 
+## What the player is riding, or an empty name when on foot. Set by the game.
+##
+## Riding replaces the speed and the turn rate rather than parenting the player
+## to a mount: a character body parented to a moving node inherits its rotation
+## and fights its own gravity, which is a much larger problem than the one it
+## solves.
+var riding := &""
+
 ## Set by the game from the player's energy. False means walk-only.
 var may_run := true
 ## Read back by the game to decide what energy the movement actually cost.
@@ -171,11 +179,16 @@ func _physics_process(delta: float) -> void:
 		top = RUN_SPEED
 		push = maxf(push, 1.0)
 
-	# Too tired to run, but never too tired to walk. Energy shapes the pace of a
-	# day; it must not strand a child halfway up a hill.
-	if not may_run:
+	if riding != &"":
+		# A mount has one speed, reached by pushing the stick, and no walk/run
+		# distinction — a child on a horse is not choosing a gait.
+		top = MountKinds.speed(riding) * minf(push, 1.0)
+	elif not may_run:
+		# Too tired to run, but never too tired to walk. Energy shapes the pace
+		# of a day; it must not strand a child halfway up a hill.
 		top = minf(top, WALK_SPEED)
-	is_running = top > WALK_SPEED + 0.01 and wish.length_squared() > 0.01
+	# Riding is not running: it must not drain the child's own energy.
+	is_running = riding == &"" and top > WALK_SPEED + 0.01 and wish.length_squared() > 0.01
 
 	var target := wish * top * minf(push, 1.0)
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)

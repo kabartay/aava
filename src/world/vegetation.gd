@@ -118,8 +118,42 @@ func follow(world_position: Vector3) -> void:
 ## inside a MultiMesh. Replaying is cheap — three tiles of 46 candidates — and
 ## it is guaranteed to agree with what is drawn, which a parallel list of tree
 ## positions would not be.
+## Cached, because this is asked every frame to decide whether to show the chop
+## button, and answering it costs nine tiles of forty-six candidates — some four
+## hundred noise lookups — for a question whose answer only changes when the
+## player moves a metre or a tree comes down.
+var _tree_query_at := Vector3(1e9, 1e9, 1e9)
+var _tree_query_reach := -1.0
+var _tree_query_result := Vector3.ZERO
+var _tree_query_found := false
+
+## The nearest standing tree, and whether there was one at all. The second
+## return matters: Vector3.ZERO is a position a tree can genuinely occupy, so it
+## cannot also mean "none".
+func nearest_tree_found(world_position: Vector3, reach: float) -> Array:
+	if (
+		is_equal_approx(reach, _tree_query_reach)
+		and world_position.distance_squared_to(_tree_query_at) < 0.25
+	):
+		return [_tree_query_result, _tree_query_found]
+
+	var answer := _search_tree(world_position, reach)
+	_tree_query_at = world_position
+	_tree_query_reach = reach
+	_tree_query_result = answer[0]
+	_tree_query_found = answer[1]
+	return answer
+
+## Invalidate the cache. Called when the forest changes under it.
+func forget_tree_query() -> void:
+	_tree_query_at = Vector3(1e9, 1e9, 1e9)
+
 func nearest_tree(world_position: Vector3, reach: float) -> Vector3:
+	return nearest_tree_found(world_position, reach)[0]
+
+func _search_tree(world_position: Vector3, reach: float) -> Array:
 	var best := Vector3.ZERO
+	var found := false
 	var best_distance := reach
 	var base := Vector2i(
 		int(floor(world_position.x / float(TILE_SIZE))),
@@ -134,7 +168,8 @@ func nearest_tree(world_position: Vector3, reach: float) -> Vector3:
 				if distance < best_distance:
 					best_distance = distance
 					best = candidate
-	return best
+					found = true
+	return [best, found]
 
 ## Every standing tree in one tile, from the one generator that also draws them.
 func _trees_in(coord: Vector2i) -> Array[Vector3]:
@@ -151,6 +186,7 @@ func _trees_in(coord: Vector2i) -> Array[Vector3]:
 ## that over frames, so felling a tree simply asks for the affected tiles again
 ## and they come back over the next few frames, nearest first.
 func rebuild_all() -> void:
+	forget_tree_query()
 	for coord in _tiles.keys():
 		if not _queue.has(coord):
 			_queue.append(coord)
@@ -160,6 +196,7 @@ func rebuild_all() -> void:
 ## Only the tiles a felled tree could possibly appear in. Cheaper than rebuilding
 ## the whole forest for one stump, and the visible result is identical.
 func rebuild_around(world_position: Vector3) -> void:
+	forget_tree_query()
 	var base := Vector2i(
 		int(floor(world_position.x / float(TILE_SIZE))),
 		int(floor(world_position.z / float(TILE_SIZE)))

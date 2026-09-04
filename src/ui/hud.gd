@@ -35,6 +35,7 @@ signal shop_buy(item: StringName)
 signal drink_pressed()
 signal whistle_pressed()
 signal chop_pressed()
+signal ride_pressed()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -75,6 +76,7 @@ var _vitals: VitalsGauge
 var _drink_button: Button
 var _whistle_button: Button
 var _chop_button: Button
+var _ride_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -228,6 +230,12 @@ func _ready() -> void:
 	_chop_button.visible = false
 	_chop_button.pressed.connect(func() -> void: chop_pressed.emit())
 	add_child(_chop_button)
+
+	# The same button gets on and gets off, because they are the same thought.
+	_ride_button = _button(Text.of("ui_ride"), Color(0.82, 0.88, 0.98))
+	_ride_button.visible = false
+	_ride_button.pressed.connect(func() -> void: ride_pressed.emit())
+	add_child(_ride_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -489,6 +497,16 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 	var can_drink := carries_bottle and water > 0.0
 	if _drink_button.visible != can_drink:
 		_drink_button.visible = can_drink
+		_layout()
+
+## Offer to get on when a mount is in reach, and to get off while riding.
+func set_mount_in_reach(available: bool, riding: bool) -> void:
+	var wanted := available or riding
+	var label := Text.of("ui_getoff") if riding else Text.of("ui_ride")
+	if _ride_button.text != label:
+		_ride_button.text = label
+	if _ride_button.visible != wanted:
+		_ride_button.visible = wanted
 		_layout()
 
 ## Whether a tree is close enough to cut, given that the axe is owned.
@@ -847,6 +865,13 @@ func _layout() -> void:
 		chop_top = _whistle_button.position.y + _whistle_button.size.y + 10.0
 	_chop_button.position = Vector2(
 		safe.position.x + safe.size.x - _chop_button.size.x - MARGIN, chop_top
+	)
+
+	var ride_top := chop_top
+	if _chop_button.visible:
+		ride_top = _chop_button.position.y + _chop_button.size.y + 10.0
+	_ride_button.position = Vector2(
+		safe.position.x + safe.size.x - _ride_button.size.x - MARGIN, ride_top
 	)
 
 	# Centred low, where the kick button sits, since the two never both apply.

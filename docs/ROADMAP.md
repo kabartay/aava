@@ -22,13 +22,12 @@ bicycle never having been listed.
 | Item | What it needs | Rough size |
 |---|---|---|
 | ~~Axe~~ | **Done.** Fells a tree for 4 wood and leaves a stump; the felling is saved, so it stays felled. | — |
-| Bicycle | A mounted state with a higher top speed and a wider turning circle, and a camera that pulls back. Reuses the horse work below. | Medium |
+| ~~Bicycle~~ | **Done**, together with the horse — one mounted state serving both. | — |
 | Lantern | A light that follows the player, and a reason for dark — either a night in the day cycle or a cave. | Medium, larger if it needs a night |
 | ~~Whistle~~ | **Done.** Calls every animal within 46 m for six seconds, shy ones included. | — |
 
-**The whistle and the axe are done.** What remains is the bicycle and the
-lantern, and the bicycle should wait for the horse — both want the same mounted
-movement state, and building it once is the whole saving.
+**Only the lantern is left**, and it is the one that needs something the game
+does not have yet: a reason for dark. Either a night in the day cycle or a cave.
 
 ## 2. A reason to return
 
@@ -42,14 +41,12 @@ what turns "the valley remembers me" into "there is a reason to go today".
 
 ## 3. Riding
 
-Asked for directly. A horse that can be mounted, ridden across the valley, and
-taken through the river ford.
+**Done.** The horse waits near the spawn and fords the river; the bicycle is
+faster on the flat and refuses hills and water. One mounted state serves both.
 
-Depends on: a mounted movement state, which the bicycle also wants. Build the
-state once and let both use it.
-
-Watch for: the camera. A mounted camera at walking distance feels claustrophobic;
-it needs to pull back and raise its pitch.
+Still worth doing: the mount is a mesh that hides while ridden rather than an
+animated thing that carries the player. A horse that visibly moves under the
+child would be a real improvement, and is the natural next step here.
 
 ## 4. The bow
 

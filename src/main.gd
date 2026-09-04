@@ -122,6 +122,11 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		world.animals.from_data(save["animals"])
 	if save.has("felled"):
 		world.felled.from_data(save["felled"])
+	if save.has("mounts"):
+		world.mounts.from_data(save["mounts"])
+	# A bicycle already bought must be standing in the world on reload.
+	if wallet.has(ShopStock.BICYCLE) and not world.mounts.exists(MountKinds.BICYCLE):
+		world.mounts.place(MountKinds.BICYCLE, world.field.find_spawn_point() + Vector3(-4.0, 0.0, 3.0))
 
 	world.animals.cared_for.connect(func(_kind: StringName, _coins: int, _at: Vector3) -> void: pass)
 	world.animals.befriended.connect(func(kind: StringName) -> void:
@@ -203,10 +208,25 @@ func _process(delta: float) -> void:
 			sounds.play(Sounds.Sound.SPLASH)
 			hud.announce(Text.of("say_filled"), 1.6)
 
+	# The mount follows the player rather than carrying them: a character body
+	# parented to a moving node inherits its rotation and fights its own
+	# gravity, which is a bigger problem than the one it would solve.
+	var riding := player.riding
+	hud.set_mount_in_reach(
+		world.mounts.nearest(player.global_position) != &"", riding != &""
+	)
+	if riding != &"" and not world.mounts.can_ride_over(riding, player.global_position):
+		# Ridden somewhere this mount cannot go — put the child down rather than
+		# stranding them on a bicycle halfway up a cliff.
+		world.mounts.dismount(player.global_position)
+		player.riding = &""
+		camera_rig.set_eye_lift(0.0)
+		sounds.play(Sounds.Sound.REFUSE)
+
 	# The axe only offers itself when there is a tree to use it on.
 	hud.set_tree_in_reach(
 		wallet.has(ShopStock.AXE)
-		and not world.vegetation.nearest_tree(player.global_position, CHOP_REACH).is_zero_approx()
+		and bool(world.vegetation.nearest_tree_found(player.global_position, CHOP_REACH)[1])
 	)
 
 	# The care button says what the animal in front of you wants, at the moment
@@ -310,6 +330,7 @@ func _handlers() -> Dictionary:
 		&"drink": _on_drink,
 		&"whistle": _on_whistle,
 		&"chop": _on_chop,
+		&"ride": _on_ride,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -357,12 +378,30 @@ func _standing_in_water() -> bool:
 const CHOP_REACH := 3.4
 const WOOD_PER_TREE := 4
 
+func _on_ride() -> void:
+	if player.riding != &"":
+		var got_off := world.mounts.dismount(player.global_position)
+		player.riding = &""
+		camera_rig.set_eye_lift(0.0)
+		if got_off != &"":
+			sounds.play(Sounds.Sound.LAND)
+		return
+
+	var kind := world.mounts.nearest(player.global_position)
+	if kind == &"" or not world.mounts.mount(kind):
+		return
+	player.riding = kind
+	camera_rig.set_eye_lift(MountKinds.eye_lift(kind))
+	sounds.play(Sounds.Sound.JUMP, 0.8)
+	hud.announce(Text.format("say_mounted", [MountKinds.label(kind)]), 2.0)
+
 func _on_chop() -> void:
 	if not wallet.has(ShopStock.AXE):
 		return
-	var tree := world.vegetation.nearest_tree(player.global_position, CHOP_REACH)
-	if tree.is_zero_approx():
+	var answer := world.vegetation.nearest_tree_found(player.global_position, CHOP_REACH)
+	if not bool(answer[1]):
 		return
+	var tree: Vector3 = answer[0]
 	world.felled.fell(tree)
 	# The forest is a MultiMesh generated from the seed, so the tree cannot be
 	# deleted — the tiles are rebuilt against the new record instead.
@@ -417,6 +456,12 @@ func _on_buy(item: StringName) -> void:
 		if item == ShopStock.BOTTLE:
 			vitals.grant_bottle()
 			_refresh_vitals()
+		if item == ShopStock.BICYCLE:
+			# At the camp, not underfoot: a bicycle that appears wherever you
+			# happen to stand feels like a cheat rather than something you own.
+			world.mounts.place(
+				MountKinds.BICYCLE, world.field.find_spawn_point() + Vector3(-4.0, 0.0, 3.0)
+			)
 		hud.set_owned(wallet.owned)
 		sounds.play(Sounds.Sound.GOAL)
 		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 3.0)
@@ -543,6 +588,7 @@ func _write_save() -> void:
 		"animals": world.animals.to_data(),
 		"journal": journal.to_data(),
 		"felled": world.felled.to_data(),
+		"mounts": world.mounts.to_data(),
 	})
 
 func _seed_from_command_line() -> int:

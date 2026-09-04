@@ -18,6 +18,7 @@ var pickups: Pickups
 var boulders: Boulders
 var animals: Animals
 var felled: Felled
+var mounts: Mounts
 var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
@@ -52,6 +53,9 @@ func _ready() -> void:
 	# already been cut down.
 	vegetation.felled = felled
 
+	mounts = Mounts.new(field)
+	mounts.name = "Mounts"
+	add_child(mounts)
 	animals = Animals.new(field, world_seed)
 	animals.name = "Animals"
 	add_child(animals)
@@ -65,6 +69,9 @@ func _ready() -> void:
 	add_child(water)
 
 	var spawn := field.find_spawn_point()
+	# The horse waits near the spawn: close enough to be found on the first
+	# afternoon, not so close it is the first thing a child trips over.
+	mounts.place(MountKinds.HORSE, spawn + Vector3(7.0, 0.0, -5.0))
 	follow(spawn)
 	ready_at_spawn.emit(spawn)
 
