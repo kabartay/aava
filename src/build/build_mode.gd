@@ -121,6 +121,14 @@ func _init(height_field: HeightField, structure_store: Structures, player_invent
 
 	_refresh_mesh()
 
+## Where the next piece would land, and how it would be turned. Read by the
+## session so that a piece built here can be described to the other machine.
+func preview_position() -> Vector3:
+	return _target
+
+func preview_spin() -> float:
+	return _spin
+
 func set_active(enabled: bool) -> void:
 	active = enabled
 	_ghost.visible = enabled

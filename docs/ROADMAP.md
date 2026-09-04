@@ -116,14 +116,19 @@ is a second project. Sketch of the order it would go in:
    the same valley; an invitation puts one of them in the other's copy. What is
    built, felled and dammed belongs to the world; the bag, coins and journal
    belong to the child.
-2. **A shared world on a LAN** — one device hosts, others join. Godot's
-   high-level multiplayer handles the transport; the hard part is deciding what
-   is authoritative. The ground costs nothing to share, because the height field
-   is a pure function of the seed and both machines can generate it from the map
-   name alone. What has to travel is exactly what is in the world file today:
-   structures, felled trees, dams, and where the other child is standing.
-   Joining is opening someone else's world instead of your own, which is now a
-   real operation rather than a hypothetical.
+2. ~~**A shared world on a LAN**~~ — **Done.** One device hosts, others join on
+   the family network. The ground never travels: both machines generate an
+   identical valley from the map's seed, which is the single biggest thing this
+   design gets for free. What does travel is small — positions twelve times a
+   second, and the four things that change a valley, sent as they happen.
+
+   Authority sits with the host and deliberately not much of it. This is a game
+   for brothers, not a competitive shooter: a child whose piece is refused by a
+   distant authority because of latency has been told the game is broken. A
+   guest places its own pieces immediately and tells the host.
+
+   Still to do here: the interface. Hosting and joining work, but nothing in the
+   game offers them yet — that is the next piece.
 3. ~~**Invitations and several maps**~~ — **Done** locally. Over a network an
    invitation additionally has to carry an address; the permission model is
    already there.

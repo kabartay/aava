@@ -47,6 +47,9 @@ recur.
 | Greeting ran before `structures` existed | Crash, but only on a returning visit | Offline growth exercised in a check |
 | Arity check matched signals by bare name | Flagged correct code — two classes both declare `completed` | Accept any declared arity for a name |
 | Rebuilt all 361 chunks for a 40 m change | Seconds of visibly missing valley | `rebuild_near`, a handful of chunks |
+| A replacement matched inside a lambda | Corrupted a `connect()` into a parse error | Rewrote the block by line, not by text |
+| `multiplayer` used before entering the tree | Null access instead of an honest failure | `_ready_to_connect()` guard |
+| Sent messages on a connection not yet up | "Built a wall" from a game that never joined | `is_connected_to_anyone()` |
 
 
 ## Godot 4.7
@@ -258,3 +261,24 @@ metres of river, and the first version threw away all 361 terrain chunks and
 streamed them back a few per frame — seconds during which the valley was
 visibly missing, and long enough that the screenshot tool timed out. Rebuilding
 only the chunks within the pond's reach took it to under a second.
+
+**Text replacement is not refactoring.** Adding `session.report_dam_stick(site)`
+after `world.dams.deliver(site)` matched twice — once at the call site it was
+meant for, and once *inside a lambda* that happened to contain the same line,
+turning a `connect()` into a parse error two hundred lines from where the edit
+was aimed. For anything structural, replace by line range and read the result
+back, or write a named method instead of a multi-line lambda.
+
+**The MultiplayerAPI belongs to the tree, not to the node.** `multiplayer` is
+null until a node is actually inside the scene tree, and `add_child` does not
+put it there — the tree does, on its next pass. Calling `host()` from
+`_initialize` produced a null access rather than a failure a child could
+understand. This is the same lifecycle trap as `_ready` versus `_init`, now for
+the fifth time, and it is worth stating as a rule: *nothing that a node needs on
+the very next line may depend on the tree having processed it.*
+
+**"Connected" and "trying to connect" are different states.** A guest that has
+called `join()` is networked, but its connection may still be in flight or may
+have already failed. Sending on it fails silently, so a headless test cheerfully
+reported building a wall in a valley it had never reached. Every send now checks
+the peer's actual connection status, not merely that a session exists.

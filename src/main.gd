@@ -35,6 +35,8 @@ var wallet: Wallet
 var vitals: Vitals
 var journal: Journal
 var profiles: Profiles
+var session: Session
+var visitors: Visitors
 var today: Today
 var lantern: Lantern
 
@@ -162,6 +164,26 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	birds.name = "Birds"
 	add_child(birds)
 
+	session = Session.new()
+	add_child(session)
+	visitors = Visitors.new()
+	visitors.name = "Visitors"
+	add_child(visitors)
+
+	session.guest_arrived.connect(_on_guest_arrived)
+	session.guest_left.connect(_on_guest_left)
+	session.guest_moved.connect(visitors.move)
+	session.failed.connect(_on_session_failed)
+	session.closed.connect(visitors.clear)
+
+	# Changes made on another machine are applied exactly as if a local child
+	# had made them, which is why each goes through the same call the local
+	# controls do.
+	session.remote_built.connect(_on_remote_built)
+	session.remote_removed.connect(_on_remote_removed)
+	session.remote_felled.connect(_on_remote_felled)
+	session.remote_dam_stick.connect(_on_remote_dam_stick)
+
 	world.football.goal_scored.connect(_on_goal)
 	world.boulders.jumped.connect(_on_boulder_jumped)
 	if save.has("boulders"):
@@ -284,6 +306,7 @@ func _process(delta: float) -> void:
 			hud.announce(Text.of("say_filled"), 1.6)
 
 	lantern.follow(world.atmosphere.darkness(), delta)
+	session.report_position(player.global_position, player.rotation.y)
 
 	# The mount follows the player rather than carrying them: a character body
 	# parented to a moving node inherits its rotation and fights its own
@@ -530,6 +553,35 @@ func _offer_at(place: StringName) -> String:
 			# "swim" beside water you are already standing in is noise.
 			return ""
 
+func _on_guest_arrived(id: int, name: String) -> void:
+	visitors.add(id, name)
+	sounds.play(Sounds.Sound.CHIME, 1.4)
+	hud.announce(Text.format("say_joined", [name]), 4.0)
+
+func _on_guest_left(id: int, name: String) -> void:
+	visitors.remove(id)
+	hud.announce(Text.format("say_left", [name]), 3.0)
+
+func _on_session_failed(reason: String) -> void:
+	visitors.clear()
+	sounds.play(Sounds.Sound.REFUSE)
+	hud.announce(reason, 4.0)
+
+func _on_remote_built(kind: StringName, at: Vector3, spin: float) -> void:
+	structures.place(kind, at, spin)
+
+func _on_remote_removed(at: Vector3) -> void:
+	var record := structures.nearest(at, 0.6)
+	if not record.is_empty():
+		structures.remove(record)
+
+func _on_remote_felled(at: Vector3) -> void:
+	world.felled.fell(at)
+	world.vegetation.rebuild_around(at)
+
+func _on_remote_dam_stick(site: float) -> void:
+	world.dams.deliver(site)
+
 func _on_dam_stick() -> void:
 	var site := world.dams.site_near(player.global_position)
 	if is_nan(site) or inventory.count(&"stick") <= 0:
@@ -537,6 +589,7 @@ func _on_dam_stick() -> void:
 	if not inventory.spend({&"stick": 1}):
 		return
 	world.dams.deliver(site)
+	session.report_dam_stick(site)
 
 func _on_today_done(_kind: StringName, reward: int) -> void:
 	wallet.earn(reward)
@@ -615,6 +668,7 @@ func _on_chop() -> void:
 		return
 	var tree: Vector3 = answer[0]
 	world.felled.fell(tree)
+	session.report_felled(tree)
 	# The forest is a MultiMesh generated from the seed, so the tree cannot be
 	# deleted — the tiles are rebuilt against the new record instead.
 	world.vegetation.rebuild_around(tree)
@@ -747,7 +801,12 @@ func _on_goal(_index: int, total: int) -> void:
 	hud.announce(Text.of("say_goal"), 2.0)
 
 func _on_place() -> void:
+	# Captured before placing, because place() moves the preview on.
+	var placing := build_mode.selected
+	var placing_at := build_mode.preview_position()
+	var placing_spin := build_mode.preview_spin()
 	if build_mode.place():
+		session.report_built(placing, placing_at, placing_spin)
 		# A sapling is planted, everything else is built. The distinction
 		# matters to the greeting: planting a tree is a different kind of
 		# afternoon from stacking walls.

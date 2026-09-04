@@ -229,6 +229,13 @@ const STRINGS := {
 		FR: "les castors ont fini le barrage !",
 		RU: "бобры достроили запруду!",
 	},
+	"say_joined": {
+		EN: "%s came to your valley", FR: "%s est venu dans ta vallée",
+		RU: "%s пришёл в твою долину",
+	},
+	"say_left": {
+		EN: "%s went home", FR: "%s est rentré", RU: "%s ушёл домой",
+	},
 	"ui_give_stick": {
 		EN: "give a stick", FR: "donner un bâton", RU: "дать ветку",
 	},

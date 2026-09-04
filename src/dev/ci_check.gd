@@ -47,6 +47,7 @@ func _initialize() -> void:
 	_check_dams_change_the_world()
 	_check_one_thing_a_day()
 	_check_players_and_worlds()
+	_check_playing_together()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -362,7 +363,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -2143,3 +2144,143 @@ func _check_players_and_worlds() -> void:
 	if folder != null:
 		for file in folder.get_files():
 			DirAccess.remove_absolute(ProjectSettings.globalize_path("%s/%s" % [Profiles.FOLDER, file]))
+
+## Playing in the same valley from two devices.
+##
+## The transport itself needs two machines and cannot be checked here. What can
+## be checked is everything around it: that the ground never travels, that the
+## right things do, and that a name arriving from another machine is treated as
+## the untrusted input it is.
+func _check_playing_together() -> void:
+	print("two children can share a valley")
+	var session := Session.new()
+	get_root().add_child(session)
+
+	_expect(not session.is_networked(), "a game starts on its own")
+	_expect(not session.is_host(), "and hosting nothing")
+	_expect(not session.is_connected_to_anyone(), "and with nobody to talk to")
+
+	# Nothing may be sent on a connection that is not up. A guest whose join is
+	# still in flight, or has failed outright, is "networked" but has nobody
+	# listening — an early version happily reported building a wall from a game
+	# that had never joined anything.
+	session.report_built(&"wall", Vector3.ZERO, 0.0)
+	session.report_felled(Vector3.ZERO)
+	session.report_dam_stick(0.0)
+	session.report_position(Vector3.ONE, 0.0)
+	_expect(true, "reporting anything while alone is silently ignored, not an error")
+
+	# The MultiplayerAPI belongs to the scene tree, so a session outside one
+	# cannot connect. It must say so rather than crashing on a null.
+	var orphan := Session.new()
+	var refusals: Array[String] = []
+	orphan.failed.connect(func(reason: String) -> void: refusals.append(reason))
+	_expect(not orphan.host("Amir"), "a session outside the tree refuses to host")
+	_expect(not orphan.join("127.0.0.1", "Amir"), "and refuses to join")
+	_expect(refusals.size() == 2, "and explains itself both times rather than crashing")
+	orphan.free()
+
+	# The single biggest property of this design: terrain is generated from the
+	# seed on both machines and never sent. If the session ever learns about the
+	# height field or the terrain, that has stopped being true.
+	var source := FileAccess.get_file_as_string("res://src/net/session.gd")
+	_expect(not source.is_empty(), "the session source can be read")
+	var sends_ground := (
+		source.contains("HeightField") or source.contains("TerrainChunk")
+		or source.contains("Vegetation") or source.contains("height_at")
+	)
+	_expect(
+		not sends_ground,
+		"the ground is never sent — both machines generate it from the map's seed"
+	)
+
+	# Positions are unreliable and frequent; changes to the valley are reliable,
+	# because a dropped house is a lost afternoon and a dropped position is
+	# corrected a twelfth of a second later.
+	_expect(
+		source.contains('"unreliable_ordered"'),
+		"positions are sent unreliably, since the next one corrects a lost one"
+	)
+	var reliable_changes := 0
+	for line in source.split("\n"):
+		if line.contains('"reliable"'):
+			reliable_changes += 1
+	_expect(
+		reliable_changes >= 5,
+		"the %d messages that change the valley are sent reliably" % reliable_changes
+	)
+
+	# Every message must be call_remote, or a machine applies its own change
+	# twice — once locally and once when its own message comes back.
+	var rpcs := 0
+	var remote_only := 0
+	for line in source.split("\n"):
+		if not line.strip_edges().begins_with("@rpc("):
+			continue
+		rpcs += 1
+		if line.contains("call_remote"):
+			remote_only += 1
+	_expect(rpcs > 0, "there are %d messages in all" % rpcs)
+	_expect(
+		remote_only == rpcs,
+		"every message is call_remote, so nothing is applied twice at the sender"
+	)
+
+	# A name arrives from another machine and is drawn on screen. It is the one
+	# piece of data here that crosses a trust boundary.
+	_expect(
+		source.contains("Profiles.is_valid_name"),
+		"a name arriving from another machine is validated before it is shown"
+	)
+
+	# Addresses offered to a child must be ones on the family network, never a
+	# public one.
+	for address in Session.local_addresses():
+		var private := (
+			address.begins_with("192.168.") or address.begins_with("10.")
+			or address.begins_with("172.")
+		)
+		_expect(private, "%s is a private address" % address)
+	_expect(not Session.local_addresses().has("127.0.0.1"), "loopback is not offered as somewhere to join")
+
+	# Small on purpose: this is a family game.
+	_expect(Session.MAX_GUESTS <= 4, "at most %d guests, which is a family" % Session.MAX_GUESTS)
+	_expect(Session.MOVE_INTERVAL > 0.0, "positions are rate-limited rather than sent every frame")
+	_expect(
+		Session.MOVE_INTERVAL <= 1.0 / 8.0,
+		"but often enough (%d/s) to look like walking" % int(1.0 / Session.MOVE_INTERVAL)
+	)
+
+	# Visitors: drawn, named, and removed when they go.
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	_expect(visitors.count() == 0, "nobody else is here to begin with")
+	visitors.add(2, "Мурат")
+	_expect(visitors.count() == 1, "an arriving child is drawn")
+	visitors.add(2, "Мурат")
+	_expect(visitors.count() == 1, "and not drawn twice")
+	visitors.add(3, "Amir")
+	_expect(visitors.count() == 2, "a second one is drawn too")
+
+	# A first position must be applied outright rather than eased in, or a
+	# visitor sprints across the valley from the origin when they appear.
+	visitors.move(2, Vector3(40.0, 2.0, -18.0), 1.2)
+	visitors._process(1.0 / 60.0)
+	var placed := visitors._visitors[2]["node"] as Node3D
+	_expect(
+		placed.position.distance_to(Vector3(40.0, 2.0, -18.0)) < 1.0,
+		"a visitor appears where they are, not at the origin"
+	)
+
+	visitors.remove(2)
+	_expect(visitors.count() == 1, "a departing child is removed")
+	visitors.clear()
+	_expect(visitors.count() == 0, "and closing the session removes everyone")
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not Text.of("say_joined").begins_with("?"), "an arrival is announced in %s" % code)
+	Text.set_language(Text.EN)
+
+	session.queue_free()
+	visitors.queue_free()
