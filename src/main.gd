@@ -16,6 +16,11 @@ const SPAWN_CLEARANCE := 1.2
 ## cheap enough that it is never noticed.
 const AUTOSAVE_SECONDS := 20.0
 
+## How far a piece can be from the player and still be taken down. Wider than
+## the build reach, because walking up to something you want gone is natural and
+## aiming at it is not.
+const REMOVE_REACH := 4.0
+
 var world: World
 var player: Player
 var camera_rig: CameraRig
@@ -103,7 +108,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	hud.set_score(world.football.score)
-	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump, _on_remove)
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
@@ -155,6 +160,29 @@ func _on_collected(kind: StringName, _at: Vector3) -> void:
 
 func _on_jump() -> void:
 	player.request_jump()
+
+## Take down the nearest piece and give the materials back in full.
+##
+## A full refund is deliberate. A partial one would teach a child that trying
+## something costs him, and the whole point of being able to take a wall down is
+## that trying costs nothing.
+func _on_remove() -> void:
+	var record := structures.nearest(player.global_position, REMOVE_REACH)
+	if record.is_empty():
+		hud.announce("nothing to take down here")
+		return
+	var kind := structures.remove(record)
+	if kind == &"":
+		return
+	var cost := (
+		HouseParts.cost(kind) if HouseParts.is_house_part(kind)
+		else BuildKinds.cost(kind)
+	)
+	for item in cost:
+		inventory.add(item, int(cost[item]))
+	hud.announce("took the %s back" % (
+		HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
+	), 1.6)
 
 func _on_kick_start() -> void:
 	if world.football.ball_near(player.global_position) != null:

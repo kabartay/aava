@@ -13,6 +13,7 @@ const GROVE_RADIUS := 15.0
 const GROVE_MINIMUM := 3
 
 signal placed(kind: StringName, world_position: Vector3)
+signal removed(kind: StringName, world_position: Vector3)
 signal matured(kind: StringName, world_position: Vector3)
 signal groves_changed(centres: Array)
 
@@ -37,10 +38,83 @@ func _init(height_field: HeightField) -> void:
 func is_clear(world_position: Vector3, radius: float) -> bool:
 	for record in _records:
 		var other: Vector3 = record["position"]
-		var minimum := radius + BuildKinds.footprint(record["kind"])
+		var kind: StringName = record["kind"]
+		var other_footprint := (
+			HouseParts.footprint(kind) if HouseParts.is_house_part(kind)
+			else BuildKinds.footprint(kind)
+		)
+		# Different storeys never conflict: a wall upstairs stands directly over
+		# the wall below it, and that is the whole point of building upwards.
+		if absf(other.y - world_position.y) > HouseParts.STOREY * 0.5:
+			continue
+		var minimum := radius + other_footprint
 		if Vector2(other.x - world_position.x, other.z - world_position.z).length() < minimum * 0.5:
 			return false
 	return true
+
+## The ground level the nearest house parts were built on, or INF if there are
+## none close enough.
+##
+## This is what makes a building level. The first piece takes its height from
+## the ground; every piece placed beside it takes its height from that first
+## one, so a house stays flat even where the meadow does not.
+func nearby_datum(world_position: Vector3, reach: float) -> float:
+	var best := INF
+	var best_distance := reach
+	for record in _records:
+		if not HouseParts.is_house_part(record["kind"]):
+			continue
+		var at: Vector3 = record["position"]
+		var distance := Vector2(at.x - world_position.x, at.z - world_position.z).length()
+		if distance > best_distance:
+			continue
+		best_distance = distance
+		# The storey the piece sits on is subtracted back out, so the answer is
+		# always the level of the ground floor however high the piece was.
+		best = at.y - HouseParts.snap_height(at.y - _ground_under(at))
+	return best
+
+func _ground_under(at: Vector3) -> float:
+	return field.height_at(at.x, at.z)
+
+## The piece nearest to a point, within reach, or an empty dictionary.
+##
+## Returned as a record rather than an index because indices shift the moment
+## anything is removed, and a stale index that quietly points at the wrong
+## building is the sort of bug that eats an afternoon of someone's work.
+func nearest(world_position: Vector3, reach: float) -> Dictionary:
+	var best := {}
+	var best_distance := reach
+	for record in _records:
+		var at: Vector3 = record["position"]
+		var offset := at - world_position
+		# Vertical distance counts for less, so standing under a first-floor
+		# wall still lets you take it down.
+		offset.y *= 0.6
+		var distance := offset.length()
+		if distance <= best_distance:
+			best_distance = distance
+			best = record
+	return best
+
+## Take a piece back down. Returns what it was, so the caller can refund it.
+##
+## Everything a child builds must be removable. Without that, a misplaced wall
+## is permanent, and a child who has made one permanent mistake stops
+## experimenting — which is the entire activity.
+func remove(record: Dictionary) -> StringName:
+	var index := _records.find(record)
+	if index < 0:
+		return &""
+	var kind: StringName = record["kind"]
+	var at: Vector3 = record["position"]
+	var node: Node3D = record["node"]
+	if is_instance_valid(node):
+		node.queue_free()
+	_records.remove_at(index)
+	removed.emit(kind, at)
+	_recompute_groves()
+	return kind
 
 func place(kind: StringName, world_position: Vector3, spin: float) -> void:
 	var record := {
@@ -54,12 +128,19 @@ func place(kind: StringName, world_position: Vector3, spin: float) -> void:
 	_records.append(record)
 	_spawn_node(record)
 	placed.emit(kind, world_position)
-	if not BuildKinds.grows(kind):
+	# Only the generated pieces grow. Asking BuildKinds about a house part is
+	# asking a dictionary for a key it has never heard of, and the error is
+	# raised once per piece placed — loud, but easy to lose in a busy log.
+	if not BuildKinds.INFO.has(kind) or not BuildKinds.grows(kind):
 		_recompute_groves()
 
 func _spawn_node(record: Dictionary) -> void:
 	var node := MeshInstance3D.new()
-	node.mesh = BuildKinds.build_mesh(record["kind"], record["stage"])
+	var kind: StringName = record["kind"]
+	node.mesh = (
+		HouseParts.build_mesh(kind) if HouseParts.is_house_part(kind)
+		else BuildKinds.build_mesh(kind, record["stage"])
+	)
 	node.material_override = _material
 	node.transform = Transform3D(Basis(Vector3.UP, record["spin"]), record["position"])
 	add_child(node)
@@ -68,7 +149,7 @@ func _spawn_node(record: Dictionary) -> void:
 func _process(delta: float) -> void:
 	var any_matured := false
 	for record in _records:
-		if not BuildKinds.grows(record["kind"]):
+		if not BuildKinds.INFO.has(record["kind"]) or not BuildKinds.grows(record["kind"]):
 			continue
 		if record["stage"] >= BuildKinds.GROWTH_STAGES - 1:
 			continue
@@ -112,7 +193,7 @@ func grove_count() -> int:
 func _recompute_groves() -> void:
 	var grown: Array[Vector3] = []
 	for record in _records:
-		if BuildKinds.grows(record["kind"]) and record["stage"] >= BuildKinds.GROWTH_STAGES - 1:
+		if BuildKinds.INFO.has(record["kind"]) and BuildKinds.grows(record["kind"]) and record["stage"] >= BuildKinds.GROWTH_STAGES - 1:
 			grown.append(record["position"])
 
 	var claimed := {}
@@ -162,7 +243,7 @@ func from_data(data: Array) -> void:
 
 	for entry in data:
 		var kind := StringName(entry.get("kind", ""))
-		if not BuildKinds.INFO.has(kind):
+		if not BuildKinds.INFO.has(kind) and not HouseParts.is_house_part(kind):
 			continue
 		var record := {
 			"kind": kind,
@@ -172,7 +253,7 @@ func from_data(data: Array) -> void:
 			"stage": 0,
 			"node": null,
 		}
-		if BuildKinds.grows(kind):
+		if BuildKinds.INFO.has(kind) and BuildKinds.grows(kind):
 			record["stage"] = mini(
 				int(float(record["age"]) / BuildKinds.GROWTH_STAGE_SECONDS),
 				BuildKinds.GROWTH_STAGES - 1

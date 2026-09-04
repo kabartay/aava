@@ -27,6 +27,7 @@ func _initialize() -> void:
 	_check_kick_can_be_aimed()
 	_check_rocks_are_jumpable()
 	_check_the_camera_zooms()
+	_check_a_house_can_be_built_and_unbuilt()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -333,7 +334,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode",
+		"BuildKinds", "Structures", "BuildMode", "Backpack",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -610,3 +611,111 @@ func _check_the_camera_zooms() -> void:
 		_ok("the widest view stands %.0f m back, enough to survey" % CameraRig.ARM_MAX)
 
 	player.queue_free()
+
+## A house is many pieces placed independently that must still meet, and every
+## one of them must come back down again.
+func _check_a_house_can_be_built_and_unbuilt() -> void:
+	print("a house goes up and comes down")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var inventory := Inventory.new()
+	for kind in ItemKinds.ALL:
+		inventory.add(kind, 200)
+	var build := BuildMode.new(field, structures, inventory)
+	get_root().add_child(build)
+	build.set_active(true)
+
+	# Four walls in a square, each placed on its own, must not overlap and must
+	# sit exactly one module apart.
+	var base := Pitch.centre() + Vector3(0.0, 0.0, 26.0)
+	base.y = field.height_at(base.x, base.z)
+	var module := HouseParts.MODULE
+	var corners: Array[Vector3] = [
+		base, base + Vector3(module, 0.0, 0.0),
+		base + Vector3(module, 0.0, module), base + Vector3(0.0, 0.0, module),
+	]
+	var placed := 0
+	for corner in corners:
+		if structures.is_clear(corner, HouseParts.footprint(HouseParts.WALL)):
+			structures.place(HouseParts.WALL, corner, 0.0)
+			placed += 1
+	if placed != corners.size():
+		_fail("only %d of %d walls fitted — pieces a module apart are colliding" % [placed, corners.size()])
+	else:
+		_ok("four walls a module apart all fit")
+
+	# A wall directly above another is a first floor, not a collision.
+	var upstairs := base + Vector3(0.0, HouseParts.STOREY, 0.0)
+	if not structures.is_clear(upstairs, HouseParts.footprint(HouseParts.WALL)):
+		_fail("a wall one storey up collides with the wall below it")
+	else:
+		structures.place(HouseParts.WALL, upstairs, 0.0)
+		_ok("a wall one storey up stacks rather than colliding")
+
+	# And a wall in the same place on the same storey must not.
+	if structures.is_clear(base, HouseParts.footprint(HouseParts.WALL)):
+		_fail("two walls can occupy the same square")
+	else:
+		_ok("two walls cannot occupy the same square")
+
+	# Every piece must come down, and the refund must be exact.
+	var before := inventory.count(ItemKinds.STICK)
+	var cost := HouseParts.cost(HouseParts.WALL)
+	inventory.spend(cost)
+	var spent := before - inventory.count(ItemKinds.STICK)
+	var record := structures.nearest(base, 4.0)
+	if record.is_empty():
+		_fail("nothing found to take down where five pieces were just placed")
+	else:
+		var kind := structures.remove(record)
+		if kind == &"":
+			_fail("remove() refused a record it had just returned")
+		else:
+			var refund := HouseParts.cost(kind) if HouseParts.is_house_part(kind) else BuildKinds.cost(kind)
+			for item in refund:
+				inventory.add(item, int(refund[item]))
+			var after := inventory.count(ItemKinds.STICK)
+			if after != before:
+				_fail("building and unbuilding a wall left %d sticks, started with %d" % [after, before])
+			else:
+				_ok("a piece comes back down and refunds exactly what it cost")
+
+	# Every part must be buildable at all: an unknown mesh or a zero footprint
+	# makes a piece silently unplaceable.
+	for kind in HouseParts.ALL:
+		if HouseParts.build_mesh(kind) == null:
+			_fail("%s has no mesh" % kind)
+		if HouseParts.footprint(kind) <= 0.0:
+			_fail("%s has no footprint" % kind)
+		for item in HouseParts.cost(kind):
+			if not ItemKinds.INFO.has(item):
+				_fail("%s costs unknown item %s" % [kind, item])
+	_ok("all %d house parts have a mesh, a footprint and a real cost" % HouseParts.ALL.size())
+
+	# A house must be level even where the ground is not. Three walls in a row
+	# on sloping meadow once sat at 1.81, 1.64 and 1.35 metres — a building that
+	# leaned downhill with its roof over one end.
+	var slope_base := Pitch.centre() + Vector3(34.0, 0.0, 30.0)
+	slope_base.y = field.height_at(slope_base.x, slope_base.z)
+	var levels: Array[float] = []
+	for column in 3:
+		var at := slope_base + Vector3(float(column) * module, 0.0, 0.0)
+		var datum := structures.nearby_datum(at, module * 2.6)
+		at.y = field.height_at(at.x, at.z) if is_inf(datum) else datum
+		structures.place(HouseParts.WALL, at, 0.0)
+		levels.append(at.y)
+	# Array.max() returns an untyped Variant, so the subtraction cannot be
+	# inferred — the same trap as an untyped array literal, wearing a hat.
+	var highest: float = levels.max()
+	var lowest: float = levels.min()
+	var spread := highest - lowest
+	if spread > 0.01:
+		_fail("three walls in a row differ in height by %.2f m — the house leans" % spread)
+	else:
+		_ok("a row of walls stays level across %.2f m of ground fall" % absf(
+			field.height_at(slope_base.x, slope_base.z)
+			- field.height_at(slope_base.x + module * 2.0, slope_base.z)))
+
+	structures.queue_free()
+	build.queue_free()

@@ -11,12 +11,17 @@ extends Node3D
 ## How far ahead of the player the ghost sits.
 const REACH := 3.2
 
-## Everything snaps to this grid, and rotation to eighths of a turn. Snapping is
+## Everything snaps to a grid, and rotation to eighths of a turn. Snapping is
 ## not a constraint here, it is a gift: it means a child's fence comes out
 ## straight, and a straight fence is the difference between proud and
 ## disappointed.
+##
+## House parts use a coarser grid and only four rotations, because a wall at
+## 45 degrees cannot meet the wall beside it. Everything else keeps the fine
+## grid, where a rock or a sapling wants to go exactly where it was aimed.
 const GRID := 1.0
 const TURN_STEPS := 8
+const HOUSE_TURN_STEPS := 4
 
 ## Ground steeper than this refuses a build, because a house on a cliff face
 ## looks broken and a child cannot tell why.
@@ -66,17 +71,35 @@ func set_active(enabled: bool) -> void:
 	_last_signature = ""
 
 func select(kind: StringName) -> void:
-	if not BuildKinds.INFO.has(kind) or kind == selected:
+	var known := BuildKinds.INFO.has(kind) or HouseParts.is_house_part(kind)
+	if not known or kind == selected:
 		return
 	selected = kind
 	_refresh_mesh()
 	_last_signature = ""
 
 func _refresh_mesh() -> void:
+	if HouseParts.is_house_part(selected):
+		_ghost.mesh = HouseParts.build_mesh(selected)
+		return
 	# The ghost of something that grows shows what it will become, not the sprout
 	# it starts as: a child is choosing a tree, not a twig.
 	var stage := BuildKinds.GROWTH_STAGES - 1 if BuildKinds.grows(selected) else 0
 	_ghost.mesh = BuildKinds.build_mesh(selected, stage)
+
+## A house part or an ordinary object — the two follow different rules and this
+## is the one place that has to know which is which.
+func _is_house() -> bool:
+	return HouseParts.is_house_part(selected)
+
+func _cost_of(kind: StringName) -> Dictionary:
+	return HouseParts.cost(kind) if HouseParts.is_house_part(kind) else BuildKinds.cost(kind)
+
+func _footprint_of(kind: StringName) -> float:
+	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
+
+func _label_of(kind: StringName) -> String:
+	return HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
 
 ## Driven from wherever the player is, once per frame.
 func aim(player_position: Vector3, yaw: float) -> void:
@@ -85,21 +108,39 @@ func aim(player_position: Vector3, yaw: float) -> void:
 
 	var forward := Vector3(-sin(yaw), 0.0, -cos(yaw))
 	var raw := player_position + forward * REACH
-	_target = Vector3(
-		snappedf(raw.x, GRID),
-		0.0,
-		snappedf(raw.z, GRID)
-	)
-	_target.y = field.height_at(_target.x, _target.z)
 
-	var step := TAU / float(TURN_STEPS)
-	_spin = snappedf(yaw, step)
+	var grid := HouseParts.MODULE if _is_house() else GRID
+	_target = Vector3(snappedf(raw.x, grid), 0.0, snappedf(raw.z, grid))
+
+	var ground := field.height_at(_target.x, _target.z)
+	if _is_house():
+		# A house part sits on a storey, not on the ground.
+		#
+		# Which storey is decided by how high the player is standing — walk
+		# upstairs and you build upstairs, which needs no control and is the
+		# only scheme a child works out unaided.
+		#
+		# The height it counts from is the level of whatever is already built
+		# nearby, not the ground under this particular square. Following the
+		# ground meant three walls in a row sat at 1.81, 1.64 and 1.35 metres:
+		# a house that leans downhill, with the roof over one end of it. A
+		# building has one floor level, so the first piece sets it and the rest
+		# join it.
+		var datum := structures.nearby_datum(_target, HouseParts.MODULE * 2.6)
+		var floor_level := ground if is_inf(datum) else datum
+		var above := maxf(player_position.y - floor_level, 0.0)
+		_target.y = floor_level + HouseParts.snap_height(above)
+	else:
+		_target.y = ground
+
+	var steps := HOUSE_TURN_STEPS if _is_house() else TURN_STEPS
+	_spin = snappedf(yaw, TAU / float(steps))
 
 	_ghost.transform = Transform3D(Basis(Vector3.UP, _spin), _target)
 	_evaluate()
 
 func _evaluate() -> void:
-	var cost := BuildKinds.cost(selected)
+	var cost := _cost_of(selected)
 	_valid = true
 	_reason = ""
 
@@ -112,7 +153,7 @@ func _evaluate() -> void:
 	elif field.steepness_at(_target.x, _target.z) > MAX_SLOPE:
 		_valid = false
 		_reason = "too steep"
-	elif not structures.is_clear(_target, BuildKinds.footprint(selected)):
+	elif not structures.is_clear(_target, _footprint_of(selected)):
 		_valid = false
 		_reason = "no room"
 
@@ -123,7 +164,7 @@ func _evaluate() -> void:
 
 	# Only announce a change, so the interface is not rebuilt sixty times a
 	# second while the player stands still.
-	var signature := "%s|%s|%s" % [selected, _valid, _reason]
+	var signature := "%s|%s|%s|%.2f" % [selected, _valid, _reason, _target.y]
 	if signature != _last_signature:
 		_last_signature = signature
 		preview_changed.emit(selected, _valid, _reason)
@@ -142,7 +183,7 @@ func _cost_text(cost: Dictionary) -> String:
 func place() -> bool:
 	if not active or not _valid:
 		return false
-	if not inventory.spend(BuildKinds.cost(selected)):
+	if not inventory.spend(_cost_of(selected)):
 		return false
 	structures.place(selected, _target, _spin)
 	# Re-evaluate immediately: the same spot is now occupied and the resources

@@ -210,9 +210,13 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	var forest := field.forest_density_at(x, z)
 	if forest > 0.22:
 		var roll := rng.randf()
-		if roll < 0.42:
+		if roll < 0.34:
 			return ItemKinds.STICK
-		if roll < 0.52:
+		# Cones lie under the conifers, which grow higher up — so climbing into
+		# the forest is what finds them, and that is worth a walk.
+		if roll < 0.34 + (0.26 if height > 22.0 else 0.08):
+			return ItemKinds.CONE
+		if roll < 0.72:
 			return ItemKinds.SEED
 		return &""
 

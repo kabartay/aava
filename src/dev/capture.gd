@@ -50,6 +50,7 @@ var _kick_after := 0.0
 var _kick_strength := 1.0
 var _kick_loft := 0.25
 var _zoom := 0.0
+var _house := false
 var _structures: Structures
 var _birds: Birds
 var _inventory: Inventory
@@ -132,7 +133,11 @@ func _spawn_player() -> void:
 		func() -> void: _build_mode.place(),
 		func() -> void: _player.start_charging(),
 		func() -> void: _kick_nearest(),
-		func() -> void: _player.request_jump()
+		func() -> void: _player.request_jump(),
+		func() -> void:
+			var record := _structures.nearest(_player.global_position, 4.0)
+			if not record.is_empty():
+				_structures.remove(record)
 	)
 
 	if _demo:
@@ -141,7 +146,12 @@ func _spawn_player() -> void:
 		# Through the HUD, so the palette and the place button open exactly as
 		# they do for a player pressing the button.
 		_hud.set_building(true)
-		_build_mode.select(BuildKinds.FEEDER)
+		if _house:
+			_hud._show_house(true)
+			_build_mode.select(HouseParts.WALL_DOOR)
+			_stand_up_a_house(_world.field.find_spawn_point() if not _at_pitch else Pitch.centre() + Vector3(0.0, 0.0, 26.0))
+		else:
+			_build_mode.select(BuildKinds.FEEDER)
 
 	_world.follow(spawn)
 
@@ -182,6 +192,51 @@ func _stand_up_a_camp(spawn: Vector3) -> void:
 		_structures._process(2.0)
 		elapsed += 2.0
 	_birds.set_points(_structures.attract_points())
+
+## A small house, put up the way a child would: walls in a rectangle, a door at
+## the front, windows either side, a floor and a roof over the top.
+func _stand_up_a_house(near: Vector3) -> void:
+	for kind in ItemKinds.ALL:
+		_inventory.add(kind, 300)
+
+	var module := HouseParts.MODULE
+	var storey := HouseParts.STOREY
+	var base := near + Vector3(-module * 1.5, 0.0, -module * 4.0)
+	base.y = _world.field.height_at(base.x, base.z)
+
+	var plan: Array = [
+		# Front wall with a door in the middle and a window each side.
+		[HouseParts.WALL_WINDOW, Vector2(0, 0), 0.0],
+		[HouseParts.WALL_DOOR, Vector2(1, 0), 0.0],
+		[HouseParts.WALL_WINDOW, Vector2(2, 0), 0.0],
+		# Back wall.
+		[HouseParts.WALL, Vector2(0, 2), 0.0],
+		[HouseParts.WALL_WINDOW, Vector2(1, 2), 0.0],
+		[HouseParts.WALL, Vector2(2, 2), 0.0],
+		# Sides, turned a quarter.
+		[HouseParts.WALL, Vector2(-0.5, 1), PI * 0.5],
+		[HouseParts.WALL, Vector2(2.5, 1), PI * 0.5],
+		# Floor inside.
+		[HouseParts.FLOOR, Vector2(1, 1), 0.0],
+	]
+	# One floor level for the whole building, taken from the first square, the
+	# way the build mode now does it for a player.
+	var level := base.y
+	for entry in plan:
+		var kind: StringName = entry[0]
+		var cell: Vector2 = entry[1]
+		var spin: float = entry[2]
+		var at := base + Vector3(cell.x * module, 0.0, cell.y * module)
+		at.y = level
+		if _inventory.spend(HouseParts.cost(kind)):
+			_structures.place(kind, at, spin)
+
+	# A roof one storey up, over the whole footprint.
+	for column in 3:
+		var at := base + Vector3(float(column) * module, 0.0, module)
+		at.y = level + storey
+		if _inventory.spend(HouseParts.cost(HouseParts.ROOF_PEAK)):
+			_structures.place(HouseParts.ROOF_PEAK, at, 0.0)
 
 func _kick_nearest() -> void:
 	var ball := _world.football.ball_near(_player.global_position)
@@ -336,6 +391,8 @@ func _parse_arguments() -> void:
 				_kick_strength = value.to_float()
 			"loft":
 				_kick_loft = value.to_float()
+			"house":
+				_house = value.to_int() != 0
 			"zoom":
 				# Metres to pull the camera out from its default.
 				_zoom = value.to_float()

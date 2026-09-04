@@ -25,14 +25,18 @@ signal jump_pressed()
 signal build_toggled(enabled: bool)
 signal build_selected(kind: StringName)
 signal build_place()
+signal build_remove()
+signal build_tab(house: bool)
 
 var _stick: VirtualJoystick
-var _items: HBoxContainer
-var _item_labels: Dictionary = {}
+var _backpack: Backpack
 var _build_button: Button
 var _palette: HBoxContainer
 var _palette_buttons: Dictionary = {}
+var _tabs: HBoxContainer
 var _place_button: Button
+var _remove_button: Button
+var _showing_house := false
 var _status: Label
 var _message: Label
 var _message_timer := 0.0
@@ -68,11 +72,14 @@ func _ready() -> void:
 	_stick.action_down = InputActions.MOVE_BACK
 	add_child(_stick)
 
-	_items = _build_item_strip()
-	add_child(_items)
+	_backpack = Backpack.new()
+	add_child(_backpack)
 
 	_palette = _build_palette()
 	add_child(_palette)
+
+	_tabs = _build_tabs()
+	add_child(_tabs)
 
 	_status = _label(22, Color(1.0, 0.86, 0.55))
 	add_child(_status)
@@ -129,25 +136,15 @@ func _ready() -> void:
 	_place_button.visible = false
 	add_child(_place_button)
 
+	# Taking things down is as important as putting them up. A child who cannot
+	# undo a misplaced wall stops experimenting, and experimenting is the game.
+	_remove_button = _button("-", Color(0.96, 0.56, 0.46))
+	_remove_button.pressed.connect(func() -> void: build_remove.emit())
+	_remove_button.visible = false
+	add_child(_remove_button)
+
 	_layout()
 	get_viewport().size_changed.connect(_layout)
-
-func _build_item_strip() -> HBoxContainer:
-	var strip := HBoxContainer.new()
-	strip.add_theme_constant_override("separation", 18)
-	for kind in ItemKinds.ALL:
-		var entry := Label.new()
-		entry.text = "%s 0" % ItemKinds.icon(kind)
-		entry.add_theme_font_size_override("font_size", 30)
-		entry.add_theme_color_override("font_color", ItemKinds.color(kind))
-		entry.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.7))
-		entry.add_theme_constant_override("outline_size", 6)
-		# Hidden until the player has one. An empty row of zeroes tells a child
-		# nothing except that there is a lot he does not have.
-		entry.visible = false
-		strip.add_child(entry)
-		_item_labels[kind] = entry
-	return strip
 
 func _build_palette() -> HBoxContainer:
 	var row := HBoxContainer.new()
@@ -158,7 +155,45 @@ func _build_palette() -> HBoxContainer:
 		button.pressed.connect(func() -> void: build_selected.emit(kind))
 		row.add_child(button)
 		_palette_buttons[kind] = button
+	for kind in HouseParts.ALL:
+		var button := _button(HouseParts.icon(kind), Color(0.86, 0.86, 0.90))
+		button.pressed.connect(func() -> void: build_selected.emit(kind))
+		button.visible = false
+		row.add_child(button)
+		_palette_buttons[kind] = button
 	return row
+
+## Two tabs, because eight house parts and five objects on one row is thirteen
+## buttons and a six-year-old cannot find anything in thirteen buttons.
+func _build_tabs() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.visible = false
+
+	var things := _button("things", Color(0.86, 0.90, 0.96))
+	things.custom_minimum_size = Vector2(BUTTON * 1.6, BUTTON * 0.7)
+	things.add_theme_font_size_override("font_size", 22)
+	things.pressed.connect(func() -> void: _show_house(false))
+	row.add_child(things)
+
+	var house := _button("house", Color(0.86, 0.90, 0.96))
+	house.custom_minimum_size = Vector2(BUTTON * 1.6, BUTTON * 0.7)
+	house.add_theme_font_size_override("font_size", 22)
+	house.pressed.connect(func() -> void: _show_house(true))
+	row.add_child(house)
+	return row
+
+func _show_house(house: bool) -> void:
+	_showing_house = house
+	for kind in _palette_buttons:
+		var is_house := HouseParts.is_house_part(kind)
+		(_palette_buttons[kind] as Button).visible = is_house == house
+	for i in _tabs.get_child_count():
+		(_tabs.get_child(i) as Button).modulate = (
+			Color.WHITE if (i == 1) == house else Color(1.0, 1.0, 1.0, 0.5)
+		)
+	build_tab.emit(house)
+	_layout()
 
 func _button(text: String, color: Color) -> Button:
 	var button := Button.new()
@@ -190,7 +225,11 @@ func set_building(enabled: bool) -> void:
 		return
 	_building = enabled
 	_palette.visible = enabled
+	_tabs.visible = enabled
 	_place_button.visible = enabled
+	_remove_button.visible = enabled
+	if enabled:
+		_show_house(_showing_house)
 	_build_button.text = "x" if enabled else "build"
 	_status.text = ""
 	build_toggled.emit(enabled)
@@ -198,11 +237,7 @@ func set_building(enabled: bool) -> void:
 
 ## The count of one item changed.
 func set_item_count(kind: StringName, total: int) -> void:
-	var entry: Label = _item_labels.get(kind)
-	if entry == null:
-		return
-	entry.text = "%s %d" % [ItemKinds.icon(kind), total]
-	entry.visible = total > 0
+	_backpack.set_count(kind, total)
 
 ## Which piece is selected, whether it can go where it is aimed, and why not.
 func set_build_state(kind: StringName, valid: bool, reason: String) -> void:
@@ -211,7 +246,11 @@ func set_build_state(kind: StringName, valid: bool, reason: String) -> void:
 		button.modulate = Color.WHITE if other == kind else Color(1.0, 1.0, 1.0, 0.45)
 	_place_button.disabled = not valid
 	_place_button.modulate = Color.WHITE if valid else Color(1.0, 1.0, 1.0, 0.4)
-	_status.text = BuildKinds.label(kind) if valid else "%s — %s" % [BuildKinds.label(kind), reason]
+	var name := (
+		HouseParts.label(kind) if HouseParts.is_house_part(kind)
+		else BuildKinds.label(kind)
+	)
+	_status.text = name if valid else "%s — %s" % [name, reason]
 	_layout()
 
 ## Show or hide the kick button. Driven by whether a ball is actually in reach.
@@ -280,7 +319,12 @@ func _layout() -> void:
 		minf(safe.position.y + safe.size.y - side - MARGIN, view.y - side - MARGIN)
 	)
 
-	_items.position = Vector2(safe.position.x + MARGIN, safe.position.y + MARGIN)
+	# Down the right-hand side, under the score, clear of the build buttons in
+	# the corner below it.
+	_backpack.position = Vector2(
+		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
+		safe.position.y + MARGIN + 52.0
+	)
 
 	_build_button.position = Vector2(
 		safe.position.x + safe.size.x - BUTTON - MARGIN,
@@ -291,6 +335,7 @@ func _layout() -> void:
 	_jump_button.position = _build_button.position - Vector2(BUTTON + 16.0, 0.0)
 
 	_place_button.position = _build_button.position - Vector2(0.0, BUTTON + 16.0)
+	_remove_button.position = _place_button.position - Vector2(BUTTON + 16.0, 0.0)
 
 	# Above the build button when build mode is closed, above the place button
 	# when it is open, so the two never overlap.
@@ -311,14 +356,21 @@ func _layout() -> void:
 	_score.size.x = view.x
 	_score.position = Vector2(0.0, safe.position.y + MARGIN)
 
-	var palette_width := float(BuildKinds.ALL.size()) * (BUTTON + 12.0)
+	var shown := HouseParts.ALL.size() if _showing_house else BuildKinds.ALL.size()
+	var palette_width := float(shown) * (BUTTON + 12.0)
 	_palette.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - palette_width * 0.5,
 		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
 
+	var tabs_width := BUTTON * 3.2 + 10.0
+	_tabs.position = Vector2(
+		safe.position.x + safe.size.x * 0.5 - tabs_width * 0.5,
+		_palette.position.y - BUTTON * 0.7 - 12.0
+	)
+
 	_status.size.x = view.x
-	_status.position = Vector2(0.0, _palette.position.y - 46.0)
+	_status.position = Vector2(0.0, _tabs.position.y - 42.0)
 
 	_message.size.x = view.x
 	_message.position = Vector2(0.0, safe.position.y + safe.size.y * 0.26)

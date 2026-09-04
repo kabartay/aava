@@ -17,7 +17,8 @@ static func connect_hud(
 	on_place: Callable,
 	on_kick_start: Callable,
 	on_kick_release: Callable,
-	on_jump: Callable
+	on_jump: Callable,
+	on_remove: Callable
 ) -> void:
 	hud.camera_dragged.connect(camera_rig.orbit)
 	hud.camera_zoomed.connect(camera_rig.zoom)
@@ -27,6 +28,7 @@ static func connect_hud(
 	hud.kick_started.connect(on_kick_start)
 	hud.kick_released.connect(on_kick_release)
 	hud.jump_pressed.connect(on_jump)
+	hud.build_remove.connect(on_remove)
 	build_mode.preview_changed.connect(hud.set_build_state)
 
 	inventory.changed.connect(hud.set_item_count)
