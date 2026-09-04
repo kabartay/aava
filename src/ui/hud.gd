@@ -41,7 +41,9 @@ var _place_button: Button
 var _remove_button: Button
 var _showing_house := false
 var _menu: VBoxContainer
+var _danger: PanelContainer
 var _menu_button: Button
+var _map_button: Button
 ## How long the reset must be held. Long enough that a child cannot do it by
 ## accident or by curiosity, short enough that a parent does not wonder whether
 ## it is working.
@@ -69,6 +71,11 @@ func _ready() -> void:
 		camera_zoomed.emit(amount * CameraRig.ZOOM_PER_PIXEL))
 	pad.wheeled.connect(func(notches: float) -> void:
 		camera_zoomed.emit(notches * CameraRig.ZOOM_PER_NOTCH))
+	# Only while building, so a tap in the world means nothing the rest of the
+	# time and cannot place something by accident.
+	pad.tapped.connect(func() -> void:
+		if _building:
+			build_place.emit())
 	add_child(pad)
 
 	# Godot 4.7 ships this node; writing one by hand is both unnecessary and,
@@ -144,6 +151,8 @@ func _ready() -> void:
 	_build_button.pressed.connect(_on_build_pressed)
 	add_child(_build_button)
 
+	# Kept as a second way in, for a child who has not discovered that tapping
+	# the ghost works, and for a thumb already resting in that corner.
 	_place_button = _button("+", Color(0.48, 0.88, 0.52))
 	_place_button.pressed.connect(func() -> void: build_place.emit())
 	_place_button.visible = false
@@ -171,6 +180,16 @@ func _ready() -> void:
 	_menu = _build_menu()
 	add_child(_menu)
 
+	_danger = _build_danger()
+	add_child(_danger)
+
+	# A toggle of its own, next to the menu, so the map can always be brought
+	# back. It shows its state: filled when the map is open.
+	_map_button = _button("▣", Color(0.86, 0.90, 0.96))
+	_map_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
+	_map_button.pressed.connect(_toggle_map)
+	add_child(_map_button)
+
 	_layout()
 	get_viewport().size_changed.connect(_layout)
 
@@ -184,7 +203,14 @@ func _build_palette() -> HBoxContainer:
 		row.add_child(button)
 		_palette_buttons[kind] = button
 	for kind in HouseParts.ALL:
-		var button := _button(HouseParts.icon(kind), Color(0.86, 0.86, 0.90))
+		# A picture of the piece rather than a letter. "z" for stairs and "n"
+		# for a door are unreadable, and an icon a child has to be taught is an
+		# icon that does not work.
+		var button := _button("", Color(0.86, 0.86, 0.90))
+		var icon := PartIcon.new(kind)
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		button.add_child(icon)
+		button.tooltip_text = HouseParts.label(kind)
 		button.pressed.connect(func() -> void: build_selected.emit(kind))
 		button.visible = false
 		row.add_child(button)
@@ -193,12 +219,12 @@ func _build_palette() -> HBoxContainer:
 
 ## Two tabs, because eight house parts and five objects on one row is thirteen
 ## buttons and a six-year-old cannot find anything in thirteen buttons.
-## The settings panel: a language for each child who reads a different one, and
-## a way to start the valley over.
+## The settings panel: a language for each child who reads a different one.
 ##
-## Starting over is behind a second press rather than a confirmation dialog. A
-## dialog is a wall of text a six-year-old cannot read; pressing the same button
-## twice is a rule he can be told once.
+## Erasing the world is NOT here. It used to be, and that was wrong: children
+## open this panel to change language, and a button that deletes both brothers'
+## work should not sit a thumb's width from one they press often. It lives
+## behind its own door instead.
 func _build_menu() -> VBoxContainer:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 8)
@@ -217,25 +243,81 @@ func _build_menu() -> VBoxContainer:
 		button.pressed.connect(func() -> void: language_chosen.emit(code))
 		column.add_child(button)
 
-	# Erasing the world is a parent's action, not a child's.
-	#
-	# The valley is shared: two brothers build in the same world, and a button
-	# one of them can press deletes the other's afternoon. That is not a game
-	# mechanic, it is a fight. So it is held rather than pressed — five seconds
-	# is beyond a child's patience for a button whose effect he cannot see, and
-	# nothing about it is discoverable by poking.
+	# A quiet way through to the dangerous room, worded so an adult knows it is
+	# for them and a child has no reason to want it.
+	var door := _button(Text.of("ui_danger"), Color(1.0, 1.0, 1.0, 0.42))
+	door.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.62)
+	door.add_theme_font_size_override("font_size", 17)
+	door.pressed.connect(func() -> void:
+		_menu.visible = false
+		_danger.visible = true
+		_layout())
+	column.add_child(door)
+	return column
+
+## The room where the world can be erased. Separate, plainly labelled, and still
+## held rather than pressed: two doors and five seconds between a curious child
+## and his brother's afternoon.
+func _build_danger() -> PanelContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.16, 0.07, 0.07, 0.94)
+	style.set_corner_radius_all(14)
+	style.content_margin_left = 18.0
+	style.content_margin_right = 18.0
+	style.content_margin_top = 16.0
+	style.content_margin_bottom = 16.0
+	style.border_color = Color(0.98, 0.56, 0.46, 0.5)
+	style.set_border_width_all(1)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.visible = false
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	panel.add_child(column)
+
+	var warning := Label.new()
+	warning.text = Text.of("ui_reset_warning")
+	warning.add_theme_font_size_override("font_size", 19)
+	warning.add_theme_color_override("font_color", Color(1.0, 0.86, 0.82))
+	warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	warning.custom_minimum_size = Vector2(BUTTON * 3.4, 0.0)
+	column.add_child(warning)
+
 	_reset_button = _button(Text.of("ui_reset_hold"), Color(0.98, 0.66, 0.56))
-	_reset_button.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
+	_reset_button.custom_minimum_size = Vector2(BUTTON * 3.4, BUTTON * 0.7)
 	_reset_button.add_theme_font_size_override("font_size", 18)
 	_reset_button.button_down.connect(func() -> void: _reset_held = 0.001)
 	_reset_button.button_up.connect(func() -> void:
 		_reset_held = 0.0
 		_reset_button.text = Text.of("ui_reset_hold"))
 	column.add_child(_reset_button)
-	return column
+
+	var back := _button(Text.of("ui_back"), Color(0.90, 0.93, 0.97))
+	back.custom_minimum_size = Vector2(BUTTON * 3.4, BUTTON * 0.62)
+	back.add_theme_font_size_override("font_size", 18)
+	back.pressed.connect(func() -> void:
+		_danger.visible = false
+		_reset_held = 0.0
+		_reset_button.text = Text.of("ui_reset_hold")
+		_layout())
+	column.add_child(back)
+	return panel
+
+func _toggle_map() -> void:
+	if _minimap == null:
+		return
+	if _minimap.is_showing():
+		_minimap.hide_map()
+	else:
+		_minimap.show_map()
+	_map_button.modulate = Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
+	_layout()
 
 func _toggle_menu() -> void:
 	_menu.visible = not _menu.visible
+	# Opening or closing the menu always shuts the dangerous room behind it.
+	_danger.visible = false
 	_reset_held = 0.0
 	_reset_button.text = Text.of("ui_reset_hold")
 	_layout()
@@ -452,7 +534,12 @@ func _layout() -> void:
 			safe.position.x + MARGIN,
 			safe.position.y + MARGIN + BUTTON * 0.7 + 10.0
 		)
+		_map_button.modulate = (
+			Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
+		)
+	_map_button.position = _menu_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
+	_danger.position = _menu.position
 
 	_backpack.position = Vector2(
 		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
@@ -465,6 +552,8 @@ func _layout() -> void:
 	)
 
 	# Left of build, so the right thumb reaches jump without leaving the corner.
+	# Jump keeps its place beside build. Stacking it upwards while building put
+	# it straight through the bag, which is anchored to the same corner.
 	_jump_button.position = _build_button.position - Vector2(_jump_button.size.x + 16.0, 0.0)
 
 	_place_button.position = Vector2(
@@ -497,10 +586,29 @@ func _layout() -> void:
 
 	var shown := HouseParts.ALL.size() if _showing_house else BuildKinds.ALL.size()
 	var palette_width := float(shown) * (BUTTON + 12.0)
-	_palette.position = Vector2(
-		safe.position.x + safe.size.x * 0.5 - palette_width * 0.5,
-		safe.position.y + safe.size.y - BUTTON - MARGIN
-	)
+	# Centred, but never allowed to reach the buttons stacked on the right.
+	# Eight parts plus Russian words met "прыжок" in the middle otherwise.
+	var right_edge := minf(
+		_jump_button.position.x,
+		_remove_button.position.x if _building else _build_button.position.x
+	) - 20.0
+	var left := safe.position.x + safe.size.x * 0.5 - palette_width * 0.5
+	left = minf(left, right_edge - palette_width)
+	var left_edge := _stick.position.x + _stick.size.x * 0.62
+	left = maxf(left, left_edge)
+	_palette.position = Vector2(left, safe.position.y + safe.size.y - BUTTON - MARGIN)
+
+	# If the row cannot fit between the stick and the buttons, it sits above
+	# them instead of over them. Eight parts in Russian on a phone is exactly
+	# that case, and an overlapping palette is a palette a child mis-taps.
+	if left + palette_width > right_edge:
+		_palette.position = Vector2(
+			maxf(left_edge, safe.position.x + safe.size.x * 0.5 - palette_width * 0.5),
+			_tabs.position.y - BUTTON - 12.0
+		)
+		_tabs.position.y = _palette.position.y - BUTTON * 0.7 - 12.0
+		_status.position.y = _tabs.position.y - 42.0
+		_storey_label.position.y = _status.position.y - 36.0
 
 	var tabs_width := BUTTON * 3.2 + 10.0
 	_tabs.position = Vector2(

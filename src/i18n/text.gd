@@ -68,6 +68,14 @@ const STRINGS := {
 	"ui_house": {EN: "house", FR: "maison", RU: "дом"},
 	"ui_language": {EN: "language", FR: "langue", RU: "язык"},
 	"ui_reset": {EN: "start again", FR: "recommencer", RU: "начать заново"},
+	"ui_settings": {EN: "settings", FR: "réglages", RU: "настройки"},
+	"ui_back": {EN: "back", FR: "retour", RU: "назад"},
+	"ui_danger": {EN: "for a grown-up", FR: "pour un adulte", RU: "для взрослого"},
+	"ui_reset_warning": {
+		EN: "this erases everything both of you built",
+		FR: "ceci efface tout ce que vous avez bâti",
+		RU: "это сотрёт всё, что вы построили вдвоём",
+	},
 	"ui_reset_hold": {
 		EN: "hold to erase",
 		FR: "maintenir pour effacer",

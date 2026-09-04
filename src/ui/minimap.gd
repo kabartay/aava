@@ -122,12 +122,26 @@ func _gui_input(event: InputEvent) -> void:
 		tapped = click.pressed and click.button_index == MOUSE_BUTTON_LEFT
 	if not tapped:
 		return
-	_size = ((_size + 1) % Size.size()) as Size
+	# Tapping the map switches between small and large only. Hiding belongs to
+	# the button outside it: a map that can hide itself leaves nothing to press
+	# to bring it back.
+	_size = Size.LARGE if _size == Size.SMALL else Size.SMALL
 	_apply_size()
 	accept_event()
 
-func cycle() -> void:
-	_size = ((_size + 1) % Size.size()) as Size
+## Whether the map is showing anything at all. The button outside needs to know,
+## because a toggle that does not reflect its own state is worse than no toggle.
+func is_showing() -> bool:
+	return _size != Size.HIDDEN
+
+## Open at the last used size, or small if it has never been opened.
+func show_map() -> void:
+	if _size == Size.HIDDEN:
+		_size = Size.SMALL
+		_apply_size()
+
+func hide_map() -> void:
+	_size = Size.HIDDEN
 	_apply_size()
 
 func _apply_size() -> void:

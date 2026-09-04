@@ -23,6 +23,14 @@ signal pinched(amount: float)
 ## completely different units and pretending otherwise makes one of them wrong.
 signal wheeled(notches: float)
 
+## A tap on the world: pressed and released without dragging.
+##
+## While building, the player is looking at the ghost, so this is where a tap
+## belongs. Making him look away to a button in the corner to confirm what he is
+## already looking at is one step too many — and it is the step a six-year-old
+## forgets every time.
+signal tapped()
+
 var _active_index := -1
 
 ## Every finger currently down on this pad, by index. A pinch needs two, and the
@@ -30,6 +38,13 @@ var _active_index := -1
 ## them here is enough — no global input state.
 var _fingers: Dictionary = {}
 var _pinch_gap := -1.0
+
+## How far a finger may travel and still count as a tap rather than a drag.
+## Generous, because a child's finger always moves a little.
+const TAP_SLOP := 26.0
+
+var _press_at := Vector2.ZERO
+var _travelled := 0.0
 
 func _init() -> void:
 	# set_anchors_preset alone leaves a code-created Control at zero size, which
@@ -44,9 +59,15 @@ func _gui_input(event: InputEvent) -> void:
 			_fingers[event.index] = event.position
 			if _active_index < 0:
 				_active_index = event.index
+				_press_at = event.position
+				_travelled = 0.0
 		else:
 			_fingers.erase(event.index)
 			if event.index == _active_index:
+				# A single finger that went down and came up without going
+				# anywhere is a tap, not a look-around.
+				if _travelled <= TAP_SLOP and _pinch_gap < 0.0:
+					tapped.emit()
 				_active_index = -1
 			# A pinch ends the moment either finger lifts, so the next one
 			# starts from a fresh gap instead of jumping.
@@ -70,6 +91,7 @@ func _gui_input(event: InputEvent) -> void:
 			return
 
 		if event.index == _active_index:
+			_travelled += event.screen_relative.length()
 			# screen_relative, not relative: inside _gui_input the latter is
 			# scaled by the stretch transform, so camera speed would change
 			# with resolution.
