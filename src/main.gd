@@ -29,6 +29,8 @@ var inventory: Inventory
 var structures: Structures
 var build_mode: BuildMode
 var birds: Birds
+var sounds: Sounds
+var tasks: Tasks
 
 var _waiting_for_ground := false
 var _autosave := AUTOSAVE_SECONDS
@@ -51,6 +53,14 @@ func _ready() -> void:
 	inventory = Inventory.new()
 	if save.has("inventory"):
 		inventory.from_data(save["inventory"])
+
+	# Sound is created before the world, so the very first pickup is audible.
+	sounds = Sounds.new()
+	add_child(sounds)
+
+	tasks = Tasks.new()
+	tasks.name = "Tasks"
+	add_child(tasks)
 
 	world = World.new(seed_value)
 	world.name = "World"
@@ -80,6 +90,15 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.boulders.jumped.connect(_on_boulder_jumped)
 	if save.has("boulders"):
 		world.boulders.from_data(save["boulders"])
+	if save.has("tasks"):
+		tasks.from_data(save["tasks"])
+
+	# The reward line is an announcement; the instruction is a standing label.
+	# Keeping them separate is what stops the screen filling with old advice.
+	tasks.completed.connect(func(reward: String) -> void:
+		sounds.play(Sounds.Sound.CHIME)
+		hud.announce(reward, 4.5))
+	tasks.changed.connect(func(instruction: String) -> void: hud.set_task(instruction))
 	if save.has("football"):
 		world.football.from_data(save["football"])
 
@@ -96,6 +115,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	player.set_physics_process(false)
 	_waiting_for_ground = true
 	player.moved.connect(world.follow)
+	player.jumped.connect(func() -> void: sounds.play(Sounds.Sound.JUMP))
+	player.landed.connect(func(speed: float) -> void:
+		sounds.play(Sounds.Sound.LAND, clampf(1.2 - speed * 0.02, 0.75, 1.2)))
 	add_child(player)
 
 	camera_rig = CameraRig.new(player)
@@ -131,6 +153,7 @@ func _process(delta: float) -> void:
 	# The rocks watch the player rather than the player reporting to them, so
 	# nothing in the controller has to know that jumping rocks is a game.
 	world.boulders.watch(player.global_position, not player.is_on_floor())
+	tasks.on_moved(player.global_position)
 	build_mode.aim(player.global_position, camera_rig.yaw)
 	hud.set_storey(build_mode.storey(), build_mode.active and HouseParts.is_house_part(build_mode.selected))
 
@@ -162,6 +185,12 @@ func _process(delta: float) -> void:
 
 func _on_collected(kind: StringName, _at: Vector3) -> void:
 	inventory.add(kind, 1)
+	# Pitched by how many you already have, so a run of pickups climbs a scale
+	# instead of repeating one note. It costs nothing and turns collecting into
+	# something that sounds like progress.
+	var held := inventory.count(kind)
+	sounds.play(Sounds.Sound.PICKUP, 1.0 + minf(float(held % 6), 5.0) * 0.045)
+	tasks.on_collected(inventory)
 
 ## Switching language rebuilds the interface rather than trying to retranslate
 ## it in place. Every button was created with its text baked in, and hunting
@@ -223,6 +252,7 @@ func _on_remove() -> void:
 	var kind := structures.remove(record)
 	if kind == &"":
 		return
+	sounds.play(Sounds.Sound.REMOVE)
 	var cost := (
 		HouseParts.cost(kind) if HouseParts.is_house_part(kind)
 		else BuildKinds.cost(kind)
@@ -245,6 +275,7 @@ func _on_kick_release() -> void:
 		return
 	# A tap is a nudge and a hold is a shot, but even the very shortest tap has
 	# to move the ball, or a child taps and concludes the button is broken.
+	sounds.play(Sounds.Sound.KICK, 0.85 + strength * 0.4)
 	ball.kick(
 		player.global_position,
 		player.facing(),
@@ -254,28 +285,36 @@ func _on_kick_release() -> void:
 	)
 
 func _on_boulder_jumped(_at: Vector3, total: int) -> void:
+	sounds.play(Sounds.Sound.CLEARED)
 	hud.announce(Text.format("say_cleared", [total]), 1.8)
 
 func _on_goal(_index: int, total: int) -> void:
+	sounds.play(Sounds.Sound.GOAL)
 	hud.set_score(total)
 	hud.announce(Text.of("say_goal"), 2.0)
 
 func _on_place() -> void:
 	if build_mode.place():
+		sounds.play(Sounds.Sound.PLACE)
+		tasks.on_built(build_mode.selected)
 		return
+	sounds.play(Sounds.Sound.REFUSE)
 	# A refused build is the moment a child most needs to be told why, and the
 	# ghost's colour alone does not say it.
 	hud.announce(Text.of("say_not_here"))
 
 func _on_matured(_kind: StringName, _at: Vector3) -> void:
+	sounds.play(Sounds.Sound.GROWN)
 	hud.announce(Text.of("say_grown"))
 
 func _on_groves_changed(centres: Array) -> void:
 	birds.set_points(structures.attract_points())
+	tasks.on_grove()
 	if centres.is_empty():
 		return
 	if not _seen_first_grove:
 		_seen_first_grove = true
+		sounds.play(Sounds.Sound.CHIME)
 		hud.announce(Text.of("say_grove"), 5.0)
 
 func _notification(what: int) -> void:
@@ -299,6 +338,7 @@ func _write_save() -> void:
 		"pickups_taken": world.pickups.to_data(),
 		"football": world.football.to_data(),
 		"boulders": world.boulders.to_data(),
+		"tasks": tasks.to_data(),
 	})
 
 func _seed_from_command_line() -> int:

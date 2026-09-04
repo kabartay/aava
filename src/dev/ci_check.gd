@@ -29,6 +29,8 @@ func _initialize() -> void:
 	_check_the_camera_zooms()
 	_check_a_house_can_be_built_and_unbuilt()
 	_check_every_language_is_complete()
+	_check_the_opening_leads_somewhere()
+	_check_sounds_exist()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -335,7 +337,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -772,3 +774,86 @@ func _check_every_language_is_complete() -> void:
 		_fail("switching language returned the same word: %s / %s / %s" % [english, french, russian])
 	else:
 		_ok("switching gives %s / %s / %s" % [english, french, russian])
+
+## The opening thread must run to its end and then stop asking. A tutorial that
+## stalls is worse than none: the child is left holding an instruction he cannot
+## satisfy, and concludes he has done something wrong.
+func _check_the_opening_leads_somewhere() -> void:
+	print("the opening leads somewhere")
+	var tasks := Tasks.new()
+	get_root().add_child(tasks)
+	var inventory := Inventory.new()
+
+	if tasks.instruction().is_empty():
+		_fail("the game opens with no instruction at all")
+	elif tasks.instruction().begins_with("?"):
+		_fail("the first instruction has no translation")
+	else:
+		_ok("opens by asking for something: \"%s\"" % tasks.instruction())
+
+	# Gathering.
+	for i in Tasks.STICKS_WANTED:
+		inventory.add(ItemKinds.STICK, 1)
+		tasks.on_collected(inventory)
+	if tasks.step != Tasks.Step.BUILD:
+		_fail("collecting %d sticks did not finish the first task" % Tasks.STICKS_WANTED)
+
+	# Building.
+	tasks.on_built(BuildKinds.PATH)
+	if tasks.step != Tasks.Step.PITCH:
+		_fail("building something did not finish the second task")
+
+	# Walking to the pitch.
+	var field := HeightField.new(20260903)
+	var centre := Pitch.centre()
+	centre.y = field.height_at(centre.x, centre.z)
+	tasks.on_moved(centre)
+	if tasks.step != Tasks.Step.PLANT:
+		_fail("standing on the pitch did not finish the third task")
+
+	# And the grove.
+	tasks.on_grove()
+	if not tasks.is_finished():
+		_fail("the thread did not end after the last step")
+	elif not tasks.instruction().is_empty():
+		_fail("the game keeps asking for things after the opening is over")
+	else:
+		_ok("four steps, each completed by doing it, then the valley is handed over")
+
+	# Every step must say something in every language.
+	var steps := PackedStringArray(["task_gather", "task_build", "task_pitch", "task_plant"])
+	for key in steps:
+		for code in Text.LANGUAGES:
+			var entry: Dictionary = Text.STRINGS[key]
+			if String(entry.get(code, "")).strip_edges().is_empty():
+				_fail("%s has no %s text" % [key, code])
+	_ok("every step is written in all three languages")
+
+	# A reloaded save must not repeat the tutorial.
+	var restored := Tasks.new()
+	get_root().add_child(restored)
+	restored.from_data(tasks.to_data())
+	if not restored.is_finished():
+		_fail("a finished tutorial starts again after a reload")
+	else:
+		_ok("a finished opening stays finished across a save")
+
+	tasks.queue_free()
+	restored.queue_free()
+
+## Silence reads as "nothing happened" whatever the screen shows, so an empty
+## sound is a bug rather than a missing nicety.
+func _check_sounds_exist() -> void:
+	print("every action makes a sound")
+	var sounds := Sounds.new()
+	get_root().add_child(sounds)
+	var silent := PackedStringArray()
+	for value in Sounds.Sound.values():
+		var stream := sounds._build(value)
+		if stream == null or stream.data.size() < 512:
+			silent.append(str(value))
+	if silent.is_empty():
+		_ok("all %d sounds generate audible audio" % Sounds.Sound.values().size())
+	else:
+		_fail("silent sounds: %s" % ", ".join(silent))
+	sounds.queue_free()

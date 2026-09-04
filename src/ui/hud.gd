@@ -62,6 +62,7 @@ var _power_bar: ColorRect
 var _power_fill: ColorRect
 var _aim_label: Label
 var _storey_label: Label
+var _task_label: Label
 
 func _ready() -> void:
 	var pad := CameraPad.new()
@@ -171,6 +172,13 @@ func _ready() -> void:
 	_storey_label = _label(22, Color(0.72, 0.90, 1.0))
 	_storey_label.visible = false
 	add_child(_storey_label)
+
+	# The current instruction, centred near the top where the eye lands first
+	# and nothing else lives. One line, always, or it stops being an
+	# instruction and becomes a paragraph.
+	_task_label = _label(26, Color(1.0, 0.94, 0.74))
+	_task_label.visible = false
+	add_child(_task_label)
 
 	_menu_button = _button("≡", Color(0.86, 0.90, 0.96))
 	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
@@ -432,6 +440,14 @@ func track_map(world_position: Vector3, yaw: float, built: Array[Vector3]) -> vo
 	if _minimap != null:
 		_minimap.track(world_position, yaw, built)
 
+## The one thing the game is currently asking for. Empty hides it, which is
+## what happens when the opening thread is finished and the valley is handed
+## over for good.
+func set_task(instruction: String) -> void:
+	_task_label.text = instruction
+	_task_label.visible = not instruction.is_empty()
+	_layout()
+
 ## Which storey the next piece will land on, or nothing if it is not a house
 ## part. Includes the hint the first time a player is on the ground floor, since
 ## that is when knowing you can go up is useful.
@@ -583,6 +599,9 @@ func _layout() -> void:
 
 	_score.size.x = view.x
 	_score.position = Vector2(0.0, safe.position.y + MARGIN)
+
+	_task_label.size.x = view.x
+	_task_label.position = Vector2(0.0, safe.position.y + MARGIN + 44.0)
 
 	var shown := HouseParts.ALL.size() if _showing_house else BuildKinds.ALL.size()
 	var palette_width := float(shown) * (BUTTON + 12.0)

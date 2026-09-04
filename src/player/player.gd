@@ -29,6 +29,11 @@ const RADIUS := 0.34
 
 signal moved(world_position: Vector3)
 
+## Emitted the instant the body leaves the ground and the instant it arrives.
+## The sound belongs to whoever owns audio, not to the controller.
+signal jumped()
+signal landed(speed: float)
+
 var camera_yaw := 0.0
 
 var _coyote := 0.0
@@ -129,6 +134,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y = JUMP_VELOCITY
 		_buffered_jump = 0.0
 		_coyote = 0.0
+		jumped.emit()
 
 	var input := Input.get_vector(
 		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
@@ -173,7 +179,11 @@ func _physics_process(delta: float) -> void:
 	# move_and_slide reads delta itself; pre-multiplying makes speed depend on
 	# frame rate, which is the classic way to get a controller that feels fine
 	# on a desktop and wrong on a tablet.
+	var falling := velocity.y
 	move_and_slide()
+	# Landing is the frame the body was airborne and now is not.
+	if not grounded and is_on_floor() and falling < -1.0:
+		landed.emit(absf(falling))
 
 	if horizontal.length_squared() > 0.05:
 		var facing := atan2(-horizontal.x, -horizontal.z)

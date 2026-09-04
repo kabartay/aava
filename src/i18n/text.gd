@@ -82,6 +82,54 @@ const STRINGS := {
 		RU: "держи, чтобы стереть",
 	},
 	"ui_reset_holding": {EN: "keep holding…", FR: "continue…", RU: "держи…"},
+	# The opening steps. Each is a single instruction with one verb, phrased as
+	# something to go and do rather than something to understand.
+	"task_gather": {
+		EN: "find 3 sticks in the grass",
+		FR: "trouve 3 bâtons dans l'herbe",
+		RU: "найди 3 палки в траве",
+	},
+	"task_gather_done": {
+		EN: "you can carry things — look in your bag",
+		FR: "tu peux porter des choses — regarde ton sac",
+		RU: "ты можешь носить вещи — загляни в рюкзак",
+	},
+	"task_build": {
+		EN: "tap build, then put a path stone down",
+		FR: "appuie sur bâtir, puis pose une dalle",
+		RU: "нажми строить и положи дорожку",
+	},
+	"task_build_done": {
+		EN: "anything you build, you can take back",
+		FR: "tout ce que tu bâtis, tu peux le reprendre",
+		RU: "всё, что построил, можно разобрать",
+	},
+	"task_pitch": {
+		EN: "there is a football pitch west of here",
+		FR: "il y a un terrain de football à l'ouest",
+		RU: "к западу отсюда есть футбольное поле",
+	},
+	"task_pitch_done": {
+		EN: "hold kick to shoot — look up to lift it",
+		FR: "maintiens tirer — lève les yeux pour lober",
+		RU: "держи удар — смотри вверх, чтобы навесить",
+	},
+	"task_plant": {
+		EN: "plant 3 saplings close together",
+		FR: "plante 3 jeunes arbres côte à côte",
+		RU: "посади 3 саженца рядом",
+	},
+	"task_plant_done": {
+		EN: "wait, and the birds will come",
+		FR: "attends, les oiseaux viendront",
+		RU: "подожди — прилетят птицы",
+	},
+	"task_free": {
+		EN: "the valley is yours",
+		FR: "la vallée est à toi",
+		RU: "долина твоя",
+	},
+
 	"say_reset": {
 		EN: "the valley is new again",
 		FR: "la vallée est neuve",
