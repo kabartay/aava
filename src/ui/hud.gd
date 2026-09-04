@@ -32,6 +32,7 @@ signal reset_requested()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
+var _minimap: Minimap
 var _build_button: Button
 var _palette: HBoxContainer
 var _palette_buttons: Dictionary = {}
@@ -272,7 +273,11 @@ func _show_house(house: bool) -> void:
 func _button(text: String, color: Color) -> Button:
 	var button := Button.new()
 	button.text = text
-	button.custom_minimum_size = Vector2(BUTTON, BUTTON)
+	# Wide enough for the word it holds, never narrower than a thumb. A fixed
+	# width fitted the English and overlapped as soon as the same buttons said
+	# "прыжок" and "строить".
+	var wide := maxf(BUTTON, float(text.length()) * 17.0 + 34.0)
+	button.custom_minimum_size = Vector2(wide, BUTTON)
 	button.add_theme_font_size_override("font_size", 34)
 	button.add_theme_color_override("font_color", color)
 	button.focus_mode = Control.FOCUS_NONE
@@ -333,6 +338,17 @@ func set_ball_in_reach(in_reach: bool) -> void:
 		return
 	_kick_button.visible = in_reach
 	_layout()
+
+## The map is built by whoever owns the world, because it needs the height
+## field, and the HUD is not the place to know about terrain.
+func attach_minimap(minimap: Minimap) -> void:
+	_minimap = minimap
+	add_child(minimap)
+	_layout()
+
+func track_map(world_position: Vector3, yaw: float, built: Array[Vector3]) -> void:
+	if _minimap != null:
+		_minimap.track(world_position, yaw, built)
 
 ## Which storey the next piece will land on, or nothing if it is not a house
 ## part. Includes the hint the first time a player is on the ground floor, since
@@ -428,6 +444,14 @@ func _layout() -> void:
 		safe.position.x + MARGIN,
 		safe.position.y + MARGIN
 	)
+
+	# The map sits under the menu button, top left, where a child's eye goes
+	# first and where nothing else competes for the corner.
+	if _minimap != null:
+		_minimap.position = Vector2(
+			safe.position.x + MARGIN,
+			safe.position.y + MARGIN + BUTTON * 0.7 + 10.0
+		)
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
 
 	_backpack.position = Vector2(
@@ -436,15 +460,18 @@ func _layout() -> void:
 	)
 
 	_build_button.position = Vector2(
-		safe.position.x + safe.size.x - BUTTON - MARGIN,
+		safe.position.x + safe.size.x - _build_button.size.x - MARGIN,
 		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
 
 	# Left of build, so the right thumb reaches jump without leaving the corner.
-	_jump_button.position = _build_button.position - Vector2(BUTTON + 16.0, 0.0)
+	_jump_button.position = _build_button.position - Vector2(_jump_button.size.x + 16.0, 0.0)
 
-	_place_button.position = _build_button.position - Vector2(0.0, BUTTON + 16.0)
-	_remove_button.position = _place_button.position - Vector2(BUTTON + 16.0, 0.0)
+	_place_button.position = Vector2(
+		safe.position.x + safe.size.x - _place_button.size.x - MARGIN,
+		_build_button.position.y - BUTTON - 16.0
+	)
+	_remove_button.position = _place_button.position - Vector2(_remove_button.size.x + 16.0, 0.0)
 
 	# Above the build button when build mode is closed, above the place button
 	# when it is open, so the two never overlap.

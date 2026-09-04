@@ -142,7 +142,8 @@ func _spawn_player() -> void:
 			if not record.is_empty():
 				_structures.remove(record),
 		func(code: StringName) -> void: Text.set_language(code),
-		func() -> void: pass
+		func() -> void: pass,
+		_world.field, _player, _structures
 	)
 
 	if _demo:

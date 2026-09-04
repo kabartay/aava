@@ -112,7 +112,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	hud.set_score(world.football.score)
-	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump, _on_remove, _on_language, _on_reset)
+	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, _on_place, _on_kick_start, _on_kick_release, _on_jump, _on_remove, _on_language, _on_reset, world.field, player, structures)
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, save at %s" % [world.world_seed, start, SaveGame.absolute_path()])
@@ -201,7 +201,7 @@ func _rebuild_hud() -> void:
 	Wiring.connect_hud(
 		hud, build_mode, camera_rig, inventory,
 		_on_place, _on_kick_start, _on_kick_release,
-		_on_jump, _on_remove, _on_language, _on_reset
+		_on_jump, _on_remove, _on_language, _on_reset, world.field, player, structures
 	)
 	hud.set_score(world.football.score)
 	if was_building:

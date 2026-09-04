@@ -20,7 +20,10 @@ static func connect_hud(
 	on_jump: Callable,
 	on_remove: Callable,
 	on_language: Callable,
-	on_reset: Callable
+	on_reset: Callable,
+	field: HeightField,
+	player: Node3D,
+	structures: Structures
 ) -> void:
 	hud.camera_dragged.connect(camera_rig.orbit)
 	hud.camera_zoomed.connect(camera_rig.zoom)
@@ -34,6 +37,13 @@ static func connect_hud(
 	hud.language_chosen.connect(on_language)
 	hud.reset_requested.connect(on_reset)
 	build_mode.preview_changed.connect(hud.set_build_state)
+
+	# The map is attached here rather than by the caller, because the screenshot
+	# tool built its own interface and silently had no map — exactly the drift
+	# this function exists to stop.
+	var minimap := Minimap.new(field)
+	minimap.follow(player, camera_rig, structures)
+	hud.attach_minimap(minimap)
 
 	inventory.changed.connect(hud.set_item_count)
 	# Seed the display with what is already carried, because a signal only fires

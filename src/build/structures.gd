@@ -77,6 +77,13 @@ func nearby_datum(world_position: Vector3, reach: float) -> float:
 func _ground_under(at: Vector3) -> float:
 	return field.height_at(at.x, at.z)
 
+## Where everything stands, for the map.
+func positions() -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for record in _records:
+		out.append(record["position"])
+	return out
+
 ## The piece nearest to a point, within reach, or an empty dictionary.
 ##
 ## Returned as a record rather than an index because indices shift the moment
