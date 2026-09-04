@@ -36,6 +36,12 @@ signal landed(speed: float)
 
 var camera_yaw := 0.0
 
+## Set by the game from the player's energy. False means walk-only.
+var may_run := true
+## Read back by the game to decide what energy the movement actually cost.
+var is_running := false
+var is_moving := false
+
 var _coyote := 0.0
 var _buffered_jump := 0.0
 var _gravity := 24.0
@@ -165,6 +171,12 @@ func _physics_process(delta: float) -> void:
 		top = RUN_SPEED
 		push = maxf(push, 1.0)
 
+	# Too tired to run, but never too tired to walk. Energy shapes the pace of a
+	# day; it must not strand a child halfway up a hill.
+	if not may_run:
+		top = minf(top, WALK_SPEED)
+	is_running = top > WALK_SPEED + 0.01 and wish.length_squared() > 0.01
+
 	var target := wish * top * minf(push, 1.0)
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 
@@ -172,6 +184,7 @@ func _physics_process(delta: float) -> void:
 	if wish.length_squared() < 0.01 and grounded:
 		rate = GROUND_FRICTION
 	horizontal = horizontal.move_toward(target, rate * delta)
+	is_moving = horizontal.length_squared() > 0.35
 
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z

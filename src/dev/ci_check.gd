@@ -34,6 +34,7 @@ func _initialize() -> void:
 	_check_caring_pays()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
+	_check_energy_never_strands()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -349,7 +350,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1008,3 +1009,83 @@ func _check_nodes_are_usable_immediately() -> void:
 
 	build.queue_free()
 	structures.queue_free()
+
+## Energy paces the day. The one thing it must never do is leave a child unable
+## to get home, so most of this check is about what stays possible at zero.
+func _check_energy_never_strands() -> void:
+	print("energy paces without stranding")
+	var vitals := Vitals.new()
+
+	_expect(is_equal_approx(vitals.fraction(), 1.0), "a new player starts rested")
+
+	# Run it flat.
+	for _i in 200:
+		vitals.advance(1.0, true, true)
+	_expect(vitals.fraction() <= 0.0001, "running long enough empties the bar")
+	_expect(not vitals.can_run(), "an empty bar stops the running")
+
+	# The critical property: walking is never taken away.
+	var walked := Player.WALK_SPEED
+	_expect(walked > 0.0, "walking speed is unaffected by energy — there is no way to be stranded")
+
+	# Resting brings it back, and within a reasonable wait.
+	var seconds := 0.0
+	while not vitals.can_run() and seconds < 600.0:
+		vitals.advance(1.0, false, false)
+		seconds += 1.0
+	_expect(vitals.can_run(), "resting restores the ability to run")
+	_expect(seconds <= 30.0, "the wait to run again is %d s, not a punishment" % int(seconds))
+
+	# Walking also recovers, so heading home is never wasted time.
+	var walking := Vitals.new()
+	walking.energy = 10.0
+	walking.advance(4.0, false, true)
+	_expect(walking.energy > 10.0, "walking recovers energy too, just slower than resting")
+
+	# Water: nothing works without the bottle, everything works with it.
+	var thirsty := Vitals.new()
+	thirsty.energy = 10.0
+	_expect(not thirsty.fill(), "no bottle, nothing to fill")
+	_expect(not thirsty.drink(), "no bottle, nothing to drink")
+
+	thirsty.grant_bottle()
+	_expect(thirsty.fill(), "the bottle fills at the river")
+	_expect(is_equal_approx(thirsty.water_fraction(), 1.0), "and it fills completely")
+	_expect(not thirsty.fill(), "a full bottle cannot be filled again")
+
+	var before := thirsty.energy
+	_expect(thirsty.drink(), "a full bottle gives a drink")
+	_expect(thirsty.energy > before, "drinking restores energy")
+
+	var drinks := 1
+	while thirsty.drink():
+		drinks += 1
+	_expect(drinks == int(Vitals.MAX_WATER / Vitals.DRINK), "a full bottle holds %d drinks" % drinks)
+	_expect(not thirsty.drink(), "an empty bottle gives nothing")
+
+	# Pouring for an animal costs water and returns no energy.
+	var pouring := Vitals.new()
+	pouring.grant_bottle()
+	pouring.fill()
+	pouring.energy = 20.0
+	_expect(pouring.pour(), "water can be poured out for an animal")
+	_expect(is_equal_approx(pouring.energy, 20.0), "pouring for an animal gives the player nothing back")
+	_expect(pouring.water < Vitals.MAX_WATER, "but it does cost water")
+
+	# Drinking must never overflow the bar.
+	var brimming := Vitals.new()
+	brimming.grant_bottle()
+	brimming.fill()
+	brimming.drink()
+	_expect(brimming.energy <= Vitals.MAX_ENERGY, "drinking while full does not overflow")
+
+	var restored := Vitals.new()
+	restored.from_data(pouring.to_data())
+	_expect(restored.has_bottle, "the bottle survives a save")
+	_expect(is_equal_approx(restored.water, pouring.water), "the water level survives a save")
+	_expect(is_equal_approx(restored.energy, pouring.energy), "energy survives a save")
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not Text.of("say_tired").begins_with("?"), "being tired is explained in %s" % code)
+	Text.set_language(Text.EN)

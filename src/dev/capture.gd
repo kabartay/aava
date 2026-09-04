@@ -23,6 +23,8 @@ extends Node3D
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
 ##   --shop=1  open the shop panel, with coins to spend
+##   --energy=N  draw the energy bar at this fraction (0..1)
+##   --water=N  draw the bottle at this fraction, and carry one
 ##   --animals=1  place one of every animal in front of the camera
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
 ##   --power=0..1   how hard to kick it
@@ -54,6 +56,8 @@ var _kick_strength := 1.0
 var _kick_loft := 0.25
 var _zoom := 0.0
 var _shop := false
+var _energy := 1.0
+var _water := -1.0
 var _animals := false
 var _coins := 40
 var _house := false
@@ -153,6 +157,7 @@ func _spawn_player() -> void:
 			&"care": func() -> void: pass,
 			&"shop": func() -> void: pass,
 			&"buy": func(_item: StringName) -> void: pass,
+			&"drink": func() -> void: pass,
 		}
 	)
 
@@ -177,6 +182,7 @@ func _spawn_player() -> void:
 
 	# After the interface exists, or these paint onto nothing.
 	_hud.set_coins(_coins)
+	_hud.set_vitals(_energy, maxf(_water, 0.0), _water >= 0.0)
 	if _shop:
 		_hud.set_shop_open(true, _coins, {})
 	if _animals:
@@ -423,6 +429,10 @@ func _parse_arguments() -> void:
 				_zoom = value.to_float()
 			"shop":
 				_shop = value.to_int() != 0
+			"energy":
+				_energy = value.to_float()
+			"water":
+				_water = value.to_float()
 			"animals":
 				_animals = value.to_int() != 0
 			"coins":

@@ -32,6 +32,7 @@ signal reset_requested()
 signal care_pressed()
 signal shop_toggled()
 signal shop_buy(item: StringName)
+signal drink_pressed()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -68,6 +69,8 @@ var _storey_label: Label
 var _task_label: Label
 var _care_button: Button
 var _coins_label: Label
+var _vitals: VitalsGauge
+var _drink_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -197,6 +200,16 @@ func _ready() -> void:
 	# Coins sit beside the bag, because they are the other thing you have.
 	_coins_label = _label(26, Color(1.0, 0.90, 0.52))
 	_coins_label.visible = false
+
+	_vitals = VitalsGauge.new()
+	add_child(_vitals)
+
+	# Only shown when there is something to drink, so it never sits there
+	# inert inviting a press that does nothing.
+	_drink_button = _button(Text.of("ui_drink"), Color(0.58, 0.82, 0.96))
+	_drink_button.visible = false
+	_drink_button.pressed.connect(func() -> void: drink_pressed.emit())
+	add_child(_drink_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -450,6 +463,15 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 				)
 			row.disabled = mine
 	_layout()
+
+## Energy and water, and whether a drink is worth offering.
+func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
+	_vitals.set_energy(energy)
+	_vitals.set_water(water, carries_bottle)
+	var can_drink := carries_bottle and water > 0.0
+	if _drink_button.visible != can_drink:
+		_drink_button.visible = can_drink
+		_layout()
 
 func is_shop_open() -> bool:
 	return _shop.visible
@@ -767,6 +789,18 @@ func _layout() -> void:
 	_coins_label.position = Vector2(
 		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
 		_backpack.position.y + _backpack.size.y + 8.0
+	)
+
+	# Under the coins, at the same right edge as the bag above it.
+	_vitals.size = _vitals.custom_minimum_size
+	_vitals.position = Vector2(
+		safe.position.x + safe.size.x - VitalsGauge.WIDTH - MARGIN,
+		_coins_label.position.y + _coins_label.size.y + 10.0
+	)
+
+	_drink_button.position = Vector2(
+		safe.position.x + safe.size.x - _drink_button.size.x - MARGIN,
+		_vitals.position.y + _vitals.size.y + 10.0
 	)
 
 	# Centred low, where the kick button sits, since the two never both apply.

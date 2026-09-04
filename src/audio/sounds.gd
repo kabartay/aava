@@ -40,6 +40,7 @@ enum Sound {
 	CLEARED,    # a rock was jumped
 	GROWN,      # a sapling reached its next stage
 	CHIME,      # the world answering: a grove, birds
+	SPLASH,     # water: filling the bottle, watering an animal
 }
 
 var _players: Array[AudioStreamPlayer] = []
@@ -94,8 +95,38 @@ func _build(sound: Sound) -> AudioStreamWAV:
 			return _tone([SCALE[5], SCALE[7], SCALE[9]], 0.30, 0.55)
 		Sound.GROWN:
 			return _tone([SCALE[1], SCALE[3], SCALE[6]], 0.42, 0.5)
+		Sound.SPLASH:
+			return _splash(0.22)
 		_:
 			return _tone([SCALE[7], SCALE[9], SCALE[8]], 0.60, 0.45)
+
+## Filtered noise under a soft envelope: water has no pitch, so a tone is
+## exactly wrong for it. The slow attack is what separates a splash from a
+## thump — water gives way before it resists.
+func _splash(seconds: float) -> AudioStreamWAV:
+	var samples := int(RATE * seconds)
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 20260904
+	# Carries the previous sample forward so the noise is damped rather than
+	# hissing; a plain random series sounds like radio static.
+	var carried := 0.0
+
+	for i in samples:
+		var progress := float(i) / float(samples)
+		var envelope := minf(progress * 12.0, 1.0) * pow(1.0 - progress, 1.6)
+		carried = lerpf(carried, noise.randf_range(-1.0, 1.0), 0.34)
+		var value := carried * envelope * 0.5
+		var sample := int(clampf(value, -1.0, 1.0) * 32767.0)
+		data.encode_s16(i * 2, sample)
+
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = RATE
+	stream.data = data
+	return stream
 
 ## A short run of partials under one envelope. `rising` plays them upward in
 ## time rather than together, which is what turns a chord into a little tune.

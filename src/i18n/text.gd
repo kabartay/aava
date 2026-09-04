@@ -146,6 +146,24 @@ const STRINGS := {
 
 	# The shop, and what each thing is for. Descriptions say what it does rather
 	# than what it is, because a child buys a verb.
+	"ui_drink": {
+		EN: "drink", FR: "boire", RU: "попить",
+	},
+	"say_filled": {
+		EN: "bottle full", FR: "gourde pleine", RU: "бутылка полная",
+	},
+	"say_tired": {
+		EN: "too tired to run — rest, or have a drink",
+		FR: "trop fatigué pour courir — repose-toi, ou bois un coup",
+		RU: "устал бежать — отдохни или попей",
+	},
+	"say_rested": {
+		EN: "you can run again", FR: "tu peux courir à nouveau",
+		RU: "снова можно бежать",
+	},
+	"say_watered": {
+		EN: "%s had a drink", FR: "%s a bu", RU: "%s попил",
+	},
 	"ui_shop": {EN: "shop", FR: "boutique", RU: "магазин"},
 	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
 	"ui_owned": {EN: "yours", FR: "à toi", RU: "твоё"},

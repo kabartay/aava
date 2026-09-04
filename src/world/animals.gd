@@ -254,14 +254,48 @@ func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionar
 		var node: Node3D = animal["node"]
 		if not is_instance_valid(node) or float(animal["cooldown"]) > 0.0:
 			continue
+		# An animal we cannot feed may still be one we can water, and the caller
+		# decides which. Filtering on food alone hid every thirsty squirrel from
+		# a player who had a full bottle but no cones.
 		var wanted := AnimalKinds.want(animal["kind"])
-		if wanted != &"" and inventory.count(wanted) <= 0:
+		if wanted != &"" and inventory.count(wanted) <= 0 and not is_thirsty(animal):
 			continue
 		var distance := node.position.distance_to(player_position)
 		if distance <= best_distance:
 			best_distance = distance
 			best = animal
 	return best
+
+## Thirst is separate from hunger: an animal far from the river wants a drink,
+## and that is what makes carrying a bottle worth the twelve coins. Animals that
+## live in the water are never thirsty, which is the joke and also the rule.
+const THIRSTY_DISTANCE := 60.0
+
+func is_thirsty(animal: Dictionary) -> bool:
+	if animal.is_empty() or float(animal["cooldown"]) > 0.0:
+		return false
+	var kind: StringName = animal["kind"]
+	if kind == AnimalKinds.BEAVER:
+		return false
+	var node: Node3D = animal["node"]
+	if not is_instance_valid(node):
+		return false
+	return field.distance_to_river(node.position.x, node.position.z) > THIRSTY_DISTANCE
+
+## Give it a drink. Pays the same as feeding, and starts the same cooldown, so
+## water is an alternative to food rather than a way around the cooldown.
+func water_for(animal: Dictionary) -> int:
+	if animal.is_empty() or float(animal["cooldown"]) > 0.0:
+		return 0
+	var kind: StringName = animal["kind"]
+	animal["cooldown"] = AnimalKinds.cooldown(kind)
+	var coins := AnimalKinds.coins(kind)
+	var node: Node3D = animal["node"]
+	cared_for.emit(kind, coins, node.position)
+	if not friends.has(kind):
+		friends[kind] = true
+		befriended.emit(kind)
+	return coins
 
 ## Feed or stroke it. Returns the coins earned, or zero.
 func care_for(animal: Dictionary, inventory: Inventory) -> int:

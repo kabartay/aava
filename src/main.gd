@@ -32,6 +32,7 @@ var birds: Birds
 var sounds: Sounds
 var tasks: Tasks
 var wallet: Wallet
+var vitals: Vitals
 
 var _waiting_for_ground := false
 var _autosave := AUTOSAVE_SECONDS
@@ -66,6 +67,19 @@ func _ready() -> void:
 	wallet = Wallet.new()
 	if save.has("wallet"):
 		wallet.from_data(save["wallet"])
+
+	vitals = Vitals.new()
+	# The bottle is a shop purchase, so a restored game that already bought one
+	# still carries it.
+	if wallet.has(ShopStock.BOTTLE):
+		vitals.grant_bottle()
+	if save.has("vitals"):
+		vitals.from_data(save["vitals"])
+
+	vitals.energy_changed.connect(func(_f: float) -> void: _refresh_vitals())
+	vitals.water_changed.connect(func(_f: float) -> void: _refresh_vitals())
+	vitals.exhausted.connect(func() -> void: hud.announce(Text.of("say_tired"), 3.0))
+	vitals.revived.connect(func() -> void: hud.announce(Text.of("say_rested"), 2.0))
 
 	world = World.new(seed_value)
 	world.name = "World"
@@ -167,6 +181,19 @@ func _process(delta: float) -> void:
 	world.boulders.watch(player.global_position, not player.is_on_floor())
 	world.animals.watch(player.global_position, inventory)
 
+	# Energy follows what the player actually did this frame, and gates running
+	# on the next one.
+	vitals.advance(delta, player.is_running, player.is_moving)
+	player.may_run = vitals.can_run()
+
+	# Standing in the shallows fills the bottle without a button. A child who
+	# walks into the river to fill up has already expressed the intent; asking
+	# him to also find a control would be asking twice.
+	if vitals.has_bottle and _standing_in_water():
+		if vitals.fill():
+			sounds.play(Sounds.Sound.SPLASH)
+			hud.announce(Text.of("say_filled"), 1.6)
+
 	# The care button says what the animal in front of you wants, at the moment
 	# you can do something about it.
 	var near_animal := world.animals.nearest_caring(player.global_position, inventory)
@@ -265,13 +292,38 @@ func _handlers() -> Dictionary:
 		&"care": _on_care,
 		&"shop": _on_shop,
 		&"buy": _on_buy,
+		&"drink": _on_drink,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
+func _refresh_vitals() -> void:
+	hud.set_vitals(vitals.fraction(), vitals.water_fraction(), vitals.has_bottle)
+
+## True when the player is standing in water shallow enough to reach into.
+func _standing_in_water() -> bool:
+	var at := player.global_position
+	return at.y < HeightField.WATER_LEVEL + 0.9 and world.field.distance_to_river(at.x, at.z) < 30.0
+
+func _on_drink() -> void:
+	if vitals.drink():
+		sounds.play(Sounds.Sound.PICKUP)
+	_refresh_vitals()
+
 func _on_care() -> void:
 	var animal := world.animals.nearest_caring(player.global_position, inventory)
 	if animal.is_empty():
 		return
+	# A thirsty animal takes water rather than food. This is the bottle's second
+	# use and the reason it is the cheapest thing in the shop.
+	if world.animals.is_thirsty(animal) and vitals.has_bottle and vitals.water >= Vitals.DRINK:
+		if vitals.pour():
+			var reward := world.animals.water_for(animal)
+			wallet.earn(reward)
+			sounds.play(Sounds.Sound.SPLASH)
+			hud.announce(Text.format("say_watered", [AnimalKinds.label(animal["kind"])]), 2.0)
+			_refresh_vitals()
+			return
+
 	var coins := world.animals.care_for(animal, inventory)
 	if coins <= 0:
 		return
@@ -284,6 +336,9 @@ func _on_shop() -> void:
 
 func _on_buy(item: StringName) -> void:
 	if wallet.buy(item, ShopStock.price(item)):
+		if item == ShopStock.BOTTLE:
+			vitals.grant_bottle()
+			_refresh_vitals()
 		sounds.play(Sounds.Sound.GOAL)
 		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 3.0)
 	else:
@@ -395,6 +450,7 @@ func _write_save() -> void:
 		"boulders": world.boulders.to_data(),
 		"tasks": tasks.to_data(),
 		"wallet": wallet.to_data(),
+		"vitals": vitals.to_data(),
 		"animals": world.animals.to_data(),
 	})
 
