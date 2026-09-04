@@ -17,6 +17,7 @@ var vegetation: Vegetation
 var pickups: Pickups
 var boulders: Boulders
 var animals: Animals
+var felled: Felled
 var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
@@ -45,6 +46,11 @@ func _ready() -> void:
 	boulders = Boulders.new(field, world_seed)
 	boulders.name = "Boulders"
 	add_child(boulders)
+
+	felled = Felled.new()
+	# Set before any tile streams in, or the first tiles draw trees that have
+	# already been cut down.
+	vegetation.felled = felled
 
 	animals = Animals.new(field, world_seed)
 	animals.name = "Animals"

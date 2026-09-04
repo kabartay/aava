@@ -88,6 +88,37 @@ static func broadleaf(height := 5.0) -> ArrayMesh:
 ## Blades are bundled into one tuft rather than instanced individually: a tuft
 ## of five costs one instance instead of five, and with no per-instance culling
 ## in a MultiMesh the instance count is the thing that has to stay small.
+## What is left where a tree was cut down. Without it a felled tree simply
+## vanishes, and a clearing reads as a place trees never grew rather than as
+## something a child made.
+static func stump(radius := 0.22) -> ArrayMesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = radius
+	trunk.bottom_radius = radius * 1.25
+	trunk.height = radius * 2.0
+	trunk.radial_segments = 8
+	trunk.rings = 1
+	_append(tool, trunk, Transform3D(Basis(), Vector3(0.0, radius, 0.0)), TRUNK_COLOR)
+
+	# The pale cut face on top, which is the whole reason a stump reads as a
+	# stump rather than as a rock.
+	var top := CylinderMesh.new()
+	top.top_radius = radius
+	top.bottom_radius = radius
+	top.height = radius * 0.14
+	top.radial_segments = 8
+	top.rings = 1
+	_append(
+		tool, top, Transform3D(Basis(), Vector3(0.0, radius * 2.0, 0.0)),
+		Color(0.82, 0.68, 0.46)
+	)
+
+	tool.generate_normals()
+	return tool.commit()
+
 static func grass_tuft(height := 0.3, blades := 5) -> ArrayMesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)

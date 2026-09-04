@@ -184,6 +184,12 @@ const STRINGS := {
 	"back_welcome": {
 		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
 	},
+	"ui_chop": {
+		EN: "chop", FR: "couper", RU: "срубить",
+	},
+	"say_felled": {
+		EN: "timber! +%d wood", FR: "et voilà ! +%d bois", RU: "готово! +%d дерева",
+	},
 	"ui_whistle": {
 		EN: "whistle", FR: "siffler", RU: "свистнуть",
 	},

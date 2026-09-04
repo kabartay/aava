@@ -28,7 +28,9 @@ func _init(
 	grass: Mesh,
 	tree_material: ShaderMaterial,
 	grass_material: ShaderMaterial,
-	with_grass: bool
+	with_grass: bool,
+	felled: Felled,
+	stump: Mesh
 ) -> void:
 	var origin_x := float(coord.x * tile_size)
 	var origin_z := float(coord.y * tile_size)
@@ -42,29 +44,29 @@ func _init(
 
 	var conifers: Array[Transform3D] = []
 	var broadleaves: Array[Transform3D] = []
-	for _i in TREE_CANDIDATES:
-		var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
-		var world_x := origin_x + local.x
-		var world_z := origin_z + local.z
-		var density := field.forest_density_at(world_x, world_z)
-		if density <= 0.0 or rng.randf() > density:
-			continue
-		local.y = field.height_at(world_x, world_z) - 0.15
-		var scale := rng.randf_range(0.78, 1.35)
-		var transform := Transform3D(
-			Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale, scale * rng.randf_range(0.9, 1.2), scale)),
-			local
-		)
-		# Conifers dominate high and cool, broadleaves low and warm, so the
-		# treeline changes character rather than just thinning out.
-		var conifer_bias := smoothstep(24.0, 68.0, local.y)
-		if rng.randf() < conifer_bias:
+	for placed in generate_trees(field, coord, tile_size, world_seed, felled):
+		var transform: Transform3D = placed["transform"]
+		if placed["conifer"]:
 			conifers.append(transform)
 		else:
 			broadleaves.append(transform)
 
 	_add_layer(conifer, tree_material, conifers, tile_size, 24.0, true, 0.0)
 	_add_layer(broadleaf, tree_material, broadleaves, tile_size, 24.0, true, 0.0)
+
+	# A stump wherever this tile would have drawn a tree that has been felled.
+	if felled != null and felled.count() > 0 and stump != null:
+		var stumps: Array[Transform3D] = []
+		for gone in generate_trees(field, coord, tile_size, world_seed, null):
+			var at: Vector3 = gone["position"]
+			if not felled.is_felled(at.x, at.z):
+				continue
+			stumps.append(Transform3D(
+				Basis(Vector3.UP, float(stumps.size()) * 1.1),
+				Vector3(at.x - origin_x, at.y, at.z - origin_z)
+			))
+		if not stumps.is_empty():
+			_add_layer(stump, tree_material, stumps, tile_size, 24.0, true, 0.0)
 
 	if not with_grass:
 		return
@@ -91,6 +93,63 @@ func _init(
 			local
 		))
 	_add_layer(grass, grass_material, tufts, tile_size, 1.5, false, 74.0)
+
+## Where every tree in a tile stands, as a pure function of the world seed.
+##
+## This is a static function with no side effects because two callers need the
+## same answer: the tile, which draws the trees, and the axe, which has to find
+## one to cut down. When the two computed it separately they drifted — the
+## search consumed a different number of random draws than the tile did, and
+## found trees a metre from where they were drawn. There is one sequence, here.
+##
+## The order of the draws is the contract. Do not reorder them, and do not skip
+## one for a rejected candidate: every candidate must consume the same draws
+## whether it is kept or not, or every tree after the first felled one moves.
+static func generate_trees(
+	field: HeightField,
+	coord: Vector2i,
+	tile_size: int,
+	world_seed: int,
+	felled: Felled
+) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var origin_x := float(coord.x * tile_size)
+	var origin_z := float(coord.y * tile_size)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector3i(world_seed, coord.x, coord.y))
+
+	for _i in TREE_CANDIDATES:
+		var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
+		var world_x := origin_x + local.x
+		var world_z := origin_z + local.z
+		var density := field.forest_density_at(world_x, world_z)
+		var thinned: bool = density <= 0.0 or rng.randf() > density
+
+		# Every remaining draw happens whether or not the tree survives, so that
+		# rejecting one candidate never shifts the next.
+		local.y = field.height_at(world_x, world_z) - 0.15
+		var scale := rng.randf_range(0.78, 1.35)
+		var spin := rng.randf()
+		var stretch := rng.randf_range(0.9, 1.2)
+		var species := rng.randf()
+
+		if thinned:
+			continue
+		if felled != null and felled.is_felled(world_x, world_z):
+			continue
+
+		# Conifers dominate high and cool, broadleaves low and warm, so the
+		# treeline changes character rather than just thinning out.
+		var conifer_bias := smoothstep(24.0, 68.0, local.y)
+		out.append({
+			"position": Vector3(world_x, local.y, world_z),
+			"transform": Transform3D(
+				Basis(Vector3.UP, spin * TAU).scaled(Vector3(scale, scale * stretch, scale)),
+				local
+			),
+			"conifer": species < conifer_bias,
+		})
+	return out
 
 func _add_layer(
 	mesh: Mesh,

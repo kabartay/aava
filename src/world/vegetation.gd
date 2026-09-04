@@ -70,6 +70,10 @@ var _tiles: Dictionary = {}
 var _queue: Array[Vector2i] = []
 var _centre := Vector2i(9999, 9999)
 
+## Trees that have been cut down. Set by the world before streaming begins.
+var felled: Felled = null
+var _stump: Mesh
+
 func _init(height_field: HeightField, seed_value: int) -> void:
 	field = height_field
 	world_seed = seed_value
@@ -78,6 +82,7 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 	_conifer = PlantMeshes.conifer(6.4)
 	_broadleaf = PlantMeshes.broadleaf(5.2)
 	_grass = PlantMeshes.grass_tuft(0.34, 5)
+	_stump = PlantMeshes.stump(0.24)
 
 	var shader := Shader.new()
 	shader.code = WIND_SHADER
@@ -103,6 +108,67 @@ func follow(world_position: Vector3) -> void:
 		return
 	_centre = tile
 	_rebuild_queue()
+
+## The nearest standing tree to a point, or an empty vector if there is none in
+## reach.
+##
+## This replays the same generator the tile used, for the tile the player is
+## standing in and its neighbours. It is not a search of anything stored,
+## because nothing is stored: the forest exists only as instance transforms
+## inside a MultiMesh. Replaying is cheap — three tiles of 46 candidates — and
+## it is guaranteed to agree with what is drawn, which a parallel list of tree
+## positions would not be.
+func nearest_tree(world_position: Vector3, reach: float) -> Vector3:
+	var best := Vector3.ZERO
+	var best_distance := reach
+	var base := Vector2i(
+		int(floor(world_position.x / float(TILE_SIZE))),
+		int(floor(world_position.z / float(TILE_SIZE)))
+	)
+	for dx in [-1, 0, 1]:
+		for dz in [-1, 0, 1]:
+			var coord := Vector2i(base.x + dx, base.y + dz)
+			for candidate in _trees_in(coord):
+				var flat := Vector2(candidate.x - world_position.x, candidate.z - world_position.z)
+				var distance := flat.length()
+				if distance < best_distance:
+					best_distance = distance
+					best = candidate
+	return best
+
+## Every standing tree in one tile, from the one generator that also draws them.
+func _trees_in(coord: Vector2i) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for tree in VegetationTile.generate_trees(field, coord, TILE_SIZE, world_seed, felled):
+		out.append(tree["position"])
+	return out
+
+## Rebuild every tile now, because a tree has been felled and the forest as
+## drawn no longer matches the forest as recorded.
+## Queued, not built here. Building every loaded tile in one frame means dozens
+## of tiles of forty-six candidates each plus their grass, which locks the game
+## for long enough to look like a crash. The streaming queue already spreads
+## that over frames, so felling a tree simply asks for the affected tiles again
+## and they come back over the next few frames, nearest first.
+func rebuild_all() -> void:
+	for coord in _tiles.keys():
+		if not _queue.has(coord):
+			_queue.append(coord)
+	_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - _centre).length_squared() < (b - _centre).length_squared())
+
+## Only the tiles a felled tree could possibly appear in. Cheaper than rebuilding
+## the whole forest for one stump, and the visible result is identical.
+func rebuild_around(world_position: Vector3) -> void:
+	var base := Vector2i(
+		int(floor(world_position.x / float(TILE_SIZE))),
+		int(floor(world_position.z / float(TILE_SIZE)))
+	)
+	for dx in [-1, 0, 1]:
+		for dz in [-1, 0, 1]:
+			var coord := base + Vector2i(dx, dz)
+			if _tiles.has(coord) and not _queue.has(coord):
+				_queue.push_front(coord)
 
 func is_idle() -> bool:
 	return _queue.is_empty()
@@ -154,7 +220,7 @@ func _build_tile(coord: Vector2i, with_grass: bool) -> void:
 		field, coord, TILE_SIZE, world_seed,
 		_conifer, _broadleaf, _grass,
 		_tree_material, _grass_material,
-		with_grass
+		with_grass, felled, _stump
 	)
 	tile.has_grass = with_grass
 	add_child(tile)

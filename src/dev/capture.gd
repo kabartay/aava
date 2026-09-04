@@ -23,6 +23,7 @@ extends Node3D
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
 ##   --shop=1  open the shop panel, with coins to spend
+##   --chop=N  fell the N nearest trees before the shot, to show a clearing
 ##   --energy=N  draw the energy bar at this fraction (0..1)
 ##   --water=N  draw the bottle at this fraction, and carry one
 ##   --animals=1  place one of every animal in front of the camera
@@ -57,6 +58,7 @@ var _kick_loft := 0.25
 var _zoom := 0.0
 var _shop := false
 var _energy := 1.0
+var _chop := 0
 var _water := -1.0
 var _animals := false
 var _coins := 40
@@ -159,6 +161,7 @@ func _spawn_player() -> void:
 			&"buy": func(_item: StringName) -> void: pass,
 			&"drink": func() -> void: pass,
 			&"whistle": func() -> void: pass,
+			&"chop": func() -> void: pass,
 		}
 	)
 
@@ -197,6 +200,8 @@ func _spawn_player() -> void:
 		_hud.set_shop_open(true, _coins, {})
 	if _animals:
 		_gather_animals()
+	if _chop > 0:
+		_fell_nearby()
 func _stand_up_a_camp(spawn: Vector3) -> void:
 	for kind in ItemKinds.ALL:
 		_inventory.add(kind, 12)
@@ -441,6 +446,8 @@ func _parse_arguments() -> void:
 				_shop = value.to_int() != 0
 			"energy":
 				_energy = value.to_float()
+			"chop":
+				_chop = value.to_int()
 			"water":
 				_water = value.to_float()
 			"animals":
@@ -481,3 +488,17 @@ func _gather_animals() -> void:
 		# After add_child, or the position is overwritten by the parent's.
 		body.global_position = spot
 		print("  %s at (%.1f, %.1f, %.1f) size %.2f" % [kind, spot.x, spot.y, spot.z, AnimalKinds.size_of(kind)])
+
+## Fell the nearest trees, so a screenshot can show that the forest really
+## changed rather than that a record was written.
+func _fell_nearby() -> void:
+	var at := _player.global_position if _with_player else _look_at
+	var cut := 0
+	for _i in _chop:
+		var tree := _world.vegetation.nearest_tree(at, 30.0)
+		if tree.is_zero_approx():
+			break
+		_world.felled.fell(tree)
+		_world.vegetation.rebuild_around(tree)
+		cut += 1
+	print("felled %d trees; %d stumps recorded" % [cut, _world.felled.count()])

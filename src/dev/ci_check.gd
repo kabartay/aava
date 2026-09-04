@@ -36,6 +36,7 @@ func _initialize() -> void:
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
 	_check_the_valley_remembers()
+	_check_a_tree_can_be_felled()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -351,7 +352,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1183,3 +1184,93 @@ func _check_the_valley_remembers() -> void:
 	animals.call_animals()
 	_expect(animals.whistle_active(), "blowing it starts a call")
 	animals.queue_free()
+
+## Felling a tree is the one action that edits the world itself. Trees are
+## instances inside a MultiMesh generated from the seed, so there is nothing to
+## delete — the record runs the other way, and these checks are mostly about
+## that record staying true to what is actually drawn.
+func _check_a_tree_can_be_felled() -> void:
+	print("a tree can be felled")
+	var field := HeightField.new(20260904)
+	var felled := Felled.new()
+
+	_expect(felled.count() == 0, "nothing is felled to begin with")
+
+	# Find a tile that actually has trees in it, rather than assuming one does.
+	var wooded := Vector2i.ZERO
+	var trees: Array[Dictionary] = []
+	for x in range(-4, 5):
+		for z in range(-4, 5):
+			var candidate := Vector2i(x, z)
+			var found := VegetationTile.generate_trees(field, candidate, 64, 20260904, null)
+			if found.size() > trees.size():
+				trees = found
+				wooded = candidate
+	_expect(trees.size() > 0, "the generator finds %d trees in tile %s" % [trees.size(), wooded])
+	if trees.is_empty():
+		return
+
+	# The property the whole design rests on: the generator is pure, so asking
+	# twice gives the same forest.
+	var again := VegetationTile.generate_trees(field, wooded, 64, 20260904, null)
+	var identical := again.size() == trees.size()
+	if identical:
+		for i in trees.size():
+			if not (trees[i]["position"] as Vector3).is_equal_approx(again[i]["position"]):
+				identical = false
+				break
+	_expect(identical, "generating the same tile twice gives the same trees")
+
+	# Fell one, and it must be the only one that disappears. This is the check
+	# that matters: an earlier version consumed a different number of random
+	# draws once a tree was removed, and every tree after it moved.
+	var victim: Vector3 = trees[trees.size() / 2]["position"]
+	felled.fell(victim)
+	_expect(felled.count() == 1, "felling one tree records one stump")
+	_expect(felled.is_felled(victim.x, victim.z), "and that tree reads as felled")
+
+	var after := VegetationTile.generate_trees(field, wooded, 64, 20260904, felled)
+	_expect(after.size() == trees.size() - 1, "exactly one tree is gone, not %d" % (trees.size() - after.size()))
+
+	var moved := 0
+	var survivors: Array[Vector3] = []
+	for tree in after:
+		survivors.append(tree["position"])
+	for tree in trees:
+		var at: Vector3 = tree["position"]
+		if at.is_equal_approx(victim):
+			continue
+		var still_there := false
+		for survivor in survivors:
+			if survivor.is_equal_approx(at):
+				still_there = true
+				break
+		if not still_there:
+			moved += 1
+	_expect(moved == 0, "no other tree moved — %d did" % moved)
+
+	# A felled tree is a hole, not a shift: the tree that was next in the list
+	# must not have slid into the gap.
+	_expect(not felled.is_felled(survivors[0].x, survivors[0].z), "a standing tree does not read as felled")
+
+	# Cell-boundary lookups. A tree recorded near the edge of a lookup cell must
+	# still be found from the other side of that edge.
+	var edge := Felled.new()
+	var on_edge := Vector3(Felled.CELL * 3.0, 0.0, Felled.CELL * -2.0)
+	edge.fell(on_edge)
+	_expect(edge.is_felled(on_edge.x, on_edge.z), "a tree on a cell boundary is still found")
+	_expect(edge.is_felled(on_edge.x - 0.2, on_edge.z + 0.2), "and so is one just across the boundary")
+	_expect(not edge.is_felled(on_edge.x + 4.0, on_edge.z), "but a tree 4 m away is not")
+
+	var restored := Felled.new()
+	restored.from_data(felled.to_data())
+	_expect(restored.count() == felled.count(), "the stumps survive a save")
+	_expect(restored.is_felled(victim.x, victim.z), "and the felled tree stays felled")
+
+	var saved_again := VegetationTile.generate_trees(field, wooded, 64, 20260904, restored)
+	_expect(saved_again.size() == after.size(), "a reloaded world draws the same forest")
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not Text.of("ui_chop").begins_with("?"), "the axe is labelled in %s" % code)
+	Text.set_language(Text.EN)

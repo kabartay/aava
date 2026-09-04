@@ -34,6 +34,7 @@ signal shop_toggled()
 signal shop_buy(item: StringName)
 signal drink_pressed()
 signal whistle_pressed()
+signal chop_pressed()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -73,6 +74,7 @@ var _coins_label: Label
 var _vitals: VitalsGauge
 var _drink_button: Button
 var _whistle_button: Button
+var _chop_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -219,6 +221,13 @@ func _ready() -> void:
 	_whistle_button.visible = false
 	_whistle_button.pressed.connect(func() -> void: whistle_pressed.emit())
 	add_child(_whistle_button)
+
+	# Shown only when the axe is owned and there is actually a tree in reach,
+	# so it never invites a press that does nothing.
+	_chop_button = _button(Text.of("ui_chop"), Color(0.86, 0.72, 0.52))
+	_chop_button.visible = false
+	_chop_button.pressed.connect(func() -> void: chop_pressed.emit())
+	add_child(_chop_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -480,6 +489,12 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 	var can_drink := carries_bottle and water > 0.0
 	if _drink_button.visible != can_drink:
 		_drink_button.visible = can_drink
+		_layout()
+
+## Whether a tree is close enough to cut, given that the axe is owned.
+func set_tree_in_reach(within_reach: bool) -> void:
+	if _chop_button.visible != within_reach:
+		_chop_button.visible = within_reach
 		_layout()
 
 ## Show the controls that only exist once bought.
@@ -825,6 +840,13 @@ func _layout() -> void:
 		whistle_top = _drink_button.position.y + _drink_button.size.y + 10.0
 	_whistle_button.position = Vector2(
 		safe.position.x + safe.size.x - _whistle_button.size.x - MARGIN, whistle_top
+	)
+
+	var chop_top := whistle_top
+	if _whistle_button.visible:
+		chop_top = _whistle_button.position.y + _whistle_button.size.y + 10.0
+	_chop_button.position = Vector2(
+		safe.position.x + safe.size.x - _chop_button.size.x - MARGIN, chop_top
 	)
 
 	# Centred low, where the kick button sits, since the two never both apply.

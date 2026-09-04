@@ -120,6 +120,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		tasks.from_data(save["tasks"])
 	if save.has("animals"):
 		world.animals.from_data(save["animals"])
+	if save.has("felled"):
+		world.felled.from_data(save["felled"])
 
 	world.animals.cared_for.connect(func(_kind: StringName, _coins: int, _at: Vector3) -> void: pass)
 	world.animals.befriended.connect(func(kind: StringName) -> void:
@@ -200,6 +202,12 @@ func _process(delta: float) -> void:
 		if vitals.fill():
 			sounds.play(Sounds.Sound.SPLASH)
 			hud.announce(Text.of("say_filled"), 1.6)
+
+	# The axe only offers itself when there is a tree to use it on.
+	hud.set_tree_in_reach(
+		wallet.has(ShopStock.AXE)
+		and not world.vegetation.nearest_tree(player.global_position, CHOP_REACH).is_zero_approx()
+	)
 
 	# The care button says what the animal in front of you wants, at the moment
 	# you can do something about it.
@@ -301,6 +309,7 @@ func _handlers() -> Dictionary:
 		&"buy": _on_buy,
 		&"drink": _on_drink,
 		&"whistle": _on_whistle,
+		&"chop": _on_chop,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -343,6 +352,24 @@ func _refresh_vitals() -> void:
 func _standing_in_water() -> bool:
 	var at := player.global_position
 	return at.y < HeightField.WATER_LEVEL + 0.9 and world.field.distance_to_river(at.x, at.z) < 30.0
+
+## How much wood a tree is worth, and how far you must be to reach it.
+const CHOP_REACH := 3.4
+const WOOD_PER_TREE := 4
+
+func _on_chop() -> void:
+	if not wallet.has(ShopStock.AXE):
+		return
+	var tree := world.vegetation.nearest_tree(player.global_position, CHOP_REACH)
+	if tree.is_zero_approx():
+		return
+	world.felled.fell(tree)
+	# The forest is a MultiMesh generated from the seed, so the tree cannot be
+	# deleted — the tiles are rebuilt against the new record instead.
+	world.vegetation.rebuild_around(tree)
+	inventory.add(&"wood", WOOD_PER_TREE)
+	sounds.play(Sounds.Sound.REMOVE, 0.7)
+	hud.announce(Text.format("say_felled", [WOOD_PER_TREE]), 2.2)
 
 func _on_whistle() -> void:
 	if not wallet.has(ShopStock.WHISTLE):
@@ -515,6 +542,7 @@ func _write_save() -> void:
 		"vitals": vitals.to_data(),
 		"animals": world.animals.to_data(),
 		"journal": journal.to_data(),
+		"felled": world.felled.to_data(),
 	})
 
 func _seed_from_command_line() -> int:

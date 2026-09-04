@@ -71,7 +71,7 @@ Last updated: 2026-09-04.
 | Coins | Done | Earned only from animals at present. |
 | Shop | Done | Five items with icons, an aligned price column, and affordability dimming. |
 | Water bottle (12) | Done | Fills in the shallows automatically; four drinks; waters animals. |
-| Axe (20) | **Stub** | Purchasable; felling a tree is not implemented. |
+| Axe (20) | Done | Fells a tree for 4 wood, leaving a stump. The felling is saved. |
 | Lantern (28) | **Stub** | Purchasable; does not light anything. |
 | Whistle (34) | Done | Calls every animal within 46 m for six seconds, shy ones included. |
 | Bicycle (60) | **Stub** | Purchasable; cannot be ridden. |

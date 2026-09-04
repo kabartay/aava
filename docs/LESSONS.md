@@ -30,6 +30,8 @@ recur.
 | `PanelContainer` stretching a child | Map dot became a white sheet | Dot moved into the canvas |
 | Map redrew only when asked | Capture showed an empty panel | Map self-drives via `_process` |
 | Killing processes by name | Killed the user's running game, twice | Kill capture processes by PID only |
+| Duplicated an RNG sequence in two places | Trees found a metre from where they were drawn | One `generate_trees`, two callers |
+| Rebuilt every vegetation tile in one frame | Looked exactly like a hang; timed out at four minutes | Rebuilds go through the streaming queue |
 
 
 ## Godot 4.7
@@ -163,3 +165,23 @@ than inside it.
 rows are a reading exercise. Icons carry the meaning, a fixed price column lets
 prices be compared down the list, and a coin beside the number says what is
 being asked for.
+
+**A generated world needs one generator, not two.** Trees are `MultiMesh`
+instances computed from the seed, so felling one meant recording an exception
+that the generator consults. The search for "which tree is near the player" was
+written as a second replay of the same sequence — and consumed a different
+number of random draws than the tile did, so it found trees a metre from where
+they were drawn. There is now one `generate_trees`, called both by the tile that
+draws the forest and by the axe that searches it. Where a sequence of random
+draws is the contract, that contract can only live in one place.
+
+**Every candidate must consume the same draws, kept or not.** The first version
+skipped the scale and rotation draws for a rejected tree, so removing one tree
+shifted every tree generated after it — felling one tree moved the whole forest.
+Reject after drawing, never before.
+
+**Rebuilding everything at once is indistinguishable from a hang.** Felling a
+tree first called a `rebuild_all` that rebuilt every loaded tile synchronously:
+dozens of tiles of forty-six candidates each, plus grass, in one frame. The
+streaming queue already spreads that work over frames, and the fix was to put
+the rebuild through it rather than around it.

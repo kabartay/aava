@@ -21,13 +21,14 @@ bicycle never having been listed.
 
 | Item | What it needs | Rough size |
 |---|---|---|
-| Axe | Felling a tree: a swing, a fall, and wood into the bag. The tree must not regrow instantly or the forest becomes a mine. | Medium |
+| ~~Axe~~ | **Done.** Fells a tree for 4 wood and leaves a stump; the felling is saved, so it stays felled. | — |
 | Bicycle | A mounted state with a higher top speed and a wider turning circle, and a camera that pulls back. Reuses the horse work below. | Medium |
 | Lantern | A light that follows the player, and a reason for dark — either a night in the day cycle or a cave. | Medium, larger if it needs a night |
 | ~~Whistle~~ | **Done.** Calls every animal within 46 m for six seconds, shy ones included. | — |
 
-**The whistle is done.** Of what remains, the axe is the most valuable: felling
-a tree is the only one that changes the valley rather than the player.
+**The whistle and the axe are done.** What remains is the bicycle and the
+lantern, and the bicycle should wait for the horse — both want the same mounted
+movement state, and building it once is the whole saving.
 
 ## 2. A reason to return
 
