@@ -58,6 +58,7 @@ var _jump_button: Button
 var _power_bar: ColorRect
 var _power_fill: ColorRect
 var _aim_label: Label
+var _storey_label: Label
 
 func _ready() -> void:
 	var pad := CameraPad.new()
@@ -153,6 +154,13 @@ func _ready() -> void:
 	_remove_button.pressed.connect(func() -> void: build_remove.emit())
 	_remove_button.visible = false
 	add_child(_remove_button)
+
+	# Which storey the ghost is on, shown only while building a house. The rule
+	# that you build where you stand is invisible otherwise, and a child cannot
+	# be expected to infer it from a wall appearing at his feet.
+	_storey_label = _label(22, Color(0.72, 0.90, 1.0))
+	_storey_label.visible = false
+	add_child(_storey_label)
 
 	_menu_button = _button("≡", Color(0.86, 0.90, 0.96))
 	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
@@ -326,6 +334,21 @@ func set_ball_in_reach(in_reach: bool) -> void:
 	_kick_button.visible = in_reach
 	_layout()
 
+## Which storey the next piece will land on, or nothing if it is not a house
+## part. Includes the hint the first time a player is on the ground floor, since
+## that is when knowing you can go up is useful.
+func set_storey(storey: int, showing: bool) -> void:
+	_storey_label.visible = showing
+	if not showing:
+		return
+	if storey <= 0:
+		_storey_label.text = "%s  ·  %s" % [
+			Text.of("ui_ground_floor"), Text.of("ui_go_up_hint")
+		]
+	else:
+		_storey_label.text = Text.format("ui_upper_floor", [storey + 1])
+	_layout()
+
 ## Show the kick strength and where it is aimed, while the button is held.
 ##
 ## Both numbers run 0 to 1. The words matter more than the bar for the younger
@@ -438,6 +461,9 @@ func _layout() -> void:
 	)
 	_aim_label.size.x = view.x
 	_aim_label.position = Vector2(0.0, _power_bar.position.y - 36.0)
+
+	_storey_label.size.x = view.x
+	_storey_label.position = Vector2(0.0, _status.position.y - 36.0)
 
 	_score.size.x = view.x
 	_score.position = Vector2(0.0, safe.position.y + MARGIN)

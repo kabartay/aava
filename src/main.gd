@@ -132,6 +132,7 @@ func _process(delta: float) -> void:
 	# nothing in the controller has to know that jumping rocks is a game.
 	world.boulders.watch(player.global_position, not player.is_on_floor())
 	build_mode.aim(player.global_position, camera_rig.yaw)
+	hud.set_storey(build_mode.storey(), build_mode.active and HouseParts.is_house_part(build_mode.selected))
 
 	# The kick button appears only with a ball at your feet. The keyboard runs
 	# through the same two calls as the button, so the two controls cannot end

@@ -87,6 +87,16 @@ const STRINGS := {
 	# %s is the list of missing materials.
 	"why_need": {EN: "need %s", FR: "il faut %s", RU: "нужно %s"},
 
+	# Which storey the ghost is on. %d counts from 1 for the ground floor,
+	# because "floor 0" means nothing to a child.
+	"ui_ground_floor": {EN: "ground floor", FR: "rez-de-chaussée", RU: "первый этаж"},
+	"ui_upper_floor": {EN: "floor %d", FR: "étage %d", RU: "этаж %d"},
+	"ui_go_up_hint": {
+		EN: "stand higher to build higher",
+		FR: "monte pour bâtir plus haut",
+		RU: "встань выше — построишь выше",
+	},
+
 	# Aiming a kick.
 	"aim_ground": {EN: "along the ground", FR: "au ras du sol", RU: "низом"},
 	"aim_over": {EN: "up and over", FR: "en cloche", RU: "повыше"},

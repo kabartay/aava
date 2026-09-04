@@ -37,6 +37,18 @@ var active := false
 var selected: StringName = BuildKinds.SAPLING
 
 var _ghost: MeshInstance3D
+
+## A flat tile on the ground under the ghost, and an outline around each piece
+## the new one will touch.
+##
+## The ghost alone was not enough. A translucent wall floating ahead of the
+## player says what will be built but not where: a child cannot see which square
+## of ground it lands on, nor that it is about to join the wall he built a
+## moment ago. The tile answers the first, the outlines answer the second, and
+## together they turn "put it roughly there and hope" into something he can aim.
+var _tile: MeshInstance3D
+var _tile_material: StandardMaterial3D
+var _neighbour_markers: Array[MeshInstance3D] = []
 var _material: StandardMaterial3D
 var _target := Vector3.ZERO
 var _spin := 0.0
@@ -68,6 +80,10 @@ func _ready() -> void:
 func set_active(enabled: bool) -> void:
 	active = enabled
 	_ghost.visible = enabled
+	_tile.visible = enabled
+	if not enabled:
+		for marker in _neighbour_markers:
+			marker.visible = false
 	_last_signature = ""
 
 func select(kind: StringName) -> void:
@@ -137,7 +153,38 @@ func aim(player_position: Vector3, yaw: float) -> void:
 	_spin = snappedf(yaw, TAU / float(steps))
 
 	_ghost.transform = Transform3D(Basis(Vector3.UP, _spin), _target)
+
+	# Lifted clear of the ground, or it fights the terrain for the same pixels
+	# and shimmers.
+	_tile.visible = true
+	_tile.position = Vector3(_target.x, _target.y + 0.03, _target.z)
+	_tile.scale = Vector3.ONE * (_footprint_of(selected) / HouseParts.MODULE)
+
+	_show_neighbours()
 	_evaluate()
+
+## Outline whatever the new piece will stand against, so a child can see it is
+## about to join a wall rather than land beside one.
+func _show_neighbours() -> void:
+	for marker in _neighbour_markers:
+		marker.visible = false
+	if not _is_house():
+		return
+
+	var module := HouseParts.MODULE
+	var offsets: Array[Vector3] = [
+		Vector3(module, 0.0, 0.0), Vector3(-module, 0.0, 0.0),
+		Vector3(0.0, 0.0, module), Vector3(0.0, 0.0, -module),
+	]
+	for i in offsets.size():
+		var beside := _target + offsets[i]
+		# is_clear is false where something already stands, which is exactly
+		# the question being asked: is there a neighbour here?
+		if structures.is_clear(beside, _footprint_of(selected)):
+			continue
+		var marker := _neighbour_markers[i]
+		marker.position = Vector3(beside.x, beside.y + 0.05, beside.z)
+		marker.visible = true
 
 func _evaluate() -> void:
 	var cost := _cost_of(selected)
@@ -160,6 +207,10 @@ func _evaluate() -> void:
 	_material.albedo_color = (
 		Color(0.45, 1.0, 0.55, 0.5) if _valid
 		else Color(1.0, 0.42, 0.38, 0.45)
+	)
+	_tile_material.albedo_color = (
+		Color(0.45, 1.0, 0.55, 0.28) if _valid
+		else Color(1.0, 0.42, 0.38, 0.24)
 	)
 
 	# Only announce a change, so the interface is not rebuilt sixty times a
@@ -193,3 +244,14 @@ func place() -> bool:
 
 func target() -> Vector3:
 	return _target
+
+
+## Which storey the ghost is on, counting from zero at ground level.
+##
+## Shown to the player because building upstairs by standing upstairs is the one
+## rule here that cannot be seen without being told.
+func storey() -> int:
+	if not _is_house():
+		return 0
+	var ground := field.height_at(_target.x, _target.z)
+	return HouseParts.storey_of(_target.y - ground)
