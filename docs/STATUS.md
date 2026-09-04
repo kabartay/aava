@@ -62,6 +62,7 @@ Last updated: 2026-09-04.
 | Watering | Done | An animal more than 60 m from the river can be thirsty; a drink pays as much as food. |
 | Friends | Done | The first of each species cared for is remembered across saves. |
 | Beaver dams | **Not started** | Delivering sticks should build something visible. |
+| Whistle response | Done | A called animal comes at nearly twice its usual speed. |
 
 ## Economy and vitals
 
@@ -72,9 +73,18 @@ Last updated: 2026-09-04.
 | Water bottle (12) | Done | Fills in the shallows automatically; four drinks; waters animals. |
 | Axe (20) | **Stub** | Purchasable; felling a tree is not implemented. |
 | Lantern (28) | **Stub** | Purchasable; does not light anything. |
-| Whistle (34) | **Stub** | Purchasable; does not call animals. |
+| Whistle (34) | Done | Calls every animal within 46 m for six seconds, shy ones included. |
 | Bicycle (60) | **Stub** | Purchasable; cannot be ridden. |
 | Energy | Done | Running drains, walking and resting restore. At zero, walking is unaffected. |
+
+## Coming back
+
+| Part | State | Notes |
+|---|---|---|
+| Journal | Done | Counts what was done, not what is owned: built, cared for, goals, rocks, planted, coins. |
+| Arrival greeting | Done | One line naming the most notable thing from last visit, weighted so one house outranks forty rocks. |
+| Offline growth | Done | Saplings age by the time the game was closed, capped at 15 minutes so a fortnight away does not skip the change. |
+| Daily something | **Not started** | One thing available only that day. See ROADMAP.md. |
 
 ## Interface
 

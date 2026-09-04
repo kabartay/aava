@@ -206,7 +206,30 @@ func _step(animal: Dictionary, delta: float) -> void:
 ##
 ## The animals watch rather than being told: nothing in the player or the
 ## inventory knows that animals exist.
+## How long a whistle keeps animals coming, and how far it carries. It reaches
+## much further than NOTICE because the point of the whistle is to bring in
+## something you cannot see yet.
+const WHISTLE_TIME := 6.0
+const WHISTLE_RANGE := 46.0
+
+var _whistle := 0.0
+
+## Blow the whistle. Every animal within earshot comes, shy ones included —
+## which is the whole point: the squirrel is otherwise nearly uncatchable.
+func call_animals() -> int:
+	_whistle = WHISTLE_TIME
+	var heard := 0
+	for animal in _living:
+		var node: Node3D = animal["node"]
+		if is_instance_valid(node):
+			heard += 1
+	return heard
+
+func whistle_active() -> bool:
+	return _whistle > 0.0
+
 func watch(player_position: Vector3, inventory: Inventory) -> void:
+	_whistle = maxf(0.0, _whistle - get_process_delta_time())
 	for animal in _living:
 		var node: Node3D = animal["node"]
 		if not is_instance_valid(node):
@@ -215,12 +238,16 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 		var offset := player_position - node.position
 		offset.y = 0.0
 		var distance := offset.length()
-		if distance > NOTICE:
+		var called := _whistle > 0.0 and distance <= WHISTLE_RANGE
+		if distance > NOTICE and not called:
 			continue
 
 		var wanted := AnimalKinds.want(kind)
 		var offered := wanted == &"" or inventory.count(wanted) > 0
-		var tame := friends.has(kind) or offered
+		# A whistled animal comes whether or not you are holding what it wants,
+		# and whether or not it is shy. Otherwise the whistle would do nothing
+		# for the squirrel, which is the animal it exists for.
+		var tame := called or friends.has(kind) or offered
 
 		if tame:
 			# Come and meet the child, but stop short rather than walking into
@@ -228,7 +255,7 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 			if distance > REACH * 0.8:
 				animal["target"] = player_position - offset.normalized() * REACH * 0.7
 				animal["target"].y = field.height_at(animal["target"].x, animal["target"].z)
-				animal["speed"] = SPEED * 1.3
+				animal["speed"] = SPEED * (1.9 if called else 1.3)
 				animal["rest"] = 0.5
 			continue
 

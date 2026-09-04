@@ -33,6 +33,7 @@ signal care_pressed()
 signal shop_toggled()
 signal shop_buy(item: StringName)
 signal drink_pressed()
+signal whistle_pressed()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -71,6 +72,7 @@ var _care_button: Button
 var _coins_label: Label
 var _vitals: VitalsGauge
 var _drink_button: Button
+var _whistle_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -210,6 +212,13 @@ func _ready() -> void:
 	_drink_button.visible = false
 	_drink_button.pressed.connect(func() -> void: drink_pressed.emit())
 	add_child(_drink_button)
+
+	# Appears only once the whistle has been bought, so the interface grows with
+	# what the child owns rather than showing controls that do nothing.
+	_whistle_button = _button(Text.of("ui_whistle"), Color(0.98, 0.84, 0.52))
+	_whistle_button.visible = false
+	_whistle_button.pressed.connect(func() -> void: whistle_pressed.emit())
+	add_child(_whistle_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -471,6 +480,13 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 	var can_drink := carries_bottle and water > 0.0
 	if _drink_button.visible != can_drink:
 		_drink_button.visible = can_drink
+		_layout()
+
+## Show the controls that only exist once bought.
+func set_owned(owned: Dictionary) -> void:
+	var has_whistle: bool = owned.has(ShopStock.WHISTLE)
+	if _whistle_button.visible != has_whistle:
+		_whistle_button.visible = has_whistle
 		_layout()
 
 func is_shop_open() -> bool:
@@ -801,6 +817,14 @@ func _layout() -> void:
 	_drink_button.position = Vector2(
 		safe.position.x + safe.size.x - _drink_button.size.x - MARGIN,
 		_vitals.position.y + _vitals.size.y + 10.0
+	)
+
+	# Below the drink button when both are shown, in its place when it is not.
+	var whistle_top := _vitals.position.y + _vitals.size.y + 10.0
+	if _drink_button.visible:
+		whistle_top = _drink_button.position.y + _drink_button.size.y + 10.0
+	_whistle_button.position = Vector2(
+		safe.position.x + safe.size.x - _whistle_button.size.x - MARGIN, whistle_top
 	)
 
 	# Centred low, where the kick button sits, since the two never both apply.

@@ -24,24 +24,20 @@ bicycle never having been listed.
 | Axe | Felling a tree: a swing, a fall, and wood into the bag. The tree must not regrow instantly or the forest becomes a mine. | Medium |
 | Bicycle | A mounted state with a higher top speed and a wider turning circle, and a camera that pulls back. Reuses the horse work below. | Medium |
 | Lantern | A light that follows the player, and a reason for dark — either a night in the day cycle or a cave. | Medium, larger if it needs a night |
-| Whistle | Nearby animals path toward the player. Cheap, and it makes the shy squirrel catchable. | Small |
+| ~~Whistle~~ | **Done.** Calls every animal within 46 m for six seconds, shy ones included. | — |
 
-**Do the whistle first.** It is the smallest, and it makes the animals that are
-already there better rather than adding anything new.
+**The whistle is done.** Of what remains, the axe is the most valuable: felling
+a tree is the only one that changes the valley rather than the player.
 
 ## 2. A reason to return
 
-The strongest thing missing. The valley remembers what you built and what
-animals you befriended, but never says so. A child logging in on a Tuesday
-should be met with what he did on Monday.
+**Mostly done.** The journal counts what was done rather than what is owned, and
+the valley greets a returning child with the most notable thing from last time.
+Saplings age while the game is closed, so trees really have grown.
 
-- Something visible that grew overnight: saplings advancing a stage, a grove
-  filling in.
-- A short list on opening: what you built, who you fed, how far you walked.
-- One thing per day that is only available that day — a particular animal near
-  the camp, a spot on the map worth walking to.
-
-This is not large to build and is probably the highest-value item on this page.
+Still missing: **one thing per day that is only available that day** — a
+particular animal near the camp, a spot on the map worth walking to. This is
+what turns "the valley remembers me" into "there is a reason to go today".
 
 ## 3. Riding
 

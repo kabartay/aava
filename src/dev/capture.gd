@@ -158,6 +158,7 @@ func _spawn_player() -> void:
 			&"shop": func() -> void: pass,
 			&"buy": func(_item: StringName) -> void: pass,
 			&"drink": func() -> void: pass,
+			&"whistle": func() -> void: pass,
 		}
 	)
 
@@ -183,6 +184,15 @@ func _spawn_player() -> void:
 	# After the interface exists, or these paint onto nothing.
 	_hud.set_coins(_coins)
 	_hud.set_vitals(_energy, maxf(_water, 0.0), _water >= 0.0)
+	if _shop:
+		_hud.set_owned({})
+	else:
+		# Everything owned, so the controls that only appear once bought can be
+		# photographed.
+		var owned := {}
+		for item in ShopStock.ALL:
+			owned[item] = true
+		_hud.set_owned(owned)
 	if _shop:
 		_hud.set_shop_open(true, _coins, {})
 	if _animals:

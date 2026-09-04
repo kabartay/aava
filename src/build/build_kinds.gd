@@ -22,6 +22,11 @@ const ALL: Array[StringName] = [SAPLING, FEEDER, PATH, FENCE, CAMPFIRE]
 ## Short enough that a child who plants a tree sees it change within the same
 ## session — the whole promise of the game is that the world answers, and an
 ## answer that takes a week is not one.
+## A sapling is the only thing here that grows once placed, and the only thing
+## the journal counts as planting rather than building.
+static func is_plant(kind: StringName) -> bool:
+	return kind == SAPLING
+
 const GROWTH_STAGE_SECONDS := 75.0
 const GROWTH_STAGES := 3
 

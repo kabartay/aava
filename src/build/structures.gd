@@ -153,6 +153,28 @@ func _spawn_node(record: Dictionary) -> void:
 	add_child(node)
 	record["node"] = node
 
+## Age everything by the time that passed while the game was closed, so a child
+## who plants a sapling on Monday finds a tree on Tuesday. Capped, because a
+## fortnight away should not mean the growth was missed entirely — the point is
+## to be greeted by a change, not to have skipped it.
+const MAX_OFFLINE_GROWTH := 900.0
+
+func advance_offline(seconds: float) -> int:
+	var granted := minf(maxf(seconds, 0.0), MAX_OFFLINE_GROWTH)
+	if granted <= 0.0:
+		return 0
+	var advanced := 0
+	for record in _records:
+		if not BuildKinds.INFO.has(record["kind"]) or not BuildKinds.grows(record["kind"]):
+			continue
+		if record["stage"] >= BuildKinds.GROWTH_STAGES - 1:
+			continue
+		record["age"] = float(record["age"]) + granted
+		advanced += 1
+	# _process does the actual re-spawning on the next frame, so the visible
+	# change happens through exactly one code path rather than two.
+	return advanced
+
 func _process(delta: float) -> void:
 	var any_matured := false
 	for record in _records:

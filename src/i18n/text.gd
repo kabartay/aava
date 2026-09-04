@@ -146,6 +146,50 @@ const STRINGS := {
 
 	# The shop, and what each thing is for. Descriptions say what it does rather
 	# than what it is, because a child buys a verb.
+	"back_built": {
+		EN: "Last time you built %d things",
+		FR: "La dernière fois tu as construit %d choses",
+		RU: "В прошлый раз ты построил: %d",
+	},
+	"back_cared": {
+		EN: "Last time you looked after %d animals",
+		FR: "La dernière fois tu t'es occupé de %d animaux",
+		RU: "В прошлый раз ты позаботился о зверях: %d",
+	},
+	"back_goals": {
+		EN: "Last time you scored %d goals",
+		FR: "La dernière fois tu as marqué %d buts",
+		RU: "В прошлый раз ты забил голов: %d",
+	},
+	"back_planted": {
+		EN: "Last time you planted %d trees",
+		FR: "La dernière fois tu as planté %d arbres",
+		RU: "В прошлый раз ты посадил деревьев: %d",
+	},
+	"back_rocks": {
+		EN: "Last time you cleared %d rocks",
+		FR: "La dernière fois tu as sauté %d rochers",
+		RU: "В прошлый раз ты перепрыгнул камней: %d",
+	},
+	"back_coins": {
+		EN: "Last time you earned %d coins",
+		FR: "La dernière fois tu as gagné %d pièces",
+		RU: "В прошлый раз ты заработал монет: %d",
+	},
+	"back_grown": {
+		EN: "Your trees grew while you were away",
+		FR: "Tes arbres ont poussé pendant ton absence",
+		RU: "Твои деревья подросли, пока тебя не было",
+	},
+	"back_welcome": {
+		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
+	},
+	"ui_whistle": {
+		EN: "whistle", FR: "siffler", RU: "свистнуть",
+	},
+	"say_whistled": {
+		EN: "they heard you", FR: "ils t'ont entendu", RU: "тебя услышали",
+	},
 	"ui_drink": {
 		EN: "drink", FR: "boire", RU: "попить",
 	},

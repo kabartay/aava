@@ -33,6 +33,7 @@ var sounds: Sounds
 var tasks: Tasks
 var wallet: Wallet
 var vitals: Vitals
+var journal: Journal
 
 var _waiting_for_ground := false
 var _autosave := AUTOSAVE_SECONDS
@@ -75,6 +76,12 @@ func _ready() -> void:
 		vitals.grant_bottle()
 	if save.has("vitals"):
 		vitals.from_data(save["vitals"])
+
+	journal = Journal.new()
+	if save.has("journal"):
+		journal.from_data(save["journal"])
+	journal.arrive(int(Time.get_unix_time_from_system()))
+	_greet_on_arrival(save)
 
 	vitals.energy_changed.connect(func(_f: float) -> void: _refresh_vitals())
 	vitals.water_changed.connect(func(_f: float) -> void: _refresh_vitals())
@@ -293,9 +300,42 @@ func _handlers() -> Dictionary:
 		&"shop": _on_shop,
 		&"buy": _on_buy,
 		&"drink": _on_drink,
+		&"whistle": _on_whistle,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
+## What the valley says when a child comes back. One line, after a beat, so it
+## does not collide with the opening task and is not missed while the world is
+## still streaming in.
+func _greet_on_arrival(save: Dictionary) -> void:
+	# A brand new world has nothing to remember and should not pretend to.
+	if not save.has("journal") or journal.visits <= 1:
+		return
+
+	var grown := 0
+	if journal.last_seen > 0 and journal.days_away >= 0:
+		var away := float(Time.get_unix_time_from_system() - journal.last_seen)
+		grown = structures.advance_offline(away)
+
+	var line := ""
+	if journal.has_last_visit():
+		var headline := journal.headline()
+		var key: StringName = headline[0]
+		var count: int = headline[1]
+		if key != &"":
+			line = Text.format("back_%s" % key, [count])
+	if line.is_empty() and grown > 0:
+		line = Text.of("back_grown")
+	if line.is_empty():
+		line = Text.of("back_welcome")
+	elif grown > 0:
+		line += ". " + Text.of("back_grown")
+
+	# After the world has actually appeared, or it is read against a grey screen.
+	await get_tree().create_timer(1.6).timeout
+	if is_instance_valid(hud):
+		hud.announce(line, 6.0)
+
 func _refresh_vitals() -> void:
 	hud.set_vitals(vitals.fraction(), vitals.water_fraction(), vitals.has_bottle)
 
@@ -303,6 +343,13 @@ func _refresh_vitals() -> void:
 func _standing_in_water() -> bool:
 	var at := player.global_position
 	return at.y < HeightField.WATER_LEVEL + 0.9 and world.field.distance_to_river(at.x, at.z) < 30.0
+
+func _on_whistle() -> void:
+	if not wallet.has(ShopStock.WHISTLE):
+		return
+	world.animals.call_animals()
+	sounds.play(Sounds.Sound.CHIME, 1.6)
+	hud.announce(Text.of("say_whistled"), 1.8)
 
 func _on_drink() -> void:
 	if vitals.drink():
@@ -319,6 +366,8 @@ func _on_care() -> void:
 		if vitals.pour():
 			var reward := world.animals.water_for(animal)
 			wallet.earn(reward)
+			journal.record(Journal.CARED)
+			journal.record(Journal.COINS, reward)
 			sounds.play(Sounds.Sound.SPLASH)
 			hud.announce(Text.format("say_watered", [AnimalKinds.label(animal["kind"])]), 2.0)
 			_refresh_vitals()
@@ -328,6 +377,8 @@ func _on_care() -> void:
 	if coins <= 0:
 		return
 	wallet.earn(coins)
+	journal.record(Journal.CARED)
+	journal.record(Journal.COINS, coins)
 	sounds.play(Sounds.Sound.CHIME, 1.15)
 	hud.announce(Text.format("say_fed", [coins]), 1.4)
 
@@ -339,6 +390,7 @@ func _on_buy(item: StringName) -> void:
 		if item == ShopStock.BOTTLE:
 			vitals.grant_bottle()
 			_refresh_vitals()
+		hud.set_owned(wallet.owned)
 		sounds.play(Sounds.Sound.GOAL)
 		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 3.0)
 	else:
@@ -395,16 +447,24 @@ func _on_kick_release() -> void:
 	)
 
 func _on_boulder_jumped(_at: Vector3, total: int) -> void:
+	journal.record(Journal.ROCKS)
 	sounds.play(Sounds.Sound.CLEARED)
 	hud.announce(Text.format("say_cleared", [total]), 1.8)
 
 func _on_goal(_index: int, total: int) -> void:
+	journal.record(Journal.GOALS)
 	sounds.play(Sounds.Sound.GOAL)
 	hud.set_score(total)
 	hud.announce(Text.of("say_goal"), 2.0)
 
 func _on_place() -> void:
 	if build_mode.place():
+		# A sapling is planted, everything else is built. The distinction
+		# matters to the greeting: planting a tree is a different kind of
+		# afternoon from stacking walls.
+		journal.record(
+			Journal.PLANTED if BuildKinds.is_plant(build_mode.selected) else Journal.BUILT
+		)
 		sounds.play(Sounds.Sound.PLACE)
 		tasks.on_built(build_mode.selected)
 		return
@@ -436,6 +496,8 @@ func _notification(what: int) -> void:
 func _write_save() -> void:
 	if player == null or world == null:
 		return
+	# What was done this session becomes what the greeting reports next time.
+	journal.depart()
 	var at := player.global_position
 	SaveGame.write({
 		"seed": world.world_seed,
@@ -452,6 +514,7 @@ func _write_save() -> void:
 		"wallet": wallet.to_data(),
 		"vitals": vitals.to_data(),
 		"animals": world.animals.to_data(),
+		"journal": journal.to_data(),
 	})
 
 func _seed_from_command_line() -> int:

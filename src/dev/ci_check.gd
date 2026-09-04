@@ -35,6 +35,7 @@ func _initialize() -> void:
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
+	_check_the_valley_remembers()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -350,7 +351,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1089,3 +1090,96 @@ func _check_energy_never_strands() -> void:
 		Text.set_language(code)
 		_expect(not Text.of("say_tired").begins_with("?"), "being tired is explained in %s" % code)
 	Text.set_language(Text.EN)
+
+## The reason to come back tomorrow. Most of this is about not lying: a greeting
+## that reports an afternoon nobody had is worse than no greeting.
+func _check_the_valley_remembers() -> void:
+	print("the valley remembers yesterday")
+	var journal := Journal.new()
+
+	_expect(not journal.has_last_visit(), "a new world claims no history")
+	_expect(not journal.did_anything_this_session(), "and nothing has happened in it yet")
+
+	# An afternoon: two houses, a fed squirrel, one goal.
+	journal.record(Journal.BUILT, 2)
+	journal.record(Journal.CARED)
+	journal.record(Journal.GOALS)
+	_expect(journal.did_anything_this_session(), "doing things is noticed")
+	_expect(int(journal.lifetime[Journal.BUILT]) == 2, "the lifetime tally counts everything")
+
+	# Nothing is reportable until the session is closed out.
+	_expect(not journal.has_last_visit(), "mid-session, there is still no last visit to report")
+	journal.depart()
+	_expect(journal.has_last_visit(), "closing the game files the afternoon away")
+
+	# The headline picks building over the rock-jumping, because one house is a
+	# bigger afternoon than nine stones.
+	var headline := journal.headline()
+	_expect(headline[0] == Journal.BUILT, "the headline is the most notable thing, not the largest number")
+	_expect(int(headline[1]) == 2, "and it reports the right count")
+
+	var loud := Journal.new()
+	loud.record(Journal.ROCKS, 40)
+	loud.record(Journal.BUILT, 1)
+	loud.depart()
+	_expect(loud.headline()[0] == Journal.BUILT, "one house still outranks forty rocks")
+
+	# A session in which nothing happened must not overwrite a real one.
+	var quiet := Journal.new()
+	quiet.record(Journal.BUILT, 3)
+	quiet.depart()
+	quiet.arrive(1_700_000_000)
+	quiet.depart()
+	_expect(int(quiet.last_visit[Journal.BUILT]) == 3, "an afternoon where nothing happened does not erase the one before")
+
+	# Days away.
+	var returning := Journal.new()
+	returning.arrive(1_700_000_000)
+	returning.arrive(1_700_000_000 + 86400 * 3)
+	_expect(returning.days_away == 3, "three days away is counted as three")
+	_expect(returning.visits == 2, "and the visit is counted")
+
+	var same_day := Journal.new()
+	same_day.arrive(1_700_000_000)
+	same_day.arrive(1_700_000_000 + 600)
+	_expect(same_day.days_away == 0, "ten minutes away is not a new day")
+
+	# Session totals reset on arrival, lifetime does not.
+	var continuing := Journal.new()
+	continuing.record(Journal.COINS, 12)
+	continuing.arrive(1_700_000_000)
+	_expect(int(continuing.session[Journal.COINS]) == 0, "arriving clears the session tally")
+	_expect(int(continuing.lifetime[Journal.COINS]) == 12, "but never the lifetime one")
+
+	var restored := Journal.new()
+	restored.from_data(journal.to_data())
+	_expect(restored.has_last_visit(), "history survives a save")
+	_expect(int(restored.lifetime[Journal.BUILT]) == 2, "and so do the lifetime totals")
+	_expect(restored.headline()[0] == Journal.BUILT, "the headline is the same after a reload")
+
+	# Every greeting must exist in every language, or a child gets "?back_built".
+	var greeted := true
+	for key in Journal.ALL:
+		for code in [Text.EN, Text.FR, Text.RU]:
+			Text.set_language(code)
+			if Text.format("back_%s" % key, [1]).begins_with("?"):
+				greeted = false
+				printerr("  no greeting for %s in %s" % [key, code])
+	Text.set_language(Text.EN)
+	_expect(greeted, "every kind of afternoon can be described in all three languages")
+
+	# The whistle: it must reach further than ordinary notice, or it does
+	# nothing the animals were not already doing.
+	_expect(
+		Animals.WHISTLE_RANGE > Animals.NOTICE,
+		"the whistle carries further (%d m) than an animal notices you (%d m)" % [
+			int(Animals.WHISTLE_RANGE), int(Animals.NOTICE)
+		]
+	)
+	var field := HeightField.new(20260904)
+	var animals := Animals.new(field, 20260904)
+	get_root().add_child(animals)
+	_expect(not animals.whistle_active(), "the whistle is not sounding to begin with")
+	animals.call_animals()
+	_expect(animals.whistle_active(), "blowing it starts a call")
+	animals.queue_free()
