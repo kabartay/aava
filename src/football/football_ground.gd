@@ -20,7 +20,6 @@ const CELEBRATION := 2.2
 const STRAY_DISTANCE := 46.0
 
 signal goal_scored(goal_index: int, total: int)
-signal ball_kicked(power: float)
 
 var score := 0
 
@@ -54,7 +53,6 @@ func _init(field: HeightField) -> void:
 		# each ball rests on the grass rather than half-buried in it.
 		var start := Vector3(centre.x, surface + Ball.RADIUS, centre.z + spread)
 		var ball := Ball.new(start)
-		ball.kicked.connect(func(power: float) -> void: ball_kicked.emit(power))
 		add_child(ball)
 		_balls.append(ball)
 

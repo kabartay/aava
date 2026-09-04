@@ -24,6 +24,10 @@ const RINGS := [
 
 const COLOR_SAND := Color(0.83, 0.76, 0.56)
 const COLOR_GRASS := Color(0.36, 0.60, 0.28)
+
+## Bare, trodden earth. Warmer and lighter than the grass so a route reads from
+## a distance, which is the entire purpose of a path.
+const COLOR_PATH := Color(0.62, 0.52, 0.36)
 const COLOR_MEADOW := Color(0.52, 0.68, 0.30)
 const COLOR_ROCK := Color(0.44, 0.43, 0.44)
 const COLOR_SNOW := Color(0.92, 0.94, 0.97)

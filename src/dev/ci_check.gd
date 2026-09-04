@@ -42,6 +42,8 @@ func _initialize() -> void:
 	_check_night_is_dark()
 	_check_places_worth_walking_to()
 	_check_every_handler_is_reachable()
+	_check_signals_match_their_handlers()
+	_check_paths_lead_somewhere()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -357,7 +359,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1157,6 +1159,20 @@ func _check_the_valley_remembers() -> void:
 	_expect(int(continuing.session[Journal.COINS]) == 0, "arriving clears the session tally")
 	_expect(int(continuing.lifetime[Journal.COINS]) == 12, "but never the lifetime one")
 
+	# Offline growth is what the greeting does to the world, and it needs the
+	# structures to exist. This was ordered wrongly in main.gd for a while and
+	# only failed on a returning visit — the one case the greeting is for — so
+	# a first run never showed it.
+	var world_field := HeightField.new(20260903)
+	var structures := Structures.new(world_field)
+	get_root().add_child(structures)
+	var sapling_at := world_field.camp_centre() + Vector3(3.0, 0.0, 3.0)
+	sapling_at.y = world_field.height_at(sapling_at.x, sapling_at.z)
+	structures.place(BuildKinds.SAPLING, sapling_at, 0.0)
+	_expect(structures.advance_offline(600.0) > 0, "a sapling ages while the game is closed")
+	_expect(structures.advance_offline(0.0) == 0, "and no time away ages nothing")
+	structures.queue_free()
+
 	var restored := Journal.new()
 	restored.from_data(journal.to_data())
 	_expect(restored.has_last_visit(), "history survives a save")
@@ -1666,3 +1682,148 @@ func _check_every_handler_is_reachable() -> void:
 			wired = false
 			printerr("  '%s' is never connected" % name)
 	_expect(wired, "every handler name is actually connected to a signal")
+
+## Connecting a lambda with the wrong number of arguments is accepted silently
+## and then fails every single time the signal fires — at runtime, in the log,
+## where nobody is looking. The football ground had one for the whole life of
+## the project: `kicked(strength, loft)` connected to a lambda taking one
+## argument, so every kick printed an error.
+func _check_signals_match_their_handlers() -> void:
+	print("signals and their handlers agree")
+	var scripts := _find_scripts("res://src")
+	var signatures: Dictionary = {}
+
+	# Collect every signal declaration and how many arguments it carries.
+	for path in scripts:
+		var source := FileAccess.get_file_as_string(path)
+		for line in source.split("\n"):
+			var trimmed := line.strip_edges()
+			if not trimmed.begins_with("signal "):
+				continue
+			var name := trimmed.substr(7).strip_edges()
+			var open := name.find("(")
+			if open < 0:
+				continue
+			var inside := name.substr(open + 1, name.rfind(")") - open - 1).strip_edges()
+			signatures[name.substr(0, open)] = 0 if inside.is_empty() else inside.split(",").size()
+
+	_expect(signatures.size() > 0, "found %d signal declarations to check" % signatures.size())
+
+	# Then every inline `x.signal.connect(func(...))` and count its arguments.
+	var mismatched := 0
+	for path in scripts:
+		var source := FileAccess.get_file_as_string(path)
+		for line in source.split("\n"):
+			var at := line.find(".connect(func(")
+			if at < 0:
+				continue
+			var before := line.substr(0, at)
+			var dot := before.rfind(".")
+			if dot < 0:
+				continue
+			var signal_name := before.substr(dot + 1)
+			if not signatures.has(signal_name):
+				continue
+			var args_at := at + ".connect(func(".length()
+			var close := line.find(")", args_at)
+			if close < 0:
+				continue
+			var args := line.substr(args_at, close - args_at).strip_edges()
+			var given := 0 if args.is_empty() else args.split(",").size()
+			if given != int(signatures[signal_name]):
+				mismatched += 1
+				printerr(
+					"  %s takes %d argument(s) but is connected to a lambda taking %d — %s" % [
+						signal_name, int(signatures[signal_name]), given, path
+					]
+				)
+	_expect(mismatched == 0, "every inline signal handler takes the right number of arguments")
+
+## Paths. A path is the strongest signal a world can give about where to go, and
+## a path that leads nowhere is worse than no path at all.
+func _check_paths_lead_somewhere() -> void:
+	print("the paths lead somewhere")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+
+	# Every route must actually arrive at a destination.
+	for route in Paths.ROUTES:
+		for end in [route["from"], route["to"]]:
+			var at: Vector3 = camp if end == &"" else PlaceSpec.centre_of(end, camp)
+			_expect(
+				field.path_at(at.x, at.z) > 0.5,
+				"there is a path at the %s" % ("camp" if end == &"" else String(end))
+			)
+
+	# And the middle of a route must be worn too, or it is two patches rather
+	# than a path.
+	var midway_worn := true
+	for route in Paths.ROUTES:
+		var a: Vector3 = camp if route["from"] == &"" else PlaceSpec.centre_of(route["from"], camp)
+		var b: Vector3 = camp if route["to"] == &"" else PlaceSpec.centre_of(route["to"], camp)
+		for step in [0.25, 0.5, 0.75]:
+			var at := a.lerp(b, step)
+			if field.path_at(at.x, at.z) < 0.5:
+				midway_worn = false
+	_expect(midway_worn, "the ground is worn along the whole of every route, not just at the ends")
+
+	# The valley away from the camp must be untouched, or the whole world is a
+	# path and none of it is a signal.
+	var open_valley := true
+	for distance in [80.0, 160.0, 320.0]:
+		for step in 8:
+			var angle := TAU * float(step) / 8.0
+			var at := camp + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
+			if field.path_at(at.x, at.z) > 0.0:
+				open_valley = false
+	_expect(open_valley, "the open valley has no paths in it")
+
+	# Nothing grows on a path. Grass coming up through a route is what made the
+	# football pitch look painted on before it was fixed the same way.
+	var playground := PlaceSpec.centre_of(&"playground", camp)
+	var midpoint := camp.lerp(playground, 0.5)
+	_expect(
+		is_zero_approx(field.forest_density_at(midpoint.x, midpoint.z)),
+		"no trees grow on a path"
+	)
+
+	# A path sinks, but only slightly: deep enough to read, shallow enough that
+	# nobody trips stepping onto it.
+	_expect(Paths.SINK > 0.0, "a path is worn into the ground")
+	_expect(Paths.SINK < 0.25, "but only by %.2f m, so there is no lip to trip on" % Paths.SINK)
+
+	# The bounding rejection is what makes this affordable at all: without it
+	# the square roots came to roughly seven million per world build and
+	# generation took longer than the screenshot tool would wait.
+	var far := camp + Vector3(Paths.BOUNDS_HALF + 10.0, 0.0, 0.0)
+	_expect(is_zero_approx(Paths.influence(far.x, far.z, camp)), "points outside the bounds are rejected outright")
+
+	# The rides at the playground: both must end on their own, so a child is
+	# never stuck on one.
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+
+	places.push_swing()
+	var swung := 0.0
+	while places.swinging() and swung < 30.0:
+		places._process(1.0 / 60.0)
+		swung += 1.0 / 60.0
+	_expect(not places.swinging(), "the swing stops on its own after %.1f s" % swung)
+	_expect(swung < 10.0, "and it does not go on for ever")
+
+	# The slide runs downhill, or a child would slide upwards.
+	_expect(
+		places.slide_top().y > places.slide_foot().y,
+		"the top of the slide is above its foot"
+	)
+	_expect(
+		places.at_slide_top(places.slide_top()),
+		"standing at the top of the slide is recognised"
+	)
+	_expect(
+		not places.at_slide_top(places.slide_foot()),
+		"standing at the foot is not"
+	)
+
+	places.queue_free()

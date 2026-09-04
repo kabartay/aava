@@ -37,9 +37,19 @@ const MEAL_RESTORE := 0.55
 const POOL_DEPTH := PlaceSpec.POOL_DEPTH
 const POOL_HALF := PlaceSpec.POOL_HALF
 
-## How high the swing carries a child, and how long one push lasts.
-const SWING_LIFT := 2.2
-const SWING_TIME := 2.4
+## How high the swing carries a child, how long one push lasts, and how far the
+## seat swings at the top of its arc.
+const SWING_LIFT := 1.6
+const SWING_TIME := 3.2
+const SWING_ARC := 0.85
+
+## The slide. A child who steps onto the top is carried down it, because a slide
+## you can only stand next to is scenery.
+const SLIDE_SPEED := 4.2
+const SLIDE_TOP := Vector3(3.4, 1.72, -1.35)
+const SLIDE_FOOT := Vector3(3.4, 0.18, 1.5)
+## How close to the top of the slide a child has to be to start sliding.
+const SLIDE_GRAB := 1.1
 
 var field: HeightField
 
@@ -103,6 +113,40 @@ func push_swing() -> bool:
 func swinging() -> bool:
 	return _swing > 0.0
 
+## Where a child on the swing should be right now, or an empty vector when the
+## swing is still. Returned rather than applied, because the player owns its own
+## position and a node that moves the player from outside fights the character
+## controller — the same reason a mount follows rather than carries.
+func swing_rider_at() -> Vector3:
+	if _swing <= 0.0 or not _spots.has(PLAYGROUND):
+		return Vector3.ZERO
+	var pivot: Vector3 = _spots[PLAYGROUND] + Vector3(0.0, 2.86, 0.0)
+	var angle := _swing_angle()
+	# The seat hangs 1.9 m below the bar; the rider sits on it.
+	return pivot + Vector3(0.0, -1.9, 0.0).rotated(Vector3.RIGHT, angle)
+
+## Where the top of the slide is, in world space.
+func slide_top() -> Vector3:
+	if not _spots.has(PLAYGROUND):
+		return Vector3.ZERO
+	return _spots[PLAYGROUND] + SLIDE_TOP
+
+## Where the foot of the slide is.
+func slide_foot() -> Vector3:
+	if not _spots.has(PLAYGROUND):
+		return Vector3.ZERO
+	return _spots[PLAYGROUND] + SLIDE_FOOT
+
+## Is a child standing at the top of the slide, ready to go down?
+func at_slide_top(at: Vector3) -> bool:
+	if not _spots.has(PLAYGROUND):
+		return false
+	return at.distance_to(slide_top()) < SLIDE_GRAB
+
+func _swing_angle() -> float:
+	var strength := _swing / SWING_TIME
+	return sin(_swing * 4.4) * SWING_ARC * strength
+
 func _process(delta: float) -> void:
 	if _swing <= 0.0:
 		return
@@ -110,9 +154,7 @@ func _process(delta: float) -> void:
 	if _swing_seat == null or not is_instance_valid(_swing_seat):
 		return
 	# Decaying arc, so the swing slows to a stop instead of stopping dead.
-	var strength := _swing / SWING_TIME
-	var angle := sin(_swing * 4.4) * 0.85 * strength
-	_swing_seat.rotation.x = angle
+	_swing_seat.rotation.x = _swing_angle()
 
 func _place(place: StringName, at: Vector3) -> void:
 	var spot := at

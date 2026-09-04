@@ -93,10 +93,10 @@ Last updated: 2026-09-04.
 |---|---|---|
 | Swimming | Done | The river was a wall before this. Forgiving by design: no drowning, no stamina, buoyancy pushes a child back up. |
 | Swimming pool | Done | Dug into the height field, so the hole and the water are the same shape by construction. Shelves at the edge. |
-| Playground | Done | Swing and slide. The simplest thing in the game, and the two-year-old's entry point. |
+| Playground | Done | The swing carries a child through its arc; stepping onto the top of the slide rides it down. Both end on their own. |
 | Café | Done | 3 coins for a meal that restores 55% of the energy bar — closes the energy loop from the other end. |
 | Levelled ground | Done | Playground, pool and café are flat by construction, like the football pitch. |
-| Paths and roads | **Not started** | Worth doing now that there are destinations for paths to connect. |
+| Paths | Done | Five routes worn between camp, playground, pool, café and the butts. Bare earth, no grass through them, sunk 9 cm. |
 
 ## Riding
 

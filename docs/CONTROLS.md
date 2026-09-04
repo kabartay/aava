@@ -55,6 +55,13 @@ stranded. Rest for about five seconds and you can run again, or drink.
 **The bottle fills by walking into the river.** There is no button for it. It
 holds four drinks.
 
+**The slide takes you down.** Walk onto the top of it and you ride it — there is
+no button, because climbing the ladder already said what you wanted. Push the
+swing and it carries you through its arc, then slows to a stop.
+
+**Follow the paths.** The worn ground between the camp, the playground, the pool
+and the café will take you somewhere worth going.
+
 **You can swim.** Walk into the river or the pool and you float. There is no
 drowning and no way to be dragged under — jump to stroke upwards and get out.
 Swimming is slower than walking, so crossing the river is a decision.

@@ -85,7 +85,6 @@ func _ready() -> void:
 	if save.has("journal"):
 		journal.from_data(save["journal"])
 	journal.arrive(int(Time.get_unix_time_from_system()))
-	_greet_on_arrival(save)
 
 	vitals.energy_changed.connect(func(_f: float) -> void: _refresh_vitals())
 	vitals.water_changed.connect(func(_f: float) -> void: _refresh_vitals())
@@ -111,6 +110,12 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	add_child(structures)
 	if save.has("structures"):
 		structures.from_data(save["structures"])
+
+	# After the structures exist and have been restored: the greeting ages
+	# saplings by the time the game was closed, and cannot do that to structures
+	# that have not been created yet. Called at the top of _ready before, where
+	# it only failed on a returning visit — which is the one case it exists for.
+	_greet_on_arrival(save)
 
 	birds = Birds.new()
 	birds.name = "Birds"
@@ -243,6 +248,10 @@ func _process(delta: float) -> void:
 	var at := player.global_position
 	var river_depth := maxf(0.0, HeightField.WATER_LEVEL - world.field.height_at(at.x, at.z))
 	player.water_depth = maxf(river_depth, world.places.water_depth_at(at.x, at.z))
+
+	# A child on the swing or on the slide is carried. Both end on their own —
+	# there is no way to be stuck on a ride.
+	_carry(delta, at)
 
 	# Whatever the place a child is standing in offers.
 	var here := world.places.nearest(at)
@@ -412,6 +421,39 @@ const WOOD_PER_TREE := 4
 
 ## How close to the shooting line a child must stand to draw a bow.
 const SHOOTING_LINE_REACH := 6.0
+
+## How long a slide takes, and how far down it the child currently is.
+var _sliding := -1.0
+
+## Put the child where the ride says they should be, or let them go.
+func _carry(delta: float, at: Vector3) -> void:
+	if _sliding >= 0.0:
+		_sliding += delta * Places.SLIDE_SPEED
+		var top := world.places.slide_top()
+		var foot := world.places.slide_foot()
+		var journey := top.distance_to(foot)
+		var progress := clampf(_sliding / maxf(journey, 0.01), 0.0, 1.0)
+		player.carried_to = top.lerp(foot, progress)
+		player.is_carried = true
+		if progress >= 1.0:
+			_sliding = -1.0
+			player.is_carried = false
+			sounds.play(Sounds.Sound.LAND, 1.2)
+		return
+
+	if world.places.swinging():
+		player.carried_to = world.places.swing_rider_at()
+		player.is_carried = true
+		return
+
+	if player.is_carried:
+		player.is_carried = false
+
+	# Stepping onto the top of the slide starts the ride, with no button: a
+	# child who climbed the ladder has already said what they want.
+	if world.places.at_slide_top(at) and _sliding < 0.0:
+		_sliding = 0.0
+		sounds.play(Sounds.Sound.JUMP, 1.4)
 
 ## What the place a child is standing in is offering, as a label — or nothing.
 func _offer_at(place: StringName) -> String:

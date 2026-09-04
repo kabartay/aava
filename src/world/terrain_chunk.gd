@@ -131,6 +131,13 @@ func _tint(field: HeightField, x: float, z: float, height: float) -> Color:
 	# Rock where nothing could root.
 	color = color.lerp(TerrainSpec.COLOR_ROCK, smoothstep(0.35, 0.75, steep))
 
+	# A trodden path, over the natural tinting but under the snow: a route
+	# through the meadow is bare earth, and a route over a peak would still be
+	# under snow.
+	var path := field.path_at(x, z)
+	if path > 0.0:
+		color = color.lerp(TerrainSpec.COLOR_PATH, path)
+
 	# Snow on the peaks, and only where it would settle.
 	var snow := smoothstep(96.0, 150.0, height) * (1.0 - smoothstep(0.6, 0.95, steep))
 	color = color.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))

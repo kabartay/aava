@@ -44,18 +44,32 @@ const FOOTPRINT := {
 
 const FEATHER := 7.0
 
+## Everything the places touch, as a box around the camp. See the note in
+## `influence` for why this matters so much.
+const BOUNDS_HALF := 40.0
+
 ## How much of the levelling applies at a point, from 1 at the centre to 0
 ## outside the feathered edge. Zero for every point far from all three, which is
 ## almost everywhere, so this is cheap.
 static func influence(x: float, z: float, camp: Vector3) -> float:
+	# Rejected before any square root. height_at calls this for every terrain
+	# vertex in the world, and the places occupy a few dozen metres of it.
+	if absf(x - camp.x) > BOUNDS_HALF or absf(z - camp.z) > BOUNDS_HALF:
+		return 0.0
+
 	var strongest := 0.0
 	for place in OFFSETS:
 		var centre: Vector3 = camp + OFFSETS[place]
-		var distance := sqrt(
-			(x - centre.x) * (x - centre.x) + (z - centre.z) * (z - centre.z)
-		)
 		var radius: float = RADIUS[place]
-		if distance > radius + FEATHER:
+		var reach := radius + FEATHER
+		# Compared as squares, so the square root is only taken for points that
+		# are actually near a place.
+		var dx := x - centre.x
+		var dz := z - centre.z
+		if absf(dx) > reach or absf(dz) > reach:
+			continue
+		var distance := sqrt(dx * dx + dz * dz)
+		if distance > reach:
 			continue
 		strongest = maxf(strongest, 1.0 - smoothstep(radius, radius + FEATHER, distance))
 	return strongest
@@ -77,6 +91,8 @@ const POOL_HALF := 6.0
 ## the grass and the pickups all agree there is a hole here — the same reason
 ## the football pitch is levelled here rather than by a node that draws a pitch.
 static func excavation(x: float, z: float, camp: Vector3) -> float:
+	if absf(x - camp.x) > BOUNDS_HALF or absf(z - camp.z) > BOUNDS_HALF:
+		return 0.0
 	var centre: Vector3 = camp + OFFSETS[&"pool"]
 	var inside := maxf(absf(x - centre.x), absf(z - centre.z))
 	if inside > POOL_HALF:

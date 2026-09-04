@@ -109,7 +109,19 @@ func height_at(x: float, z: float) -> float:
 		# agree there is a hole, rather than a rim being drawn on flat grass.
 		floor_height -= PlaceSpec.excavation(x, z, camp_centre())
 
+	# Paths sink very slightly where they are walked. Applied after the places,
+	# so a path running into the café's flat apron settles onto it rather than
+	# cutting a groove across it.
+	var path := Paths.influence(x, z, camp_centre())
+	if path > 0.0:
+		floor_height -= Paths.SINK * path
+
 	return floor_height
+
+## How much of a walked path is at this point. Asked by the terrain when it
+## chooses a colour and by the vegetation when it decides whether to grow.
+func path_at(x: float, z: float) -> float:
+	return Paths.influence(x, z, camp_centre())
 
 ## The terrain before anything is levelled into it. Separated from height_at so
 ## that the level the flattening aims at can be read without recursing through
@@ -172,6 +184,14 @@ func forest_density_at(x: float, z: float) -> float:
 	# Nothing grows on the pitch or its apron. A tree on the halfway line is
 	# funny once and then it is just in the way.
 	if Pitch.influence(x, z) > 0.35:
+		return 0.0
+
+	# Nor on a path, nor on the flat ground the places stand on. A tree growing
+	# out of the trodden route is what makes a path look painted on rather than
+	# walked.
+	if Paths.influence(x, z, camp_centre()) > 0.3:
+		return 0.0
+	if PlaceSpec.influence(x, z, camp_centre()) > 0.55:
 		return 0.0
 
 	var density := (_forest.get_noise_2d(x, z) + 1.0) * 0.5

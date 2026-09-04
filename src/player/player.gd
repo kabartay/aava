@@ -52,6 +52,15 @@ signal landed(speed: float)
 
 var camera_yaw := 0.0
 
+## Set by the game while a child is on the swing or going down the slide. The
+## player is placed rather than steered for these: they are rides, and a ride
+## that fights the stick is a ride a child cannot enjoy.
+##
+## Carried rather than parented, for the same reason a mount is: a body
+## parented to a moving node inherits its rotation and fights its own gravity.
+var carried_to := Vector3.ZERO
+var is_carried := false
+
 ## How deep the water is at the player's feet, set by the game each frame. The
 ## player knows nothing about where the river or the pool are; it is told.
 var water_depth := 0.0
@@ -150,6 +159,14 @@ func _process(delta: float) -> void:
 		kick_charge = minf(kick_charge + delta / Ball.CHARGE_TIME, 1.0)
 
 func _physics_process(delta: float) -> void:
+	if is_carried:
+		# Eased rather than snapped, so a swing reads as an arc rather than as
+		# the child teleporting between two points.
+		var to_seat := carried_to - global_position
+		velocity = to_seat / maxf(delta, 0.001) * 0.35
+		move_and_slide()
+		return
+
 	# get_gravity() is zero on the first physics frame, before the server has
 	# populated the body's state, so the last good value is kept.
 	var measured := get_gravity()

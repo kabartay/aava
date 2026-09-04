@@ -42,6 +42,9 @@ recur.
 | Two handlers named `place` | The later key silently replaced building | `_check_every_handler_is_reachable` |
 | Pool drawn as a rim on flat ground | A white square painted on the grass | Excavated in the height field |
 | Same shape computed in two files | Water and hole would drift apart | Both call `PlaceSpec.excavation` |
+| Per-vertex work with no bounding test | ~7.7M square roots per build; looked like a hang | Reject on a box before any `sqrt` |
+| Signal arity mismatch in a lambda | An error logged on every single kick | `_check_signals_match_their_handlers` |
+| Greeting ran before `structures` existed | Crash, but only on a returning visit | Offline growth exercised in a check |
 
 
 ## Godot 4.7
@@ -216,3 +219,27 @@ the terrain was cut away *and* how deep the water was for swimming. Written
 twice, they would eventually disagree and a child would float above the floor or
 stand in the water. Both now call one `PlaceSpec.excavation`, and a check
 compares them across the whole pool.
+
+**Anything asked per vertex needs a bounding test before it does any real
+work.** `Paths.influence` walked five line segments taking a square root each,
+and was called for every terrain vertex, every grass tuft and every tree
+candidate — several times over, because `height_at` is called repeatedly for
+normals and steepness. That came to roughly seven million square roots per world
+build, and the screenshot tool timed out after five minutes on what had been a
+five-second job. Two subtractions and two comparisons against a box around the
+camp reject almost every point in the world before the first `sqrt`, and the
+build went back to five seconds.
+
+**A lambda connected with the wrong number of arguments fails silently at
+connect time and loudly at every emission.** `kicked(strength, loft)` was
+connected to a lambda taking one argument, which logged an error on every kick
+for the life of the project. The signal turned out to be entirely unused, so it
+was deleted rather than repaired — but a check now compares every inline
+handler's arity against its signal's, across all 53 of them.
+
+**A code path that only runs on the second visit will not fail on the first.**
+The arrival greeting was called at the top of `_ready`, before `structures`
+existed, and ages saplings by the time the game was closed. A fresh world
+returns early from that function, so every test run and every screenshot passed;
+it crashed the first time a child came back to a saved valley — the one case the
+feature exists for. The check now builds a sapling and ages it.

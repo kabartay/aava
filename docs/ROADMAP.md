@@ -70,17 +70,22 @@ forgiving — no drowning, no stamina, and buoyancy that pushes a child back to
 the surface. Slower than walking, so it reads as crossing something rather than
 as a shortcut.
 
-Still worth doing here: the slide does not actually slide a child down it, and
-the swing does not carry them. Both are currently things to watch rather than
-things to ride.
+Both rides now carry the child: the swing sweeps them through its arc, and
+stepping onto the top of the slide takes them down it with no button — a child
+who climbed the ladder has already said what they want. Both end on their own,
+so nobody can be stuck on a ride.
 
 ## 6. Paths and roads
 
-Asked for, and now unblocked: there are four destinations for paths to connect
-(camp, playground, pool, café) plus the pitch and the archery range.
+**Paths done.** Five routes are worn between the camp, playground, pool, café
+and the archery butts, including one that avoids the camp so it is not the only
+hub. They live in the height field like the pitch and the pool, so the terrain,
+the collision, the grass and the trees all agree they are there: nothing grows
+on a path, and the ground is compacted 9 cm rather than trenched.
 
-Needs: a road layer in the height field (paths should flatten slightly, as the
-pitch does), and a mesh that follows terrain without floating.
+Still to do here: a road — something wider and more deliberate than a worn
+route, connecting the valley to somewhere off the map. That is scenery with a
+promise in it, and worth doing when there is something at the other end.
 
 ## 7. Beaver dams
 
