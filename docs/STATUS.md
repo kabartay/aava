@@ -61,7 +61,7 @@ Last updated: 2026-09-04.
 | Cooldowns | Done | Guarded in both `nearest_caring` and `care_for`, so one animal is not an infinite mine. |
 | Watering | Done | An animal more than 60 m from the river can be thirsty; a drink pays as much as food. |
 | Friends | Done | The first of each species cared for is remembered across saves. |
-| Beaver dams | **Not started** | Delivering sticks should build something visible. |
+| Beaver dams | Done | Eight sticks at a site and the beavers wall the river; the pond behind is still there tomorrow and deep enough to swim in. |
 | Whistle response | Done | A called animal comes at nearly twice its usual speed. |
 
 ## Economy and vitals
@@ -115,7 +115,7 @@ Last updated: 2026-09-04.
 | Journal | Done | Counts what was done, not what is owned: built, cared for, goals, rocks, planted, coins. |
 | Arrival greeting | Done | One line naming the most notable thing from last visit, weighted so one house outranks forty rocks. |
 | Offline growth | Done | Saplings age by the time the game was closed, capped at 15 minutes so a fortnight away does not skip the change. |
-| Daily something | **Not started** | One thing available only that day. See ROADMAP.md. |
+| One thing a day | Done | A single task, a pure function of the calendar day, so everyone on a map gets the same one. No backlog, no penalty for missing it. |
 
 ## Interface
 

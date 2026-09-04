@@ -104,6 +104,41 @@ func is_idle() -> bool:
 func has_ground_at(world_position: Vector3) -> bool:
 	return _chunks.has(TerrainSpec.chunk_at(world_position))
 
+## Rebuild the chunks within `radius` of a point, because the ground there has
+## changed. Used when a dam is finished — the only thing in the game that edits
+## the height field after generation.
+##
+## Only the affected chunks, not all 361: a full rebuild takes several seconds
+## of streaming, during which the valley is visibly missing. A dam changes about
+## forty metres of river, which is a handful of chunks.
+##
+## The chunks are dropped and re-queued rather than re-meshed in place, because
+## each owns a HeightMapShape3D as well as a mesh and the existing build path
+## does both.
+func rebuild_near(world_position: Vector3, radius: float) -> void:
+	var affected: Array[Vector2i] = []
+	for coord in _chunks.keys():
+		var centre := Vector3(
+			(float(coord.x) + 0.5) * TerrainSpec.CHUNK_SIZE,
+			0.0,
+			(float(coord.y) + 0.5) * TerrainSpec.CHUNK_SIZE
+		)
+		var flat := Vector2(centre.x - world_position.x, centre.z - world_position.z)
+		if flat.length() > radius + TerrainSpec.CHUNK_SIZE:
+			continue
+		affected.append(coord)
+
+	for coord in affected:
+		_chunks[coord].queue_free()
+		_chunks.erase(coord)
+		if not _queue.has(coord):
+			_queue.append(coord)
+
+	# Nearest first, so the ground under the player comes back before the far
+	# bank does.
+	_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - _centre).length_squared() < (b - _centre).length_squared())
+
 func _build_chunk(coord: Vector2i, ring: int) -> void:
 	var previous = _chunks.get(coord)
 	if previous != null:

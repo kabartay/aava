@@ -181,6 +181,57 @@ const STRINGS := {
 		FR: "Tes arbres ont poussé pendant ton absence",
 		RU: "Твои деревья подросли, пока тебя не было",
 	},
+	"today_visit": {
+		EN: "Today: come and see the valley",
+		FR: "Aujourd'hui : viens voir la vallée",
+		RU: "Сегодня: приходи посмотреть на долину",
+	},
+	"today_care": {
+		EN: "Today: look after %d animals",
+		FR: "Aujourd'hui : occupe-toi de %d animaux",
+		RU: "Сегодня: позаботься о зверях — осталось %d",
+	},
+	"today_build": {
+		EN: "Today: build %d more pieces",
+		FR: "Aujourd'hui : construis encore %d pièces",
+		RU: "Сегодня: построй ещё деталей — %d",
+	},
+	"today_score": {
+		EN: "Today: score %d more goals",
+		FR: "Aujourd'hui : marque encore %d buts",
+		RU: "Сегодня: забей ещё голов — %d",
+	},
+	"today_shoot": {
+		EN: "Today: hit the targets %d more times",
+		FR: "Aujourd'hui : touche les cibles encore %d fois",
+		RU: "Сегодня: попади по мишеням ещё %d раз",
+	},
+	"today_plant": {
+		EN: "Today: plant %d more trees",
+		FR: "Aujourd'hui : plante encore %d arbres",
+		RU: "Сегодня: посади ещё деревьев — %d",
+	},
+	"today_done": {
+		EN: "Today's thing is done", FR: "C'est fait pour aujourd'hui",
+		RU: "На сегодня всё сделано",
+	},
+	"say_today": {
+		EN: "done for today! +%d", FR: "fait pour aujourd'hui ! +%d",
+		RU: "на сегодня готово! +%d",
+	},
+	"say_dam_stick": {
+		EN: "the beavers take it — %d more",
+		FR: "les castors le prennent — encore %d",
+		RU: "бобры взяли — ещё %d",
+	},
+	"say_dam_done": {
+		EN: "the beavers finished the dam!",
+		FR: "les castors ont fini le barrage !",
+		RU: "бобры достроили запруду!",
+	},
+	"ui_give_stick": {
+		EN: "give a stick", FR: "donner un bâton", RU: "дать ветку",
+	},
 	"back_welcome": {
 		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
 	},

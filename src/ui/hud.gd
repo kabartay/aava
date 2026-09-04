@@ -39,6 +39,7 @@ signal ride_pressed()
 signal shoot_started()
 signal shoot_released()
 signal place_used()
+signal dam_stick()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -82,6 +83,7 @@ var _chop_button: Button
 var _ride_button: Button
 var _shoot_button: Button
 var _visit_button: Button
+var _dam_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -257,6 +259,12 @@ func _ready() -> void:
 	_visit_button.visible = false
 	_visit_button.pressed.connect(func() -> void: place_used.emit())
 	add_child(_visit_button)
+
+	# Only shown at a dam site, with a stick in the bag.
+	_dam_button = _button(Text.of("ui_give_stick"), Color(0.78, 0.86, 0.70))
+	_dam_button.visible = false
+	_dam_button.pressed.connect(func() -> void: dam_stick.emit())
+	add_child(_dam_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -518,6 +526,12 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 	var can_drink := carries_bottle and water > 0.0
 	if _drink_button.visible != can_drink:
 		_drink_button.visible = can_drink
+		_layout()
+
+## Whether the beavers will take a stick right now.
+func set_dam_offer(offered: bool) -> void:
+	if _dam_button.visible != offered:
+		_dam_button.visible = offered
 		_layout()
 
 ## What the place a child is standing in offers, or nothing at all.
@@ -923,6 +937,10 @@ func _layout() -> void:
 		safe.position.x + safe.size.x * 0.5 - _visit_button.size.x * 0.5,
 		safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN * 2.0
 	)
+
+	# Beside the place button, since a child is never at a dam and in the café
+	# at the same time.
+	_dam_button.position = _visit_button.position
 
 	# Centred low, where the kick button sits, since the two never both apply.
 	_care_button.position = Vector2(

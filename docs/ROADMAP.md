@@ -36,9 +36,10 @@ starting here.
 the valley greets a returning child with the most notable thing from last time.
 Saplings age while the game is closed, so trees really have grown.
 
-Still missing: **one thing per day that is only available that day** — a
-particular animal near the camp, a spot on the map worth walking to. This is
-what turns "the valley remembers me" into "there is a reason to go today".
+**Done.** One task a day, chosen as a pure function of the calendar day so that
+every child on a shared map is offered the same one and they can help each other
+with it. Deliberately small: a child who misses three days comes back to one
+thing, not a backlog, and ignoring it entirely costs nothing.
 
 ## 3. Riding
 
@@ -89,10 +90,18 @@ promise in it, and worth doing when there is something at the other end.
 
 ## 7. Beaver dams
 
-Deliver sticks, a dam appears across a narrow point, the water behind it rises.
-The most interesting of the animal ideas because it changes the world rather
-than the score. Also the most work, since it touches the height field and the
-water surface.
+**Done.** Eight sticks delivered to one of two sites and the beavers wall the
+river; the pond behind it is still there tomorrow.
+
+The pond is made by raising the riverbed rather than the water, because the
+water surface is a single flat plane across the whole world and cannot be
+lifted locally. Filling the trench gives a child exactly what they expect —
+still water, three times as wide as the river, deep enough to swim in — and
+every other system already agrees about where the ground is.
+
+This is the only thing in the game that edits the height field after
+generation, so it is also the only thing that has to ask for terrain to be
+rebuilt. Only the chunks near the dam, not all 361.
 
 ## 8. Networking
 

@@ -55,6 +55,12 @@ stranded. Rest for about five seconds and you can run again, or drink.
 **The bottle fills by walking into the river.** There is no button for it. It
 holds four drinks.
 
+**Bring the beavers sticks.** At a dam site on the river, eight sticks and they
+will wall it. The pond behind is deep enough to swim in and it stays there.
+
+**There is one thing worth doing each day.** It is written at the top of the
+screen. Skipping it costs nothing — it is a suggestion, not a job.
+
 **The slide takes you down.** Walk onto the top of it and you ride it — there is
 no button, because climbing the ladder already said what you wanted. Push the
 swing and it carries you through its arc, then slows to a stop.

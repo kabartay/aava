@@ -44,6 +44,8 @@ func _initialize() -> void:
 	_check_every_handler_is_reachable()
 	_check_signals_match_their_handlers()
 	_check_paths_lead_somewhere()
+	_check_dams_change_the_world()
+	_check_one_thing_a_day()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -359,7 +361,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1705,7 +1707,15 @@ func _check_signals_match_their_handlers() -> void:
 			if open < 0:
 				continue
 			var inside := name.substr(open + 1, name.rfind(")") - open - 1).strip_edges()
-			signatures[name.substr(0, open)] = 0 if inside.is_empty() else inside.split(",").size()
+			var count := 0 if inside.is_empty() else inside.split(",").size()
+			# Every arity a signal of this name is declared with, because two
+			# unrelated classes may both declare `completed` with different
+			# signatures — Tasks and Today do. Matching on the bare name and one
+			# arity flags perfectly correct code.
+			var key := name.substr(0, open)
+			if not signatures.has(key):
+				signatures[key] = {}
+			signatures[key][count] = true
 
 	_expect(signatures.size() > 0, "found %d signal declarations to check" % signatures.size())
 
@@ -1730,11 +1740,12 @@ func _check_signals_match_their_handlers() -> void:
 				continue
 			var args := line.substr(args_at, close - args_at).strip_edges()
 			var given := 0 if args.is_empty() else args.split(",").size()
-			if given != int(signatures[signal_name]):
+			var allowed: Dictionary = signatures[signal_name]
+			if not allowed.has(given):
 				mismatched += 1
 				printerr(
-					"  %s takes %d argument(s) but is connected to a lambda taking %d — %s" % [
-						signal_name, int(signatures[signal_name]), given, path
+					"  %s is connected to a lambda taking %d argument(s), but is only declared with %s — %s" % [
+						signal_name, given, str(allowed.keys()), path
 					]
 				)
 	_expect(mismatched == 0, "every inline signal handler takes the right number of arguments")
@@ -1827,3 +1838,185 @@ func _check_paths_lead_somewhere() -> void:
 	)
 
 	places.queue_free()
+
+## Dams. The only thing in the game that changes the world rather than the
+## score, which makes it the only thing that can break the world.
+func _check_dams_change_the_world() -> void:
+	print("beavers change the world")
+	var field := HeightField.new(20260903)
+	var dams := Dams.new(field)
+	get_root().add_child(dams)
+
+	_expect(DamSpec.SITES.size() >= 2, "there is more than one place to build")
+	# Each pond must be its own place rather than one long lake.
+	var far_apart := true
+	for i in DamSpec.SITES.size():
+		for j in range(i + 1, DamSpec.SITES.size()):
+			if absf(DamSpec.SITES[i] - DamSpec.SITES[j]) < DamSpec.POND_LENGTH * 2.0:
+				far_apart = false
+	_expect(far_apart, "the dam sites are far enough apart to be separate ponds")
+
+	var site: float = DamSpec.SITES[0]
+	var river_x := field.river_centre_x(site)
+	var before := field.height_at(river_x, site + DamSpec.POND_LENGTH * 0.3)
+
+	_expect(not dams.is_built(site), "nothing is dammed to begin with")
+	_expect(dams.sticks_at(site) == 0, "and no sticks have been delivered")
+
+	# Delivering, one stick at a time.
+	for i in DamSpec.STICKS_NEEDED - 1:
+		_expect(dams.deliver(site), "stick %d is taken" % (i + 1))
+	_expect(not dams.is_built(site), "the dam is not finished early")
+	_expect(dams.sticks_at(site) == DamSpec.STICKS_NEEDED - 1, "and the count is right")
+
+	var finished: Array[float] = []
+	dams.dam_finished.connect(func(at: float) -> void: finished.append(at))
+	_expect(dams.deliver(site), "the last stick is taken")
+	_expect(dams.is_built(site), "and the dam is finished")
+	_expect(finished.size() == 1, "which is announced exactly once")
+	_expect(not dams.deliver(site), "a finished dam takes no more sticks")
+
+	# The world must actually change. This is the whole point.
+	field.dams_built = dams.built.duplicate()
+	var after := field.height_at(river_x, site + DamSpec.POND_LENGTH * 0.3)
+	_expect(after > before, "the riverbed behind the dam rose by %.2f m" % (after - before))
+
+	# Deep enough to swim in, or the pond is a puddle.
+	var pond_depth := HeightField.WATER_LEVEL - field.height_at(river_x, site + 4.0)
+	var was_depth := HeightField.WATER_LEVEL - before
+	_expect(
+		pond_depth < was_depth,
+		"the water behind it is shallower than the old river bed, as a filled trench should be"
+	)
+
+	# And the valley away from the dam must be untouched.
+	var elsewhere_before := HeightField.new(20260903)
+	var far := site + DamSpec.POND_LENGTH * 3.0
+	_expect(
+		is_equal_approx(
+			field.height_at(field.river_centre_x(far), far),
+			elsewhere_before.height_at(elsewhere_before.river_centre_x(far), far)
+		),
+		"the river well upstream is unchanged"
+	)
+	# Downstream of the wall, too: a dam holds water back, it does not flood
+	# what is below it.
+	var below := site - 8.0
+	_expect(
+		is_equal_approx(
+			field.height_at(field.river_centre_x(below), below),
+			elsewhere_before.height_at(elsewhere_before.river_centre_x(below), below)
+		),
+		"and the river below the dam is unchanged"
+	)
+
+	# Reach: a child has to be at the site, not anywhere on the river.
+	_expect(
+		is_equal_approx(dams.site_near(Vector3(river_x, 0.0, site)), site),
+		"standing at a site finds it"
+	)
+	_expect(
+		is_nan(dams.site_near(Vector3(river_x, 0.0, site + 200.0))),
+		"standing far away finds nothing"
+	)
+
+	var restored := Dams.new(field)
+	get_root().add_child(restored)
+	restored.from_data(dams.to_data())
+	_expect(restored.is_built(site), "a finished dam survives a save")
+
+	# Half-finished progress must survive too, or a child loses their sticks.
+	var partial := Dams.new(field)
+	get_root().add_child(partial)
+	partial.deliver(DamSpec.SITES[1])
+	partial.deliver(DamSpec.SITES[1])
+	var carried_over := Dams.new(field)
+	get_root().add_child(carried_over)
+	carried_over.from_data(partial.to_data())
+	_expect(
+		carried_over.sticks_at(DamSpec.SITES[1]) == 2,
+		"and so do sticks delivered towards an unfinished one"
+	)
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not Text.of("say_dam_done").begins_with("?"), "a finished dam is announced in %s" % code)
+	Text.set_language(Text.EN)
+
+	dams.queue_free()
+	restored.queue_free()
+	partial.queue_free()
+	carried_over.queue_free()
+
+## One thing a day. Deliberately small: a child who misses three days must not
+## come back to a backlog, and ignoring it entirely must cost nothing.
+func _check_one_thing_a_day() -> void:
+	print("there is one thing worth doing today")
+	var today := Today.new()
+
+	var monday := 1_760_000_000
+	today.begin(monday)
+	_expect(not today.is_finished(), "the day starts unfinished")
+	_expect(today.done() == 0, "with nothing done")
+	_expect(today.needed() > 0, "and something to do")
+
+	# What is offered must depend only on the day, so every child on a shared
+	# map is offered the same thing and can help each other.
+	var same := Today.new()
+	same.begin(monday + 3600)
+	_expect(same.kind() == today.kind(), "everyone gets the same task on the same day")
+
+	var tomorrow := Today.new()
+	tomorrow.begin(monday + 86400)
+	_expect(tomorrow.day_number() == today.day_number() + 1, "tomorrow is the next day")
+
+	# Over a week, the task must actually change rather than repeating.
+	var offered: Dictionary = {}
+	for day in 6:
+		var each := Today.new()
+		each.begin(monday + 86400 * day)
+		offered[each.kind()] = true
+	_expect(offered.size() >= 4, "%d different things are asked for across six days" % offered.size())
+
+	# Only the thing asked for counts.
+	var wanted := today.kind()
+	var other := Today.VISIT if wanted != Today.VISIT else Today.CARE
+	today.record(other, 99)
+	_expect(today.done() == 0, "doing something else does not count")
+
+	var paid: Array[int] = []
+	today.completed.connect(func(_k: StringName, reward: int) -> void: paid.append(reward))
+	today.record(wanted, today.needed())
+	_expect(today.is_finished(), "doing what was asked finishes the day")
+	_expect(paid.size() == 1, "and pays exactly once")
+	_expect(paid[0] == Today.REWARD, "%d coins" % Today.REWARD)
+
+	today.record(wanted, 99)
+	_expect(paid.size() == 1, "doing more afterwards pays nothing extra")
+
+	# A finished day stays finished across a save, and a new day starts fresh —
+	# with no backlog from the days that were missed.
+	var returning := Today.new()
+	returning.from_data(today.to_data())
+	returning.begin(monday)
+	_expect(returning.is_finished(), "a finished day survives a save")
+
+	var next_week := Today.new()
+	next_week.from_data(today.to_data())
+	next_week.begin(monday + 86400 * 7)
+	_expect(not next_week.is_finished(), "a week later there is a new thing to do")
+	_expect(next_week.done() == 0, "and no backlog from the days that were missed")
+
+	# Every task must be describable, in every language, or a child sees "?".
+	for kind in Today.KINDS:
+		_expect(Today.AMOUNT.has(kind), "%s asks for a number of things" % kind)
+	for day in Today.KINDS.size():
+		var each := Today.new()
+		each.begin(monday + 86400 * day)
+		for code in [Text.EN, Text.FR, Text.RU]:
+			Text.set_language(code)
+			_expect(
+				not each.describe().begins_with("?"),
+				"day %d's task reads in %s" % [day, code]
+			)
+	Text.set_language(Text.EN)

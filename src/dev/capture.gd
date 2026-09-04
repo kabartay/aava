@@ -23,6 +23,7 @@ extends Node3D
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
 ##   --shop=1  open the shop panel, with coins to spend
+##   --dam=1  finish the first dam before the shot, to show the pond
 ##   --mounts=1  put a horse and a bicycle in front of the camera
 ##   --chop=N  fell the N nearest trees before the shot, to show a clearing
 ##   --energy=N  draw the energy bar at this fraction (0..1)
@@ -61,6 +62,7 @@ var _shop := false
 var _energy := 1.0
 var _chop := 0
 var _mounts := false
+var _dam := false
 var _lantern: Lantern = null
 var _water := -1.0
 var _animals := false
@@ -115,6 +117,16 @@ func _ready() -> void:
 		_fell_nearby()
 	if _mounts:
 		_show_mounts()
+	if _dam:
+		for _i in DamSpec.STICKS_NEEDED:
+			_world.dams.deliver(DamSpec.SITES[0])
+		print("dam built at z=%.0f; %d dams standing" % [DamSpec.SITES[0], _world.dams.built.size()])
+		# The rebuilt chunks stream in a few per frame, and that has to finish
+		# before the shutter opens.
+		for _f in 90:
+			await RenderingServer.frame_post_draw
+			if _world.terrain.is_idle() and _world.vegetation.is_idle():
+				break
 	if _chop > 0 or _mounts:
 		# Let the queued rebuilds actually run before the shutter opens.
 		for _i in 12:
@@ -193,6 +205,7 @@ func _spawn_player() -> void:
 			&"shoot_start": func() -> void: pass,
 			&"shoot_release": func() -> void: pass,
 			&"visit": func() -> void: pass,
+			&"dam": func() -> void: pass,
 		}
 	)
 
@@ -478,6 +491,8 @@ func _parse_arguments() -> void:
 				_chop = value.to_int()
 			"mounts":
 				_mounts = value.to_int() != 0
+			"dam":
+				_dam = value.to_int() != 0
 			"water":
 				_water = value.to_float()
 			"animals":

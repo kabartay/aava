@@ -34,6 +34,7 @@ var tasks: Tasks
 var wallet: Wallet
 var vitals: Vitals
 var journal: Journal
+var today: Today
 var lantern: Lantern
 
 var _waiting_for_ground := false
@@ -86,6 +87,12 @@ func _ready() -> void:
 		journal.from_data(save["journal"])
 	journal.arrive(int(Time.get_unix_time_from_system()))
 
+	today = Today.new()
+	if save.has("today"):
+		today.from_data(save["today"])
+	today.begin(int(Time.get_unix_time_from_system()))
+	today.completed.connect(_on_today_done)
+
 	vitals.energy_changed.connect(func(_f: float) -> void: _refresh_vitals())
 	vitals.water_changed.connect(func(_f: float) -> void: _refresh_vitals())
 	vitals.exhausted.connect(func() -> void: hud.announce(Text.of("say_tired"), 3.0))
@@ -133,6 +140,18 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		world.felled.from_data(save["felled"])
 	if save.has("mounts"):
 		world.mounts.from_data(save["mounts"])
+	if save.has("dams"):
+		world.dams.from_data(save["dams"])
+		# The height field has to know before anything is generated against it.
+		world.field.dams_built = world.dams.built.duplicate()
+		world.dams.restore()
+
+	world.dams.stick_delivered.connect(func(_site: float, carried: int, needed: int) -> void:
+		sounds.play(Sounds.Sound.PLACE, 0.8)
+		hud.announce(Text.format("say_dam_stick", [needed - carried]), 2.0))
+	world.dams.dam_finished.connect(func(_site: float) -> void:
+		sounds.play(Sounds.Sound.GOAL)
+		hud.announce(Text.of("say_dam_done"), 5.0))
 	# A bicycle already bought must be standing in the world on reload.
 	lantern.owned = wallet.has(ShopStock.LANTERN)
 	if wallet.has(ShopStock.BICYCLE) and not world.mounts.exists(MountKinds.BICYCLE):
@@ -257,6 +276,10 @@ func _process(delta: float) -> void:
 	var here := world.places.nearest(at)
 	hud.set_place_offer(_offer_at(here))
 
+	# The beavers take a stick at a dam site, from a child carrying one.
+	var dam_site := world.dams.site_near(at)
+	hud.set_dam_offer(not is_nan(dam_site) and inventory.count(&"stick") > 0)
+
 	hud.set_on_shooting_line(
 		player.global_position.distance_to(world.archery.shooting_line()) < SHOOTING_LINE_REACH
 	)
@@ -372,6 +395,7 @@ func _handlers() -> Dictionary:
 		&"shoot_start": _on_shoot_start,
 		&"shoot_release": _on_shoot_release,
 		&"visit": _on_place_used,
+		&"dam": _on_dam_stick,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -467,6 +491,21 @@ func _offer_at(place: StringName) -> String:
 			# "swim" beside water you are already standing in is noise.
 			return ""
 
+func _on_dam_stick() -> void:
+	var site := world.dams.site_near(player.global_position)
+	if is_nan(site) or inventory.count(&"stick") <= 0:
+		return
+	if not inventory.spend({&"stick": 1}):
+		return
+	world.dams.deliver(site)
+
+func _on_today_done(_kind: StringName, reward: int) -> void:
+	wallet.earn(reward)
+	journal.record(Journal.COINS, reward)
+	sounds.play(Sounds.Sound.CHIME, 1.3)
+	hud.announce(Text.format("say_today", [reward]), 4.0)
+	hud.set_task(today.describe())
+
 func _on_place_used() -> void:
 	var here := world.places.nearest(player.global_position)
 	match here:
@@ -506,6 +545,7 @@ func _on_shoot_release() -> void:
 func _on_arrow_hit(_index: int, ring: int, points: int) -> void:
 	wallet.earn(points)
 	journal.record(Journal.COINS, points)
+	today.record(Today.SHOOT)
 	sounds.play(Sounds.Sound.GOAL if ring == 0 else Sounds.Sound.CLEARED)
 	hud.announce(
 		Text.format("say_gold" if ring == 0 else "say_hit", [points]), 2.0
@@ -567,6 +607,7 @@ func _on_care() -> void:
 			wallet.earn(reward)
 			journal.record(Journal.CARED)
 			journal.record(Journal.COINS, reward)
+			today.record(Today.CARE)
 			sounds.play(Sounds.Sound.SPLASH)
 			hud.announce(Text.format("say_watered", [AnimalKinds.label(animal["kind"])]), 2.0)
 			_refresh_vitals()
@@ -577,6 +618,7 @@ func _on_care() -> void:
 		return
 	wallet.earn(coins)
 	journal.record(Journal.CARED)
+	today.record(Today.CARE)
 	journal.record(Journal.COINS, coins)
 	sounds.play(Sounds.Sound.CHIME, 1.15)
 	hud.announce(Text.format("say_fed", [coins]), 1.4)
@@ -660,6 +702,7 @@ func _on_boulder_jumped(_at: Vector3, total: int) -> void:
 
 func _on_goal(_index: int, total: int) -> void:
 	journal.record(Journal.GOALS)
+	today.record(Today.SCORE)
 	sounds.play(Sounds.Sound.GOAL)
 	hud.set_score(total)
 	hud.announce(Text.of("say_goal"), 2.0)
@@ -669,9 +712,9 @@ func _on_place() -> void:
 		# A sapling is planted, everything else is built. The distinction
 		# matters to the greeting: planting a tree is a different kind of
 		# afternoon from stacking walls.
-		journal.record(
-			Journal.PLANTED if BuildKinds.is_plant(build_mode.selected) else Journal.BUILT
-		)
+		var planted := BuildKinds.is_plant(build_mode.selected)
+		journal.record(Journal.PLANTED if planted else Journal.BUILT)
+		today.record(Today.PLANT if planted else Today.BUILD)
 		sounds.play(Sounds.Sound.PLACE)
 		tasks.on_built(build_mode.selected)
 		return
@@ -722,6 +765,8 @@ func _write_save() -> void:
 		"vitals": vitals.to_data(),
 		"animals": world.animals.to_data(),
 		"journal": journal.to_data(),
+		"today": today.to_data(),
+		"dams": world.dams.to_data(),
 		"felled": world.felled.to_data(),
 		"mounts": world.mounts.to_data(),
 	})

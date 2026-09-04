@@ -45,6 +45,8 @@ recur.
 | Per-vertex work with no bounding test | ~7.7M square roots per build; looked like a hang | Reject on a box before any `sqrt` |
 | Signal arity mismatch in a lambda | An error logged on every single kick | `_check_signals_match_their_handlers` |
 | Greeting ran before `structures` existed | Crash, but only on a returning visit | Offline growth exercised in a check |
+| Arity check matched signals by bare name | Flagged correct code — two classes both declare `completed` | Accept any declared arity for a name |
+| Rebuilt all 361 chunks for a 40 m change | Seconds of visibly missing valley | `rebuild_near`, a handful of chunks |
 
 
 ## Godot 4.7
@@ -243,3 +245,16 @@ existed, and ages saplings by the time the game was closed. A fresh world
 returns early from that function, so every test run and every screenshot passed;
 it crashed the first time a child came back to a saved valley — the one case the
 feature exists for. The check now builds a sapling and ages it.
+
+**A lint that matches on names alone will flag correct code.** The signal-arity
+check looked signals up by bare name, and both `Tasks` and `Today` declare a
+`completed` — with different signatures, entirely legitimately. The check failed
+the build on code that was right. It now collects every arity a name is declared
+with and only complains when a handler matches none of them. A check that cries
+wolf gets disabled, which is worse than not having it.
+
+**Rebuild what changed, not everything.** A finished dam alters about forty
+metres of river, and the first version threw away all 361 terrain chunks and
+streamed them back a few per frame — seconds during which the valley was
+visibly missing, and long enough that the screenshot tool timed out. Rebuilding
+only the chunks within the pond's reach took it to under a second.

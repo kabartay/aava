@@ -109,6 +109,13 @@ func height_at(x: float, z: float) -> float:
 		# agree there is a hole, rather than a rim being drawn on flat grass.
 		floor_height -= PlaceSpec.excavation(x, z, camp_centre())
 
+	# A finished dam backs the river up into a pond. The ground is raised rather
+	# than the water, because the water surface is one flat plane across the
+	# whole world and cannot be lifted locally — filling the trench gives a
+	# child exactly what they expect to see.
+	if not dams_built.is_empty():
+		floor_height += DamSpec.fill(x, z, river_centre_x(z), dams_built)
+
 	# Paths sink very slightly where they are walked. Applied after the places,
 	# so a path running into the café's flat apron settles onto it rather than
 	# cutting a groove across it.
@@ -208,6 +215,11 @@ func forest_density_at(x: float, z: float) -> float:
 	density *= 1.0 - smoothstep(TREELINE - 26.0, TREELINE, height)
 
 	return clampf(density, 0.0, 1.0)
+
+## Which dam sites have been finished. Set by the game, exactly like the felled
+## trees: the field stays a pure function of position and seed *plus* this
+## explicit record, rather than reaching out to ask a node what has been built.
+var dams_built: Array = []
 
 ## Where the camp is. Fixed rather than searched for, because the ground under
 ## the camp's buildings is levelled inside height_at and a search would have to

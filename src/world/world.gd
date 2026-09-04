@@ -21,6 +21,7 @@ var felled: Felled
 var mounts: Mounts
 var archery: Archery
 var places: Places
+var dams: Dams
 var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
@@ -54,6 +55,11 @@ func _ready() -> void:
 	# Set before any tile streams in, or the first tiles draw trees that have
 	# already been cut down.
 	vegetation.felled = felled
+
+	dams = Dams.new(field)
+	dams.name = "Dams"
+	add_child(dams)
+	dams.rebuild_needed.connect(_on_ground_changed)
 
 	places = Places.new(field)
 	places.name = "Places"
@@ -93,7 +99,22 @@ func _ready() -> void:
 	ready_at_spawn.emit(spawn)
 
 ## Keeps streamed content centred on whoever is looking at it.
+## A dam has changed the ground. Everything generated against the old river has
+## to be built again — and the height field has to be told first, or the rebuild
+## reproduces exactly what was there before.
+func _on_ground_changed() -> void:
+	field.dams_built = dams.built.duplicate()
+	# Only around the dam that changed, not the whole valley: a full rebuild
+	# takes seconds of streaming during which the world is visibly missing.
+	for site in dams.built:
+		var at := Vector3(field.river_centre_x(float(site)), 0.0, float(site))
+		terrain.rebuild_near(at, DamSpec.POND_LENGTH + 20.0)
+	vegetation.rebuild_all()
+
+var _last_centre := Vector3.ZERO
+
 func follow(world_position: Vector3) -> void:
+	_last_centre = world_position
 	terrain.follow(world_position)
 	vegetation.follow(world_position)
 	pickups.follow(world_position)
