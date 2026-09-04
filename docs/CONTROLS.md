@@ -16,6 +16,7 @@ a control a child has to be told about is a control he forgets.
 | Care for an animal | **feed** / **pet** when one is close | same |
 | Drink | **drink**, shown only when the bottle has water | same |
 | Fill the bottle | walk into the shallows | same |
+| Shoot | hold **shoot** at the range, release to loose | hold `E` |
 | Ride / get off | **ride** when a horse or bicycle is close | same |
 | Chop a tree | **chop**, once the axe is bought | same |
 | Call animals | **whistle**, once bought | same |
@@ -51,6 +52,13 @@ stranded. Rest for about five seconds and you can run again, or drink.
 
 **The bottle fills by walking into the river.** There is no button for it. It
 holds four drinks.
+
+**The lantern lights itself.** Once bought, it comes on as it gets dark and goes
+out at dawn. There is no switch, because there is no interesting decision in
+whether you would like to see.
+
+**Nothing living can be shot.** The bow is for the straw butts by the camp. Gold
+is worth 5, red 3, white 1.
 
 **The horse fords the river; the bicycle does not.** The bicycle is faster on
 flat ground and refuses hills and deep water. Ride one somewhere it cannot go

@@ -184,6 +184,20 @@ const STRINGS := {
 	"back_welcome": {
 		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
 	},
+	"ui_shoot": {
+		EN: "shoot", FR: "tirer", RU: "стрелять",
+	},
+	"say_gold": {
+		EN: "gold! +%d", FR: "dans l'or ! +%d", RU: "в золото! +%d",
+	},
+	"say_hit": {
+		EN: "hit! +%d", FR: "touché ! +%d", RU: "попал! +%d",
+	},
+	"say_missed": {
+		EN: "missed — try aiming higher",
+		FR: "raté — vise plus haut",
+		RU: "мимо — попробуй выше",
+	},
 	"mount_horse": {
 		EN: "horse", FR: "cheval", RU: "конь",
 	},

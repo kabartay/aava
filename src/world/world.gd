@@ -19,6 +19,7 @@ var boulders: Boulders
 var animals: Animals
 var felled: Felled
 var mounts: Mounts
+var archery: Archery
 var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
@@ -53,6 +54,10 @@ func _ready() -> void:
 	# already been cut down.
 	vegetation.felled = felled
 
+	archery = Archery.new(field)
+	archery.name = "Archery"
+	add_child(archery)
+
 	mounts = Mounts.new(field)
 	mounts.name = "Mounts"
 	add_child(mounts)
@@ -72,6 +77,9 @@ func _ready() -> void:
 	# The horse waits near the spawn: close enough to be found on the first
 	# afternoon, not so close it is the first thing a child trips over.
 	mounts.place(MountKinds.HORSE, spawn + Vector3(7.0, 0.0, -5.0))
+	# The range points away from the camp and away from the pitch, so no arrow
+	# ever flies towards somewhere a child stands.
+	archery.stand_up(spawn + Vector3(-9.0, 0.0, 6.0), Vector3(-0.35, 0.0, 1.0))
 	follow(spawn)
 	ready_at_spawn.emit(spawn)
 

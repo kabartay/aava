@@ -36,6 +36,8 @@ signal drink_pressed()
 signal whistle_pressed()
 signal chop_pressed()
 signal ride_pressed()
+signal shoot_started()
+signal shoot_released()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -77,6 +79,7 @@ var _drink_button: Button
 var _whistle_button: Button
 var _chop_button: Button
 var _ride_button: Button
+var _shoot_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -236,6 +239,14 @@ func _ready() -> void:
 	_ride_button.visible = false
 	_ride_button.pressed.connect(func() -> void: ride_pressed.emit())
 	add_child(_ride_button)
+
+	# Held to draw and released to loose, the same gesture as the kick, so a
+	# child who can shoot at goal can already shoot a bow.
+	_shoot_button = _button(Text.of("ui_shoot"), Color(0.96, 0.86, 0.62))
+	_shoot_button.visible = false
+	_shoot_button.button_down.connect(func() -> void: shoot_started.emit())
+	_shoot_button.button_up.connect(func() -> void: shoot_released.emit())
+	add_child(_shoot_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -497,6 +508,12 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 	var can_drink := carries_bottle and water > 0.0
 	if _drink_button.visible != can_drink:
 		_drink_button.visible = can_drink
+		_layout()
+
+## Whether the shooting line is close enough to draw a bow.
+func set_on_shooting_line(within: bool) -> void:
+	if _shoot_button.visible != within:
+		_shoot_button.visible = within
 		_layout()
 
 ## Offer to get on when a mount is in reach, and to get off while riding.
@@ -872,6 +889,13 @@ func _layout() -> void:
 		ride_top = _chop_button.position.y + _chop_button.size.y + 10.0
 	_ride_button.position = Vector2(
 		safe.position.x + safe.size.x - _ride_button.size.x - MARGIN, ride_top
+	)
+
+	# Low and centre-left of the kick button, since drawing a bow and striking a
+	# ball are the same gesture and never both apply.
+	_shoot_button.position = Vector2(
+		safe.position.x + safe.size.x * 0.5 - _shoot_button.size.x * 0.5,
+		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
 
 	# Centred low, where the kick button sits, since the two never both apply.

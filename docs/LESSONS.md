@@ -36,6 +36,9 @@ recur.
 | Per-frame search over nine tiles | ~400 noise lookups a frame to decide one button | Cached until the player moves a metre |
 | `TorusMesh` rotated about Y | Bicycle wheels lay flat like dropped hoops | Rotate about X — a torus lies in XZ |
 | Placed props before the world streamed | Hang, because felling searched a half-built forest | Props are placed after `_wait_for_world` |
+| `global_position` / `look_at` before entering the tree | Butts and arrows placed at the origin | Build the `Transform3D` directly |
+| Aim flattened, then nudged upward | Every arrow flew 1.2 m over the gold | Shoot down the line the player is looking |
+| `PackedFloat32Array` as a `const` | "isn't a constant expression" — second time | `Array[float]` |
 
 
 ## Godot 4.7

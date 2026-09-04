@@ -25,9 +25,10 @@ bicycle never having been listed.
 | ~~Bicycle~~ | **Done**, together with the horse — one mounted state serving both. | — |
 | Lantern | A light that follows the player, and a reason for dark — either a night in the day cycle or a cave. | Medium, larger if it needs a night |
 | ~~Whistle~~ | **Done.** Calls every animal within 46 m for six seconds, shy ones included. | — |
+| ~~Lantern~~ | **Done**, together with a night worth carrying it through. | — |
 
-**Only the lantern is left**, and it is the one that needs something the game
-does not have yet: a reason for dark. Either a night in the day cycle or a cave.
+**The shop is now honest** — every item does what it says. That was the point of
+starting here.
 
 ## 2. A reason to return
 
@@ -50,12 +51,13 @@ child would be a real improvement, and is the natural next step here.
 
 ## 4. The bow
 
-Asked for directly. Target shooting only — no hunting, and this should be
-enforced by the code rather than by convention, since the animals are there to
-be cared for.
+**Done.** Three straw butts at three distances near the camp; hold to draw,
+release to loose. Gold, red and white are worth 5, 3 and 1.
 
-Needs: a draw-and-release control that reuses the kick charge, an arrow with a
-sensible arc, and targets worth hitting. Straw butts near the camp.
+No hunting, and it is enforced rather than intended: the bow tests arrows
+against the painted faces and the ground and against nothing else, and a check
+reads the source file to keep any future edit from quietly adding a third thing
+an arrow can reach.
 
 ## 5. Places worth walking to
 

@@ -34,6 +34,7 @@ var tasks: Tasks
 var wallet: Wallet
 var vitals: Vitals
 var journal: Journal
+var lantern: Lantern
 
 var _waiting_for_ground := false
 var _autosave := AUTOSAVE_SECONDS
@@ -76,6 +77,9 @@ func _ready() -> void:
 		vitals.grant_bottle()
 	if save.has("vitals"):
 		vitals.from_data(save["vitals"])
+
+	lantern = Lantern.new()
+	lantern.name = "Lantern"
 
 	journal = Journal.new()
 	if save.has("journal"):
@@ -125,8 +129,14 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	if save.has("mounts"):
 		world.mounts.from_data(save["mounts"])
 	# A bicycle already bought must be standing in the world on reload.
+	lantern.owned = wallet.has(ShopStock.LANTERN)
 	if wallet.has(ShopStock.BICYCLE) and not world.mounts.exists(MountKinds.BICYCLE):
 		world.mounts.place(MountKinds.BICYCLE, world.field.find_spawn_point() + Vector3(-4.0, 0.0, 3.0))
+
+	world.archery.hit_target.connect(_on_arrow_hit)
+	world.archery.missed.connect(func() -> void:
+		sounds.play(Sounds.Sound.REFUSE, 0.7)
+		hud.announce(Text.of("say_missed"), 1.8))
 
 	world.animals.cared_for.connect(func(_kind: StringName, _coins: int, _at: Vector3) -> void: pass)
 	world.animals.befriended.connect(func(kind: StringName) -> void:
@@ -165,6 +175,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	if save.has("camera_yaw"):
 		camera_rig.yaw = float(save["camera_yaw"])
 	player.add_child(camera_rig)
+	# Carried by the child, so the light moves with them.
+	player.add_child(lantern)
 
 	build_mode = BuildMode.new(world.field, structures, inventory)
 	build_mode.name = "BuildMode"
@@ -208,6 +220,8 @@ func _process(delta: float) -> void:
 			sounds.play(Sounds.Sound.SPLASH)
 			hud.announce(Text.of("say_filled"), 1.6)
 
+	lantern.follow(world.atmosphere.darkness(), delta)
+
 	# The mount follows the player rather than carrying them: a character body
 	# parented to a moving node inherits its rotation and fights its own
 	# gravity, which is a bigger problem than the one it would solve.
@@ -222,6 +236,10 @@ func _process(delta: float) -> void:
 		player.riding = &""
 		camera_rig.set_eye_lift(0.0)
 		sounds.play(Sounds.Sound.REFUSE)
+
+	hud.set_on_shooting_line(
+		player.global_position.distance_to(world.archery.shooting_line()) < SHOOTING_LINE_REACH
+	)
 
 	# The axe only offers itself when there is a tree to use it on.
 	hud.set_tree_in_reach(
@@ -331,6 +349,8 @@ func _handlers() -> Dictionary:
 		&"whistle": _on_whistle,
 		&"chop": _on_chop,
 		&"ride": _on_ride,
+		&"shoot_start": _on_shoot_start,
+		&"shoot_release": _on_shoot_release,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -377,6 +397,29 @@ func _standing_in_water() -> bool:
 ## How much wood a tree is worth, and how far you must be to reach it.
 const CHOP_REACH := 3.4
 const WOOD_PER_TREE := 4
+
+## How close to the shooting line a child must stand to draw a bow.
+const SHOOTING_LINE_REACH := 6.0
+
+func _on_shoot_start() -> void:
+	player.start_charging()
+
+func _on_shoot_release() -> void:
+	var charge := player.release_charge()
+	var from := player.global_position + Vector3.UP * 1.2
+	world.archery.loose(
+		from, -camera_rig.camera.global_transform.basis.z,
+		maxf(charge, 0.15), camera_rig.aim_height()
+	)
+	sounds.play(Sounds.Sound.KICK, 1.4)
+
+func _on_arrow_hit(_index: int, ring: int, points: int) -> void:
+	wallet.earn(points)
+	journal.record(Journal.COINS, points)
+	sounds.play(Sounds.Sound.GOAL if ring == 0 else Sounds.Sound.CLEARED)
+	hud.announce(
+		Text.format("say_gold" if ring == 0 else "say_hit", [points]), 2.0
+	)
 
 func _on_ride() -> void:
 	if player.riding != &"":
@@ -456,6 +499,8 @@ func _on_buy(item: StringName) -> void:
 		if item == ShopStock.BOTTLE:
 			vitals.grant_bottle()
 			_refresh_vitals()
+		if item == ShopStock.LANTERN:
+			lantern.owned = true
 		if item == ShopStock.BICYCLE:
 			# At the camp, not underfoot: a bicycle that appears wherever you
 			# happen to stand feels like a cheat rather than something you own.

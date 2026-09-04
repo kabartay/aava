@@ -114,13 +114,44 @@ func _apply_time() -> void:
 	_sun.light_energy = lerpf(0.0, 1.05, smoothstep(-0.05, 0.30, height))
 	_sun.light_color = _sun_color(day)
 
+	# Dusk is the sun low but still up; night is the sun gone. They were one
+	# value before, which left the valley in a permanent orange twilight that
+	# never actually got dark — and a lantern nobody needs is a lantern nobody
+	# buys.
 	var dusk := 1.0 - smoothstep(0.0, 0.35, height)
-	_sky_material.sky_top_color = Color(0.20, 0.42, 0.78).lerp(Color(0.09, 0.13, 0.30), dusk)
-	_sky_material.sky_horizon_color = Color(0.79, 0.89, 0.97).lerp(Color(0.96, 0.55, 0.36), dusk)
+	var night := smoothstep(0.02, -0.20, height)
+
+	var sky_top := Color(0.20, 0.42, 0.78).lerp(Color(0.30, 0.24, 0.44), dusk)
+	var sky_horizon := Color(0.79, 0.89, 0.97).lerp(Color(0.96, 0.55, 0.36), dusk)
+	# Deep blue rather than black: a child should be able to make out the shape
+	# of the valley at night, just not what is lying in the grass.
+	_sky_material.sky_top_color = sky_top.lerp(Color(0.017, 0.024, 0.062), night)
+	_sky_material.sky_horizon_color = sky_horizon.lerp(Color(0.055, 0.070, 0.130), night)
 	_sky_material.sun_angle_max = lerpf(12.0, 30.0, dusk)
 
-	_environment.fog_light_color = _sky_material.sky_horizon_color.lerp(Color(0.86, 0.91, 0.96), 0.35)
-	_environment.ambient_light_energy = lerpf(0.12, 0.55, smoothstep(-0.15, 0.25, height))
+	_environment.fog_light_color = _sky_material.sky_horizon_color.lerp(
+		Color(0.86, 0.91, 0.96).lerp(Color(0.10, 0.13, 0.22), night), 0.35
+	)
+	_environment.ambient_light_energy = lerpf(0.55, 0.045, night) if night > 0.0 else lerpf(
+		0.12, 0.55, smoothstep(-0.15, 0.25, height)
+	)
+
+	# The moon stands in for the sun once it is down, so shadows do not vanish
+	# entirely and the ground keeps its shape.
+	if night > 0.0:
+		_sun.light_energy = lerpf(_sun.light_energy, 0.075, night)
+		_sun.light_color = _sun.light_color.lerp(Color(0.62, 0.72, 1.0), night)
+		_sun.rotation = Vector3(
+			-asin(clampf(-height, -1.0, 1.0)),
+			deg_to_rad(-38.0) + sun_angle * 0.35,
+			0.0
+		)
+
+## How dark it is right now, from 0 in daylight to 1 at midnight. Read by the
+## lantern, which is the only thing that needs to know.
+func darkness() -> float:
+	var height := sin((time_of_day - 0.25) * TAU)
+	return smoothstep(0.02, -0.20, height)
 
 func _sun_color(day: float) -> Color:
 	if day < 0.5:

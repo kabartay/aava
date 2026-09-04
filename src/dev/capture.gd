@@ -61,6 +61,7 @@ var _shop := false
 var _energy := 1.0
 var _chop := 0
 var _mounts := false
+var _lantern: Lantern = null
 var _water := -1.0
 var _animals := false
 var _coins := 40
@@ -97,6 +98,9 @@ func _ready() -> void:
 		_camera.look_at(_look_at, Vector3.UP)
 
 	_world.atmosphere.set_time(_time)
+	if _lantern != null:
+		# A large delta so the fade completes rather than being caught halfway.
+		_lantern.follow(_world.atmosphere.darkness(), 10.0)
 	# Terrain streams a couple of chunks per frame, so a capture taken on frame
 	# one would photograph an empty world. Waiting is not optional here.
 	_world.follow(_camera_position)
@@ -143,6 +147,13 @@ func _spawn_player() -> void:
 	if not is_zero_approx(_zoom):
 		_rig.zoom(-_zoom)
 
+	# The lantern too, or a night screenshot photographs a game without one.
+	# Lit later, after set_time — reading the darkness here gave daylight,
+	# because the player is built before the hour is chosen.
+	_lantern = Lantern.new()
+	_lantern.owned = not _shop
+	_player.add_child(_lantern)
+
 	_player.add_child(_rig)
 	_camera = _rig.camera
 	_camera.current = true
@@ -179,6 +190,8 @@ func _spawn_player() -> void:
 			&"whistle": func() -> void: pass,
 			&"chop": func() -> void: pass,
 			&"ride": func() -> void: pass,
+			&"shoot_start": func() -> void: pass,
+			&"shoot_release": func() -> void: pass,
 		}
 	)
 

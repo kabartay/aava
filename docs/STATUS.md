@@ -72,10 +72,20 @@ Last updated: 2026-09-04.
 | Shop | Done | Five items with icons, an aligned price column, and affordability dimming. |
 | Water bottle (12) | Done | Fills in the shallows automatically; four drinks; waters animals. |
 | Axe (20) | Done | Fells a tree for 4 wood, leaving a stump. The felling is saved. |
-| Lantern (28) | **Stub** | Purchasable; does not light anything. |
+| Lantern (28) | Done | Lights a 15 m circle at night. Lit automatically — there is no interesting decision in "would you like to see?". |
 | Whistle (34) | Done | Calls every animal within 46 m for six seconds, shy ones included. |
 | Bicycle (60) | Done | Rideable, faster than the horse on the flat, refuses hills and water. Appears at camp when bought. |
 | Energy | Done | Running drains, walking and resting restore. At zero, walking is unaffected. |
+
+## Night and the bow
+
+| Part | State | Notes |
+|---|---|---|
+| Real night | Done | Was a permanent orange twilight; now genuinely dark, lit by a moon so the valley keeps its shape. |
+| Lantern | Done | A warm 15 m circle. What is outside the circle is worth walking towards. |
+| Archery range | Done | Three butts at three distances, gold/red/white worth 5/3/1. |
+| Bow | Done | Held to draw, released to loose — the same gesture as the kick. |
+| No hunting | Done, enforced | The bow tests arrows against target faces and the ground and nothing else. A check reads the source to keep it that way. |
 
 ## Riding
 

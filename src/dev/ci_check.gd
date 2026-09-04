@@ -38,6 +38,8 @@ func _initialize() -> void:
 	_check_the_valley_remembers()
 	_check_a_tree_can_be_felled()
 	_check_riding()
+	_check_the_bow()
+	_check_night_is_dark()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -353,7 +355,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1379,3 +1381,135 @@ func _check_riding() -> void:
 
 	mounts.queue_free()
 	restored.queue_free()
+
+## The bow. The first check is the one that matters: an arrow must not be able
+## to reach an animal, and that must be true because of how the code is built
+## rather than because nobody thought to try.
+func _check_the_bow() -> void:
+	print("the bow shoots at targets and nothing else")
+
+	# Read the source: the hit test must consider targets and the ground, and
+	# must never mention animals. A rule enforced by a comment is a rule that
+	# gets edited away; this one fails the build.
+	var source := FileAccess.get_file_as_string("res://src/archery/archery.gd")
+	_expect(not source.is_empty(), "the archery source can be read")
+	var mentions_animals := (
+		source.contains("Animals") or source.contains("AnimalKinds")
+		or source.contains("animal")
+	)
+	_expect(not mentions_animals, "the bow knows nothing about animals, so it cannot hit one")
+
+	var field := HeightField.new(20260904)
+	var archery := Archery.new(field)
+	get_root().add_child(archery)
+
+	var line := Pitch.centre() + Vector3(0.0, 0.0, 60.0)
+	archery.stand_up(line, Vector3.FORWARD)
+	_expect(archery.target_count() == Archery.TARGET_COUNT, "the range has %d butts" % Archery.TARGET_COUNT)
+
+	# Three different shots, not the same one three times.
+	var distances: Array[float] = []
+	for i in archery.target_count():
+		distances.append(archery.shooting_line().distance_to(archery.target_centre(i)))
+	var all_different := true
+	for i in distances.size():
+		for j in range(i + 1, distances.size()):
+			if absf(distances[i] - distances[j]) < 1.0:
+				all_different = false
+	_expect(all_different, "each butt is a different distance away")
+
+	# Scoring: nearer the middle must pay more, or aiming is pointless.
+	for ring in range(Archery.RING_POINTS.size() - 1):
+		_expect(
+			Archery.RING_POINTS[ring] > Archery.RING_POINTS[ring + 1],
+			"ring %d pays more than ring %d" % [ring, ring + 1]
+		)
+	for ring in range(Archery.RINGS.size() - 1):
+		_expect(
+			Archery.RINGS[ring] < Archery.RINGS[ring + 1],
+			"and the better-paying ring is the smaller one"
+		)
+
+	# A drawn bow must be faster than a touched one, or the charge does nothing.
+	_expect(Archery.SPEED_MAX > Archery.SPEED_MIN * 2.0, "a full draw is far faster than a touch")
+
+	# Actually shoot. Aimed straight at the nearest gold from the shooting line,
+	# at full draw, it must register a hit — and the hit must be scored.
+	var struck: Array[int] = []
+	archery.hit_target.connect(func(_i: int, ring: int, points: int) -> void:
+		struck.append(ring)
+		struck.append(points))
+
+	var target := archery.target_centre(0)
+	var from := archery.shooting_line() + Vector3.UP * 1.2
+	# Aim at the centre, with no extra loft, and let the arrow's own launch
+	# adjustment do the work — this is what the game does.
+	archery.loose(from, target - from, 1.0, 0.0)
+	_expect(archery.arrows_in_flight() == 1, "loosing an arrow puts one in the air")
+
+	# Step physics forward by hand rather than waiting on the tree.
+	for _i in 240:
+		archery._physics_process(1.0 / 120.0)
+		if struck.size() > 0:
+			break
+	_expect(struck.size() >= 2, "an arrow aimed at the gold from the line actually hits")
+	if struck.size() >= 2:
+		_expect(struck[1] > 0, "and it scores %d points" % struck[1])
+
+	# An arrow that hits nothing must not fly forever.
+	var wild := Archery.new(field)
+	get_root().add_child(wild)
+	wild.stand_up(line, Vector3.FORWARD)
+	var lost: Array[bool] = []
+	wild.missed.connect(func() -> void: lost.append(true))
+	wild.loose(from + Vector3.UP * 40.0, Vector3.UP, 1.0, 0.9)
+	for _i in 2000:
+		wild._physics_process(1.0 / 120.0)
+		if lost.size() > 0:
+			break
+	_expect(lost.size() > 0, "an arrow that hits nothing is eventually reported as a miss")
+	_expect(wild.arrows_in_flight() == 0, "and it stops being in flight")
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not Text.of("say_missed").begins_with("?"), "a miss is explained in %s" % code)
+	Text.set_language(Text.EN)
+
+	archery.queue_free()
+	wild.queue_free()
+
+## Night has to be dark enough that a lantern is worth sixty coins, and light
+## enough that a child is not lost in it.
+func _check_night_is_dark() -> void:
+	print("night is dark, and the lantern answers it")
+	var atmosphere := Atmosphere.new()
+	get_root().add_child(atmosphere)
+
+	atmosphere.set_time(0.5)
+	_expect(atmosphere.darkness() < 0.01, "noon is not dark at all")
+	atmosphere.set_time(0.0)
+	_expect(atmosphere.darkness() > 0.95, "midnight is fully dark")
+	atmosphere.set_time(0.25)
+	var dawn := atmosphere.darkness()
+	_expect(dawn > 0.0 and dawn < 0.2, "dawn is in between (%.2f), not a switch" % dawn)
+
+	# The lantern must not light up in daylight, and must light up at night.
+	var lantern := Lantern.new()
+	get_root().add_child(lantern)
+	lantern.owned = false
+	lantern.follow(1.0, 10.0)
+	_expect(not lantern.is_lit(), "an unbought lantern stays dark even at midnight")
+
+	lantern.owned = true
+	lantern.follow(0.0, 10.0)
+	_expect(not lantern.is_lit(), "and a bought one stays dark at noon")
+	lantern.follow(1.0, 10.0)
+	_expect(lantern.is_lit(), "but lights at midnight")
+
+	# It must light a circle, not the valley: the appeal is that what is outside
+	# the circle is worth walking towards.
+	_expect(Lantern.RANGE < 30.0, "the lantern reaches %d m, so the valley stays large in the dark" % int(Lantern.RANGE))
+	_expect(Lantern.RANGE > 6.0, "but far enough to walk by")
+
+	lantern.queue_free()
+	atmosphere.queue_free()
