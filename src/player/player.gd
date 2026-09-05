@@ -75,6 +75,10 @@ var is_carried := false
 var water_depth := 0.0
 var is_swimming := false
 
+## How high the child's body is lifted while riding, so they sit on the mount
+## rather than standing inside it. Eased, so mounting looks like climbing on.
+var _ride_lift := 0.0
+
 ## What the player is riding, or an empty name when on foot. Set by the game.
 ##
 ## Riding replaces the speed and the turn rate rather than parenting the player
@@ -295,6 +299,10 @@ func _physics_process(delta: float) -> void:
 		var facing := atan2(-horizontal.x, -horizontal.z)
 		_visual.rotation.y = lerp_angle(_visual.rotation.y, facing, 1.0 - exp(-14.0 * delta))
 
+	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
+	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
+	_visual.position.y = _ride_lift
+
 	# The world streams around wherever the player is, but only when they have
 	# actually gone somewhere worth regenerating for.
 	if global_position.distance_squared_to(_last_reported) > 16.0:
@@ -333,6 +341,11 @@ func is_charging() -> bool:
 
 ## Which way the body is actually facing, on the ground plane. Used by the kick
 ## so that striking a ball you are standing on top of still sends it forwards.
+## The direction the body is turned, as an angle. Read by a mount so it faces
+## the same way its rider does.
+func facing_angle() -> float:
+	return _visual.rotation.y
+
 func facing() -> Vector3:
 	return Vector3(-sin(_visual.rotation.y), 0.0, -cos(_visual.rotation.y))
 

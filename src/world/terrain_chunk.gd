@@ -139,7 +139,9 @@ func _tint(field: HeightField, x: float, z: float, height: float) -> Color:
 		color = color.lerp(TerrainSpec.COLOR_PATH, path)
 
 	# Snow on the peaks, and only where it would settle.
-	var snow := smoothstep(96.0, 150.0, height) * (1.0 - smoothstep(0.6, 0.95, steep))
+	# Snow begins above the treeline, not below it. It used to start at 96 m
+	# while trees grew to 140, so there was a band of forest standing in snow.
+	var snow := smoothstep(HeightField.TREELINE + 8.0, HeightField.TREELINE + 70.0, height) * (1.0 - smoothstep(0.6, 0.95, steep))
 	color = color.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
 
 	return color

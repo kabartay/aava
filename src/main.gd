@@ -336,6 +336,10 @@ func _process(delta: float) -> void:
 	# parented to a moving node inherits its rotation and fights its own
 	# gravity, which is a bigger problem than the one it would solve.
 	var riding := player.riding
+	# The mount is carried along under the rider rather than the rider being
+	# parented to it.
+	if riding != &"":
+		world.mounts.carry(player.global_position, player.facing_angle())
 	hud.set_mount_in_reach(
 		world.mounts.nearest(player.global_position) != &"", riding != &""
 	)
@@ -892,9 +896,18 @@ func _on_place() -> void:
 	# ghost's colour alone does not say it.
 	hud.announce(Text.of("say_not_here"))
 
-func _on_matured(_kind: StringName, _at: Vector3) -> void:
+func _on_matured(kind: StringName, _at: Vector3) -> void:
 	sounds.play(Sounds.Sound.GROWN)
-	hud.announce(Text.of("say_grown"))
+	var reward := BuildKinds.reward_for(kind)
+	if reward <= 0:
+		hud.announce(Text.of("say_grown"))
+		return
+	wallet.earn(reward)
+	journal.record(Journal.COINS, reward)
+	hud.announce(
+		Text.format("say_grown_fir" if kind == BuildKinds.PINE else "say_grown_tree", [reward]),
+		3.0
+	)
 
 func _on_groves_changed(centres: Array) -> void:
 	birds.set_points(structures.attract_points())

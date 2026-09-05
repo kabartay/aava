@@ -25,25 +25,30 @@ const ALL: Array[StringName] = [CAT, DOG, SQUIRREL, BEAVER]
 ## `want` of an empty name means it wants nothing but attention — a cat is
 ## stroked, not fed, which is true of cats and is also the one interaction a
 ## child with an empty bag can always perform.
+## Sizes and colours are storybook, not zoological. At real proportions these
+## read as four brown specks from five metres away on a tablet — the eldest
+## could not tell the cat from the dog and the six-year-old could not see them
+## at all. They are now half again as large, and each has a colour no other
+## animal shares: ginger cat, dark dog, red squirrel, slate beaver.
 const INFO := {
 	CAT: {
 		"want": &"", "coins": 2, "cooldown": 40.0,
-		"colour": Color(0.86, 0.70, 0.45), "size": 0.34,
+		"colour": Color(0.92, 0.62, 0.24), "size": 0.46,
 		"home": "meadow", "shy": 0.35,
 	},
 	DOG: {
 		"want": &"stick", "coins": 3, "cooldown": 30.0,
-		"colour": Color(0.62, 0.50, 0.38), "size": 0.46,
+		"colour": Color(0.40, 0.30, 0.24), "size": 0.62,
 		"home": "meadow", "shy": 0.0,
 	},
 	SQUIRREL: {
 		"want": &"cone", "coins": 4, "cooldown": 25.0,
-		"colour": Color(0.72, 0.42, 0.22), "size": 0.22,
+		"colour": Color(0.86, 0.36, 0.14), "size": 0.30,
 		"home": "forest", "shy": 0.75,
 	},
 	BEAVER: {
 		"want": &"stick", "coins": 5, "cooldown": 35.0,
-		"colour": Color(0.45, 0.32, 0.22), "size": 0.40,
+		"colour": Color(0.34, 0.26, 0.30), "size": 0.54,
 		"home": "water", "shy": 0.2,
 	},
 }
@@ -152,15 +157,33 @@ static func build_mesh(kind: StringName) -> Mesh:
 	), colour.darkened(0.12))
 
 	# Ears, which is most of what separates a cat from a beaver at ten metres.
-	var ear_lift := scale * (0.62 if kind == CAT or kind == SQUIRREL else 0.34)
+	# A cat and a squirrel get tall pointed ears standing straight up; a dog gets
+	# long ones hanging down; a beaver gets almost none. Silhouette from behind
+	# is what a child actually sees, and these are the only part of the head
+	# that shows in it.
+	var pricked := kind == CAT or kind == SQUIRREL
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		var ear := SphereMesh.new()
-		ear.radius = scale * 0.2
-		ear.height = scale * (0.7 if kind == CAT or kind == SQUIRREL else 0.34)
-		ear.radial_segments = 6
-		ear.rings = 3
+		if kind == DOG:
+			var flop := BoxMesh.new()
+			flop.size = Vector3(scale * 0.16, scale * 0.86, scale * 0.34)
+			_add(tool, flop, Transform3D(
+				Basis(Vector3.FORWARD, deg_to_rad(side * 18.0)),
+				Vector3(side * scale * 0.52, head_lift - scale * 0.18, head_forward + scale * 0.1)
+			), dark)
+			continue
+		var ear := CylinderMesh.new()
+		ear.top_radius = 0.0
+		ear.bottom_radius = scale * (0.24 if pricked else 0.16)
+		ear.height = scale * (1.05 if pricked else 0.32)
+		ear.radial_segments = 5
+		ear.rings = 1
 		_add(tool, ear, Transform3D(
-			Basis(), Vector3(side * scale * 0.34, head_lift + ear_lift, head_forward + scale * 0.12)
+			Basis(),
+			Vector3(
+				side * scale * 0.36,
+				head_lift + scale * (0.86 if pricked else 0.3),
+				head_forward + scale * 0.12
+			)
 		), dark)
 
 	for side in PackedFloat32Array([-1.0, 1.0]):

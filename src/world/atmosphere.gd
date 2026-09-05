@@ -125,21 +125,26 @@ func _apply_time() -> void:
 	var sky_horizon := Color(0.79, 0.89, 0.97).lerp(Color(0.96, 0.55, 0.36), dusk)
 	# Deep blue rather than black: a child should be able to make out the shape
 	# of the valley at night, just not what is lying in the grass.
-	_sky_material.sky_top_color = sky_top.lerp(Color(0.017, 0.024, 0.062), night)
-	_sky_material.sky_horizon_color = sky_horizon.lerp(Color(0.055, 0.070, 0.130), night)
+	_sky_material.sky_top_color = sky_top.lerp(Color(0.045, 0.062, 0.135), night)
+	_sky_material.sky_horizon_color = sky_horizon.lerp(Color(0.115, 0.145, 0.235), night)
 	_sky_material.sun_angle_max = lerpf(12.0, 30.0, dusk)
 
 	_environment.fog_light_color = _sky_material.sky_horizon_color.lerp(
 		Color(0.86, 0.91, 0.96).lerp(Color(0.10, 0.13, 0.22), night), 0.35
 	)
-	_environment.ambient_light_energy = lerpf(0.55, 0.045, night) if night > 0.0 else lerpf(
+	# Night was 0.045, judged on a laptop in a lit room. On the tablet it is
+	# very nearly black: a child cannot see the ground, the animals are dark
+	# smudges, and the valley they are meant to be exploring is gone. Raised
+	# until the shape of the land reads without the lantern, which is the point
+	# — the lantern shows you what is in the grass, not where the hills are.
+	_environment.ambient_light_energy = lerpf(0.55, 0.20, night) if night > 0.0 else lerpf(
 		0.12, 0.55, smoothstep(-0.15, 0.25, height)
 	)
 
 	# The moon stands in for the sun once it is down, so shadows do not vanish
 	# entirely and the ground keeps its shape.
 	if night > 0.0:
-		_sun.light_energy = lerpf(_sun.light_energy, 0.075, night)
+		_sun.light_energy = lerpf(_sun.light_energy, 0.26, night)
 		_sun.light_color = _sun.light_color.lerp(Color(0.62, 0.72, 1.0), night)
 		_sun.rotation = Vector3(
 			-asin(clampf(-height, -1.0, 1.0)),

@@ -72,12 +72,27 @@ func mount(kind: StringName) -> bool:
 	if riding != &"" or not exists(kind):
 		return false
 	riding = kind
-	# Hidden rather than removed: the same node is put back down on dismount, so
-	# there is no chance of the world gaining a second horse.
-	var node: Node3D = _nodes[kind]
-	node.visible = false
+	# The mount stays visible and is carried along under the child. Hiding it
+	# was the first version, on the reasoning that the player "becomes" the
+	# horse — but the child's own body is still drawn, so what a rider actually
+	# saw was the horse vanishing and themselves running very fast.
 	mounted.emit(kind)
 	return true
+
+## Carry the mount along under the rider. Called every frame while riding.
+##
+## The mount follows rather than the player being parented to it, for the same
+## reason as everywhere else here: a body parented to a moving node inherits its
+## rotation and fights its own gravity.
+func carry(at: Vector3, facing: float) -> void:
+	if riding == &"" or not exists(riding):
+		return
+	var node: Node3D = _nodes[riding]
+	var spot := at
+	spot.y = field.height_at(at.x, at.z)
+	node.global_position = spot
+	node.rotation.y = facing
+	_positions[riding] = spot
 
 ## Get off. The mount is left standing where the player left it, which is how a
 ## child expects to find it again.
@@ -91,7 +106,6 @@ func dismount(at: Vector3) -> StringName:
 		var spot := at
 		spot.y = field.height_at(spot.x, spot.z)
 		node.global_position = spot
-		node.visible = true
 		_positions[kind] = spot
 	dismounted.emit(kind)
 	return kind

@@ -43,6 +43,20 @@ const STRINGS := {
 
 	# Things you can build.
 	"build_sapling": {EN: "sapling", FR: "jeune arbre", RU: "саженец"},
+	"build_pine": {EN: "fir", FR: "sapin", RU: "ёлка"},
+	"hint_pine": {
+		EN: "grows taller than the round ones, and slower",
+		FR: "pousse plus haut que les ronds, et plus lentement",
+		RU: "растёт выше круглых и медленнее",
+	},
+	"say_grown_fir": {
+		EN: "your fir is grown! +%d", FR: "ton sapin a poussé ! +%d",
+		RU: "ёлка выросла! +%d",
+	},
+	"say_grown_tree": {
+		EN: "your tree is grown! +%d", FR: "ton arbre a poussé ! +%d",
+		RU: "дерево выросло! +%d",
+	},
 	"build_feeder": {EN: "feeder", FR: "mangeoire", RU: "кормушка"},
 	"build_path": {EN: "path", FR: "sentier", RU: "дорожка"},
 	"build_fence": {EN: "fence", FR: "clôture", RU: "забор"},

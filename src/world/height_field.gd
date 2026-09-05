@@ -39,7 +39,13 @@ const MOUNTAIN_START := 500.0
 
 ## Nothing grows above this. A bare treeline is what makes a mountain read as
 ## high rather than as a big green lump.
-const TREELINE := 86.0
+##
+## Raised from 86: the forested band between the valley floor and the bare rock
+## was only forty metres of height against peaks three hundred and thirty metres
+## tall, so almost none of the ring around the valley was wooded. At 140 the
+## trees climb well up the lower slopes, which is what makes the near mountains
+## read as hills you could walk into and the far ones as something else.
+const TREELINE := 118.0
 
 ## How high the football pitch sits. Fixed rather than sampled from the natural
 ## ground, because a pitch has to be level and a level surface needs one number.
@@ -172,10 +178,17 @@ func _raw_height(x: float, z: float) -> float:
 
 	# Mountains ring the world. They are scenery first and a destination second:
 	# the ridge line is what tells a child the world continues past the horizon.
-	var mountain_mask := smoothstep(MOUNTAIN_START, MOUNTAIN_START + 260.0, from_origin)
+	# The ramp is short on purpose. Spread over 260 m the mountains only reached
+	# a quarter of their height by the edge of what can be seen (576 m), so they
+	# read as low grey hills rather than as peaks — the ring of mountains that
+	# frames the valley was, in practice, not there. Over 90 m they stand up
+	# properly right where the walkable ground ends, all the way round.
+	var mountain_mask := smoothstep(MOUNTAIN_START, MOUNTAIN_START + 170.0, from_origin)
 	if mountain_mask > 0.0:
 		var ridge := (_mountains.get_noise_2d(x, z) + 1.0) * 0.5
-		floor_height += pow(ridge, 1.30) * 240.0 * mountain_mask
+		# Taller as well, so the highest carry snow and the lowest stay green:
+		# the range wants a mix, not one uniform altitude.
+		floor_height += pow(ridge, 1.12) * 430.0 * mountain_mask
 
 	floor_height += _detail.get_noise_2d(x, z) * 0.5
 

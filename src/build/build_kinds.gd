@@ -11,24 +11,37 @@ extends RefCounted
 ## reason, not to make a child grind. Three sticks is a walk across a clearing.
 
 const SAPLING := &"sapling"
+const PINE := &"pine"
 const FEEDER := &"feeder"
 const PATH := &"path"
 const FENCE := &"fence"
 const CAMPFIRE := &"campfire"
 
-const ALL: Array[StringName] = [SAPLING, FEEDER, PATH, FENCE, CAMPFIRE]
+const ALL: Array[StringName] = [SAPLING, PINE, FEEDER, PATH, FENCE, CAMPFIRE]
 
 ## How long a sapling spends in each stage before the next, in seconds of play.
 ## Short enough that a child who plants a tree sees it change within the same
 ## session — the whole promise of the game is that the world answers, and an
 ## answer that takes a week is not one.
-## A sapling is the only thing here that grows once placed, and the only thing
-## the journal counts as planting rather than building.
+## The two trees are the only things here that grow once placed, and the only
+## things the journal counts as planting rather than building.
 static func is_plant(kind: StringName) -> bool:
-	return kind == SAPLING
+	return kind == SAPLING or kind == PINE
 
 const GROWTH_STAGE_SECONDS := 75.0
 const GROWTH_STAGES := 3
+
+## What a grown tree is worth. The fir pays more because a cone is contested:
+## squirrels want them too, so planting one costs a child something they could
+## have spent on an animal. A reward that did not reflect that would make the
+## choice a false one.
+const GROWN_REWARD := {
+	&"sapling": 3,
+	&"pine": 6,
+}
+
+static func reward_for(kind: StringName) -> int:
+	return int(GROWN_REWARD.get(kind, 0))
 
 const INFO := {
 	SAPLING: {
@@ -36,6 +49,19 @@ const INFO := {
 		"cost": {&"seed": 1},
 		"footprint": 1.8, "grows": true,
 		"hint": "plant three close together and a grove takes root",
+	},
+	## The second tree, and the reason there are two.
+	##
+	## A seed grows a round-crowned tree; a cone grows a fir, taller and darker.
+	## The cone is the interesting one: squirrels want cones too, so every cone
+	## a child finds is a small decision — feed the squirrel now, or plant a
+	## tree that will still be there tomorrow. A fir is worth more when it
+	## matures precisely because of what it cost to plant.
+	PINE: {
+		"label": "fir", "icon": "A",
+		"cost": {&"cone": 1},
+		"footprint": 2.0, "grows": true,
+		"hint": "grows taller than the round ones, and slower",
 	},
 	FEEDER: {
 		"label": "feeder", "icon": "Y",
@@ -87,6 +113,8 @@ static func build_mesh(kind: StringName, stage := 0) -> Mesh:
 	match kind:
 		SAPLING:
 			return _sapling(stage)
+		PINE:
+			return _pine(stage)
 		FEEDER:
 			return _feeder()
 		PATH:
@@ -117,6 +145,40 @@ static func _sapling(stage: int) -> Mesh:
 			return young.commit()
 		_:
 			return PlantMeshes.broadleaf(5.0)
+
+## The same three stages as the round tree, but a fir at the end — narrower,
+## darker, and half again as tall, so the two read as different trees from
+## across the valley rather than as the same tree twice.
+static func _pine(stage: int) -> Mesh:
+	match clampi(stage, 0, GROWTH_STAGES - 1):
+		0:
+			var sprout := SurfaceTool.new()
+			sprout.begin(Mesh.PRIMITIVE_TRIANGLES)
+			_add(sprout, _stem(0.02, 0.03, 0.30), Vector3(0.0, 0.15, 0.0), Color(0.34, 0.44, 0.26))
+			# A little cone rather than a leaf, so even the sprout says which
+			# tree this is going to be.
+			_add(sprout, _spire(0.13, 0.34), Vector3(0.0, 0.30, 0.0), Color(0.20, 0.42, 0.26))
+			sprout.generate_normals()
+			return sprout.commit()
+		1:
+			var young := SurfaceTool.new()
+			young.begin(Mesh.PRIMITIVE_TRIANGLES)
+			_add(young, _stem(0.05, 0.08, 1.15), Vector3(0.0, 0.57, 0.0), Color(0.32, 0.23, 0.16))
+			_add(young, _spire(0.42, 1.15), Vector3(0.0, 1.10, 0.0), Color(0.18, 0.40, 0.24))
+			young.generate_normals()
+			return young.commit()
+		_:
+			return PlantMeshes.conifer(7.4)
+
+## A cone standing on its base: the shape that says fir at any size.
+static func _spire(radius: float, height: float) -> PrimitiveMesh:
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = radius
+	cone.height = height
+	cone.radial_segments = 7
+	cone.rings = 1
+	return cone
 
 static func _feeder() -> Mesh:
 	var tool := SurfaceTool.new()
