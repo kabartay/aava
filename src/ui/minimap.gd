@@ -83,16 +83,9 @@ func _init(field: HeightField) -> void:
 	# something that has to be positioned.
 	# The player is always at the centre of his own map, so this is a fixed
 	# marker rather than something that has to be positioned each frame.
-	_player_dot = Panel.new()
-	var dot := StyleBoxFlat.new()
-	dot.bg_color = Color(1.0, 1.0, 1.0, 0.95)
-	dot.set_corner_radius_all(6)
-	dot.border_color = Color(0.1, 0.12, 0.16, 0.9)
-	dot.set_border_width_all(2)
-	_player_dot.add_theme_stylebox_override("panel", dot)
-	_player_dot.custom_minimum_size = Vector2(12.0, 12.0)
-	_player_dot.size = Vector2(12.0, 12.0)
-	_player_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# An arrow rather than a dot, because it has to say which way as well as
+	# where — see the note on _orient.
+	_player_dot = MapArrow.new()
 	# Added to the canvas, not to this container: a PanelContainer stretches
 	# every direct child to fill it, and the dot became a white sheet over the
 	# entire map.
@@ -193,17 +186,22 @@ func track(world_position: Vector3, yaw: float, built: Array[Vector3]) -> void:
 	_redraw(world_position)
 	_orient(yaw)
 
-## The compass letter rides around the edge of the map, so north is a direction
-## rather than a label. A child who has been told "the mountains are north" can
-## then use it without being taught to read a map.
+## North stays at the top and the arrow turns.
+##
+## It was the other way round: the map was drawn north-up and never moved, while
+## the letter N rode around the edge to show which way north lay. That is a
+## contradiction — a map that does not turn with a compass mark that does — and
+## it read as the map spinning when it was not. Now the map is fixed, north is
+## fixed above it, and the only thing that turns is the little arrow that is
+## you, which is the one thing that really is turning.
 func _orient(yaw: float) -> void:
-	var radius := size.x * 0.5 - 18.0
 	var centre := size * 0.5
 	_player_dot.position = centre - _player_dot.size * 0.5
-	# The map is drawn with world north up, so north on screen is simply up,
-	# rotated by however far the camera has turned.
-	var angle := yaw - PI * 0.5
-	_compass.position = centre + Vector2(cos(angle), sin(angle)) * radius - _compass.size * 0.5
+	# The map is drawn with world north up, so the arrow points the way the
+	# camera does, measured from up.
+	_player_dot.rotation = yaw
+	_player_dot.pivot_offset = _player_dot.size * 0.5
+	_compass.position = Vector2(centre.x - _compass.size.x * 0.5, 4.0)
 
 func _redraw(centre: Vector3) -> void:
 	var range_metres := SMALL_RANGE if _size == Size.SMALL else LARGE_RANGE

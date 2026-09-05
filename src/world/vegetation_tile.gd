@@ -90,6 +90,10 @@ func _init(
 		# own rule comes straight up through anything the terrain painted.
 		if field.path_at(world_x, world_z) > 0.35:
 			continue
+		# Nor in a lake: grass placed by its own rule comes straight up through
+		# the water otherwise.
+		if Lakes.wet(world_x, world_z):
+			continue
 		local.y = height
 		var scale := rng.randf_range(0.75, 1.45)
 		tufts.append(Transform3D(

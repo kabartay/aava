@@ -137,10 +137,17 @@ func height_at(x: float, z: float) -> float:
 	if not dams_built.is_empty():
 		floor_height += DamSpec.fill(x, z, river_centre_x(z), dams_built)
 
+	# The lakes are carved out of the ground rather than the water being raised
+	# to meet them, for the same reason the swimming pool is: the water surface
+	# is one flat plane across the whole world.
+	var lake := Lakes.influence(x, z)
+	if lake > 0.0:
+		floor_height = lerpf(floor_height, WATER_LEVEL - Lakes.DEPTH, lake)
+
 	# Paths sink very slightly where they are walked. Applied after the places,
 	# so a path running into the café's flat apron settles onto it rather than
 	# cutting a groove across it.
-	var path := Paths.influence(x, z, camp_centre())
+	var path := Paths.influence_fast(x, z)
 	if path > 0.0:
 		floor_height -= Paths.SINK * path
 
@@ -149,7 +156,7 @@ func height_at(x: float, z: float) -> float:
 ## How much of a walked path is at this point. Asked by the terrain when it
 ## chooses a colour and by the vegetation when it decides whether to grow.
 func path_at(x: float, z: float) -> float:
-	return Paths.influence(x, z, camp_centre())
+	return Paths.influence_fast(x, z)
 
 ## The terrain before anything is levelled into it. Separated from height_at so
 ## that the level the flattening aims at can be read without recursing through
@@ -226,7 +233,9 @@ func forest_density_at(x: float, z: float) -> float:
 	# Nor on a path, nor on the flat ground the places stand on. A tree growing
 	# out of the trodden route is what makes a path look painted on rather than
 	# walked.
-	if Paths.influence(x, z, camp_centre()) > 0.3:
+	if Paths.influence_fast(x, z) > 0.3:
+		return 0.0
+	if Lakes.wet(x, z):
 		return 0.0
 	if PlaceSpec.influence(x, z, camp_centre()) > 0.55:
 		return 0.0

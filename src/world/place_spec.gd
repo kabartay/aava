@@ -81,9 +81,12 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 		var dz := z - centre.z
 		if absf(dx) > reach or absf(dz) > reach:
 			continue
-		var distance := sqrt(dx * dx + dz * dz)
-		if distance > reach:
+		# Compared as squares, so the square root is only taken for the handful
+		# of points actually near a place.
+		var squared := dx * dx + dz * dz
+		if squared > reach * reach:
 			continue
+		var distance := sqrt(squared)
 		strongest = maxf(strongest, 1.0 - smoothstep(radius, radius + FEATHER, distance))
 	return strongest
 

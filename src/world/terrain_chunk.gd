@@ -41,18 +41,49 @@ func _init(
 	normals.resize(grid * grid)
 	colors.resize(grid * grid)
 
+	# The height field is sampled once per point and everything else is derived
+	# from that grid.
+	#
+	# It used to ask the field nine times for every vertex: once for the height,
+	# four inside normal_at, and four more inside steepness_at while choosing a
+	# colour. At 3.5 µs a call that came to 35 ms of work for a single chunk, and
+	# on a tablet it showed up as the game stopping for a moment every time new
+	# ground streamed in — which is most of the time while a child is walking.
+	#
+	# One extra ring of samples is taken all the way round, so the vertices on
+	# the chunk's own edge still have neighbours to take a slope from and the
+	# seams between chunks stay smooth.
+	var padded := grid + 2
+	var heights := PackedFloat32Array()
+	heights.resize(padded * padded)
+	for pz in padded:
+		var world_z := origin_z + float((pz - 1) * step)
+		for px in padded:
+			heights[pz * padded + px] = field.height_at(
+				origin_x + float((px - 1) * step), world_z
+			)
+
+	var span := float(step) * 2.0
 	for gz in grid:
 		for gx in grid:
 			var local_x := float(gx * step)
 			var local_z := float(gz * step)
 			var world_x := origin_x + local_x
 			var world_z := origin_z + local_z
-			var height := field.height_at(world_x, world_z)
+
+			var here := (gz + 1) * padded + (gx + 1)
+			var height := heights[here]
+
+			# The same central difference normal_at computes analytically, taken
+			# from the grid instead. Cheaper, and identical at these spacings.
+			var dx := heights[here + 1] - heights[here - 1]
+			var dz := heights[here + padded] - heights[here - padded]
+			var slope := Vector2(dx, dz).length() / span
 
 			var index := gz * grid + gx
 			vertices[index] = Vector3(local_x, height, local_z)
-			normals[index] = field.normal_at(world_x, world_z)
-			colors[index] = _tint(field, world_x, world_z, height)
+			normals[index] = Vector3(-dx, span, -dz).normalized()
+			colors[index] = _tint(field, world_x, world_z, height, slope)
 
 	for gz in grid - 1:
 		for gx in grid - 1:
@@ -110,7 +141,9 @@ func _add_collision(field: HeightField, origin_x: float, origin_z: float, size: 
 	body.add_child(collider)
 	add_child(body)
 
-func _tint(field: HeightField, x: float, z: float, height: float) -> Color:
+## `slope` is passed in rather than asked of the field, because the caller has
+## already worked it out from the grid it sampled — see the note there.
+func _tint(field: HeightField, x: float, z: float, height: float, slope: float) -> Color:
 	# The pitch is painted before anything else and returns immediately: none of
 	# the natural tinting below — shore sand, rock on slopes, snow — has any
 	# business on a mown surface.
@@ -118,7 +151,7 @@ func _tint(field: HeightField, x: float, z: float, height: float) -> Color:
 	if pitch > 0.5 and Pitch.is_levelled(x, z):
 		return _pitch_tint(x, z)
 
-	var steep := field.steepness_at(x, z)
+	var steep := slope
 	var color := TerrainSpec.COLOR_GRASS
 
 	# Meadow tint breaks up the green so the valley floor is not one flat colour.

@@ -67,7 +67,75 @@ const ROUTES: Array[Dictionary] = [
 ## is the fast one.
 const BOUNDS_HALF := 480.0
 
+## Every route as four flat numbers: ax, az, bx, bz.
+##
+## `influence` is called several million times during a world build, and the
+## declarative form above cost five dictionary lookups and five Vector3
+## additions on every one of them — 2.58 µs a call, which was 56% of the entire
+## height field and showed up on a tablet as a stutter every time new ground
+## streamed in.
+##
+## These are the same numbers, resolved once by hand. A check recomputes them
+## from ROUTES and fails the build if the two ever disagree, so the fast form
+## cannot quietly drift away from the readable one.
+const SEGMENTS: Array[float] = [
+	0.0, 18.0, -360.0, 268.0,
+	0.0, 18.0, -300.0, -242.0,
+	0.0, 18.0, 60.0, 398.0,
+	-360.0, 268.0, 60.0, 398.0,
+	0.0, 18.0, 330.0, -162.0,
+]
+
 ## How much of a path is at this point, from 1 in the middle to 0 off it.
+static func influence_fast(x: float, z: float) -> float:
+	if absf(x) > BOUNDS_HALF or absf(z) > BOUNDS_HALF + 40.0:
+		return 0.0
+
+	var reach := HALF_WIDTH + FEATHER
+	var strongest := 0.0
+	var i := 0
+	while i < SEGMENTS.size():
+		var ax := SEGMENTS[i]
+		var az := SEGMENTS[i + 1]
+		var bx := SEGMENTS[i + 2]
+		var bz := SEGMENTS[i + 3]
+		i += 4
+		# The segment's own box, inline rather than through minf/maxf calls.
+		if x < (ax if ax < bx else bx) - reach or x > (ax if ax > bx else bx) + reach:
+			continue
+		if z < (az if az < bz else bz) - reach or z > (az if az > bz else bz) + reach:
+			continue
+		# Squared, so the square root is only taken for the few points that are
+		# actually near a path. The box test admits a lot — a diagonal route
+		# from the camp to the playground has a box 360 by 250 m, of which the
+		# path itself is a three-metre ribbon — so this rejection is where the
+		# work is really saved.
+		var squared := _squared_distance_to_segment(x, z, ax, az, bx, bz)
+		if squared > reach * reach:
+			continue
+		var distance := sqrt(squared)
+		strongest = maxf(strongest, 1.0 - smoothstep(HALF_WIDTH, HALF_WIDTH + FEATHER, distance))
+		if strongest >= 0.999:
+			return 1.0
+	return strongest
+
+## The same as `_distance_to_segment` without the final square root.
+static func _squared_distance_to_segment(
+	x: float, z: float, ax: float, az: float, bx: float, bz: float
+) -> float:
+	var dx := bx - ax
+	var dz := bz - az
+	var length_squared := dx * dx + dz * dz
+	if length_squared < 0.0001:
+		return (x - ax) * (x - ax) + (z - az) * (z - az)
+	var along := ((x - ax) * dx + (z - az) * dz) / length_squared
+	along = 0.0 if along < 0.0 else (1.0 if along > 1.0 else along)
+	var near_x := ax + dx * along
+	var near_z := az + dz * along
+	return (x - near_x) * (x - near_x) + (z - near_z) * (z - near_z)
+
+## The readable form, kept because it is what the routes actually mean and what
+## the check compares against.
 static func influence(x: float, z: float, camp: Vector3) -> float:
 	# Rejected on two subtractions and two comparisons for almost every point
 	# in the world, before a single square root is taken.
