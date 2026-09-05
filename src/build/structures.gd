@@ -84,6 +84,15 @@ func positions() -> Array[Vector3]:
 		out.append(record["position"])
 	return out
 
+## Where every piece of one kind stands. Used by the fires, which need to know
+## which of the things a child has built are campfires.
+func positions_of(kind: StringName) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for record in _records:
+		if record["kind"] == kind:
+			out.append(record["position"])
+	return out
+
 ## The piece nearest to a point, within reach, or an empty dictionary.
 ##
 ## Returned as a record rather than an index because indices shift the moment

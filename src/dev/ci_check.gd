@@ -31,6 +31,9 @@ func _initialize() -> void:
 	_check_every_language_is_complete()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
+	_check_the_valley_is_not_silent()
+	_check_trees_are_capital()
+	_check_a_fire_needs_feeding()
 	_check_caring_pays()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
@@ -402,7 +405,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors", "TogetherPanel", "Voice",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Hearths", "Ambience", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors", "TogetherPanel", "Voice",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -2782,3 +2785,164 @@ func _a_tap() -> InputEventMouseButton:
 	click.button_index = MOUSE_BUTTON_LEFT
 	click.pressed = true
 	return click
+
+## The valley has to make a noise when nothing is happening.
+##
+## Every sound before this was an event — a kick, a coin, a piece going down —
+## and between them the game was perfectly silent. Silence is what a picture of
+## a place sounds like, not the place.
+func _check_the_valley_is_not_silent() -> void:
+	print("the valley makes a sound of its own")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+
+	var ambience := Ambience.new()
+	get_root().add_child(ambience)
+
+	# Every voice has to be a real waveform and has to loop, or the valley falls
+	# silent a few seconds after it starts.
+	for named in [["wind", ambience._wind], ["water", ambience._water], ["birds", ambience._birds]]:
+		var stream: AudioStreamWAV = named[1].stream
+		_expect(stream != null, "there is a %s sound" % named[0])
+		_expect(stream.data.size() > 1000, "and it is %d KB of waveform" % (stream.data.size() / 1024))
+		_expect(
+			stream.loop_mode == AudioStreamWAV.LOOP_FORWARD,
+			"and it loops, so it does not stop after %.0f seconds" % Ambience.LOOP_SECONDS
+		)
+
+	# The mix has to answer to where the player is, or it is wallpaper.
+	var in_river := Vector3(field.river_centre_x(40.0), 0.0, 40.0)
+	ambience.follow(in_river, field, places, 0.0, 2.0)
+	var wet := ambience._water_level
+
+	var dry := in_river + Vector3(260.0, 40.0, 0.0)
+	ambience.follow(dry, field, places, 0.0, 2.0)
+	_expect(wet > ambience._water_level, "water is louder at the river than away from it")
+
+	# Wind rises with the ground.
+	ambience.follow(Vector3(0.0, 2.0, 18.0), field, places, 0.0, 2.0)
+	var low := ambience._wind_level
+	ambience.follow(Vector3(0.0, 140.0, 18.0), field, places, 0.0, 2.0)
+	_expect(ambience._wind_level > low, "and wind is louder high up than down by the river")
+
+	# Birds do not sing in the dark.
+	var wooded := Vector3(120.0, 6.0, 120.0)
+	ambience.follow(wooded, field, places, 0.0, 3.0)
+	var daytime := ambience._bird_level
+	ambience.follow(wooded, field, places, 1.0, 3.0)
+	_expect(
+		ambience._bird_level < daytime,
+		"and the birds are quieter at night than in daylight"
+	)
+
+	ambience.queue_free()
+	places.queue_free()
+
+## A tree is worth the same standing whoever planted it, and cutting one down
+## costs what growing one pays.
+##
+## Without that, an afternoon of felling is pure profit and the valley is worth
+## more cut down than left alone — which is the opposite of what this game is
+## about.
+func _check_trees_are_capital() -> void:
+	print("trees are worth something")
+	for kind in [BuildKinds.SAPLING, BuildKinds.PINE]:
+		_expect(BuildKinds.reward_for(kind) > 0, "a grown %s is worth something" % kind)
+
+	_expect(
+		BuildKinds.reward_for(BuildKinds.PINE) > BuildKinds.reward_for(BuildKinds.SAPLING),
+		"a fir is worth more than a round tree (%d against %d)" % [
+			BuildKinds.reward_for(BuildKinds.PINE),
+			BuildKinds.reward_for(BuildKinds.SAPLING)
+		]
+	)
+
+	# The fir costs a cone, which squirrels also want; the round one costs a
+	# seed, which nothing else does. The price has to reflect that or the choice
+	# between feeding an animal and planting a tree is not a real one.
+	_expect(
+		BuildKinds.INFO[BuildKinds.PINE]["cost"].has(&"cone"),
+		"a fir is planted from a cone, which the squirrels are also after"
+	)
+	_expect(
+		BuildKinds.INFO[BuildKinds.SAPLING]["cost"].has(&"seed"),
+		"and a round tree from a seed, which nothing else wants"
+	)
+
+	# Symmetry: planting and felling are the same number, so an afternoon spent
+	# doing both ends where it started.
+	_expect(
+		BuildKinds.WILD_TREE_VALUE == BuildKinds.reward_for(BuildKinds.SAPLING),
+		"felling costs exactly what growing one pays (%d)" % BuildKinds.WILD_TREE_VALUE
+	)
+
+	# And a child with nothing can still fell — they simply have nothing to pay
+	# with. Being refused by a game about a valley is worse than being charged.
+	var empty := Wallet.new()
+	_expect(not empty.spend(BuildKinds.WILD_TREE_VALUE), "an empty purse pays nothing")
+	_expect(empty.coins == 0, "and is not driven into debt")
+
+## A fire has to be fed, and warmth has to be somewhere rather than something a
+## child carries away with them.
+func _check_a_fire_needs_feeding() -> void:
+	print("a fire burns while it is fed")
+	var field := HeightField.new(20260903)
+	var hearths := Hearths.new(field)
+	get_root().add_child(hearths)
+
+	var at := field.camp_centre()
+	at.y = field.height_at(at.x, at.z)
+
+	_expect(not hearths.has_fire_near(at), "there is no fire before one is built")
+	_expect(is_zero_approx(hearths.feed(at)), "and nothing to put wood on")
+
+	hearths.set_fires([at])
+	_expect(hearths.has_fire_near(at), "a built campfire can be reached")
+	_expect(not hearths.is_burning(at), "but is not alight until it is fed")
+	_expect(is_zero_approx(hearths.warmth_at(at)), "and gives no warmth")
+
+	var burning := hearths.feed(at)
+	_expect(burning > 0.0, "one log lights it for %.0f minutes" % (burning / 60.0))
+	_expect(hearths.is_burning(at), "and it is alight")
+	_expect(hearths.warmth_at(at) > 0.5, "and warm to stand beside")
+
+	# Warmth is a place. Walk away and it is gone — that is what makes a fire
+	# somewhere to be rather than a button that was pressed.
+	_expect(
+		is_zero_approx(hearths.warmth_at(at + Vector3(Hearths.WARMTH_REACH + 5.0, 0.0, 0.0))),
+		"and not warm from across the meadow"
+	)
+
+	# It cannot be stuffed indefinitely.
+	for _log in Hearths.MAX_LOGS + 4:
+		hearths.feed(at)
+	_expect(
+		hearths.minutes_left(at) <= Hearths.SECONDS_PER_LOG * Hearths.MAX_LOGS / 60.0 + 0.01,
+		"it holds at most %d logs, so a bagful is not an evening" % Hearths.MAX_LOGS
+	)
+
+	# And it goes out on its own, which is what makes feeding it mean anything.
+	var out: Array[bool] = []
+	hearths.went_out.connect(func(_where: Vector3) -> void: out.append(true))
+	for _tick in Hearths.MAX_LOGS + 2:
+		hearths._process(Hearths.SECONDS_PER_LOG)
+	_expect(not hearths.is_burning(at), "left alone it goes out")
+	_expect(out.size() == 1, "and says so exactly once")
+	_expect(is_zero_approx(hearths.warmth_at(at)), "and is cold afterwards")
+
+	# Taking the campfire down puts the fire out with it.
+	hearths.feed(at)
+	hearths.set_fires([])
+	_expect(not hearths.is_burning(at), "removing the campfire ends the fire")
+
+	# Resting by a fire has to be worth walking to.
+	_expect(Hearths.REST_BONUS > 1.5, "a fire is worth resting at (%.1fx)" % Hearths.REST_BONUS)
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not Text.of("ui_feed_fire").begins_with("?"), "feeding a fire is labelled in %s" % code)
+	Text.set_language(Text.EN)
+
+	hearths.queue_free()

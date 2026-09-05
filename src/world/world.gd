@@ -22,6 +22,7 @@ var mounts: Mounts
 var archery: Archery
 var places: Places
 var dams: Dams
+var hearths: Hearths
 var football: FootballGround
 var atmosphere: Atmosphere
 var water: Water
@@ -55,6 +56,10 @@ func _ready() -> void:
 	# Set before any tile streams in, or the first tiles draw trees that have
 	# already been cut down.
 	vegetation.felled = felled
+
+	hearths = Hearths.new(field)
+	hearths.name = "Hearths"
+	add_child(hearths)
 
 	dams = Dams.new(field)
 	dams.name = "Dams"

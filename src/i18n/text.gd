@@ -49,6 +49,25 @@ const STRINGS := {
 		FR: "pousse plus haut que les ronds, et plus lentement",
 		RU: "растёт выше круглых и медленнее",
 	},
+	"ui_feed_fire": {
+		EN: "add wood", FR: "mettre du bois", RU: "подбросить дров",
+	},
+	"say_fire_lit": {
+		EN: "the fire is lit", FR: "le feu est allumé", RU: "костёр разгорелся",
+	},
+	"say_fire_fed": {
+		EN: "burning for %d more minutes",
+		FR: "brûle encore %d minutes",
+		RU: "гореть ещё минут: %d",
+	},
+	"say_fire_out": {
+		EN: "the fire went out", FR: "le feu s'est éteint", RU: "костёр погас",
+	},
+	"say_felled_cost": {
+		EN: "+%d wood, but the tree is gone: −%d",
+		FR: "+%d bois, mais l'arbre n'est plus là : −%d",
+		RU: "+%d дерева, но дерева больше нет: −%d",
+	},
 	"say_grown_fir": {
 		EN: "your fir is grown! +%d", FR: "ton sapin a poussé ! +%d",
 		RU: "ёлка выросла! +%d",

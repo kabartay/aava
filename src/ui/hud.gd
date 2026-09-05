@@ -40,6 +40,7 @@ signal shoot_started()
 signal shoot_released()
 signal place_used()
 signal dam_stick()
+signal fire_fed()
 signal together_opened()
 signal talk_started()
 signal talk_released()
@@ -87,6 +88,7 @@ var _ride_button: Button
 var _shoot_button: Button
 var _visit_button: Button
 var _dam_button: Button
+var _fire_button: Button
 var together: TogetherPanel
 var _talk_button: Button
 var _shop: PanelContainer
@@ -270,6 +272,12 @@ func _ready() -> void:
 	_dam_button.visible = false
 	_dam_button.pressed.connect(func() -> void: dam_stick.emit())
 	add_child(_dam_button)
+
+	# Shown at a campfire, with wood in the bag.
+	_fire_button = _button(Text.of("ui_feed_fire"), Color(1.0, 0.78, 0.46))
+	_fire_button.visible = false
+	_fire_button.pressed.connect(func() -> void: fire_fed.emit())
+	add_child(_fire_button)
 	add_child(_coins_label)
 
 	_shop = _build_shop()
@@ -563,6 +571,12 @@ func set_voice(offered: bool, speaking: bool) -> void:
 	# Lit while the microphone is actually running, so a child can always see
 	# whether they are being heard.
 	_talk_button.modulate = Color(1.25, 1.1, 0.7) if speaking else Color.WHITE
+
+## Whether there is a fire here that would take a log.
+func set_fire_offer(offered: bool) -> void:
+	if _fire_button.visible != offered:
+		_fire_button.visible = offered
+		_layout()
 
 ## Whether the beavers will take a stick right now.
 func set_dam_offer(offered: bool) -> void:
@@ -1010,6 +1024,8 @@ func _layout() -> void:
 	# Beside the place button, since a child is never at a dam and in the café
 	# at the same time.
 	_dam_button.position = _visit_button.position
+	# The same spot: a child is never at a dam, in a café and at a fire at once.
+	_fire_button.position = _visit_button.position
 
 	# Centred low, where the kick button sits, since the two never both apply.
 	_care_button.position = Vector2(

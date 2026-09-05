@@ -38,6 +38,7 @@ var profiles: Profiles
 var session: Session
 var visitors: Visitors
 var voice: Voice
+var ambience: Ambience
 var today: Today
 var lantern: Lantern
 
@@ -171,6 +172,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	visitors.name = "Visitors"
 	add_child(visitors)
 
+	ambience = Ambience.new()
+	add_child(ambience)
+
 	voice = Voice.new()
 	voice.attach(session)
 	add_child(voice)
@@ -205,11 +209,20 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		world.felled.from_data(save["felled"])
 	if save.has("mounts"):
 		world.mounts.from_data(save["mounts"])
+	if save.has("hearths"):
+		world.hearths.from_data(save["hearths"])
 	if save.has("dams"):
 		world.dams.from_data(save["dams"])
 		# The height field has to know before anything is generated against it.
 		world.field.dams_built = world.dams.built.duplicate()
 		world.dams.restore()
+
+	# The fires need to know which of the built pieces are campfires.
+	_refresh_fires()
+	world.hearths.lit.connect(func(_at: Vector3) -> void:
+		sounds.play(Sounds.Sound.GROWN, 0.8))
+	world.hearths.went_out.connect(func(_at: Vector3) -> void:
+		hud.announce(Text.of("say_fire_out"), 3.0))
 
 	world.dams.stick_delivered.connect(func(_site: float, carried: int, needed: int) -> void:
 		sounds.play(Sounds.Sound.PLACE, 0.8)
@@ -280,6 +293,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# The interface exists from here and not one line earlier. These sat above,
 	# where `hud` was still null, so the game reached the tablet with its talk
 	# button and its entire play-together panel connected to nothing at all.
+	hud.fire_fed.connect(_on_feed_fire)
 	hud.talk_started.connect(voice.start_talking)
 	hud.talk_released.connect(voice.stop_talking)
 	hud.together_opened.connect(_on_together_opened)
@@ -313,7 +327,13 @@ func _process(delta: float) -> void:
 
 	# Energy follows what the player actually did this frame, and gates running
 	# on the next one.
-	vitals.advance(delta, player.is_running, player.is_moving)
+	# Beside a burning fire, energy comes back faster. Warmth is a place rather
+	# than something a child carries, so this only applies while they are at it.
+	var warmth := world.hearths.warmth_at(player.global_position)
+	vitals.advance(
+		delta * (1.0 + warmth * (Hearths.REST_BONUS - 1.0)),
+		player.is_running, player.is_moving
+	)
 	player.may_run = vitals.can_run()
 
 	# Standing in the shallows fills the bottle without a button. A child who
@@ -325,6 +345,10 @@ func _process(delta: float) -> void:
 			hud.announce(Text.of("say_filled"), 1.6)
 
 	lantern.follow(world.atmosphere.darkness(), delta)
+	ambience.follow(
+		player.global_position, world.field, world.places,
+		world.atmosphere.darkness(), delta
+	)
 	session.report_position(player.global_position, player.rotation.y)
 	# Offered only when there is somebody in the valley to talk to.
 	hud.set_voice(
@@ -364,6 +388,11 @@ func _process(delta: float) -> void:
 	# Whatever the place a child is standing in offers.
 	var here := world.places.nearest(at)
 	hud.set_place_offer(_offer_at(here))
+
+	# A fire takes a log from a child standing at it with wood.
+	hud.set_fire_offer(
+		inventory.count(&"wood") > 0 and world.hearths.has_fire_near(at)
+	)
 
 	# The beavers take a stick at a dam site, from a child carrying one.
 	var dam_site := world.dams.site_near(at)
@@ -644,6 +673,8 @@ func _on_session_failed(reason: String) -> void:
 
 func _on_remote_built(kind: StringName, at: Vector3, spin: float) -> void:
 	structures.place(kind, at, spin)
+	if kind == BuildKinds.CAMPFIRE:
+		_refresh_fires()
 
 func _on_remote_removed(at: Vector3) -> void:
 	var record := structures.nearest(at, 0.6)
@@ -656,6 +687,20 @@ func _on_remote_felled(at: Vector3) -> void:
 
 func _on_remote_dam_stick(site: float) -> void:
 	world.dams.deliver(site)
+
+func _refresh_fires() -> void:
+	world.hearths.set_fires(structures.positions_of(BuildKinds.CAMPFIRE))
+
+## A log on the fire. This is what the axe was for: wood was a number in a bag
+## until something burned it.
+func _on_feed_fire() -> void:
+	if inventory.count(&"wood") <= 0 or not world.hearths.has_fire_near(player.global_position):
+		return
+	if not inventory.spend({&"wood": 1}):
+		return
+	var left := world.hearths.feed(player.global_position)
+	sounds.play(Sounds.Sound.PLACE, 0.7)
+	hud.announce(Text.format("say_fire_fed", [int(left / 60.0)]), 2.4)
 
 func _on_dam_stick() -> void:
 	var site := world.dams.site_near(player.global_position)
@@ -744,12 +789,28 @@ func _on_chop() -> void:
 	var tree: Vector3 = answer[0]
 	world.felled.fell(tree)
 	session.report_felled(tree)
+
+	# Felling costs what growing one pays. A tree that is gone is gone whether a
+	# child planted it or found it, and an axe that only ever gave would make
+	# the whole valley worth cutting down.
+	#
+	# Floored at nothing rather than refused: a child with no coins can still
+	# fell a tree for the wood, they simply have nothing to pay with. Being told
+	# "you may not" by a game about a valley is worse than being told what it
+	# cost.
+	var toll := mini(BuildKinds.WILD_TREE_VALUE, wallet.coins)
+	if toll > 0:
+		wallet.spend(toll)
 	# The forest is a MultiMesh generated from the seed, so the tree cannot be
 	# deleted — the tiles are rebuilt against the new record instead.
 	world.vegetation.rebuild_around(tree)
 	inventory.add(&"wood", WOOD_PER_TREE)
 	sounds.play(Sounds.Sound.REMOVE, 0.7)
-	hud.announce(Text.format("say_felled", [WOOD_PER_TREE]), 2.2)
+	hud.announce(
+		Text.format("say_felled_cost", [WOOD_PER_TREE, toll]) if toll > 0
+		else Text.format("say_felled", [WOOD_PER_TREE]),
+		2.6
+	)
 
 func _on_whistle() -> void:
 	if not wallet.has(ShopStock.WHISTLE):
@@ -829,6 +890,9 @@ func _on_remove() -> void:
 		hud.announce(Text.of("say_nothing_here"))
 		return
 	var kind := structures.remove(record)
+	if kind == BuildKinds.CAMPFIRE:
+		# A fire whose campfire has been taken down cannot go on burning.
+		_refresh_fires()
 	if kind == &"":
 		return
 	sounds.play(Sounds.Sound.REMOVE)
@@ -882,6 +946,8 @@ func _on_place() -> void:
 	var placing_spin := build_mode.preview_spin()
 	if build_mode.place():
 		session.report_built(placing, placing_at, placing_spin)
+		if placing == BuildKinds.CAMPFIRE:
+			_refresh_fires()
 		# A sapling is planted, everything else is built. The distinction
 		# matters to the greeting: planting a tree is a different kind of
 		# afternoon from stacking walls.
@@ -964,6 +1030,7 @@ func _world_data() -> Dictionary:
 		"boulders": world.boulders.to_data(),
 		"animals": world.animals.to_data(),
 		"dams": world.dams.to_data(),
+		"hearths": world.hearths.to_data(),
 		"felled": world.felled.to_data(),
 		"mounts": world.mounts.to_data(),
 	}

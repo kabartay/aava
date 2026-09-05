@@ -31,17 +31,32 @@ static func is_plant(kind: StringName) -> bool:
 const GROWTH_STAGE_SECONDS := 75.0
 const GROWTH_STAGES := 3
 
-## What a grown tree is worth. The fir pays more because a cone is contested:
-## squirrels want them too, so planting one costs a child something they could
-## have spent on an animal. A reward that did not reflect that would make the
-## choice a false one.
-const GROWN_REWARD := {
+## What a tree is worth.
+##
+## Earned when one finishes growing, and taken back when one is cut down — the
+## same number both ways, because the tree is equally there or not there. That
+## symmetry is the whole point: a child who plants for an afternoon and then
+## fells everything ends where they started, and one who only fells ends up
+## poorer. Trees are capital, not a resource pile.
+##
+## It applies to any tree, not only the ones a child planted. The valley's trees
+## belong to whoever comes next as much as to whoever is holding the axe.
+##
+## The fir is worth twice the round one. A cone is contested — squirrels want
+## them too — so planting a fir costs something that could have gone to an
+## animal; it grows more slowly; and it ends up half again as tall. A reward
+## that ignored all three would make that choice a false one.
+const TREE_VALUE := {
 	&"sapling": 3,
 	&"pine": 6,
 }
 
+## What a wild tree costs to fell. The round-crowned ones are much the commoner,
+## so the valley's own trees are priced as those.
+const WILD_TREE_VALUE := 3
+
 static func reward_for(kind: StringName) -> int:
-	return int(GROWN_REWARD.get(kind, 0))
+	return int(TREE_VALUE.get(kind, 0))
 
 const INFO := {
 	SAPLING: {
