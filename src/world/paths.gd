@@ -36,7 +36,7 @@ const SINK := 0.09
 ## naturally wear a route back to. The archery butts are given by offset because
 ## Archery places them itself; that one duplication is the price of this file
 ## depending on nothing, which is what keeps the height field free of cycles.
-const BUTTS_OFFSET := Vector3(-9.0, 0.0, 6.0)
+const BUTTS_OFFSET := Vector3(330.0, 0.0, -180.0)
 
 const ROUTES: Array[Dictionary] = [
 	{"from": &"", "to": &"playground"},
@@ -55,7 +55,17 @@ const ROUTES: Array[Dictionary] = [
 ##
 ## Without this the square roots alone came to roughly seven million per build
 ## and the world took longer to generate than the screenshot tool would wait.
-const BOUNDS_HALF := 40.0
+## It was 40 m, from when every destination sat beside the camp. They are four
+## hundred metres out now, and a box that small silently rejected every point
+## along every route: the paths existed in the data and nowhere in the ground.
+##
+## Widening it costs some of the cheap rejection — the median frame went from
+## 1.50 ms to 2.00 ms — and an attempt to win that back by caching the resolved
+## endpoints in a static Array made it 6.90 ms instead, because indexing a
+## nested untyped Array in GDScript returns Variants and the type checks cost
+## more than the dictionary lookups they replaced. The straightforward version
+## is the fast one.
+const BOUNDS_HALF := 480.0
 
 ## How much of a path is at this point, from 1 in the middle to 0 off it.
 static func influence(x: float, z: float, camp: Vector3) -> float:

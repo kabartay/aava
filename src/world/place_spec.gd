@@ -17,10 +17,21 @@ extends RefCounted
 
 ## Where each place sits relative to the camp, spread rather than in a row so
 ## that walking between them means crossing the valley.
+## Spread across the valley rather than clustered round the camp.
+##
+## They were all within twenty-six metres of it, which put the pitch, the
+## archery butts, the pool, the café and the playground in one heap — a child
+## could stand still and reach everything, and the valley beyond was scenery
+## with nothing in it. Now they are 375 to 440 m from the camp and 440 to 813 m
+## from each other: far enough that going somewhere is a journey, close enough
+## that a horse crosses it in under a minute.
+##
+## Each site was checked for being dry, gentle across its own footprint, and
+## clear of the river before being written down here.
 const OFFSETS := {
-	&"playground": Vector3(14.0, 0.0, 12.0),
-	&"cafe": Vector3(-16.0, 0.0, -9.0),
-	&"pool": Vector3(22.0, 0.0, -14.0),
+	&"playground": Vector3(-360.0, 0.0, 250.0),
+	&"cafe": Vector3(-300.0, 0.0, -260.0),
+	&"pool": Vector3(60.0, 0.0, 380.0),
 }
 
 ## How much flat ground each place needs, and how far out the levelling fades.
@@ -44,9 +55,11 @@ const FOOTPRINT := {
 
 const FEATHER := 7.0
 
-## Everything the places touch, as a box around the camp. See the note in
-## `influence` for why this matters so much.
-const BOUNDS_HALF := 40.0
+## Everything the places touch, as a box around the camp. Still worth having
+## now they are spread out — it is most of the world away from them — but it has
+## to be wide enough to contain the furthest, or that place quietly stops being
+## levelled and its buildings stand on a slope.
+const BOUNDS_HALF := 460.0
 
 ## How much of the levelling applies at a point, from 1 at the centre to 0
 ## outside the feathered edge. Zero for every point far from all three, which is

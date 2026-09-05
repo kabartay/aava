@@ -50,6 +50,7 @@ func _initialize() -> void:
 	_check_playing_together()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
+	_check_nothing_is_used_before_it_exists()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -1648,6 +1649,43 @@ func _check_places_worth_walking_to() -> void:
 		"the pool shelves at the edge (%.2f m) rather than dropping" % edge
 	)
 
+	# The property that matters most about water, and the one whose absence sent
+	# a child 1,445 m into the sky: being above the surface must mean being out
+	# of the water, whatever the depth beneath.
+	var pool_at := places.position_of(Places.POOL)
+	var bottom := Vector3(pool_at.x, field.height_at(pool_at.x, pool_at.z) + Player.HEIGHT * 0.5, pool_at.z)
+	_expect(
+		places.submersion(bottom, Player.HEIGHT) > Player.SWIM_DEPTH,
+		"standing on the bottom of the pool is deep enough to swim"
+	)
+
+	var floating := bottom
+	floating.y = field.height_at(pool_at.x, pool_at.z) + Places.POOL_DEPTH
+	_expect(
+		places.submersion(floating, Player.HEIGHT) < Player.SWIM_DEPTH,
+		"at the surface it is no longer deep enough, so buoyancy stops"
+	)
+
+	for height in [2.0, 20.0, 200.0, 1445.0]:
+		var above := bottom
+		above.y = field.height_at(pool_at.x, pool_at.z) + Places.POOL_DEPTH + height
+		_expect(
+			is_zero_approx(places.submersion(above, Player.HEIGHT)),
+			"%d m above the pool is not in the pool" % int(height)
+		)
+
+	# The same over the river, since it has its own surface.
+	var river_z := 40.0
+	var river_x := field.river_centre_x(river_z)
+	var in_river := Vector3(river_x, field.height_at(river_x, river_z) + Player.HEIGHT * 0.5, river_z)
+	_expect(places.submersion(in_river, Player.HEIGHT) > 0.0, "the river is water too")
+	var over_river := in_river
+	over_river.y = HeightField.WATER_LEVEL + 60.0
+	_expect(
+		is_zero_approx(places.submersion(over_river, Player.HEIGHT)),
+		"but sixty metres above it is not"
+	)
+
 	_expect(places.push_swing(), "the swing can be pushed")
 	_expect(places.swinging(), "and it swings")
 
@@ -2445,9 +2483,13 @@ func _check_it_will_run_on_a_tablet() -> void:
 		bool(ProjectSettings.get_setting("rendering/textures/vram_compression/import_etc2_astc")),
 		"ETC2/ASTC compression is on, which Android exports require"
 	)
+	# Landscape is 0 and portrait is 1. The first version of this check asserted
+	# "not 0", which is exactly backwards: it passed the build with the game
+	# locked to portrait, and only a screenshot from the tablet found it. A
+	# check that admits the wrong value is worse than no check.
 	_expect(
-		int(ProjectSettings.get_setting("display/window/handheld/orientation")) != 0,
-		"the orientation is fixed rather than rotating under a child's hands"
+		int(ProjectSettings.get_setting("display/window/handheld/orientation")) == 0,
+		"the game is locked to landscape, which is what its interface is built for"
 	)
 
 	# Nothing may assume a keyboard: every action needs an on-screen control.
@@ -2572,3 +2614,56 @@ func _check_voice_is_safe() -> void:
 	Text.set_language(Text.EN)
 
 	voice.queue_free()
+
+## Nothing in _ready may be used before it is built.
+##
+## The voice and the whole play-together panel were connected to `hud` eleven
+## lines before `hud = Hud.new()` ran. GDScript does not complain: `hud` is
+## simply null, the connection fails at runtime, and everything downstream of
+## it is silently dead. It reached a tablet that way — the talk button and the
+## networking screen were both wired to nothing, and the desktop never showed
+## it because the screenshot tool builds its own interface.
+##
+## Checked by reading the source, because this is an ordering mistake and the
+## type system has nothing to say about it.
+func _check_nothing_is_used_before_it_exists() -> void:
+	print("nothing is used before it is built")
+	var source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var lines := source.split("\n")
+
+	# The members that are built in _ready and then used all over it.
+	var watched: Array[String] = [
+		"hud", "world", "player", "structures", "camera_rig", "build_mode",
+		"session", "voice", "visitors", "profiles",
+	]
+
+	var built: Dictionary = {}
+	for i in lines.size():
+		var line: String = lines[i]
+		for name in watched:
+			if built.has(name):
+				continue
+			var stripped := line.strip_edges()
+			if stripped.begins_with("%s = " % name):
+				built[name] = i
+
+	var out_of_order := 0
+	for i in lines.size():
+		var line: String = lines[i]
+		# One tab exactly: a statement in _ready, not a line inside a lambda or
+		# a nested block, where the ordering argument does not apply.
+		if not line.begins_with("\t") or line.begins_with("\t\t"):
+			continue
+		for name in watched:
+			if not built.has(name) or i >= int(built[name]):
+				continue
+			if line.begins_with("\t%s." % name):
+				out_of_order += 1
+				printerr(
+					"  line %d uses '%s' but it is not built until line %d: %s" % [
+						i + 1, name, int(built[name]) + 1, line.strip_edges()
+					]
+				)
+
+	_expect(built.size() >= 8, "found %d of the members built in _ready" % built.size())
+	_expect(out_of_order == 0, "every one of them is built before it is used")

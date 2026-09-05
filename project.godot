@@ -24,7 +24,10 @@ window/size/viewport_height=720
 ; instead of squashing the view on unusual screens.
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+; 0 is landscape and 1 is portrait — this was 1, and the game reached a tablet
+; in portrait with its interface laid out for a wide screen. The check that was
+; supposed to catch it asserted "not 0", which endorsed exactly the wrong value.
+window/handheld/orientation=0
 
 [input_devices]
 

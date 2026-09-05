@@ -90,7 +90,10 @@ func _ready() -> void:
 	mounts.place(MountKinds.HORSE, spawn + Vector3(7.0, 0.0, -5.0))
 	# The range points away from the camp and away from the pitch, so no arrow
 	# ever flies towards somewhere a child stands.
-	archery.stand_up(spawn + Vector3(-9.0, 0.0, 6.0), Vector3(-0.35, 0.0, 1.0))
+	# Well away from the camp and from the pitch: an arrow and a football should
+	# never share a field, and a range you can reach without walking is not a
+	# journey. 376 m out, pointing away from everything.
+	archery.stand_up(field.camp_centre() + Vector3(330.0, 0.0, -180.0), Vector3(0.6, 0.0, -1.0))
 	# The camp constant, not the spawn search: the ground under these is
 	# levelled by the height field against that same constant, so using
 	# anything else would stand them beside their own flat patch.

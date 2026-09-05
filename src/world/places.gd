@@ -102,6 +102,35 @@ func water_depth_at(x: float, z: float) -> float:
 	# drift, and a child would float above the floor or stand in the water.
 	return PlaceSpec.excavation(x, z, _camp)
 
+## How deep a body at `at` is submerged, counting the river and the pool.
+##
+## Deliberately not "how deep is the water here": those agree only while a child
+## is standing on the bottom. Asking the wrong one ignores the player's own
+## height, so a child who floats up and breaks the surface is still reported as
+## being in water — buoyancy keeps pushing, gravity is never applied, and they
+## rise for as long as the game is left running. A tablet found one 1,445 m up.
+##
+## Returns zero when the body is above the surface, which is what makes gravity
+## start again.
+func submersion(at: Vector3, body_height: float) -> float:
+	var ground := field.height_at(at.x, at.z)
+	var feet := at.y - body_height * 0.5
+
+	var surface := -1e9
+	# The river: its surface is the world's water line, wherever the bed is
+	# below it.
+	if ground < HeightField.WATER_LEVEL:
+		surface = HeightField.WATER_LEVEL
+	# The pool: filled to the brim of the ground it was dug from, so its surface
+	# is that ground plus what was excavated out of it.
+	var dug := water_depth_at(at.x, at.z)
+	if dug > 0.0:
+		surface = maxf(surface, ground + dug)
+
+	if surface < -1e8:
+		return 0.0
+	return maxf(0.0, surface - feet)
+
 ## Push the swing. Returns true if there was a swing to push.
 func push_swing() -> bool:
 	if _swing_seat == null or not is_instance_valid(_swing_seat):

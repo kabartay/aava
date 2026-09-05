@@ -174,13 +174,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	voice = Voice.new()
 	voice.attach(session)
 	add_child(voice)
-	hud.talk_started.connect(voice.start_talking)
-	hud.talk_released.connect(voice.stop_talking)
 
-	hud.together_opened.connect(_on_together_opened)
-	hud.together.host_requested.connect(_on_host_requested)
-	hud.together.join_requested.connect(_on_join_requested)
-	hud.together.leave_requested.connect(_on_leave_requested)
 	session.opened.connect(_on_session_opened)
 	session.joined.connect(_on_session_joined)
 
@@ -283,6 +277,16 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.set_score(world.football.score)
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 
+	# The interface exists from here and not one line earlier. These sat above,
+	# where `hud` was still null, so the game reached the tablet with its talk
+	# button and its entire play-together panel connected to nothing at all.
+	hud.talk_started.connect(voice.start_talking)
+	hud.talk_released.connect(voice.stop_talking)
+	hud.together_opened.connect(_on_together_opened)
+	hud.together.host_requested.connect(_on_host_requested)
+	hud.together.join_requested.connect(_on_join_requested)
+	hud.together.leave_requested.connect(_on_leave_requested)
+
 	world.follow(start)
 	print("Aava seed %d, spawn %v, player '%s' in world '%s', save at %s" % [
 		world.world_seed, start,
@@ -343,12 +347,11 @@ func _process(delta: float) -> void:
 		camera_rig.set_eye_lift(0.0)
 		sounds.play(Sounds.Sound.REFUSE)
 
-	# The player is told how deep the water is; it knows nothing about rivers or
-	# pools itself. The river's depth comes from the height field, the pool's
-	# from the pool.
+	# How deep the player is *submerged* — not how deep the water is where they
+	# are standing. Those agree only while a child is on the bottom, and the
+	# difference is what sent one into the sky. See Places.submersion.
 	var at := player.global_position
-	var river_depth := maxf(0.0, HeightField.WATER_LEVEL - world.field.height_at(at.x, at.z))
-	player.water_depth = maxf(river_depth, world.places.water_depth_at(at.x, at.z))
+	player.water_depth = world.places.submersion(at, Player.HEIGHT)
 
 	# A child on the swing or on the slide is carried. Both end on their own —
 	# there is no way to be stuck on a ride.

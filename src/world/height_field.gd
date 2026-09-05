@@ -17,10 +17,25 @@ extends RefCounted
 const WATER_LEVEL := 0.0
 
 ## Distance from the river centre where the flat valley floor ends.
-const VALLEY_HALF_WIDTH := 38.0
+##
+## Widened along with the mountains below: a valley a kilometre across with a
+## seventy-metre floor would read as a corridor between two walls rather than
+## as somewhere to wander.
+const VALLEY_HALF_WIDTH := 96.0
 
 ## Distance from the origin where the ground starts climbing into mountains.
-const MOUNTAIN_START := 210.0
+##
+## This single number decides how big the world is to play in. At 210 the
+## walkable valley died at 300 m and everything the children were given — the
+## pitch, the range, the pool, the café — was crammed within sixty metres of the
+## camp, which is what it felt like.
+##
+## 500 gives a walkable disc about a kilometre across. It is deliberately not
+## larger: the terrain streams to 576 m, so mountains much beyond this would sit
+## outside the view and the world would end in haze instead of in peaks. Three
+## kilometres was considered and refused for exactly that — the mountains are
+## half of why the valley is worth being in.
+const MOUNTAIN_START := 500.0
 
 ## Nothing grows above this. A bare treeline is what makes a mountain read as
 ## high rather than as a big green lump.
@@ -148,7 +163,9 @@ func _raw_height(x: float, z: float) -> float:
 	# Hills grow once we are clear of the valley floor. Noise is remapped to 0..1
 	# rather than used raw: fractal noise spends most of its time near zero, so
 	# the signed value produced hills that never actually rose.
-	var hill_mask := smoothstep(VALLEY_HALF_WIDTH, VALLEY_HALF_WIDTH + 110.0, to_river)
+	# Spread over a longer run than before, so the ground rises gradually across
+	# the wider valley rather than in the same short ramp as when it was small.
+	var hill_mask := smoothstep(VALLEY_HALF_WIDTH, VALLEY_HALF_WIDTH + 220.0, to_river)
 	if hill_mask > 0.0:
 		var hill := (_hills.get_noise_2d(x, z) + 1.0) * 0.5
 		floor_height += pow(hill, 1.15) * 62.0 * hill_mask
