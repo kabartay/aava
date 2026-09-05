@@ -35,7 +35,7 @@ const VALLEY_HALF_WIDTH := 96.0
 ## outside the view and the world would end in haze instead of in peaks. Three
 ## kilometres was considered and refused for exactly that — the mountains are
 ## half of why the valley is worth being in.
-const MOUNTAIN_START := 500.0
+const MOUNTAIN_START := 460.0
 
 ## Nothing grows above this. A bare treeline is what makes a mountain read as
 ## high rather than as a big green lump.
@@ -248,7 +248,11 @@ func _raw_height(x: float, z: float) -> float:
 	var hill_mask := smoothstep(VALLEY_HALF_WIDTH, VALLEY_HALF_WIDTH + 220.0, to_river)
 	if hill_mask > 0.0:
 		var hill := (_hills.get_noise_2d(x, z) + 1.0) * 0.5
-		floor_height += pow(hill, 1.15) * 62.0 * hill_mask
+		# Taller than they were. With the mountains moved out to a realistic
+		# distance, these are the only relief inside the kilometre a child
+		# actually plays in — at 62 m the whole valley measured barely fifty
+		# metres of rise and fall across eight hundred, which is a field.
+		floor_height += pow(hill, 1.15) * 105.0 * hill_mask
 
 	# Mountains ring the world. They are scenery first and a destination second:
 	# the ridge line is what tells a child the world continues past the horizon.
@@ -257,7 +261,28 @@ func _raw_height(x: float, z: float) -> float:
 	# read as low grey hills rather than as peaks — the ring of mountains that
 	# frames the valley was, in practice, not there. Over 90 m they stand up
 	# properly right where the walkable ground ends, all the way round.
-	var mountain_mask := smoothstep(MOUNTAIN_START, MOUNTAIN_START + 170.0, from_origin)
+	# Six hundred metres of run for four hundred and thirty of rise — about 36°,
+	# which is a mountain flank. It was 170 m of run, or 68°, which is a wall:
+	# the ground went from valley to peak in the length of a football pitch and
+	# read as scenery propped up at the edge of the world rather than as
+	# somewhere the valley leads.
+	#
+	# Starting at 300 rather than 500 means the rise begins while a child can
+	# still see it and continues past what they can see, which is what a real
+	# valley does. The first hundred metres of it are gentle enough to walk on,
+	# so the places out at 375-440 m still stand on ground rather than on a
+	# hillside.
+	# Gentle at the foot and steep near the top, which is what a real range does
+	# and what neither of the earlier versions did: 170 m of run was a 68° wall
+	# rising straight out of flat ground, and 600 m of even slope put every peak
+	# beyond what a child can see from the camp.
+	#
+	# The curve gives foothills of a few tens of metres just past the furthest
+	# place, a clear rise through what can be seen, and the snow line somewhere
+	# a child has to walk towards.
+	var mountain_mask := pow(
+		smoothstep(MOUNTAIN_START, MOUNTAIN_START + 450.0, from_origin), 1.8
+	)
 	if mountain_mask > 0.0:
 		var ridge := (_mountains.get_noise_2d(x, z) + 1.0) * 0.5
 		# Taller as well, so the highest carry snow and the lowest stay green:

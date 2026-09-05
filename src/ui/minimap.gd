@@ -12,16 +12,25 @@ extends PanelContainer
 ## enough: a small map is for glancing at while walking, and a large one is for
 ## working out where to go. Tapping cycles through them.
 
-enum Size {HIDDEN, SMALL, LARGE}
+## FULL shows the whole valley at once. It exists because the places a child is
+## looking for are now four hundred metres apart: without a view of everything,
+## a new world is a green field with no way to tell which direction anything is
+## in. Reached by tapping twice, so it is out of the way until it is wanted.
+enum Size {HIDDEN, SMALL, LARGE, FULL}
 
 const SMALL_PIXELS := 190.0
 const LARGE_PIXELS := 340.0
+## Big enough to pick a direction from, and still not the whole screen — a child
+## should be able to see where they are going while the map is open.
+const FULL_PIXELS := 560.0
 
 ## How many metres across the map shows at each size. The small one is a
 ## neighbourhood; the large one should reach the mountains, so that a child can
 ## see the shape of the whole valley and not merely his own footprints.
 const SMALL_RANGE := 150.0
 const LARGE_RANGE := 460.0
+## The whole playable valley, which is about a kilometre across.
+const FULL_RANGE := 1100.0
 
 ## Metres between samples. Coarse on purpose: this is a map, not a photograph,
 ## and every sample is a call into the height field.
@@ -43,6 +52,9 @@ var _texture: ImageTexture
 var _player_dot: Control
 var _compass: Label
 var _built: Array[Vector3] = []
+
+## The dots for the places, kept so they can be cleared before being redrawn.
+var _marks: Array[ColorRect] = []
 
 ## Where the map was last drawn from, so it is only redrawn when the player has
 ## actually gone somewhere. Redrawing every frame would sample the height field
@@ -115,10 +127,16 @@ func _gui_input(event: InputEvent) -> void:
 		tapped = click.pressed and click.button_index == MOUSE_BUTTON_LEFT
 	if not tapped:
 		return
-	# Tapping the map switches between small and large only. Hiding belongs to
-	# the button outside it: a map that can hide itself leaves nothing to press
-	# to bring it back.
-	_size = Size.LARGE if _size == Size.SMALL else Size.SMALL
+	# Tap cycles small, large, whole valley, and back. Hiding belongs to the
+	# button outside it: a map that can hide itself leaves nothing to press to
+	# bring it back.
+	match _size:
+		Size.SMALL:
+			_size = Size.LARGE
+		Size.LARGE:
+			_size = Size.FULL
+		_:
+			_size = Size.SMALL
 	_apply_size()
 	accept_event()
 
@@ -138,7 +156,11 @@ func hide_map() -> void:
 	_apply_size()
 
 func _apply_size() -> void:
-	var pixels := SMALL_PIXELS if _size == Size.SMALL else LARGE_PIXELS
+	var pixels := SMALL_PIXELS
+	if _size == Size.LARGE:
+		pixels = LARGE_PIXELS
+	elif _size == Size.FULL:
+		pixels = FULL_PIXELS
 	visible = _size != Size.HIDDEN
 	custom_minimum_size = Vector2(pixels, pixels)
 	size = Vector2(pixels, pixels)
@@ -205,7 +227,13 @@ func _orient(yaw: float) -> void:
 	_compass.position = Vector2(centre.x - _compass.size.x * 0.5, 4.0)
 
 func _redraw(centre: Vector3) -> void:
-	var range_metres := SMALL_RANGE if _size == Size.SMALL else LARGE_RANGE
+	for mark in _marks:
+		if is_instance_valid(mark):
+			mark.queue_free()
+	_marks.clear()
+	_draw_places(centre, range_of(_size))
+
+	var range_metres := range_of(_size)
 	var cells := int(range_metres / STEP)
 	if _image == null or _image.get_width() != cells:
 		_image = Image.create_empty(cells, cells, false, Image.FORMAT_RGB8)
@@ -237,6 +265,54 @@ func _colour_at(x: float, z: float) -> Color:
 	if _field.forest_density_at(x, z) > 0.3:
 		return FOREST
 	return GRASS
+
+## The places worth walking to, drawn on the full map only.
+##
+## A view of the whole valley that shows nothing but terrain answers "where am
+## I" and not "where is anything", which is the question a child actually has
+## once the destinations are four hundred metres apart.
+func _draw_places(centre: Vector3, range_metres: float) -> void:
+	if _size != Size.FULL or _field == null:
+		return
+	var camp := _field.camp_centre()
+	var half := size.x * 0.5
+	var scale := size.x / range_metres
+
+	for place in PlaceSpec.OFFSETS:
+		var at: Vector3 = PlaceSpec.centre_of(place, camp)
+		_mark(at, centre, half, scale, PLACE_COLOURS.get(place, Color.WHITE))
+	_mark(Pitch.centre(), centre, half, scale, Color(0.42, 0.82, 0.44))
+	_mark(camp, centre, half, scale, Color(1.0, 0.88, 0.52))
+
+## Colours rather than labels, because a six-year-old cannot read the labels and
+## the colours match what the place actually looks like when you get there.
+const PLACE_COLOURS := {
+	&"playground": Color(0.96, 0.62, 0.28),
+	&"cafe": Color(0.90, 0.36, 0.32),
+	&"pool": Color(0.42, 0.74, 0.94),
+}
+
+func _mark(at: Vector3, centre: Vector3, half: float, scale: float, colour: Color) -> void:
+	var offset := Vector2(at.x - centre.x, at.z - centre.z) * scale
+	if absf(offset.x) > half or absf(offset.y) > half:
+		return
+	var dot := ColorRect.new()
+	dot.color = colour
+	dot.size = Vector2(14.0, 14.0)
+	dot.position = Vector2(half, half) + offset - dot.size * 0.5
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_marks.append(dot)
+	_canvas.add_child(dot)
+
+## How many metres across the map shows at a given size.
+static func range_of(size: Size) -> float:
+	match size:
+		Size.SMALL:
+			return SMALL_RANGE
+		Size.FULL:
+			return FULL_RANGE
+		_:
+			return LARGE_RANGE
 
 ## Everything the children have built shows as a bright dot. This is what makes
 ## the map theirs rather than a survey: the first thing a child looks for is his

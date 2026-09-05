@@ -47,6 +47,7 @@ func _initialize() -> void:
 	_check_dams_change_the_world()
 	_check_one_thing_a_day()
 	_check_players_and_worlds()
+	_check_the_map_shows_the_valley()
 	_check_playing_together()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
@@ -128,18 +129,35 @@ func _find_scripts(directory: String) -> PackedStringArray:
 func _check_world_has_relief() -> void:
 	print("world has relief")
 	var field := HeightField.new(20260903)
+	# Two questions, not one. The world as a whole has to have mountains in it,
+	# and the part a child actually walks around in has to have some shape of
+	# its own — a kilometre of billiard table with peaks on the horizon is still
+	# a billiard table.
 	var lowest := INF
 	var highest := -INF
-	for z in range(-400, 401, 40):
-		for x in range(-400, 401, 40):
+	for z in range(-900, 901, 60):
+		for x in range(-900, 901, 60):
 			var height := field.height_at(float(x), float(z))
 			lowest = minf(lowest, height)
 			highest = maxf(highest, height)
 	var relief := highest - lowest
-	if relief < 60.0:
-		_fail("only %.1f m of relief across 800 m — the valley is flat" % relief)
+	if relief < 200.0:
+		_fail("only %.0f m of relief across the whole world" % relief)
 	else:
-		_ok("%.1f m from riverbed to peak" % relief)
+		_ok("%.0f m from the riverbed to the peaks" % relief)
+
+	var valley_low := INF
+	var valley_high := -INF
+	for z in range(-400, 401, 30):
+		for x in range(-400, 401, 30):
+			var height := field.height_at(float(x), float(z))
+			valley_low = minf(valley_low, height)
+			valley_high = maxf(valley_high, height)
+	var rolling := valley_high - valley_low
+	if rolling < 60.0:
+		_fail("only %.0f m of rise and fall inside the valley — it is a field" % rolling)
+	else:
+		_ok("%.0f m of rise and fall inside the valley itself" % rolling)
 
 	if lowest > HeightField.WATER_LEVEL:
 		_fail("nothing is below the water line, so there is no river")
@@ -2689,3 +2707,78 @@ func _check_nothing_is_used_before_it_exists() -> void:
 
 	_expect(built.size() >= 8, "found %d of the members built in _ready" % built.size())
 	_expect(out_of_order == 0, "every one of them is built before it is used")
+
+## The map has to answer "where is anything", not only "where am I".
+##
+## That was fine while every destination sat beside the camp. They are four
+## hundred metres apart now, and without a view of the whole valley a new world
+## is a green field with no way to tell which direction anything is in.
+func _check_the_map_shows_the_valley() -> void:
+	print("the map shows the whole valley")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+
+	# Each size must actually show more than the last, or the extra taps do
+	# nothing a child can see.
+	var small := Minimap.range_of(Minimap.Size.SMALL)
+	var large := Minimap.range_of(Minimap.Size.LARGE)
+	var full := Minimap.range_of(Minimap.Size.FULL)
+	_expect(small < large, "large shows more than small (%d m against %d)" % [large, small])
+	_expect(large < full, "and the whole valley more than large (%d m)" % full)
+
+	# The full view has to contain everything a child would look for, or it is
+	# not a view of the valley.
+	var furthest := 0.0
+	var everything: Array[Vector3] = [Pitch.centre(), camp]
+	for place in PlaceSpec.OFFSETS:
+		everything.append(PlaceSpec.centre_of(place, camp))
+	everything.append(camp + Paths.BUTTS_OFFSET)
+	for at in everything:
+		furthest = maxf(furthest, maxf(absf(at.x - camp.x), absf(at.z - camp.z)))
+	_expect(
+		full * 0.5 > furthest,
+		"the whole valley reaches %d m from the camp, and the furthest place is %d m" % [
+			int(full * 0.5), int(furthest)
+		]
+	)
+
+	# Every destination needs a colour, since a six-year-old cannot read labels.
+	var coloured := true
+	for place in PlaceSpec.OFFSETS:
+		if not Minimap.PLACE_COLOURS.has(place):
+			coloured = false
+			printerr("  no colour on the map for %s" % place)
+	_expect(coloured, "every place has its own colour on the map")
+
+	# And no two the same, or the map says two things are the same thing.
+	var seen: Dictionary = {}
+	var distinct := true
+	for place in Minimap.PLACE_COLOURS:
+		var key := str(Minimap.PLACE_COLOURS[place])
+		if seen.has(key):
+			distinct = false
+		seen[key] = true
+	_expect(distinct, "and no two places share one")
+
+	# Tapping has to come back round to where it started, or a child who taps
+	# once too often is stuck in a view they did not want.
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	# Three sizes, so three taps come back round. A child who taps once too many
+	# times must not be stranded in a view they did not want.
+	var started := map._size
+	var seen_sizes: Dictionary = {}
+	for _tap in 3:
+		seen_sizes[map._size] = true
+		map._gui_input(_a_tap())
+	_expect(map._size == started, "tapping three times returns to the size it started at")
+	_expect(seen_sizes.size() == 3, "and passes through all %d sizes on the way" % seen_sizes.size())
+
+	map.queue_free()
+
+## A tap, for driving the interface from a check.
+func _a_tap() -> InputEventMouseButton:
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	return click
