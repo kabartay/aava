@@ -78,6 +78,29 @@ rest of the frame together.
 Vegetation is 5,875 plants in about 49 `MultiMeshInstance3D` tiles. One node per
 plant would be 5,875 draw calls and nothing else would matter.
 
+## The launcher icon
+
+Three layers, generated from SVG by `Godot --script` (no converter is installed
+on this machine and none is needed):
+
+| Layer | Purpose |
+|---|---|
+| `main_192.png` | The legacy square icon, for Android below 8. |
+| `foreground_432.png` | Mountains, hills and sun, over transparency. |
+| `background_432.png` | The sky gradient, full bleed and square — the launcher applies its own mask, so rounding here would show as a double edge. |
+| `monochrome_432.png` | A flat silhouette for Android 13+ themed icons. |
+
+**Only the central 288 px of a 432 px adaptive icon is guaranteed visible.** The
+sun sat at 157 units from the centre against a safe radius of 144, so a circular
+mask cut it in half; it is moved inward in the foreground layer. The landscape
+itself bleeds to the edges on purpose — a mountain range clipped at the corners
+reads as a view rather than as a mistake.
+
+`aapt2 dump badging` reports one warning about a missing `themed_icon.xml`.
+That is a dangling reference inside Godot's prebuilt export template, present
+before any icon was set here, and it is cosmetic: the adaptive icon and its
+monochrome layer are both in the APK and wired up.
+
 ## Still to check on a real device
 
 Named here so they are not mistaken for done:

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Android 13+ themed icons: one flat colour on transparency, which the
+       launcher tints to match the wallpaper. Everything is drawn in white and
+       the shapes are separated by gaps rather than by colour, because tinting
+       collapses every fill to the same value. -->
+  <path d="M0 96 L34 58 L58 82 L84 46 L128 96 Z" fill="#ffffff"/>
+  <path d="M0 128 L0 104 L40 82 L74 104 L104 86 L128 104 L128 128 Z" fill="#ffffff"/>
+  <circle cx="86" cy="34" r="12" fill="#ffffff"/>
+</svg>

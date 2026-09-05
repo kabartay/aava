@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- The landscape bleeds to the edges on purpose: a mountain range clipped at
+       the corners reads as a view, not as a mistake. The sun is the exception —
+       it is a distinct object, and at its original position (96,30) it fell 157
+       units from the centre against a safe radius of 144, so a circular mask cut
+       it in half. Moved inward to sit inside the guaranteed area. -->
+  <path d="M0 92 L34 58 L58 80 L84 46 L128 92 Z" fill="#6f7d86"/>
+  <path d="M0 128 L0 96 L40 74 L74 96 L104 78 L128 96 L128 128 Z" fill="#4c8f3a"/>
+  <circle cx="86" cy="38" r="13" fill="#ffe08a"/>
+</svg>
