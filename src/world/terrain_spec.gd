@@ -25,6 +25,11 @@ const CHUNK_SIZE := 64
 ## triangles across, which is invisible at that distance and halves the vertex
 ## work for the third of the world that is furthest from the camera.
 const RINGS := [
+	## Step 1, not 2. Halving the mesh resolution here looks like a saving and is
+	## not: the collision grid is full resolution either way, and at step 1 the
+	## mesh and the collision share one set of samples. At step 2 they no longer
+	## match, collision samples the field all over again, and the chunk costs
+	## more than it did before — 22.4 ms against 14.6.
 	{"radius": 1, "step": 1, "collide": true},
 	{"radius": 3, "step": 2, "collide": true},
 	{"radius": 6, "step": 4, "collide": false},

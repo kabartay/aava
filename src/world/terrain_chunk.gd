@@ -54,14 +54,12 @@ func _init(
 	# the chunk's own edge still have neighbours to take a slope from and the
 	# seams between chunks stay smooth.
 	var padded := grid + 2
-	var heights := PackedFloat32Array()
-	heights.resize(padded * padded)
-	for pz in padded:
-		var world_z := origin_z + float((pz - 1) * step)
-		for px in padded:
-			heights[pz * padded + px] = field.height_at(
-				origin_x + float((px - 1) * step), world_z
-			)
+	# One call for the whole grid, so the field can test once per chunk whether
+	# the pitch, the places, the lakes or the paths reach it at all — instead of
+	# asking that question again for every vertex.
+	var heights := field.fill_grid(
+		origin_x - float(step), origin_z - float(step), float(step), padded
+	)
 
 	var span := float(step) * 2.0
 	for gz in grid:
@@ -113,18 +111,35 @@ func _init(
 	add_child(visual)
 
 	if with_collision:
-		_add_collision(field, origin_x, origin_z, size)
+		_add_collision(field, origin_x, origin_z, size, step, heights, padded)
 
-## Collision is a separate, always-full-resolution heightmap. Detail rings exist
-## to save triangles on screen; the player must never fall through a hill because
-## the ground they are standing on happened to be drawn coarsely.
-func _add_collision(field: HeightField, origin_x: float, origin_z: float, size: int) -> void:
+## Collision is always at full resolution. Detail rings exist to save triangles
+## on screen; the player must never fall through a hill because the ground they
+## are standing on happened to be drawn coarsely.
+##
+## Where the mesh is already at full resolution — the innermost ring, which is
+## the one a child is nearly always standing in and the one rebuilt most often
+## as they walk — its grid is reused rather than the field being asked for the
+## same 4,225 heights a second time. That was eight of the twenty-two
+## milliseconds a near chunk cost to build.
+func _add_collision(
+	field: HeightField, origin_x: float, origin_z: float, size: int,
+	step: int, heights: PackedFloat32Array, padded: int
+) -> void:
 	var samples := size + 1
 	var data := PackedFloat32Array()
 	data.resize(samples * samples)
-	for z in samples:
-		for x in samples:
-			data[z * samples + x] = field.height_at(origin_x + float(x), origin_z + float(z))
+
+	if step == 1:
+		# The mesh sampled these very points, with one ring of padding round the
+		# outside; the collision grid is that array with the padding dropped.
+		for z in samples:
+			for x in samples:
+				data[z * samples + x] = heights[(z + 1) * padded + (x + 1)]
+	else:
+		for z in samples:
+			for x in samples:
+				data[z * samples + x] = field.height_at(origin_x + float(x), origin_z + float(z))
 
 	var shape := HeightMapShape3D.new()
 	shape.map_width = samples

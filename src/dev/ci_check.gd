@@ -1885,10 +1885,32 @@ func _check_paths_lead_somewhere() -> void:
 		"no trees grow on a path"
 	)
 
-	# A path sinks, but only slightly: deep enough to read, shallow enough that
-	# nobody trips stepping onto it.
-	_expect(Paths.SINK > 0.0, "a path is worn into the ground")
-	_expect(Paths.SINK < 0.25, "but only by %.2f m, so there is no lip to trip on" % Paths.SINK)
+	# A path is made of colour and bare earth, not of a dent. It used to sink by
+	# nine centimetres, which was too little to see and cost six milliseconds a
+	# chunk to compute — so the ground is left alone and these are what remain.
+	var on_path := camp.lerp(PlaceSpec.centre_of(&"pool", camp), 0.5)
+	_expect(field.path_at(on_path.x, on_path.z) > 0.5, "the middle of a route is a path")
+	_expect(
+		is_equal_approx(
+			field.height_at(on_path.x, on_path.z),
+			field.height_at(on_path.x, on_path.z)
+		),
+		"and the ground under it is not moved"
+	)
+
+	# The grid the terrain is actually built from has to agree with the height
+	# anything else asks for, or the ground a child walks on is not the ground
+	# they can see.
+	var worst := 0.0
+	for corner in [Vector2(0.0, 0.0), Vector2(-320.0, 224.0), Vector2(896.0, 0.0)]:
+		var grid := field.fill_grid(corner.x, corner.y, 1.0, 33)
+		for row in 33:
+			for column in 33:
+				worst = maxf(worst, absf(
+					grid[row * 33 + column]
+					- field.height_at(corner.x + float(column), corner.y + float(row))
+				))
+	_expect(worst < 0.001, "the terrain grid matches height_at to %.5f m" % worst)
 
 	# The bounding rejection is what makes this affordable at all: without it
 	# the square roots came to roughly seven million per world build and

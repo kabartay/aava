@@ -79,7 +79,14 @@ func _init(
 		var height := field.height_at(world_x, world_z)
 		if height < HeightField.WATER_LEVEL + 0.35 or height > HeightField.TREELINE:
 			continue
-		if field.steepness_at(world_x, world_z) > 0.5:
+		# A forward difference from the height already in hand, rather than
+		# steepness_at, which takes four more samples of its own. Six hundred
+		# and twenty candidates a tile times four calls is most of what a tile
+		# costs, and a tuft of grass does not need the exact gradient — it needs
+		# to know whether this is a slope.
+		var rise_x := field.height_at(world_x + 1.2, world_z) - height
+		var rise_z := field.height_at(world_x, world_z + 1.2) - height
+		if (rise_x * rise_x + rise_z * rise_z) > 0.36:
 			continue
 		# Nothing grows on a mown pitch. Grass tufts are placed by their own
 		# rule rather than by forest density, so suppressing trees there was

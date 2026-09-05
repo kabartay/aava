@@ -51,6 +51,17 @@ static func centre() -> Vector3:
 ## pitch — its height, its grass colour, whether trees may grow — is this one
 ## number, so the surface, the paint and the planting can never disagree about
 ## where the pitch is.
+## Whether a box comes near enough to the pitch for any of it to matter. Lets a
+## whole terrain chunk skip the pitch in one test instead of once per vertex.
+static func touches_box(x0: float, z0: float, x1: float, z1: float) -> bool:
+	var reach_x := HALF_LENGTH + 40.0
+	var reach_z := HALF_WIDTH + 40.0
+	if x1 < CENTRE.x - reach_x or x0 > CENTRE.x + reach_x:
+		return false
+	if z1 < CENTRE.z - reach_z or z0 > CENTRE.z + reach_z:
+		return false
+	return true
+
 static func influence(x: float, z: float) -> float:
 	var dx := absf(x - CENTRE.x) - (HALF_LENGTH + APRON)
 	var dz := absf(z - CENTRE.z) - (HALF_WIDTH + APRON)

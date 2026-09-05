@@ -14,7 +14,11 @@ extends Node3D
 ## far cheaper than stitching meshes together.
 
 ## Chunks built per frame while streaming. Low enough that walking never stutters.
-const CHUNKS_PER_FRAME := 3
+## One at a time. Three chunks in a frame is three times the stutter in that
+## frame — the total work is unchanged either way, but a child feels the pause,
+## not the throughput. Ground fills in a little further behind them and nothing
+## else is any different.
+const CHUNKS_PER_FRAME := 1
 
 var field: HeightField
 

@@ -197,9 +197,10 @@ func track(world_position: Vector3, yaw: float, built: Array[Vector3]) -> void:
 func _orient(yaw: float) -> void:
 	var centre := size * 0.5
 	_player_dot.position = centre - _player_dot.size * 0.5
-	# The map is drawn with world north up, so the arrow points the way the
-	# camera does, measured from up.
-	_player_dot.rotation = yaw
+	# The map is drawn with world north up, and the camera's yaw is measured the
+	# other way round from screen rotation — so the arrow pointed exactly
+	# backwards until this was negated.
+	_player_dot.rotation = -yaw
 	_player_dot.pivot_offset = _player_dot.size * 0.5
 	_compass.position = Vector2(centre.x - _compass.size.x * 0.5, 4.0)
 
