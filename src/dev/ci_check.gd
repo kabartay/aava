@@ -48,6 +48,7 @@ func _initialize() -> void:
 	_check_one_thing_a_day()
 	_check_players_and_worlds()
 	_check_playing_together()
+	_check_it_will_run_on_a_tablet()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -2374,3 +2375,66 @@ func _check_playing_together() -> void:
 	panel.queue_free()
 	session.queue_free()
 	visitors.queue_free()
+
+## The target device is a tablet, and every measurement so far has been taken on
+## an M3 Max — which tells you almost nothing. These are the budgets that matter
+## on mobile hardware, checked as numbers rather than hoped for.
+func _check_it_will_run_on_a_tablet() -> void:
+	print("the budgets a tablet cares about")
+
+	# Draw calls, not triangles, are what a tablet GPU runs out of first. One
+	# per terrain chunk, and the ring radius squares.
+	var span := int(TerrainSpec.RINGS[TerrainSpec.RINGS.size() - 1]["radius"]) * 2 + 1
+	var chunks := span * span
+	_expect(
+		chunks <= 400,
+		"the terrain is %d draw calls a frame, which a tablet can afford" % chunks
+	)
+
+	# The outer ring must be much coarser than the inner one, or distant ground
+	# costs as much as the ground underfoot for detail nobody can see.
+	var innermost := int(TerrainSpec.RINGS[0]["step"])
+	var outermost := int(TerrainSpec.RINGS[TerrainSpec.RINGS.size() - 1]["step"])
+	_expect(
+		outermost >= innermost * 8,
+		"the furthest ring is %dx coarser than the nearest" % (outermost / maxi(innermost, 1))
+	)
+
+	# Collision is far more expensive than drawing, so only the rings a child
+	# can actually reach may have any.
+	var colliding := 0
+	for ring in TerrainSpec.RINGS:
+		if ring["collide"]:
+			colliding += 1
+	_expect(colliding <= 2, "only the %d nearest rings have collision" % colliding)
+
+	# Vegetation has to be instanced, or five thousand plants is five thousand
+	# draw calls and nothing else matters.
+	var vegetation_source := FileAccess.get_file_as_string("res://src/world/vegetation_tile.gd")
+	_expect(
+		vegetation_source.contains("MultiMeshInstance3D"),
+		"plants are drawn as instances rather than one node each"
+	)
+
+	# The project has to be set up for mobile at all: the renderer, the texture
+	# format Android requires, and a fixed orientation.
+	_expect(
+		ProjectSettings.get_setting("rendering/renderer/rendering_method.mobile") == "mobile",
+		"the mobile renderer is selected for mobile builds"
+	)
+	_expect(
+		bool(ProjectSettings.get_setting("rendering/textures/vram_compression/import_etc2_astc")),
+		"ETC2/ASTC compression is on, which Android exports require"
+	)
+	_expect(
+		int(ProjectSettings.get_setting("display/window/handheld/orientation")) != 0,
+		"the orientation is fixed rather than rotating under a child's hands"
+	)
+
+	# Nothing may assume a keyboard: every action needs an on-screen control.
+	var hud_source := FileAccess.get_file_as_string("res://src/ui/hud.gd")
+	for control in ["jump", "build", "kick"]:
+		_expect(
+			hud_source.contains('"ui_%s"' % control) or hud_source.contains('"%s"' % control),
+			"there is an on-screen control for %s" % control
+		)

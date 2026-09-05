@@ -52,6 +52,7 @@ recur.
 | Sent messages on a connection not yet up | "Built a wall" from a game that never joined | `is_connected_to_anyone()` |
 | Buoyancy proportional to depth, uncapped | 24.8 m/s² up — the player launched out of deep water | Capped lift and rise speed |
 | Positioned a panel before its size was known | It ran off the bottom of the screen | Measure after the page is built |
+| Measured frame time with vsync on | Every number was 120 fps, i.e. the refresh rate | Measure uncapped |
 
 
 ## Godot 4.7
@@ -301,3 +302,16 @@ in the last number, so the screen shows *one number* and asks for *one number*,
 tapped on keys the size of a thumb. There is no text entry on that screen at
 all, which is also the cheapest way to be sure nothing arrives that has to be
 sanitised before another child sees it.
+
+**A frame-time measurement with vsync on measures the monitor.** The first
+mobile-renderer benchmark reported a confident 8.34 ms mean — which is 120 fps,
+which is the refresh rate, which is what it would have reported for any scene at
+all. Uncapped, the same scene ran at 2.51 ms. Turn vsync off and set
+`Engine.max_fps = 0` before believing a number.
+
+**Draw calls are the tablet budget, not triangles.** The terrain is one call per
+chunk and the ring radius squares, so radius 9 is 361 calls a frame before
+anything else is drawn. Making the outermost ring four times coarser cut the
+median frame from 2.51 ms to 1.50 ms and removed 18,432 triangles for nothing
+visible — the horizon was checked in a screenshot afterwards and holds up. There
+is now a check that fails the build if the count passes 400.

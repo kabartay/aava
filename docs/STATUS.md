@@ -146,9 +146,18 @@ Last updated: 2026-09-04.
 | Visitors | Done | Other children drawn where they stand, with their name above them, eased between updates. |
 | Voice chat | **Not started** | The hardest part, with real safety implications. See ROADMAP.md. |
 
+## Android
+
+| Part | State | Notes |
+|---|---|---|
+| APK builds | Done | 27 MB, arm64. See ANDROID.md for the toolchain. |
+| Mobile renderer | Done | Verified in a screenshot; terrain, water, animals and UI all correct. |
+| Draw-call budget | Done | 361 chunks a frame, checked against a 400 ceiling. |
+| Measured on a real tablet | **Not done** | Everything so far is an M3 Max and a ratio. |
+
 ## Not started
 
 Named here so they are not mistaken for oversights: a road leading off the map,
-network transport, and voice chat.
+voice chat, and every measurement in ANDROID.md that needs a real device.
 
 See ROADMAP.md for the order these are worth doing in and what each depends on.

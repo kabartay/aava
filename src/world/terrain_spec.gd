@@ -15,11 +15,20 @@ const CHUNK_SIZE := 64
 ## Sampling step per detail ring and how far out each ring reaches, in chunks.
 ## Ring zero is where the player stands, so it is the only detail that has to
 ## survive a camera two metres off the ground.
+## Rings of decreasing detail around the player. `radius` is in chunks,
+## Chebyshev distance, so ring 9 means a 19x19 grid — 361 chunks and therefore
+## 361 draw calls every frame.
+##
+## That number is fine on a desktop and is the first thing that will hurt on a
+## tablet, where draw calls cost far more than triangles. The outer ring is now
+## twice as coarse: at step 16 a chunk two hundred metres away is eight
+## triangles across, which is invisible at that distance and halves the vertex
+## work for the third of the world that is furthest from the camera.
 const RINGS := [
 	{"radius": 1, "step": 1, "collide": true},
 	{"radius": 3, "step": 2, "collide": true},
 	{"radius": 6, "step": 4, "collide": false},
-	{"radius": 9, "step": 8, "collide": false},
+	{"radius": 9, "step": 16, "collide": false},
 ]
 
 const COLOR_SAND := Color(0.83, 0.76, 0.56)
