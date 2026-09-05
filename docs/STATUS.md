@@ -141,7 +141,8 @@ Last updated: 2026-09-04.
 | Invitations | Done | Being invited puts you in *that* copy — you walk into your friend's house, not a picture of it. |
 | Shared vs private state | Done | Buildings, felled trees and dams belong to the world; bag, coins and journal to the child. |
 | Migration | Done | A valley built before profiles existed becomes the first world rather than being abandoned. |
-| Networking | Done (LAN) | One device hosts, others join on the family network. Verified across two processes: positions, buildings, felling and dam sticks all travel. |
+| Networking | Done (LAN) | One device hosts, others join on the family network. Verified across two processes. |
+| Play-together screen | Done | The host shows one big number; the guest taps it on a keypad. No text entry anywhere. |
 | Visitors | Done | Other children drawn where they stand, with their name above them, eased between updates. |
 | Voice chat | **Not started** | The hardest part, with real safety implications. See ROADMAP.md. |
 

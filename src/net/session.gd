@@ -182,6 +182,40 @@ static func local_addresses() -> Array[String]:
 			out.append(address)
 	return out
 
+## The number a child reads out, and the number the other child types in.
+##
+## A full address is fifteen characters of dots and digits: unreadable at six,
+## and a typing task at ten. But two devices on one family network always share
+## the first three parts of it — 192.168.1.x — so the only part that actually
+## differs is the last number, between 1 and 254.
+##
+## So the host shows one number, large, and the guest types that same number.
+## Three digits instead of fifteen characters, and no punctuation at all.
+static func code_for(address: String) -> int:
+	var parts := address.split(".")
+	if parts.size() != 4:
+		return 0
+	return parts[3].to_int()
+
+## Turn a code back into an address, using this machine's own network as the
+## prefix — which is exactly the assumption that makes the short code work.
+static func address_for_code(code: int) -> String:
+	if code < 1 or code > 254:
+		return ""
+	for address in local_addresses():
+		var parts := address.split(".")
+		if parts.size() == 4:
+			return "%s.%s.%s.%d" % [parts[0], parts[1], parts[2], code]
+	return ""
+
+## The code to show a child who is hosting, or 0 if this machine is not on a
+## network at all — which is worth saying plainly rather than showing a zero.
+static func own_code() -> int:
+	var addresses := local_addresses()
+	if addresses.is_empty():
+		return 0
+	return code_for(addresses[0])
+
 static func _is_private_172(address: String) -> bool:
 	if not address.begins_with("172."):
 		return false

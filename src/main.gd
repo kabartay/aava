@@ -170,6 +170,13 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	visitors.name = "Visitors"
 	add_child(visitors)
 
+	hud.together_opened.connect(_on_together_opened)
+	hud.together.host_requested.connect(_on_host_requested)
+	hud.together.join_requested.connect(_on_join_requested)
+	hud.together.leave_requested.connect(_on_leave_requested)
+	session.opened.connect(_on_session_opened)
+	session.joined.connect(_on_session_joined)
+
 	session.guest_arrived.connect(_on_guest_arrived)
 	session.guest_left.connect(_on_guest_left)
 	session.guest_moved.connect(visitors.move)
@@ -552,6 +559,51 @@ func _offer_at(place: StringName) -> String:
 			# The pool needs no button: a child walks in and swims. Offering
 			# "swim" beside water you are already standing in is noise.
 			return ""
+
+## The name a child is known by on the other machine. Their profile name if
+## they have one, and otherwise something rather than nothing — a blank label
+## over a visitor tells you somebody is there but not who.
+func _display_name() -> String:
+	if not profiles.current_player.is_empty():
+		return profiles.current_player
+	return Text.of("ui_player")
+
+func _on_together_opened() -> void:
+	# Opened on the page that matches what is already happening, so a child who
+	# is hosting and reopens this sees their number instead of being asked again
+	# whether they would like to host.
+	if session.is_host():
+		hud.together.show_hosting()
+	elif session.is_networked():
+		hud.together.show_visiting()
+	else:
+		hud.together.open()
+
+func _on_host_requested() -> void:
+	if session.host(_display_name()):
+		hud.together.show_hosting()
+
+func _on_join_requested(code: int) -> void:
+	var address := Session.address_for_code(code)
+	if address.is_empty():
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_no_network"), 3.0)
+		return
+	session.join(address, _display_name())
+
+func _on_leave_requested() -> void:
+	session.close()
+	hud.together.close()
+	hud.announce(Text.of("say_alone_again"), 2.5)
+
+func _on_session_opened(_port: int) -> void:
+	sounds.play(Sounds.Sound.CHIME, 1.2)
+	hud.announce(Text.format("say_hosting", [Session.own_code()]), 6.0)
+
+func _on_session_joined() -> void:
+	sounds.play(Sounds.Sound.CHIME, 1.2)
+	hud.together.close()
+	hud.announce(Text.of("say_visiting"), 3.0)
 
 func _on_guest_arrived(id: int, name: String) -> void:
 	visitors.add(id, name)

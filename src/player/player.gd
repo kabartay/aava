@@ -40,6 +40,15 @@ const BUOYANCY := 9.0
 ## bouncing.
 const SWIM_DAMP := 0.86
 
+## How far below the surface buoyancy keeps growing. Past this the water simply
+## lifts at its strongest rather than harder still — see the note where it is
+## used.
+const MAX_LIFT_DEPTH := 0.9
+
+## The fastest anyone rises in water, whatever the depth. Well under the jump
+## velocity, so surfacing is a bob and never a launch.
+const MAX_RISE := 3.4
+
 const HEIGHT := 1.55
 const RADIUS := 0.34
 
@@ -188,9 +197,21 @@ func _physics_process(delta: float) -> void:
 	if afloat:
 		# Pushed towards the surface rather than pulled to the bed, and damped
 		# so the child settles at the waterline instead of bobbing forever.
-		var to_surface := water_depth - SWIM_DEPTH
+		#
+		# The lift is capped. Without a cap it is proportional to how far below
+		# the surface you are, and the river reaches 3.8 m: that gave 24.8 m/s²
+		# upward — more than gravity — so a child who waded into a deep stretch
+		# was fired into the sky the moment they broke the surface and the water
+		# stopped holding them. Water lifts you to the top; it does not throw
+		# you off it.
+		var to_surface := clampf(water_depth - SWIM_DEPTH, 0.0, MAX_LIFT_DEPTH)
 		velocity.y += BUOYANCY * to_surface * delta
 		velocity.y *= SWIM_DAMP
+		# And a hard ceiling on how fast anyone can be moving upwards while in
+		# water, so no combination of depth and frame time can accumulate into
+		# a launch.
+		velocity.y = minf(velocity.y, MAX_RISE)
+
 		# Jump becomes a stroke upwards, which is how a child expects to get
 		# out of a pool.
 		if _buffered_jump > 0.0:

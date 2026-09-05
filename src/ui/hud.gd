@@ -40,6 +40,7 @@ signal shoot_started()
 signal shoot_released()
 signal place_used()
 signal dam_stick()
+signal together_opened()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -84,6 +85,7 @@ var _ride_button: Button
 var _shoot_button: Button
 var _visit_button: Button
 var _dam_button: Button
+var together: TogetherPanel
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -278,6 +280,10 @@ func _ready() -> void:
 	_menu = _build_menu()
 	add_child(_menu)
 
+	together = TogetherPanel.new()
+	together.resized_page.connect(_relayout_next_frame)
+	add_child(together)
+
 	_danger = _build_danger()
 	add_child(_danger)
 
@@ -340,6 +346,15 @@ func _build_menu() -> VBoxContainer:
 		button.add_theme_font_size_override("font_size", 22)
 		button.pressed.connect(func() -> void: language_chosen.emit(code))
 		column.add_child(button)
+
+	# Playing together is an ordinary thing to want, so it sits above the quiet
+	# door and is coloured like something to press rather than something to
+	# avoid.
+	var share := _button(Text.of("ui_together"), Color(0.62, 0.88, 0.68))
+	share.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
+	share.add_theme_font_size_override("font_size", 20)
+	share.pressed.connect(_open_together)
+	column.add_child(share)
 
 	# A quiet way through to the dangerous room, worded so an adult knows it is
 	# for them and a child has no reason to want it.
@@ -601,6 +616,20 @@ func _toggle_map() -> void:
 	_map_button.modulate = Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
 	_layout()
 
+## Opens on whichever page matches what is already happening, so a child who
+## is hosting and reopens this sees their number rather than being asked again.
+## Lay out again once the tree has actually removed the previous page's
+## controls, since until then they still count towards the panel's size.
+func _relayout_next_frame() -> void:
+	await get_tree().process_frame
+	if is_instance_valid(self):
+		_layout()
+
+func _open_together() -> void:
+	_menu.visible = false
+	together_opened.emit()
+	_layout()
+
 func _toggle_menu() -> void:
 	_menu.visible = not _menu.visible
 	# Opening or closing the menu always shuts the dangerous room behind it.
@@ -833,6 +862,18 @@ func _layout() -> void:
 			Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
 		)
 	_map_button.position = _menu_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
+	# Centred, because it is the only screen that takes the whole attention.
+	#
+	# Its height is not known until the page inside it has been laid out, and
+	# _layout runs before that — so the first version ran off the bottom of the
+	# screen. Clamped into the safe area rather than trusted to fit.
+	together.size = together.get_combined_minimum_size()
+	var room := safe.size - together.size
+	together.position = Vector2(
+		safe.position.x + maxf(room.x, 0.0) * 0.5,
+		safe.position.y + maxf(room.y, 0.0) * 0.5
+	)
+
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
 	_danger.position = _menu.position
 

@@ -50,6 +50,8 @@ recur.
 | A replacement matched inside a lambda | Corrupted a `connect()` into a parse error | Rewrote the block by line, not by text |
 | `multiplayer` used before entering the tree | Null access instead of an honest failure | `_ready_to_connect()` guard |
 | Sent messages on a connection not yet up | "Built a wall" from a game that never joined | `is_connected_to_anyone()` |
+| Buoyancy proportional to depth, uncapped | 24.8 m/s² up — the player launched out of deep water | Capped lift and rise speed |
+| Positioned a panel before its size was known | It ran off the bottom of the screen | Measure after the page is built |
 
 
 ## Godot 4.7
@@ -282,3 +284,20 @@ called `join()` is networked, but its connection may still be in flight or may
 have already failed. Sending on it fails silently, so a headless test cheerfully
 reported building a wall in a valley it had never reached. Every send now checks
 the peer's actual connection status, not merely that a session exists.
+
+**A force proportional to a distance needs a ceiling.** Buoyancy was
+`BUOYANCY * (depth - SWIM_DEPTH)`, which is right in a swimming pool and wrong
+in a river: the river reaches 3.8 m, which came to 24.8 m/s² upward — more than
+gravity. A child who waded into a deep stretch was accelerated to the surface
+and then kept all that velocity as they broke it, because the moment they were
+no longer afloat the water stopped damping them. They flew. The fix is two
+ceilings: one on how far down the force keeps growing, and one on how fast
+anyone may rise while in water at all.
+
+**An address is a design problem, not a plumbing one.** `192.168.1.161` is
+fifteen characters of dots and digits — a six-year-old cannot read it out and a
+ten-year-old will mistype it. But two devices on one family network differ only
+in the last number, so the screen shows *one number* and asks for *one number*,
+tapped on keys the size of a thumb. There is no text entry on that screen at
+all, which is also the cheapest way to be sure nothing arrives that has to be
+sanitised before another child sees it.

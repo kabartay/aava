@@ -229,6 +229,51 @@ const STRINGS := {
 		FR: "les castors ont fini le barrage !",
 		RU: "бобры достроили запруду!",
 	},
+	"ui_player": {
+		EN: "player", FR: "joueur", RU: "игрок",
+	},
+	"ui_together": {
+		EN: "play together", FR: "jouer ensemble", RU: "играть вместе",
+	},
+	"ui_invite": {
+		EN: "invite someone", FR: "inviter quelqu'un", RU: "позвать к себе",
+	},
+	"ui_visit": {
+		EN: "go to someone", FR: "aller chez quelqu'un", RU: "пойти к другому",
+	},
+	"ui_your_number": {
+		EN: "your number", FR: "ton numéro", RU: "твой номер",
+	},
+	"ui_their_number": {
+		EN: "their number", FR: "son numéro", RU: "его номер",
+	},
+	"ui_play_alone": {
+		EN: "play alone again", FR: "rejouer tout seul", RU: "играть одному",
+	},
+	"say_read_it_out": {
+		EN: "tell it to the other player, and they can come to your valley",
+		FR: "dis-le à l'autre joueur, il pourra venir dans ta vallée",
+		RU: "скажи этот номер другому — он придёт в твою долину",
+	},
+	"say_no_network": {
+		EN: "this device is not on a network",
+		FR: "cet appareil n'est pas sur un réseau",
+		RU: "это устройство не в сети",
+	},
+	"say_visiting": {
+		EN: "you are in someone else's valley",
+		FR: "tu es dans la vallée de quelqu'un d'autre",
+		RU: "ты в чужой долине",
+	},
+	"say_hosting": {
+		EN: "your valley is open — your number is %d",
+		FR: "ta vallée est ouverte — ton numéro est %d",
+		RU: "твоя долина открыта — твой номер %d",
+	},
+	"say_alone_again": {
+		EN: "playing alone again", FR: "de nouveau tout seul",
+		RU: "снова играешь один",
+	},
 	"say_joined": {
 		EN: "%s came to your valley", FR: "%s est venu dans ta vallée",
 		RU: "%s пришёл в твою долину",

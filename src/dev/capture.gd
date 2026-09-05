@@ -22,6 +22,7 @@ extends Node3D
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
+##   --together=choice|host|type  open the play-together panel on a page
 ##   --shop=1  open the shop panel, with coins to spend
 ##   --dam=1  finish the first dam before the shot, to show the pond
 ##   --mounts=1  put a horse and a bicycle in front of the camera
@@ -59,6 +60,7 @@ var _kick_strength := 1.0
 var _kick_loft := 0.25
 var _zoom := 0.0
 var _shop := false
+var _together := ""
 var _energy := 1.0
 var _chop := 0
 var _mounts := false
@@ -242,6 +244,14 @@ func _spawn_player() -> void:
 		_hud.set_owned(owned)
 	if _shop:
 		_hud.set_shop_open(true, _coins, {})
+	match _together:
+		"choice":
+			_hud.together.open()
+		"host":
+			_hud.together.show_hosting()
+		"type":
+			_hud.together.open()
+			_hud.together._start_typing()
 
 func _stand_up_a_camp(spawn: Vector3) -> void:
 	for kind in ItemKinds.ALL:
@@ -485,6 +495,8 @@ func _parse_arguments() -> void:
 				_zoom = value.to_float()
 			"shop":
 				_shop = value.to_int() != 0
+			"together":
+				_together = value
 			"energy":
 				_energy = value.to_float()
 			"chop":

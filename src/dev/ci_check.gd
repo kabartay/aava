@@ -363,7 +363,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors", "TogetherPanel",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1636,6 +1636,33 @@ func _check_places_worth_walking_to() -> void:
 	_expect(Player.SWIM_SPEED < Player.WALK_SPEED, "swimming is slower than walking")
 	_expect(Player.BUOYANCY > 0.0, "water pushes a child back up, so nobody sinks")
 
+	# But it must never throw them off it. Buoyancy was proportional to depth
+	# with no ceiling, and the river reaches 3.8 m: that came to 24.8 m/s²
+	# upward, more than gravity, and a child who waded into a deep stretch was
+	# fired into the sky the moment they broke the surface.
+	var deepest := 0.0
+	for z in range(-300, 300, 11):
+		var rx := field.river_centre_x(float(z))
+		deepest = maxf(deepest, HeightField.WATER_LEVEL - field.height_at(rx, float(z)))
+	_expect(deepest > Player.SWIM_DEPTH, "the river is deep enough to swim in (%.1f m)" % deepest)
+
+	var lift := Player.BUOYANCY * minf(deepest - Player.SWIM_DEPTH, Player.MAX_LIFT_DEPTH)
+	_expect(
+		lift < 24.0,
+		"at the deepest point water lifts at %.1f m/s², which is less than gravity" % lift
+	)
+
+	# And simulate it, rather than trusting the arithmetic: no sequence of
+	# frames in the deepest water may reach a speed that reads as a launch.
+	var rising := 0.0
+	for _step in 600:
+		var to_surface := clampf(deepest - Player.SWIM_DEPTH, 0.0, Player.MAX_LIFT_DEPTH)
+		rising = minf((rising + Player.BUOYANCY * to_surface / 60.0) * Player.SWIM_DAMP, Player.MAX_RISE)
+	_expect(
+		rising < Player.JUMP_VELOCITY * 0.5,
+		"and nobody rises faster than %.2f m/s, well under a jump" % rising
+	)
+
 	# The café closes the energy loop: coins back into energy.
 	var wallet := Wallet.new()
 	_expect(not wallet.spend(Places.MEAL_PRICE), "an empty purse buys no lunch")
@@ -2277,10 +2304,73 @@ func _check_playing_together() -> void:
 	visitors.clear()
 	_expect(visitors.count() == 0, "and closing the session removes everyone")
 
+	# The short code. A full address is fifteen characters of dots and digits,
+	# which a six-year-old cannot read out and a ten-year-old would mistype.
+	# Two devices on one family network differ only in the last number.
+	_expect(Session.code_for("192.168.1.161") == 161, "an address becomes one number")
+	_expect(Session.code_for("10.0.0.7") == 7, "whatever the network")
+	_expect(Session.code_for("nonsense") == 0, "and nonsense becomes nothing")
+
+	# The round trip: what one child reads out is what the other types in.
+	for address in Session.local_addresses():
+		var code := Session.code_for(address)
+		_expect(
+			Session.address_for_code(code) == address,
+			"reading out %d and typing it back reaches %s" % [code, address]
+		)
+	_expect(Session.address_for_code(0).is_empty(), "zero is not an address")
+	_expect(Session.address_for_code(255).is_empty(), "nor is 255")
+	_expect(Session.address_for_code(-4).is_empty(), "nor a negative number")
+
+	# The panel itself: four pages, no text entry anywhere.
+	var panel := TogetherPanel.new()
+	get_root().add_child(panel)
+	_expect(not panel.visible, "the panel starts closed")
+	panel.open()
+	_expect(panel.visible, "and opens")
+	_expect(panel.page == TogetherPanel.Page.CHOICE, "on the choice of hosting or visiting")
+
+	var panel_source := FileAccess.get_file_as_string("res://src/ui/together_panel.gd")
+	_expect(
+		not panel_source.contains("LineEdit") and not panel_source.contains("TextEdit"),
+		"there is no text entry anywhere on this screen"
+	)
+
+	panel._start_typing()
+	_expect(panel.page == TogetherPanel.Page.TYPING, "the keypad opens")
+	var asked: Array[int] = []
+	panel.join_requested.connect(func(code: int) -> void: asked.append(code))
+
+	panel._press("1")
+	panel._press("6")
+	panel._press("1")
+	panel._press("9")
+	_expect(panel._typed == "161", "a fourth digit is refused rather than clearing what was typed")
+	panel._press("←")
+	_expect(panel._typed == "16", "and a digit can be taken back")
+	panel._press("1")
+	panel._press("✓")
+	_expect(asked.size() == 1 and asked[0] == 161, "pressing the tick asks to join 161")
+
+	# Out of range must not try to connect to nothing.
+	panel._start_typing()
+	panel._press("0")
+	panel._press("✓")
+	_expect(asked.size() == 1, "and 0 is refused outright")
+
+	# Keys big enough for a thumb.
+	_expect(TogetherPanel.KEY_SIZE >= 72.0, "the keys are %d px, which a thumb can hit" % int(TogetherPanel.KEY_SIZE))
+
 	for code in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("say_joined").begins_with("?"), "an arrival is announced in %s" % code)
+		for key in [
+			"ui_together", "ui_invite", "ui_visit", "ui_your_number",
+			"ui_their_number", "ui_play_alone", "say_read_it_out",
+		]:
+			_expect(not Text.of(key).begins_with("?"), "%s reads in %s" % [key, code])
 	Text.set_language(Text.EN)
 
+	panel.queue_free()
 	session.queue_free()
 	visitors.queue_free()

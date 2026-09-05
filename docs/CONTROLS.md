@@ -55,6 +55,11 @@ stranded. Rest for about five seconds and you can run again, or drink.
 **The bottle fills by walking into the river.** There is no button for it. It
 holds four drinks.
 
+**To play together**, open `≡` and choose *play together*. One child taps
+*invite someone* and reads out the big number on their screen; the other taps
+*go to someone* and types that number in. Both devices have to be on the same
+home network.
+
 **Bring the beavers sticks.** At a dam site on the river, eight sticks and they
 will wall it. The pond behind is deep enough to swim in and it stays there.
 
