@@ -80,7 +80,7 @@ plant would be 5,875 draw calls and nothing else would matter.
 
 ## The launcher icon
 
-Three layers, generated from SVG by `Godot --script` (no converter is installed
+Four layers, generated from SVG by `Godot --script` (no converter is installed
 on this machine and none is needed):
 
 | Layer | Purpose |
