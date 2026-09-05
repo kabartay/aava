@@ -15,6 +15,10 @@ extends Node3D
 
 var ring: int
 
+## What this chunk was actually built with, so the streamer can compare.
+var step := 1
+var has_collision := false
+
 func _init(
 	field: HeightField,
 	coord: Vector2i,
@@ -24,6 +28,10 @@ func _init(
 	with_collision: bool
 ) -> void:
 	ring = detail_ring
+	# Kept so the streamer can tell whether a rebuild would actually improve
+	# anything, rather than rebuilding whenever the ring number changes.
+	self.step = step
+	has_collision = with_collision
 
 	var size := TerrainSpec.CHUNK_SIZE
 	var origin_x := float(coord.x * size)

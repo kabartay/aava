@@ -25,6 +25,9 @@ var field: HeightField
 var _material: StandardMaterial3D
 var _chunks: Dictionary = {}
 var _queue: Array[Vector2i] = []
+
+## Chunks that could stand to be coarser, done only when nothing is waiting.
+var _lazy: Array[Vector2i] = []
 var _centre := Vector2i(9999, 9999)
 
 func _init(height_field: HeightField) -> void:
@@ -77,19 +80,56 @@ func _rebuild_queue() -> void:
 			_chunks.erase(coord)
 
 	_queue.clear()
+	_lazy.clear()
+
+	# A chunk is rebuilt when it needs to become *better*: finer, or carrying
+	# collision it does not have. It is not rebuilt merely to become coarser.
+	#
+	# Rings are measured from the player, so crossing a single chunk boundary
+	# changes the ring of about seventy-six of the three hundred and sixty-one
+	# chunks in range. Rebuilding all of them cost 76 x 19 ms — well over a
+	# second of stutter — every sixty-four metres walked, and the queue had
+	# barely drained before the next boundary arrived. Most of that work was to
+	# make ground the player had just walked past *less* detailed, which nobody
+	# has ever wanted done urgently.
 	var pending: Array[Vector2i] = []
 	for coord in wanted.keys():
 		var existing = _chunks.get(coord)
-		if existing == null or existing.ring != wanted[coord]:
+		if existing == null:
 			pending.append(coord)
+			continue
+		var ring: int = wanted[coord]
+		var wants_step: int = TerrainSpec.RINGS[ring]["step"]
+		var wants_collision: bool = TerrainSpec.RINGS[ring]["collide"]
+		if wants_step < existing.step or (wants_collision and not existing.has_collision):
+			pending.append(coord)
+		elif existing.ring != ring:
+			# Worth coarsening eventually, so the world does not slowly fill up
+			# with fine meshes the player has wandered away from — but only when
+			# there is nothing more urgent to do.
+			_lazy.append(coord)
 
 	# Nearest first: the ground under the player must exist before scenery does.
 	pending.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return (a - _centre).length_squared() < (b - _centre).length_squared())
 	_queue = pending
+	# Furthest first when coarsening, since those are the ones costing the most
+	# for the least.
+	_lazy.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - _centre).length_squared() > (b - _centre).length_squared())
 
 func _process(_delta: float) -> void:
 	var built := 0
+	# When there is nothing urgent, spend the frame coarsening one chunk that
+	# the player has left behind.
+	if _queue.is_empty() and not _lazy.is_empty():
+		var stale: Vector2i = _lazy.pop_front()
+		var offset := stale - _centre
+		var ring := TerrainSpec.ring_for(maxi(absi(offset.x), absi(offset.y)))
+		if ring >= 0 and _chunks.has(stale):
+			_build_chunk(stale, ring)
+		return
+
 	while built < CHUNKS_PER_FRAME and not _queue.is_empty():
 		var coord: Vector2i = _queue.pop_front()
 		var ring := TerrainSpec.ring_for(maxi(absi(coord.x - _centre.x), absi(coord.y - _centre.y)))
