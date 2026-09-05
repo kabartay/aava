@@ -45,6 +45,12 @@ common/physics_interpolation=true
 common/max_physics_steps_per_frame=8
 3d/default_gravity=24.0
 
+[audio]
+
+; Required for AudioStreamMicrophone. Off by default, because most games never
+; record anything — and a game that does should have said so on purpose.
+driver/enable_input=true
+
 [rendering]
 
 renderer/rendering_method="forward_plus"

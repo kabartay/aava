@@ -41,6 +41,8 @@ signal shoot_released()
 signal place_used()
 signal dam_stick()
 signal together_opened()
+signal talk_started()
+signal talk_released()
 
 var _stick: VirtualJoystick
 var _backpack: Backpack
@@ -86,6 +88,7 @@ var _shoot_button: Button
 var _visit_button: Button
 var _dam_button: Button
 var together: TogetherPanel
+var _talk_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
@@ -283,6 +286,15 @@ func _ready() -> void:
 	together = TogetherPanel.new()
 	together.resized_page.connect(_relayout_next_frame)
 	add_child(together)
+
+	# Held to talk and released to stop, the same gesture as the kick and the
+	# bow. Shown only when there is somebody in the valley to talk to, so it
+	# never sits there inviting a child to speak to nobody.
+	_talk_button = _button(Text.of("ui_talk"), Color(0.96, 0.86, 0.62))
+	_talk_button.visible = false
+	_talk_button.button_down.connect(func() -> void: talk_started.emit())
+	_talk_button.button_up.connect(func() -> void: talk_released.emit())
+	add_child(_talk_button)
 
 	_danger = _build_danger()
 	add_child(_danger)
@@ -542,6 +554,15 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 	if _drink_button.visible != can_drink:
 		_drink_button.visible = can_drink
 		_layout()
+
+## Whether there is anyone to talk to, and whether the microphone is live.
+func set_voice(offered: bool, speaking: bool) -> void:
+	if _talk_button.visible != offered:
+		_talk_button.visible = offered
+		_layout()
+	# Lit while the microphone is actually running, so a child can always see
+	# whether they are being heard.
+	_talk_button.modulate = Color(1.25, 1.1, 0.7) if speaking else Color.WHITE
 
 ## Whether the beavers will take a stick right now.
 func set_dam_offer(offered: bool) -> void:
@@ -862,6 +883,13 @@ func _layout() -> void:
 			Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
 		)
 	_map_button.position = _menu_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
+	# Bottom left, above the stick, where a thumb already rests — and far from
+	# the buttons on the right that a child presses while playing.
+	_talk_button.position = Vector2(
+		safe.position.x + MARGIN,
+		safe.position.y + safe.size.y - STICK_SIZE - BUTTON - MARGIN * 1.6
+	)
+
 	# Centred, because it is the only screen that takes the whole attention.
 	#
 	# Its height is not known until the page inside it has been laid out, and

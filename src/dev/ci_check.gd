@@ -49,6 +49,7 @@ func _initialize() -> void:
 	_check_players_and_worlds()
 	_check_playing_together()
 	_check_it_will_run_on_a_tablet()
+	_check_voice_is_safe()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -67,6 +68,24 @@ func _ok(message: String) -> void:
 ## Assert and report in one line. The message is written as the thing that is
 ## true when the check passes, so the passing output reads as a description of
 ## the game rather than as a list of test names.
+## A script with its comments removed.
+##
+## Checks that read source to enforce a rule kept flagging the very comment
+## that explains the rule: the archery check tripped on the word "animals" in
+## the sentence saying arrows must never reach one, and the voice check on the
+## word "FileAccess" in the sentence saying voice must never use it. Twice is a
+## pattern. Rules are about code, so the comments come out first.
+##
+## Only whole-line comments are stripped, which is enough here and avoids
+## guessing about a "#" inside a string.
+func _code_only(source: String) -> String:
+	var out := ""
+	for line in source.split("\n"):
+		if line.strip_edges().begins_with("#"):
+			continue
+		out += line + "\n"
+	return out
+
 func _expect(condition: bool, message: String) -> void:
 	if condition:
 		_ok(message)
@@ -364,7 +383,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors", "TogetherPanel",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors", "TogetherPanel", "Voice",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -1414,7 +1433,7 @@ func _check_the_bow() -> void:
 	# Read the source: the hit test must consider targets and the ground, and
 	# must never mention animals. A rule enforced by a comment is a rule that
 	# gets edited away; this one fails the build.
-	var source := FileAccess.get_file_as_string("res://src/archery/archery.gd")
+	var source := _code_only(FileAccess.get_file_as_string("res://src/archery/archery.gd"))
 	_expect(not source.is_empty(), "the archery source can be read")
 	var mentions_animals := (
 		source.contains("Animals") or source.contains("AnimalKinds")
@@ -2438,3 +2457,118 @@ func _check_it_will_run_on_a_tablet() -> void:
 			hud_source.contains('"ui_%s"' % control) or hud_source.contains('"%s"' % control),
 			"there is an on-screen control for %s" % control
 		)
+
+## Voice is the only part of this game whose failures reach outside it, and the
+## children are small. These checks read the source, because the rules have to
+## be structural: a rule held by a comment is a rule that gets edited away.
+func _check_voice_is_safe() -> void:
+	print("voice is push-to-talk and goes nowhere else")
+	var source := _code_only(FileAccess.get_file_as_string("res://src/net/voice.gd"))
+	_expect(not source.is_empty(), "the voice source can be read")
+
+	# Nothing is ever written down. No recording, no history, no buffering to
+	# disk — frames go microphone, network, speaker, gone.
+	_expect(
+		not source.contains("FileAccess") and not source.contains("DirAccess"),
+		"voice never touches the filesystem, so nothing is ever recorded"
+	)
+	_expect(
+		not source.contains("user://") and not source.contains("res://"),
+		"and there is no path in it at all"
+	)
+
+	# The microphone may only be started in one place. "We only send while the
+	# button is held" is a weaker promise than "the capture stream is stopped",
+	# and this is the check that keeps the stronger one true.
+	var starts := source.count("_microphone.play()")
+	_expect(starts == 1, "the microphone is started in exactly one place")
+	var start_index := source.find("_microphone.play()")
+	var in_start := source.rfind("func ", start_index)
+	var owner := source.substr(in_start, 40)
+	_expect(
+		owner.contains("start_talking"),
+		"and that place is start_talking, which is the button being held"
+	)
+	_expect(source.contains("_microphone.stop()"), "and it is stopped again on release")
+
+	# Voice may only travel over the session, which a child can only be in by
+	# invitation. There is no lobby and no discovery, so a stranger has no path.
+	_expect(
+		source.contains("is_connected_to_anyone"),
+		"nothing is sent unless there is an established session"
+	)
+	_expect(
+		not source.contains("create_server") and not source.contains("create_client"),
+		"voice opens no connection of its own — it uses the valley's"
+	)
+
+	# Hearing yourself a moment late is the most effective way to stop a person
+	# speaking, so the capture bus is silent.
+	_expect(source.contains("set_bus_mute"), "the microphone bus is muted, so nobody hears themselves")
+
+	# Bandwidth, since this runs on a tablet's wifi alongside everything else.
+	var bytes_per_second := Voice.RATE * 2
+	_expect(
+		bytes_per_second < 32000,
+		"voice costs %d KB/s, which a home network will not notice" % (bytes_per_second / 1024)
+	)
+	_expect(Voice.RATE >= 8000, "but is %d Hz, which carries a child's voice" % Voice.RATE)
+
+	var packet_seconds := float(Voice.FRAMES_PER_PACKET) / float(Voice.RATE)
+	_expect(
+		packet_seconds < 0.1,
+		"a packet holds %.0f ms, so a lost one is a click rather than a missing word" % (packet_seconds * 1000.0)
+	)
+
+	# Unreliable, because a resent voice packet arrives after the word it
+	# belonged to and is worse than the silence it replaces.
+	_expect(
+		source.contains('"unreliable_ordered"'),
+		"voice is sent unreliably — a late packet is worse than a lost one"
+	)
+	_expect(source.contains("call_remote"), "and never played back to the speaker")
+
+	# The project has to be set up for it, or the microphone silently yields
+	# nothing and the button appears to do something while doing nothing.
+	_expect(
+		bool(ProjectSettings.get_setting("audio/driver/enable_input", false)),
+		"audio input is enabled, or the microphone would yield silence"
+	)
+	var preset := FileAccess.get_file_as_string("res://export_presets.cfg")
+	_expect(
+		preset.contains("android.permission.RECORD_AUDIO"),
+		"Android is told the game records audio, so a parent is asked"
+	)
+
+	# Declaring it is not enough — RECORD_AUDIO is a dangerous permission and
+	# has to be requested while the game runs. Where that happens matters: a
+	# parent who sees "Aava wants to record audio" the moment a game about a
+	# valley opens has been given no reason for it.
+	_expect(
+		source.contains("OS.request_permission"),
+		"and the permission is actually requested, not merely declared"
+	)
+	var asked_at := source.find("OS.request_permission")
+	var asking_function := source.substr(source.rfind("func ", asked_at), 40)
+	_expect(
+		asking_function.contains("start_talking"),
+		"asked when a child presses talk, not when the game opens"
+	)
+
+	# A device with no microphone must simply have no talk button, rather than
+	# a button that fails.
+	var voice := Voice.new()
+	get_root().add_child(voice)
+	_expect(not voice.is_talking(), "nobody is talking to begin with")
+	voice.start_talking()
+	_expect(
+		not voice.is_talking(),
+		"and pressing talk with no session started does nothing at all"
+	)
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not Text.of("ui_talk").begins_with("?"), "the talk button is labelled in %s" % code)
+	Text.set_language(Text.EN)
+
+	voice.queue_free()

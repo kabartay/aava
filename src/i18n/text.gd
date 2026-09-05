@@ -229,6 +229,9 @@ const STRINGS := {
 		FR: "les castors ont fini le barrage !",
 		RU: "бобры достроили запруду!",
 	},
+	"ui_talk": {
+		EN: "talk", FR: "parler", RU: "говорить",
+	},
 	"ui_player": {
 		EN: "player", FR: "joueur", RU: "игрок",
 	},

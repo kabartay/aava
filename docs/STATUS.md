@@ -144,7 +144,7 @@ Last updated: 2026-09-04.
 | Networking | Done (LAN) | One device hosts, others join on the family network. Verified across two processes. |
 | Play-together screen | Done | The host shows one big number; the guest taps it on a keypad. No text entry anywhere. |
 | Visitors | Done | Other children drawn where they stand, with their name above them, eased between updates. |
-| Voice chat | **Not started** | The hardest part, with real safety implications. See ROADMAP.md. |
+| Voice chat | Done (untested on device) | Push-to-talk only; the microphone is stopped, not merely muted, between presses. Only to children already in the valley. Never recorded. |
 
 ## Android
 

@@ -53,6 +53,7 @@ recur.
 | Buoyancy proportional to depth, uncapped | 24.8 m/s² up — the player launched out of deep water | Capped lift and rise speed |
 | Positioned a panel before its size was known | It ran off the bottom of the screen | Measure after the page is built |
 | Measured frame time with vsync on | Every number was 120 fps, i.e. the refresh rate | Measure uncapped |
+| Source checks matched their own comments | Flagged the sentence explaining the rule — twice | `_code_only()` strips comments first |
 
 
 ## Godot 4.7
@@ -315,3 +316,11 @@ anything else is drawn. Making the outermost ring four times coarser cut the
 median frame from 2.51 ms to 1.50 ms and removed 18,432 triangles for nothing
 visible — the horizon was checked in a screenshot afterwards and holds up. There
 is now a check that fails the build if the count passes 400.
+
+**A check that reads source must read the code, not the comments.** The archery
+check tripped on the word "animals" in the sentence saying arrows must never
+reach one; the voice check tripped on "FileAccess" in the sentence saying voice
+must never use it. Both times the comment explaining the rule was the thing that
+broke it. The first was worked around by rewording, which was the wrong fix and
+left the trap set — the second made it a pattern. `_code_only()` now strips
+whole-line comments before any of these checks run.

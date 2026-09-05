@@ -132,8 +132,15 @@ is a second project. Sketch of the order it would go in:
 3. ~~**Invitations and several maps**~~ — **Done** locally. Over a network an
    invitation additionally has to carry an address; the permission model is
    already there.
-4. **Voice** — the hardest, and the part with real safety implications, since
-   the children are young. Push-to-talk between known devices only.
+4. ~~**Voice**~~ — **Done**, with the rules made structural rather than
+   intentional: the microphone is *stopped* between presses rather than merely
+   ignored, voice travels only over a session a child can enter by invitation
+   alone, and nothing is ever written to disk. The Android permission is
+   requested on the first press rather than at startup, so the dialog explains
+   itself. Checks read the source and fail the build if any of that changes.
+
+   Not yet tested on a real device — a microphone is one of the things an
+   emulator lies about.
 
 Do not start this until the single-player valley is somewhere they want to be.
 A shared empty room is still empty.

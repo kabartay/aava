@@ -37,6 +37,7 @@ var journal: Journal
 var profiles: Profiles
 var session: Session
 var visitors: Visitors
+var voice: Voice
 var today: Today
 var lantern: Lantern
 
@@ -170,6 +171,12 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	visitors.name = "Visitors"
 	add_child(visitors)
 
+	voice = Voice.new()
+	voice.attach(session)
+	add_child(voice)
+	hud.talk_started.connect(voice.start_talking)
+	hud.talk_released.connect(voice.stop_talking)
+
 	hud.together_opened.connect(_on_together_opened)
 	hud.together.host_requested.connect(_on_host_requested)
 	hud.together.join_requested.connect(_on_join_requested)
@@ -182,6 +189,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.guest_moved.connect(visitors.move)
 	session.failed.connect(_on_session_failed)
 	session.closed.connect(visitors.clear)
+	session.closed.connect(voice.forget_everyone)
 
 	# Changes made on another machine are applied exactly as if a local child
 	# had made them, which is why each goes through the same call the local
@@ -314,6 +322,11 @@ func _process(delta: float) -> void:
 
 	lantern.follow(world.atmosphere.darkness(), delta)
 	session.report_position(player.global_position, player.rotation.y)
+	# Offered only when there is somebody in the valley to talk to.
+	hud.set_voice(
+		voice.is_available() and session.is_connected_to_anyone(),
+		voice.is_talking()
+	)
 
 	# The mount follows the player rather than carrying them: a character body
 	# parented to a moving node inherits its rotation and fights its own
@@ -612,10 +625,13 @@ func _on_guest_arrived(id: int, name: String) -> void:
 
 func _on_guest_left(id: int, name: String) -> void:
 	visitors.remove(id)
+	# Their voice goes with them, or a departed child's player sits open.
+	voice.forget(id)
 	hud.announce(Text.format("say_left", [name]), 3.0)
 
 func _on_session_failed(reason: String) -> void:
 	visitors.clear()
+	voice.forget_everyone()
 	sounds.play(Sounds.Sound.REFUSE)
 	hud.announce(reason, 4.0)
 
