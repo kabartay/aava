@@ -39,6 +39,7 @@ var session: Session
 var visitors: Visitors
 var voice: Voice
 var ambience: Ambience
+var animal_voices: AnimalVoices
 var today: Today
 var lantern: Lantern
 
@@ -174,6 +175,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 
 	ambience = Ambience.new()
 	add_child(ambience)
+	animal_voices = AnimalVoices.new()
+	add_child(animal_voices)
 
 	voice = Voice.new()
 	voice.attach(session)
@@ -294,6 +297,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# where `hud` was still null, so the game reached the tablet with its talk
 	# button and its entire play-together panel connected to nothing at all.
 	hud.fire_fed.connect(_on_feed_fire)
+	hud.slept.connect(_on_sleep)
 	hud.talk_started.connect(voice.start_talking)
 	hud.talk_released.connect(voice.stop_talking)
 	hud.together_opened.connect(_on_together_opened)
@@ -324,6 +328,12 @@ func _process(delta: float) -> void:
 	# nothing in the controller has to know that jumping rocks is a game.
 	world.boulders.watch(player.global_position, not player.is_on_floor())
 	world.animals.watch(player.global_position, inventory)
+	# One creature near the player says something now and then, from where it
+	# actually is. Never on a loop: a dog barking on a loop is wallpaper.
+	animal_voices.watch(
+		world.animals.living_near(player.global_position, AnimalVoices.AUDIBLE),
+		player.global_position, delta
+	)
 
 	# Energy follows what the player actually did this frame, and gates running
 	# on the next one.
@@ -388,6 +398,12 @@ func _process(delta: float) -> void:
 	# Whatever the place a child is standing in offers.
 	var here := world.places.nearest(at)
 	hud.set_place_offer(_offer_at(here))
+
+	# A bed offers itself at night, and says nothing in the daytime.
+	var bed := structures.nearest(at, BED_REACH)
+	hud.set_sleep_offer(
+		not bed.is_empty() and bed.get("kind", &"") == HouseParts.BED
+	)
 
 	# A fire takes a log from a child standing at it with wood.
 	hud.set_fire_offer(
@@ -691,6 +707,30 @@ func _on_remote_dam_stick(site: float) -> void:
 func _refresh_fires() -> void:
 	world.hearths.set_fires(structures.positions_of(BuildKinds.CAMPFIRE))
 
+## How near a bed a child has to be to lie down in it, and how dark it has to be
+## for sleeping to be worth anything.
+const BED_REACH := 2.6
+const SLEEPY_DARKNESS := 0.35
+
+## Sleeping until morning.
+##
+## This is what a house is for. Everything else a child builds makes a shape;
+## a bed makes somewhere to be. Night is long and dark and there is little to do
+## in it — so a bed turns the worst part of the day into a reason to have built
+## something, and the morning is a small reward for having done so.
+func _on_sleep() -> void:
+	if world.atmosphere.darkness() < SLEEPY_DARKNESS:
+		sounds.play(Sounds.Sound.REFUSE, 1.2)
+		hud.announce(Text.of("say_not_tired"), 2.6)
+		return
+
+	# Dawn, not noon: waking to a whole day is the point.
+	world.atmosphere.set_time(0.26)
+	vitals.energy = Vitals.MAX_ENERGY
+	_refresh_vitals()
+	sounds.play(Sounds.Sound.CHIME, 0.7)
+	hud.announce(Text.of("say_slept"), 4.0)
+
 ## A log on the fire. This is what the axe was for: wood was a number in a bag
 ## until something burned it.
 func _on_feed_fire() -> void:
@@ -845,6 +885,12 @@ func _on_care() -> void:
 	var coins := world.animals.care_for(animal, inventory)
 	if coins <= 0:
 		return
+	# The one voice that is never automatic: a cat purrs because it is being
+	# stroked, which is the whole reason a cat purrs.
+	var node = animal.get("node")
+	if node != null and is_instance_valid(node):
+		animal_voices.speak(animal["kind"], (node as Node3D).global_position, 1.0)
+
 	wallet.earn(coins)
 	journal.record(Journal.CARED)
 	today.record(Today.CARE)

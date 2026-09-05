@@ -34,6 +34,7 @@ func _initialize() -> void:
 	_check_the_valley_is_not_silent()
 	_check_trees_are_capital()
 	_check_a_fire_needs_feeding()
+	_check_a_house_is_worth_having()
 	_check_caring_pays()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
@@ -2946,3 +2947,62 @@ func _check_a_fire_needs_feeding() -> void:
 	Text.set_language(Text.EN)
 
 	hearths.queue_free()
+
+## A house has to be worth building, not merely possible to build.
+##
+## Every other part makes a shape. A bed makes somewhere to be: night is long
+## and dark and there is little to do in it, so sleeping through it turns the
+## worst part of the day into the reason a child built something at all.
+func _check_a_house_is_worth_having() -> void:
+	print("a house is worth having")
+	_expect(HouseParts.ALL.has(HouseParts.BED), "a bed is one of the pieces")
+	_expect(
+		HouseParts.build_mesh(HouseParts.BED) != null,
+		"and it has something to look at"
+	)
+
+	var cost: Dictionary = HouseParts.INFO[HouseParts.BED]["cost"]
+	_expect(not cost.is_empty(), "it costs something to make")
+	var affordable := true
+	for item in cost:
+		if not ItemKinds.ALL.has(item):
+			affordable = false
+	_expect(affordable, "and out of things the valley actually contains")
+
+	# Low enough to be furniture. A bed as tall as a wall is a wall.
+	_expect(
+		float(HouseParts.INFO[HouseParts.BED]["height"]) < HouseParts.STOREY * 0.5,
+		"it is furniture rather than another wall"
+	)
+
+	# Sleeping is only worth anything in the dark, and it has to leave a child
+	# at the start of a day rather than the middle of one.
+	var atmosphere := Atmosphere.new()
+	get_root().add_child(atmosphere)
+	atmosphere.set_time(0.5)
+	_expect(
+		atmosphere.darkness() < 0.35,
+		"at noon it is too light to want to sleep"
+	)
+	atmosphere.set_time(0.02)
+	_expect(atmosphere.darkness() > 0.35, "and dark enough at night")
+
+	atmosphere.set_time(0.26)
+	_expect(
+		atmosphere.darkness() < 0.1,
+		"waking leaves a child in daylight, at the start of a day rather than the end"
+	)
+
+	# And rested, or the night was spent for nothing.
+	var vitals := Vitals.new()
+	vitals.energy = 4.0
+	vitals.energy = Vitals.MAX_ENERGY
+	_expect(is_equal_approx(vitals.fraction(), 1.0), "and fully rested")
+
+	for code in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		for key in ["ui_sleep", "say_slept", "say_not_tired", "part_bed"]:
+			_expect(not Text.of(key).begins_with("?"), "%s reads in %s" % [key, code])
+	Text.set_language(Text.EN)
+
+	atmosphere.queue_free()

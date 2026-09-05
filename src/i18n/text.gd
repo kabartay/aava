@@ -49,6 +49,20 @@ const STRINGS := {
 		FR: "pousse plus haut que les ronds, et plus lentement",
 		RU: "растёт выше круглых и медленнее",
 	},
+	"part_bed": {EN: "bed", FR: "lit", RU: "кровать"},
+	"ui_sleep": {
+		EN: "sleep", FR: "dormir", RU: "спать",
+	},
+	"say_slept": {
+		EN: "morning already — you slept well",
+		FR: "déjà le matin — tu as bien dormi",
+		RU: "уже утро — ты хорошо выспался",
+	},
+	"say_not_tired": {
+		EN: "it is daylight — there is a whole valley out there",
+		FR: "il fait jour — toute une vallée t'attend",
+		RU: "сейчас день — вон целая долина ждёт",
+	},
 	"ui_feed_fire": {
 		EN: "add wood", FR: "mettre du bois", RU: "подбросить дров",
 	},

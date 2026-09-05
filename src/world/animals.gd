@@ -273,6 +273,18 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 		animal["speed"] = FLEE_SPEED * shy
 		animal["rest"] = 0.4
 
+## Every animal currently alive near a point. Read by the voices, which want to
+## pick one at random to speak rather than the nearest.
+func living_near(at: Vector3, reach: float) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for animal in _living:
+		var node = animal.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		if (node as Node3D).global_position.distance_to(at) <= reach:
+			out.append(animal)
+	return out
+
 ## The animal nearest the player that can be cared for right now, or empty.
 func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionary:
 	var best := {}

@@ -27,8 +27,10 @@ const ROOF := &"roof"
 const ROOF_PEAK := &"roof_peak"
 const STAIRS := &"stairs"
 const POST := &"post"
+const BED := &"bed"
 
 const ALL: Array[StringName] = [
+	BED,
 	WALL, WALL_DOOR, WALL_WINDOW, FLOOR, ROOF, ROOF_PEAK, STAIRS, POST,
 ]
 
@@ -51,6 +53,12 @@ const INFO := {
 	ROOF_PEAK: {"label": "peak", "icon": "^", "cost": {&"reed": 3}, "footprint": MODULE, "height": 1.5},
 	STAIRS: {"label": "stairs", "icon": "z", "cost": {&"stone": 2}, "footprint": MODULE, "height": STOREY},
 	POST: {"label": "post", "icon": "i", "cost": {&"stick": 1}, "footprint": 0.4, "height": STOREY},
+	## The reason to build a house rather than to assemble one.
+	##
+	## Everything else here makes a shape; a bed makes a place you can be. A
+	## child who sleeps in one wakes at dawn, rested — so a house is somewhere
+	## to get through the night rather than something to look at afterwards.
+	BED: {"label": "bed", "icon": "b", "cost": {&"stick": 3, &"reed": 3}, "footprint": MODULE, "height": 0.55},
 }
 
 static func label(kind: StringName) -> String:
@@ -79,6 +87,36 @@ static func storey_of(height_above_ground: float) -> int:
 ## with the walls holding it.
 static func snap_height(height_above_ground: float) -> float:
 	return float(storey_of(height_above_ground)) * STOREY
+
+## A low frame with bedding on it. Deliberately plain: it has to read as a bed
+## from above, at the distance a child stands, in a house with no lighting.
+static func _bed() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+
+	_box(tool, Vector3(0.0, 0.20, 0.0), Vector3(MODULE * 0.82, 0.16, MODULE * 0.52), TIMBER)
+
+	# Four stubby legs, so it stands rather than lies.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		for end in PackedFloat32Array([-1.0, 1.0]):
+			_box(
+				tool, Vector3(side * MODULE * 0.35, 0.10, end * MODULE * 0.20),
+				Vector3(0.12, 0.20, 0.12), TIMBER.darkened(0.2)
+			)
+
+	_box(
+		tool, Vector3(0.0, 0.35, 0.0),
+		Vector3(MODULE * 0.78, 0.14, MODULE * 0.48), Color(0.86, 0.84, 0.78)
+	)
+
+	# A pillow at one end, which is most of what says which way round it is.
+	_box(
+		tool, Vector3(-MODULE * 0.22, 0.46, 0.0),
+		Vector3(MODULE * 0.30, 0.12, MODULE * 0.40), Color(0.94, 0.93, 0.90)
+	)
+
+	tool.generate_normals()
+	return tool.commit()
 
 static func build_mesh(kind: StringName) -> Mesh:
 	match kind:
