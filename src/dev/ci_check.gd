@@ -2449,11 +2449,22 @@ func _check_playing_together() -> void:
 	_expect(Session.code_for("nonsense") == 0, "and nonsense becomes nothing")
 
 	# The round trip: what one child reads out is what the other types in.
-	for address in Session.local_addresses():
-		var code := Session.code_for(address)
+	#
+	# Only against the primary address, not every address this machine
+	# happens to have — address_for_code() is documented to reconstruct using
+	# this machine's own network, meaning local_addresses()[0], and a tablet
+	# with one Wi-Fi radio only ever has one. A CI runner or a developer's
+	# machine with a Docker bridge alongside its real interface has more than
+	# one private address on a different prefix, and asking the second one to
+	# round-trip through the first one's prefix is not a promise this ever
+	# made — that is what broke the first attempt at this check.
+	var addresses := Session.local_addresses()
+	if not addresses.is_empty():
+		var primary := addresses[0]
+		var code := Session.code_for(primary)
 		_expect(
-			Session.address_for_code(code) == address,
-			"reading out %d and typing it back reaches %s" % [code, address]
+			Session.address_for_code(code) == primary,
+			"reading out %d and typing it back reaches %s" % [code, primary]
 		)
 	_expect(Session.address_for_code(0).is_empty(), "zero is not an address")
 	_expect(Session.address_for_code(255).is_empty(), "nor is 255")
