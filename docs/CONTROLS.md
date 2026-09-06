@@ -22,8 +22,11 @@ a control a child has to be told about is a control he forgets.
 | Ride / get off | **ride** when a horse or bicycle is close | same |
 | Chop a tree | **chop**, once the axe is bought | same |
 | Call animals | **whistle**, once bought | same |
+| Feed a fire | **feed fire**, when a log is in the bag | same |
+| Sleep | **sleep**, at a bed after dark | same |
+| Talk | hold **talk**, when someone else is in the valley | same |
 | Shop | the coin count, top right | same |
-| Map | tap it to cycle small, large, hidden | click it |
+| Map | tap to cycle small, large, then the whole valley | click it |
 | Language, reset | `≡` top left | same |
 
 ## Things worth knowing
@@ -58,7 +61,17 @@ holds four drinks.
 **To play together**, open `≡` and choose *play together*. One child taps
 *invite someone* and reads out the big number on their screen; the other taps
 *go to someone* and types that number in. Both devices have to be on the same
-home network.
+home network. Hold **talk** to speak to whoever else is in the valley; the
+microphone is off the instant you let go.
+
+**A house needs a fire and a bed to be worth having.** Wood from a felled
+tree feeds a campfire — press **feed fire** with wood in the bag, standing
+close to one. A lit fire warms the ground around it, which makes energy come
+back much faster while you stand near it. Once it is dark enough, **sleep**
+in a bed to jump straight to a rested morning; trying in daylight is refused.
+
+**Walls actually stop you now**, including the camera looking over your
+shoulder — a door is the one piece with an opening a child can walk through.
 
 **Bring the beavers sticks.** At a dam site on the river, eight sticks and they
 will wall it. The pond behind is deep enough to swim in and it stays there.
@@ -72,6 +85,10 @@ swing and it carries you through its arc, then slows to a stop.
 
 **Follow the paths.** The worn ground between the camp, the playground, the pool
 and the café will take you somewhere worth going.
+
+**Tap the map a third time to see the whole valley**, with a coloured dot for
+every place worth going — there is no reading required, since the colour is
+the label.
 
 **You can swim.** Walk into the river or the pool and you float. There is no
 drowning and no way to be dragged under — jump to stroke upwards and get out.

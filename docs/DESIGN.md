@@ -1,5 +1,16 @@
 # Aava — design
 
+This is the original design vision, written before most of the game existed,
+and kept as written rather than edited down to only the parts that shipped —
+a design document that quietly narrows to match the code is not a design
+document any more, it is a status report wearing one's name. Large parts of
+it are built exactly as described here; some are not built at all yet (the
+family as inhabitants, parent mode, most of the tool progression below); a
+few shipped differently than described (the journal counts what a child did
+rather than what he discovered). [STATUS.md](STATUS.md) is the source of
+truth for what exists today — read this document for *why*, that one for
+*what*.
+
 ## The problem this design solves
 
 The primary player is ten years old and plays Minecraft, which has fifteen years

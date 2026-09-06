@@ -60,6 +60,8 @@ recur.
 | `Atmosphere` also built the sun in `_ready` | Same crash, in the check that stands a house up | Construction moved to `_init` |
 | A translation string had no `%d` but the code always passed one | Logged a formatting error every "visit" day | `describe()` skips the count for a kind that has none |
 | An animal's wander target used raw ground height near the river | A beaver could wander onto the riverbed, well under the water | `_footing()` clamps to a wade, never the bottom |
+| A blanket lint flagged code with no actual bug | CI silently red on every push for two days | Type-annotate the flagged loop variables, don't weaken the rule |
+| A round trip was tested against every local address, not just one | Passed on a laptop, failed in CI behind a Docker bridge | Test only `local_addresses()[0]`, the one it was ever documented for |
 
 
 ## Godot 4.7
@@ -394,3 +396,31 @@ seen it. It surfaced only because a check that exercises all six days in all
 three languages made the same call the game does, and read the error Godot
 prints for it. Fixed by skipping the argument for the one kind that has
 nothing to count.
+
+**A lint too blunt for its own good went unnoticed for two days.** The rule
+against a bare array literal in a `for` loop is deliberately blanket — it
+bans the *shape*, not just the specific case that broke, because telling the
+two apart needs real type analysis and a grep cannot do that. But the
+codebase kept adding perfectly safe instances of that shape (`for code in
+[Text.EN, Text.FR, Text.RU]:`, which never does the typed-assignment thing
+the rule exists to prevent), and every one of them failed the same CI step.
+Nobody was watching `gh run list`. Every push from the fourth of September
+onward failed at that exact step, silently, while every check further down
+the pipeline — the ones that would have caught something real — never ran at
+all. The fix was not to weaken the rule but to bring the thirty-odd flagged
+loops into actual compliance: a type annotation on the loop variable itself
+(`for code: StringName in [...]`) gives GDScript exactly what a bare literal
+withholds, satisfies the rule's own intent, and is smaller than rewriting
+every literal into a typed array. The standing lesson underneath both halves
+of this: a red pipeline that nobody looks at is not a safety net, it is a
+lint nobody is running.
+
+**A check can have only one address to test against.** A round trip —
+turning a local address into a short code and back — was tested against
+*every* address this machine has, but `address_for_code()` is documented to
+reconstruct using only the first one, since that is the only address a real
+tablet's single Wi-Fi radio will ever have. It passed on a laptop with one
+private address and failed in CI, where a Docker bridge sits alongside the
+runner's real interface: the second address round-tripped through the
+first one's prefix and landed somewhere else. Fixed by testing only the
+primary address, which is the only round trip the function ever promised.
