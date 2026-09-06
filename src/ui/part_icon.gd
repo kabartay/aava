@@ -48,6 +48,36 @@ func _draw() -> void:
 			_stairs(box)
 		HouseParts.POST:
 			_post(box)
+		HouseParts.BED:
+			_bed(box)
+
+## A low frame with a pillow at one end, seen from the side. Drawn last among
+## the icons because it was the last part added, and the palette went a whole
+## afternoon showing a blank square for it before anyone noticed.
+func _bed(box: Rect2) -> void:
+	var frame := Rect2(
+		Vector2(box.position.x, box.get_center().y),
+		Vector2(box.size.x, box.size.y * 0.30)
+	)
+	draw_rect(frame, WALL_COLOR)
+	draw_rect(frame, DARK, false, 1.5)
+
+	# A pillow at the left end, standing a little proud of the blanket — the one
+	# detail that says which end a head goes at.
+	var pillow := Rect2(
+		Vector2(frame.position.x + frame.size.x * 0.04, frame.position.y - frame.size.y * 0.28),
+		Vector2(frame.size.x * 0.26, frame.size.y * 0.5)
+	)
+	draw_rect(pillow, Color(0.94, 0.93, 0.90))
+
+	# Short legs, so it reads as furniture standing on a floor rather than a
+	# plank floating in the square.
+	for side in [0.08, 0.92]:
+		var leg := Rect2(
+			Vector2(frame.position.x + frame.size.x * side - 2.0, frame.end.y),
+			Vector2(4.0, box.size.y * 0.14)
+		)
+		draw_rect(leg, DARK)
 
 func _wall(box: Rect2) -> void:
 	draw_rect(box, WALL_COLOR)

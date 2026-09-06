@@ -30,7 +30,7 @@ var _sun_colors := [
 	Color(1.00, 0.97, 0.92),  # noon: near white
 ]
 
-func _ready() -> void:
+func _init() -> void:
 	_sky_material = ProceduralSkyMaterial.new()
 	_sky_material.sky_energy_multiplier = 1.0
 	_sky_material.ground_bottom_color = Color(0.24, 0.28, 0.24)

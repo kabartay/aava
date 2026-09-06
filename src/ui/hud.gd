@@ -96,7 +96,7 @@ var _talk_button: Button
 var _shop: PanelContainer
 var _shop_rows: Dictionary = {}
 
-func _ready() -> void:
+func _init() -> void:
 	var pad := CameraPad.new()
 	pad.name = "CameraPad"
 	pad.dragged.connect(func(delta: Vector2) -> void: camera_dragged.emit(delta))
@@ -322,6 +322,10 @@ func _ready() -> void:
 	_map_button.pressed.connect(_toggle_map)
 	add_child(_map_button)
 
+func _ready() -> void:
+	# Everything above is built in _init, so a caller can use this HUD's
+	# buttons and labels on the very same line it adds the node to the tree.
+	# Only get_viewport() needs the tree, so only this waits for _ready.
 	_layout()
 	get_viewport().size_changed.connect(_layout)
 
@@ -1028,19 +1032,21 @@ func _layout() -> void:
 		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
 
-	# Above the centre buttons, so it never lands under a thumb already busy
-	# with the kick.
-	_visit_button.position = Vector2(
-		safe.position.x + safe.size.x * 0.5 - _visit_button.size.x * 0.5,
-		safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN * 2.0
-	)
-
-	# Beside the place button, since a child is never at a dam and in the café
-	# at the same time.
-	_dam_button.position = _visit_button.position
-	# The same spot: a child is never at a dam, in a café and at a fire at once.
-	_fire_button.position = _visit_button.position
-	_sleep_button.position = _visit_button.position
+	# Stacked upward from above the centre buttons, one on another only when
+	# more than one genuinely applies at once. These used to share one position
+	# on the assumption that a child is never at a dam, a café, a fire and a bed
+	# simultaneously — which is false for a fire and a bed: both are ordinary
+	# house pieces, and building them side by side is exactly what a cosy house
+	# is. Two buttons on one spot means one is invisible and unpressable, so
+	# whichever of these currently applies gets a slot of its own instead.
+	var context_top := safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN * 2.0
+	for button in [_visit_button, _dam_button, _fire_button, _sleep_button]:
+		if not button.visible:
+			continue
+		button.position = Vector2(
+			safe.position.x + safe.size.x * 0.5 - button.size.x * 0.5, context_top
+		)
+		context_top -= button.size.y + 10.0
 
 	# Centred low, where the kick button sits, since the two never both apply.
 	_care_button.position = Vector2(

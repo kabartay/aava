@@ -34,6 +34,16 @@ const ALL: Array[StringName] = [
 	WALL, WALL_DOOR, WALL_WINDOW, FLOOR, ROOF, ROOF_PEAK, STAIRS, POST,
 ]
 
+## Wall geometry, shared between the mesh in _wall() and the collision built
+## for it below — one set of numbers, so a door cut into the mesh is a door
+## cut into the collision too.
+const WALL_THICKNESS := 0.18
+const WALL_POST := 0.16
+const DOOR_WIDTH := 1.0
+const DOOR_HEIGHT := 1.75
+const WINDOW_OPENING := 0.9
+const WINDOW_SILL := 0.95
+
 const TIMBER := Color(0.62, 0.45, 0.28)
 const TIMBER_DARK := Color(0.44, 0.31, 0.19)
 const PLASTER := Color(0.88, 0.85, 0.78)
@@ -137,6 +147,54 @@ static func build_mesh(kind: StringName) -> Mesh:
 		_:
 			return _post()
 
+## Whether a piece should stop a body rather than let it pass through.
+##
+## Floors, roofs and stairs are left out: nothing here supports standing on an
+## upper storey yet, and a solid floor with no way onto it would only trap a
+## child under it. Walls, doors, windows and posts are the pieces a house is
+## judged by at ground level, so those are the ones that need to be real.
+static func is_solid(kind: StringName) -> bool:
+	return kind == WALL or kind == WALL_DOOR or kind == WALL_WINDOW or kind == POST
+
+## Add the collision a piece needs, as a child of the node its mesh lives on.
+##
+## A door cuts an opening into the collision the same way it cuts one into the
+## mesh — two side pillars and a lintel, not one box across the whole panel —
+## because a door a child cannot walk through is a wall wearing a costume.
+static func add_collision(node: Node3D, kind: StringName) -> void:
+	var body := StaticBody3D.new()
+	node.add_child(body)
+	match kind:
+		WALL_DOOR:
+			var inner := MODULE - WALL_POST * 2.0
+			var side_width := (inner - DOOR_WIDTH) * 0.5
+			var pillar_width := WALL_POST + side_width
+			for side in PackedFloat32Array([-1.0, 1.0]):
+				var centre := side * (MODULE * 0.5 - pillar_width * 0.5)
+				_collision_box(
+					body, Vector3(centre, STOREY * 0.5, 0.0),
+					Vector3(pillar_width, STOREY, WALL_THICKNESS)
+				)
+			_collision_box(
+				body, Vector3(0.0, (DOOR_HEIGHT + STOREY) * 0.5, 0.0),
+				Vector3(DOOR_WIDTH, STOREY - DOOR_HEIGHT, WALL_THICKNESS)
+			)
+		WALL, WALL_WINDOW:
+			_collision_box(
+				body, Vector3(0.0, STOREY * 0.5, 0.0),
+				Vector3(MODULE, STOREY, WALL_THICKNESS)
+			)
+		POST:
+			_collision_box(body, Vector3(0.0, STOREY * 0.5, 0.0), Vector3(0.2, STOREY, 0.2))
+
+static func _collision_box(body: StaticBody3D, at: Vector3, size: Vector3) -> void:
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	shape.position = at
+	body.add_child(shape)
+
 ## A wall panel with a timber frame, optionally holed for a door or a window.
 ## Built as a frame plus panels rather than a box with a hole cut out, because
 ## a hole is a boolean operation and a frame is four slabs.
@@ -144,8 +202,8 @@ static func _wall(door: bool, window: bool) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	var thickness := 0.18
-	var post := 0.16
+	var thickness := WALL_THICKNESS
+	var post := WALL_POST
 
 	# Corner posts, which is what makes a row of walls read as timber framing
 	# rather than as a flat fence.
@@ -156,8 +214,8 @@ static func _wall(door: bool, window: bool) -> Mesh:
 	var inner := MODULE - post * 2.0
 
 	if door:
-		var door_width := 1.0
-		var door_height := 1.75
+		var door_width := DOOR_WIDTH
+		var door_height := DOOR_HEIGHT
 		var side_width := (inner - door_width) * 0.5
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			_box(tool, Vector3(side * (door_width + side_width) * 0.5, STOREY * 0.5, 0.0),
@@ -170,8 +228,8 @@ static func _wall(door: bool, window: bool) -> Mesh:
 		return _finish(tool)
 
 	if window:
-		var opening := 0.9
-		var sill := 0.95
+		var opening := WINDOW_OPENING
+		var sill := WINDOW_SILL
 		var side_width := (inner - opening) * 0.5
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			_box(tool, Vector3(side * (opening + side_width) * 0.5, STOREY * 0.5, 0.0),

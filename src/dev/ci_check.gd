@@ -31,11 +31,15 @@ func _initialize() -> void:
 	_check_every_language_is_complete()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
-	_check_the_valley_is_not_silent()
+	await _check_the_valley_is_not_silent()
 	_check_trees_are_capital()
-	_check_a_fire_needs_feeding()
+	await _check_a_fire_needs_feeding()
 	_check_a_house_is_worth_having()
+	_check_every_part_has_an_icon()
+	_check_walls_are_solid()
+	await _check_context_buttons_never_overlap()
 	_check_caring_pays()
+	_check_animals_dont_drown()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -993,6 +997,37 @@ func _check_caring_pays() -> void:
 
 	animal["node"].queue_free()
 	empty["node"].queue_free()
+	animals.queue_free()
+
+## A beaver lives at the river's edge, and its wander radius reaches the river
+## itself. `field.height_at()` there is the carved bed, well under the water
+## surface — setting an animal straight to it stands the animal on the bottom
+## of the river with the water surface somewhere over its head.
+func _check_animals_dont_drown() -> void:
+	print("an animal in the river wades rather than drowns")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+
+	var z := 40.0
+	var river_x := field.river_centre_x(z)
+	_expect(
+		field.height_at(river_x, z) < HeightField.WATER_LEVEL - Animals.MAX_WADE_DEPTH,
+		"the river bed really is under the water surface, so this is testing something"
+	)
+	_expect(
+		animals._footing(river_x, z) >= HeightField.WATER_LEVEL - Animals.MAX_WADE_DEPTH - 0.001,
+		"an animal standing in the river is no deeper than a wade"
+	)
+
+	# And dry ground must be untouched — a fix for the river must not flatten
+	# every hill in the valley to the waterline.
+	var camp := field.camp_centre()
+	_expect(
+		is_equal_approx(animals._footing(camp.x, camp.z), field.height_at(camp.x, camp.z)),
+		"but an animal on dry ground still stands on the actual ground"
+	)
+
 	animals.queue_free()
 
 ## Coins are earned slowly, so prices must be reachable but not trivial.
@@ -2801,6 +2836,9 @@ func _check_the_valley_is_not_silent() -> void:
 
 	var ambience := Ambience.new()
 	get_root().add_child(ambience)
+	# AudioStreamPlayer.play() needs the tree this synchronous script has not
+	# actually entered yet — same reason as the Hud and Hearths checks above.
+	await process_frame
 
 	# Every voice has to be a real waveform and has to loop, or the valley falls
 	# silent a few seconds after it starts.
@@ -2892,6 +2930,11 @@ func _check_a_fire_needs_feeding() -> void:
 	var field := HeightField.new(20260903)
 	var hearths := Hearths.new(field)
 	get_root().add_child(hearths)
+	# A node add_child()'d in this synchronous script is not yet is_inside_tree()
+	# to its own children until a frame turns over — same as the Hud check
+	# above — and _light() sets global_position on a freshly added child, which
+	# needs exactly that.
+	await process_frame
 
 	var at := field.camp_centre()
 	at.y = field.height_at(at.x, at.z)
@@ -3006,3 +3049,129 @@ func _check_a_house_is_worth_having() -> void:
 	Text.set_language(Text.EN)
 
 	atmosphere.queue_free()
+
+## Every house part must be drawn in the palette, or a new piece ships with a
+## blank square where its icon should be — which is exactly what happened when
+## the bed was added: it was buildable, had a mesh, and had no icon at all,
+## because part_icon.gd's match statement was never told about it.
+func _check_every_part_has_an_icon() -> void:
+	print("every house part has an icon")
+	var source := _code_only(FileAccess.get_file_as_string("res://src/ui/part_icon.gd"))
+	var drawn := true
+	for kind in HouseParts.ALL:
+		if not source.contains("HouseParts.%s:" % String(kind).to_upper()):
+			drawn = false
+			printerr("  part_icon.gd has no case for %s" % kind)
+	_expect(drawn, "part_icon.gd's match covers all %d house parts" % HouseParts.ALL.size())
+
+## A house whose walls a child can walk straight through is scenery, not a
+## house — and a camera that sails through them into the room beyond is worse,
+## because it makes every other wall look just as unreal. A door is the one
+## exception on purpose: the opening it cuts into the mesh has to be cut into
+## the collision too, or a door is a wall wearing a costume.
+func _check_walls_are_solid() -> void:
+	print("a built wall actually stops you")
+	for kind in [HouseParts.WALL, HouseParts.WALL_WINDOW, HouseParts.POST]:
+		var node := Node3D.new()
+		HouseParts.add_collision(node, kind)
+		var body := _only_static_body(node)
+		_expect(body != null, "%s has a collision body" % kind)
+		if body != null:
+			_expect(
+				_body_blocks(body, Vector3(0.0, HouseParts.STOREY * 0.5, 0.0)),
+				"%s blocks the middle of its own panel" % kind
+			)
+		node.free()
+
+	var doorway := Node3D.new()
+	HouseParts.add_collision(doorway, HouseParts.WALL_DOOR)
+	var door_body := _only_static_body(doorway)
+	_expect(door_body != null, "a door has a collision body")
+	if door_body != null:
+		_expect(
+			not _body_blocks(door_body, Vector3(0.0, HouseParts.DOOR_HEIGHT * 0.5, 0.0)),
+			"the doorway itself stays open at the height a child walks through"
+		)
+		_expect(
+			_body_blocks(door_body, Vector3(HouseParts.MODULE * 0.4, HouseParts.STOREY * 0.5, 0.0)),
+			"but the wall either side of the door is still solid"
+		)
+		_expect(
+			_body_blocks(door_body, Vector3(0.0, HouseParts.STOREY - 0.05, 0.0)),
+			"and the lintel above the door is still solid"
+		)
+	doorway.free()
+
+	var solid: Array[StringName] = []
+	var passable: Array[StringName] = []
+	for kind in HouseParts.ALL:
+		(solid if HouseParts.is_solid(kind) else passable).append(kind)
+	_expect(
+		HouseParts.BED in passable and HouseParts.FLOOR in passable,
+		"a bed and a floor stay walkable rather than becoming furniture you bump into"
+	)
+
+func _only_static_body(node: Node3D) -> StaticBody3D:
+	for child in node.get_children():
+		if child is StaticBody3D:
+			return child
+	return null
+
+## Whether any collision box on this body covers a point, checked directly
+## against each BoxShape3D rather than through the physics server — the server
+## needs a frame of simulation to answer, and this only needs arithmetic.
+func _body_blocks(body: StaticBody3D, point: Vector3) -> bool:
+	for child in body.get_children():
+		if not child is CollisionShape3D:
+			continue
+		var shape: CollisionShape3D = child
+		if not shape.shape is BoxShape3D:
+			continue
+		var box: BoxShape3D = shape.shape
+		var half := box.size * 0.5
+		var local := point - shape.position
+		if absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z:
+			return true
+	return false
+
+## Four buttons — visit, dam, fire, sleep — used to share one screen position on
+## the assumption that a child is never at two of their contexts at once. That
+## is false for a fire and a bed: both are ordinary house pieces, and building
+## them side by side is exactly what a cosy house is. Two controls on one spot
+## means one of them is invisible and cannot be pressed at all.
+func _check_context_buttons_never_overlap() -> void:
+	print("context buttons never share a position")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	# _ready() runs deferred, not within add_child(), same as in the real game —
+	# and _layout() needs get_viewport(), which only exists once it has. One
+	# frame is what the running game gets for free; a script has to ask for it.
+	await process_frame
+
+	# The combination that actually happens: a fire built next to a bed.
+	hud.set_fire_offer(true)
+	hud.set_sleep_offer(true)
+	hud.set_dam_offer(false)
+	hud.set_place_offer("")
+	hud._layout()
+	_expect(
+		not hud._fire_button.position.is_equal_approx(hud._sleep_button.position),
+		"a fire and a bed offered together get separate slots"
+	)
+
+	# And all four at once, however unlikely, must still be four distinct spots.
+	hud.set_fire_offer(true)
+	hud.set_sleep_offer(true)
+	hud.set_dam_offer(true)
+	hud.set_place_offer("eat")
+	hud._layout()
+	var spots: Dictionary = {}
+	var distinct := true
+	for button in [hud._visit_button, hud._dam_button, hud._fire_button, hud._sleep_button]:
+		var key := str(button.position)
+		if spots.has(key):
+			distinct = false
+		spots[key] = true
+	_expect(distinct, "all four context buttons get their own position when every one applies")
+
+	hud.queue_free()

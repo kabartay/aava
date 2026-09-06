@@ -44,6 +44,14 @@ const DRAG_SENSITIVITY := 0.0055
 const FOLLOW_LAMBDA := 11.0
 const AIM_LAMBDA := 14.0
 
+## The arm itself shortens instantly the physics tick it hits a wall — that
+## part has to be instant, or the camera spends a frame on the far side of the
+## wall it just found. This is how fast the visible camera then catches up to
+## that shortened length. Pulling back out afterwards still eases at the
+## ordinary FOLLOW_LAMBDA, since there is no wall to render through in that
+## direction — only snapping in needs to be this quick.
+const RETRACT_LAMBDA := 45.0
+
 const FOV_WALK := 66.0
 const FOV_RUN := 74.0
 
@@ -69,6 +77,7 @@ var _arm: SpringArm3D
 var _tip: Node3D
 var _aim := Vector3.ZERO
 var _player: Player
+var _tip_distance := ARM_LENGTH
 
 func _init(player: Player) -> void:
 	_player = player
@@ -134,7 +143,13 @@ func _process(delta: float) -> void:
 	# 60 Hz staircase of the body it is following.
 	var anchor := _player.get_global_transform_interpolated().origin
 
-	var follow := 1.0 - exp(-FOLLOW_LAMBDA * delta)
+	# Fast in, slow out: if the arm just pulled closer — a wall or a hillside —
+	# the camera catches up quickly rather than lingering for a few frames on
+	# the wrong side of what it just found.
+	var tip_distance := _arm.global_position.distance_to(_tip.global_position)
+	var retracting := tip_distance < _tip_distance - 0.001
+	_tip_distance = tip_distance
+	var follow := 1.0 - exp(-(RETRACT_LAMBDA if retracting else FOLLOW_LAMBDA) * delta)
 	camera.global_position = camera.global_position.lerp(_tip.global_position, follow)
 
 	var aim_target := anchor + Vector3.UP * (AIM_HEIGHT + _eye_lift)

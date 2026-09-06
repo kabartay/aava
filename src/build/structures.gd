@@ -159,6 +159,8 @@ func _spawn_node(record: Dictionary) -> void:
 	)
 	node.material_override = _material
 	node.transform = Transform3D(Basis(Vector3.UP, record["spin"]), record["position"])
+	if HouseParts.is_house_part(kind) and HouseParts.is_solid(kind):
+		HouseParts.add_collision(node, kind)
 	add_child(node)
 	record["node"] = node
 

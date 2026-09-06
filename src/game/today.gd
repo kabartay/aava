@@ -76,6 +76,10 @@ func is_finished() -> bool:
 func describe() -> String:
 	if is_finished():
 		return Text.of("today_done")
+	# Visiting is not a count — you either have or you have not — so its line
+	# carries no number, unlike every other kind here.
+	if kind() == VISIT:
+		return Text.of("today_visit")
 	return Text.format("today_%s" % kind(), [needed() - _progress])
 
 ## Tell today that something happened. Only the thing it asked for counts.

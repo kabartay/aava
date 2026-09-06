@@ -54,6 +54,12 @@ recur.
 | Positioned a panel before its size was known | It ran off the bottom of the screen | Measure after the page is built |
 | Measured frame time with vsync on | Every number was 120 fps, i.e. the refresh rate | Measure uncapped |
 | Source checks matched their own comments | Flagged the sentence explaining the rule — twice | `_code_only()` strips comments first |
+| `Hud` built its controls in `_ready`, not `_init` | `main.gd` used `hud.set_score()` the line after `add_child` — worked by luck | Construction moved to `_init` |
+| House parts had meshes but no colliders | A camera sailed through a wall; a child walked through one too | `HouseParts.add_collision`, door left open |
+| A headless check called into `_ready`-only state | `get_viewport()` was still null right after `add_child` | `await process_frame` before layout-dependent calls |
+| `Atmosphere` also built the sun in `_ready` | Same crash, in the check that stands a house up | Construction moved to `_init` |
+| A translation string had no `%d` but the code always passed one | Logged a formatting error every "visit" day | `describe()` skips the count for a kind that has none |
+| An animal's wander target used raw ground height near the river | A beaver could wander onto the riverbed, well under the water | `_footing()` clamps to a wade, never the bottom |
 
 
 ## Godot 4.7
@@ -324,3 +330,67 @@ must never use it. Both times the comment explaining the rule was the thing that
 broke it. The first was worked around by rewording, which was the wrong fix and
 left the trap set — the second made it a pattern. `_code_only()` now strips
 whole-line comments before any of these checks run.
+
+**`_ready` versus `_init`, for the sixth time — this time in `Hud`.** Every
+button and label `Hud` owns was built in `_ready`, and `main.gd` calls
+`hud.set_score(...)` on the line immediately after `add_child(hud)`, twice. It
+happened to work, because a `CanvasLayer` added under an already-running tree
+gets `_ready` called synchronously in that context — but a headless check
+building the same `Hud` inside a `SceneTree` script does not get that for free,
+and calling `set_fire_offer()` there crashed on a null button. The fix already
+used everywhere else in this project applies here too: build the controls in
+`_init`, and leave only what genuinely needs the tree — `_layout()`'s call to
+`get_viewport()` — in `_ready`. The rule from the networking section bears
+repeating with one more data point: nothing that a node needs on the very next
+line may depend on the tree having processed it, and "it happened to work" is
+not evidence otherwise.
+
+**A wall you can see is not a wall you bump into.** Every house part had a mesh
+and nothing else — no `StaticBody3D`, no `CollisionShape3D` — so a child walked
+straight through a wall they had just built, and the camera's own spring arm,
+which sweeps for exactly this kind of obstacle, sailed through it too since
+there was nothing there to hit. Fixed by giving `WALL`, `WALL_WINDOW` and
+`POST` a collision box matching their mesh, and `WALL_DOOR` three — two side
+pillars and a lintel, leaving the doorway itself open — rather than one box
+across the whole panel, which would have made the one piece built to let you
+through the only piece that could not.
+
+**A synchronous test harness does not get `_ready` for free.** A new check
+built a `Hud`, added it under the check script's own `SceneTree` root, and
+called into a method that calls `_layout()` — which needs `get_viewport()` —
+on the very next line. `get_viewport()` was null: `_ready` had not run yet, in
+this context, even though the same sequence inside the real running game (a
+`Node3D` already inside a live, ticking tree) resolves `_ready` immediately.
+The check needed `await process_frame` before touching anything layout-related;
+`_initialize()` had to `await` that one check in turn, or the tree's later
+checks would run past it while it was still suspended. The same gap showed up
+twice more once it was being looked for: `Hearths._light()` sets
+`global_position` on a child the instant it is added, and `Ambience._apply()`
+calls `AudioStreamPlayer.play()` — both need `is_inside_tree()`, and both
+checks were missing the same `await`. None of the three were live bugs in the
+running game, where the parent is already inside a tree that is actually
+ticking; all three were the check assuming for free what only a real running
+game gets for free.
+
+**Ground height is not the same thing as footing.** An animal's wander target,
+flee target and come-closer target were all set to `field.height_at(x, z)` —
+the true ground, which near the river is the carved bed of the channel, well
+under the water surface. A beaver homes at the river's edge on purpose and
+wanders within nine metres of it, which easily reaches the channel itself, so
+a beaver would periodically stand on the riverbed with the water surface
+somewhere over its head — visibly wrong, reported directly from someone
+watching the game rather than caught by a check first. Every place an animal's
+position is set now goes through `_footing()`, which is ground height clamped
+to no lower than a shallow wade below the water line — a beaver in the river
+wades; nothing stands on the bottom of it.
+
+**A format string with no placeholder still received an argument.**
+`Today.describe()` called `Text.format("today_%s" % kind(), [needed() -
+_progress])` unconditionally, but "visit" is not a count — you either have
+shown up or you have not — so `today_visit` has no `%d` in any language. Godot
+logged "not all arguments converted during string formatting" and returned the
+string unharmed, so nothing looked wrong on screen; a child would never have
+seen it. It surfaced only because a check that exercises all six days in all
+three languages made the same call the game does, and read the error Godot
+prints for it. Fixed by skipping the argument for the one kind that has
+nothing to count.

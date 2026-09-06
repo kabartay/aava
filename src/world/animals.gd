@@ -29,6 +29,14 @@ const FLEE_SPEED := 4.2
 ## carrying what it wants.
 const NOTICE := 7.0
 
+## How far below the water surface an animal may stand. A beaver lives at the
+## river's edge, which means its wander radius reaches the riverbed itself —
+## `field.height_at()` there is the carved channel floor, well under the
+## surface, and setting an animal's position straight to it renders the animal
+## underwater. A beaver wading ankle-deep is the river doing its job; a beaver
+## standing on the bottom of it is a bug.
+const MAX_WADE_DEPTH := 0.18
+
 signal cared_for(kind: StringName, coins: int, world_position: Vector3)
 signal befriended(kind: StringName)
 
@@ -123,7 +131,7 @@ func _build_tile(coord: Vector2i) -> void:
 		if kind == &"":
 			continue
 
-		var home := Vector3(x, field.height_at(x, z), z)
+		var home := Vector3(x, _footing(x, z), z)
 		var node := MeshInstance3D.new()
 		node.mesh = _meshes[kind]
 		node.material_override = _material
@@ -140,6 +148,11 @@ func _build_tile(coord: Vector2i) -> void:
 			"cooldown": 0.0,
 			"bob": rng.randf() * TAU,
 		})
+
+## Where an animal's feet actually rest: the ground, unless the ground here is
+## the bed of a river or a lake, in which case no lower than a wade.
+func _footing(x: float, z: float) -> float:
+	return maxf(field.height_at(x, z), HeightField.WATER_LEVEL - MAX_WADE_DEPTH)
 
 ## Who lives where. Each animal belongs to the ground it is found on, which is
 ## how a child learns that cones are a forest thing and beavers are a river one.
@@ -188,14 +201,14 @@ func _step(animal: Dictionary, delta: float) -> void:
 			var angle := randf() * TAU
 			var distance := randf() * ROAM
 			var spot := home + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
-			spot.y = field.height_at(spot.x, spot.z)
+			spot.y = _footing(spot.x, spot.z)
 			animal["target"] = spot
 			animal["rest"] = randf_range(1.5, 5.0)
 			animal["speed"] = SPEED
 	else:
 		var direction := to_target.normalized()
 		node.position += direction * speed * delta
-		node.position.y = field.height_at(node.position.x, node.position.z)
+		node.position.y = _footing(node.position.x, node.position.z)
 		node.rotation.y = atan2(-direction.x, -direction.z)
 
 	# A gentle bob, so a standing animal is not a statue.
@@ -254,7 +267,7 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 			# them, which looks like a bug rather than like interest.
 			if distance > REACH * 0.8:
 				animal["target"] = player_position - offset.normalized() * REACH * 0.7
-				animal["target"].y = field.height_at(animal["target"].x, animal["target"].z)
+				animal["target"].y = _footing(animal["target"].x, animal["target"].z)
 				animal["speed"] = SPEED * (1.9 if called else 1.3)
 				animal["rest"] = 0.5
 			continue
@@ -268,7 +281,7 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 		var away := node.position + offset.normalized() * -1.0 * ROAM * 0.6
 		if away.distance_to(home) > ROAM * 1.6:
 			away = home
-		away.y = field.height_at(away.x, away.z)
+		away.y = _footing(away.x, away.z)
 		animal["target"] = away
 		animal["speed"] = FLEE_SPEED * shy
 		animal["rest"] = 0.4

@@ -13,7 +13,11 @@ const RUN_SPEED := 6.6
 const GROUND_ACCELERATION := 26.0
 const GROUND_FRICTION := 22.0
 const AIR_ACCELERATION := 7.0
+## How fast the visual body turns to face the way it is moving, on foot. A
+## mount uses its own, slower rate instead — see MountKinds.turn_rate().
+const TURN_LAMBDA := 14.0
 const JUMP_VELOCITY := 8.2
+const FALL_GRAVITY_MULTIPLIER := 1.6
 
 ## Grace period after walking off an edge during which a jump still works.
 ## Children mash the button slightly late, constantly, and without this the game
@@ -32,6 +36,9 @@ const JUMP_BUFFER := 0.14
 ## dragged under. Water in a game for a six-year-old should be a place, not a
 ## hazard.
 const SWIM_DEPTH := 1.05
+## The gap between "deep enough to start swimming" and "shallow enough to
+## start walking again" — see the note where this is used.
+const SWIM_HYSTERESIS := 0.15
 const SWIM_SPEED := 2.6
 ## How hard the water pushes back up towards the surface. Strong enough that a
 ## child who jumps in bobs back up on their own.
@@ -188,7 +195,14 @@ func _physics_process(delta: float) -> void:
 
 	# How deep the water is here, if there is any. Set by the game each frame,
 	# because the player knows nothing about rivers or pools.
-	var afloat := water_depth > SWIM_DEPTH
+	#
+	# Two thresholds, not one: buoyancy pushes towards the surface until depth
+	# settles at exactly SWIM_DEPTH, which is the same value a single threshold
+	# would switch back to walking at — so a child standing still at the edge
+	# of deep water would flicker between the two every frame. Entering and
+	# leaving swimming at different depths gives that equilibrium a place to
+	# rest on the swimming side of the line instead of straddling it.
+	var afloat := water_depth > (SWIM_DEPTH if not is_swimming else SWIM_DEPTH - SWIM_HYSTERESIS)
 	if is_swimming != afloat:
 		is_swimming = afloat
 
@@ -222,7 +236,11 @@ func _physics_process(delta: float) -> void:
 			velocity.y = maxf(velocity.y, JUMP_VELOCITY * 0.42)
 			_buffered_jump = 0.0
 	elif not grounded:
-		velocity.y -= _gravity * delta
+		# Falling faster than rising is what makes a hop read as a jump rather
+		# than a slow-motion float back down. The rise itself is untouched, so
+		# jump height — and the rocks it has to clear — does not change.
+		var falling_multiplier := FALL_GRAVITY_MULTIPLIER if velocity.y < 0.0 else 1.0
+		velocity.y -= _gravity * falling_multiplier * delta
 
 	if _buffered_jump > 0.0 and _coyote > 0.0 and not afloat:
 		velocity.y = JUMP_VELOCITY
@@ -246,10 +264,6 @@ func _physics_process(delta: float) -> void:
 	var push := clampf(wish.length(), 0.0, 1.0)
 	if push > 0.001:
 		wish /= wish.length()
-
-	# The keyboard has no analogue stick, so a key press means full speed.
-	if push > 0.0 and not Input.is_action_pressed(InputActions.SPRINT):
-		push = maxf(push, 0.0)
 
 	# Pushing past three quarters breaks into a run without touching sprint,
 	# which is how a thumbstick is expected to behave and means a six-year-old
@@ -297,7 +311,11 @@ func _physics_process(delta: float) -> void:
 
 	if horizontal.length_squared() > 0.05:
 		var facing := atan2(-horizontal.x, -horizontal.z)
-		_visual.rotation.y = lerp_angle(_visual.rotation.y, facing, 1.0 - exp(-14.0 * delta))
+		# A mount turns more slowly than a child on foot — its own body has to
+		# come round, not just the rider's shoulders — so it uses the mount's
+		# own turn rate rather than the walking one.
+		var turn_lambda := MountKinds.turn_rate(riding) if riding != &"" else TURN_LAMBDA
+		_visual.rotation.y = lerp_angle(_visual.rotation.y, facing, 1.0 - exp(-turn_lambda * delta))
 
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
 	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
