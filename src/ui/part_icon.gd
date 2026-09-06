@@ -72,7 +72,7 @@ func _bed(box: Rect2) -> void:
 
 	# Short legs, so it reads as furniture standing on a floor rather than a
 	# plank floating in the square.
-	for side in [0.08, 0.92]:
+	for side: float in [0.08, 0.92]:
 		var leg := Rect2(
 			Vector2(frame.position.x + frame.size.x * side - 2.0, frame.end.y),
 			Vector2(4.0, box.size.y * 0.14)

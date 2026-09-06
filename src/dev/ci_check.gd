@@ -1069,7 +1069,7 @@ func _check_the_shop_adds_up() -> void:
 
 	var named := true
 	for item in ShopStock.ALL:
-		for code in [Text.EN, Text.FR, Text.RU]:
+		for code: StringName in [Text.EN, Text.FR, Text.RU]:
 			Text.set_language(code)
 			if ShopStock.label(item).begins_with("?"):
 				named = false
@@ -1176,7 +1176,7 @@ func _check_energy_never_strands() -> void:
 	_expect(is_equal_approx(restored.water, pouring.water), "the water level survives a save")
 	_expect(is_equal_approx(restored.energy, pouring.energy), "energy survives a save")
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("say_tired").begins_with("?"), "being tired is explained in %s" % code)
 	Text.set_language(Text.EN)
@@ -1264,7 +1264,7 @@ func _check_the_valley_remembers() -> void:
 	# Every greeting must exist in every language, or a child gets "?back_built".
 	var greeted := true
 	for key in Journal.ALL:
-		for code in [Text.EN, Text.FR, Text.RU]:
+		for code: StringName in [Text.EN, Text.FR, Text.RU]:
 			Text.set_language(code)
 			if Text.format("back_%s" % key, [1]).begins_with("?"):
 				greeted = false
@@ -1373,7 +1373,7 @@ func _check_a_tree_can_be_felled() -> void:
 	var saved_again := VegetationTile.generate_trees(field, wooded, 64, 20260904, restored)
 	_expect(saved_again.size() == after.size(), "a reloaded world draws the same forest")
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("ui_chop").begins_with("?"), "the axe is labelled in %s" % code)
 	Text.set_language(Text.EN)
@@ -1471,7 +1471,7 @@ func _check_riding() -> void:
 	)
 
 	for kind in MountKinds.ALL:
-		for code in [Text.EN, Text.FR, Text.RU]:
+		for code: StringName in [Text.EN, Text.FR, Text.RU]:
 			Text.set_language(code)
 			_expect(
 				not MountKinds.label(kind).begins_with("?"),
@@ -1570,7 +1570,7 @@ func _check_the_bow() -> void:
 	_expect(lost.size() > 0, "an arrow that hits nothing is eventually reported as a miss")
 	_expect(wild.arrows_in_flight() == 0, "and it stops being in flight")
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("say_missed").begins_with("?"), "a miss is explained in %s" % code)
 	Text.set_language(Text.EN)
@@ -1723,7 +1723,7 @@ func _check_places_worth_walking_to() -> void:
 		"at the surface it is no longer deep enough, so buoyancy stops"
 	)
 
-	for height in [2.0, 20.0, 200.0, 1445.0]:
+	for height: float in [2.0, 20.0, 200.0, 1445.0]:
 		var above := bottom
 		above.y = field.height_at(pool_at.x, pool_at.z) + Places.POOL_DEPTH + height
 		_expect(
@@ -1794,7 +1794,7 @@ func _check_places_worth_walking_to() -> void:
 	)
 
 	for place in Places.ALL:
-		for code in [Text.EN, Text.FR, Text.RU]:
+		for code: StringName in [Text.EN, Text.FR, Text.RU]:
 			Text.set_language(code)
 			_expect(
 				not Text.of("place_%s" % place).begins_with("?"),
@@ -1903,7 +1903,7 @@ func _check_paths_lead_somewhere() -> void:
 
 	# Every route must actually arrive at a destination.
 	for route in Paths.ROUTES:
-		for end in [route["from"], route["to"]]:
+		for end: StringName in [route["from"], route["to"]]:
 			var at: Vector3 = camp if end == &"" else PlaceSpec.centre_of(end, camp)
 			_expect(
 				field.path_at(at.x, at.z) > 0.5,
@@ -1916,7 +1916,7 @@ func _check_paths_lead_somewhere() -> void:
 	for route in Paths.ROUTES:
 		var a: Vector3 = camp if route["from"] == &"" else PlaceSpec.centre_of(route["from"], camp)
 		var b: Vector3 = camp if route["to"] == &"" else PlaceSpec.centre_of(route["to"], camp)
-		for step in [0.25, 0.5, 0.75]:
+		for step: float in [0.25, 0.5, 0.75]:
 			var at := a.lerp(b, step)
 			if field.path_at(at.x, at.z) < 0.5:
 				midway_worn = false
@@ -1925,7 +1925,7 @@ func _check_paths_lead_somewhere() -> void:
 	# The valley away from the camp must be untouched, or the whole world is a
 	# path and none of it is a signal.
 	var open_valley := true
-	for distance in [80.0, 160.0, 320.0]:
+	for distance: float in [80.0, 160.0, 320.0]:
 		for step in 8:
 			var angle := TAU * float(step) / 8.0
 			var at := camp + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
@@ -1959,7 +1959,7 @@ func _check_paths_lead_somewhere() -> void:
 	# anything else asks for, or the ground a child walks on is not the ground
 	# they can see.
 	var worst := 0.0
-	for corner in [Vector2(0.0, 0.0), Vector2(-320.0, 224.0), Vector2(896.0, 0.0)]:
+	for corner: Vector2 in [Vector2(0.0, 0.0), Vector2(-320.0, 224.0), Vector2(896.0, 0.0)]:
 		var grid := field.fill_grid(corner.x, corner.y, 1.0, 33)
 		for row in 33:
 			for column in 33:
@@ -2104,7 +2104,7 @@ func _check_dams_change_the_world() -> void:
 		"and so do sticks delivered towards an unfinished one"
 	)
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("say_dam_done").begins_with("?"), "a finished dam is announced in %s" % code)
 	Text.set_language(Text.EN)
@@ -2179,7 +2179,7 @@ func _check_one_thing_a_day() -> void:
 	for day in Today.KINDS.size():
 		var each := Today.new()
 		each.begin(monday + 86400 * day)
-		for code in [Text.EN, Text.FR, Text.RU]:
+		for code: StringName in [Text.EN, Text.FR, Text.RU]:
 			Text.set_language(code)
 			_expect(
 				not each.describe().begins_with("?"),
@@ -2498,10 +2498,10 @@ func _check_playing_together() -> void:
 	# Keys big enough for a thumb.
 	_expect(TogetherPanel.KEY_SIZE >= 72.0, "the keys are %d px, which a thumb can hit" % int(TogetherPanel.KEY_SIZE))
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("say_joined").begins_with("?"), "an arrival is announced in %s" % code)
-		for key in [
+		for key: String in [
 			"ui_together", "ui_invite", "ui_visit", "ui_your_number",
 			"ui_their_number", "ui_play_alone", "say_read_it_out",
 		]:
@@ -2573,7 +2573,7 @@ func _check_it_will_run_on_a_tablet() -> void:
 
 	# Nothing may assume a keyboard: every action needs an on-screen control.
 	var hud_source := FileAccess.get_file_as_string("res://src/ui/hud.gd")
-	for control in ["jump", "build", "kick"]:
+	for control: String in ["jump", "build", "kick"]:
 		_expect(
 			hud_source.contains('"ui_%s"' % control) or hud_source.contains('"%s"' % control),
 			"there is an on-screen control for %s" % control
@@ -2687,7 +2687,7 @@ func _check_voice_is_safe() -> void:
 		"and pressing talk with no session started does nothing at all"
 	)
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("ui_talk").begins_with("?"), "the talk button is labelled in %s" % code)
 	Text.set_language(Text.EN)
@@ -2842,7 +2842,7 @@ func _check_the_valley_is_not_silent() -> void:
 
 	# Every voice has to be a real waveform and has to loop, or the valley falls
 	# silent a few seconds after it starts.
-	for named in [["wind", ambience._wind], ["water", ambience._water], ["birds", ambience._birds]]:
+	for named: Array in [["wind", ambience._wind], ["water", ambience._water], ["birds", ambience._birds]]:
 		var stream: AudioStreamWAV = named[1].stream
 		_expect(stream != null, "there is a %s sound" % named[0])
 		_expect(stream.data.size() > 1000, "and it is %d KB of waveform" % (stream.data.size() / 1024))
@@ -2887,7 +2887,7 @@ func _check_the_valley_is_not_silent() -> void:
 ## about.
 func _check_trees_are_capital() -> void:
 	print("trees are worth something")
-	for kind in [BuildKinds.SAPLING, BuildKinds.PINE]:
+	for kind: StringName in [BuildKinds.SAPLING, BuildKinds.PINE]:
 		_expect(BuildKinds.reward_for(kind) > 0, "a grown %s is worth something" % kind)
 
 	_expect(
@@ -2984,7 +2984,7 @@ func _check_a_fire_needs_feeding() -> void:
 	# Resting by a fire has to be worth walking to.
 	_expect(Hearths.REST_BONUS > 1.5, "a fire is worth resting at (%.1fx)" % Hearths.REST_BONUS)
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
 		_expect(not Text.of("ui_feed_fire").begins_with("?"), "feeding a fire is labelled in %s" % code)
 	Text.set_language(Text.EN)
@@ -3042,9 +3042,9 @@ func _check_a_house_is_worth_having() -> void:
 	vitals.energy = Vitals.MAX_ENERGY
 	_expect(is_equal_approx(vitals.fraction(), 1.0), "and fully rested")
 
-	for code in [Text.EN, Text.FR, Text.RU]:
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
 		Text.set_language(code)
-		for key in ["ui_sleep", "say_slept", "say_not_tired", "part_bed"]:
+		for key: String in ["ui_sleep", "say_slept", "say_not_tired", "part_bed"]:
 			_expect(not Text.of(key).begins_with("?"), "%s reads in %s" % [key, code])
 	Text.set_language(Text.EN)
 
@@ -3071,7 +3071,7 @@ func _check_every_part_has_an_icon() -> void:
 ## the collision too, or a door is a wall wearing a costume.
 func _check_walls_are_solid() -> void:
 	print("a built wall actually stops you")
-	for kind in [HouseParts.WALL, HouseParts.WALL_WINDOW, HouseParts.POST]:
+	for kind: StringName in [HouseParts.WALL, HouseParts.WALL_WINDOW, HouseParts.POST]:
 		var node := Node3D.new()
 		HouseParts.add_collision(node, kind)
 		var body := _only_static_body(node)
@@ -3167,7 +3167,7 @@ func _check_context_buttons_never_overlap() -> void:
 	hud._layout()
 	var spots: Dictionary = {}
 	var distinct := true
-	for button in [hud._visit_button, hud._dam_button, hud._fire_button, hud._sleep_button]:
+	for button: Button in [hud._visit_button, hud._dam_button, hud._fire_button, hud._sleep_button]:
 		var key := str(button.position)
 		if spots.has(key):
 			distinct = false

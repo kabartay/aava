@@ -151,7 +151,7 @@ func close() -> void:
 		return
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer = null
-	for signal_name in [
+	for signal_name: StringName in [
 		&"peer_connected", &"peer_disconnected", &"connected_to_server",
 		&"connection_failed", &"server_disconnected",
 	]:

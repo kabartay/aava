@@ -48,8 +48,8 @@ func is_felled(world_x: float, world_z: float) -> bool:
 	# The neighbouring cells are checked too, because a tree near a cell edge
 	# would otherwise be recorded in one cell and looked up in another.
 	var base := Vector2i(int(floor(world_x / CELL)), int(floor(world_z / CELL)))
-	for dx in [-1, 0, 1]:
-		for dz in [-1, 0, 1]:
+	for dx: int in [-1, 0, 1]:
+		for dz: int in [-1, 0, 1]:
 			var key := Vector2i(base.x + dx, base.y + dz)
 			if not _stumps.has(key):
 				continue

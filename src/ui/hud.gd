@@ -1040,7 +1040,7 @@ func _layout() -> void:
 	# is. Two buttons on one spot means one is invisible and unpressable, so
 	# whichever of these currently applies gets a slot of its own instead.
 	var context_top := safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN * 2.0
-	for button in [_visit_button, _dam_button, _fire_button, _sleep_button]:
+	for button: Button in [_visit_button, _dam_button, _fire_button, _sleep_button]:
 		if not button.visible:
 			continue
 		button.position = Vector2(

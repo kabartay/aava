@@ -159,8 +159,8 @@ func _search_tree(world_position: Vector3, reach: float) -> Array:
 		int(floor(world_position.x / float(TILE_SIZE))),
 		int(floor(world_position.z / float(TILE_SIZE)))
 	)
-	for dx in [-1, 0, 1]:
-		for dz in [-1, 0, 1]:
+	for dx: int in [-1, 0, 1]:
+		for dz: int in [-1, 0, 1]:
 			var coord := Vector2i(base.x + dx, base.y + dz)
 			for candidate in _trees_in(coord):
 				var flat := Vector2(candidate.x - world_position.x, candidate.z - world_position.z)
@@ -201,8 +201,8 @@ func rebuild_around(world_position: Vector3) -> void:
 		int(floor(world_position.x / float(TILE_SIZE))),
 		int(floor(world_position.z / float(TILE_SIZE)))
 	)
-	for dx in [-1, 0, 1]:
-		for dz in [-1, 0, 1]:
+	for dx: int in [-1, 0, 1]:
+		for dz: int in [-1, 0, 1]:
 			var coord := base + Vector2i(dx, dz)
 			if _tiles.has(coord) and not _queue.has(coord):
 				_queue.push_front(coord)
