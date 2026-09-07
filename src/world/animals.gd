@@ -208,12 +208,22 @@ func _step(animal: Dictionary, delta: float) -> void:
 	else:
 		var direction := to_target.normalized()
 		node.position += direction * speed * delta
-		node.position.y = _footing(node.position.x, node.position.z)
 		node.rotation.y = atan2(-direction.x, -direction.z)
 
-	# A gentle bob, so a standing animal is not a statue.
+	# A gentle bob, so a standing animal is not a statue — as an offset from
+	# the ground, worked out fresh each frame.
+	#
+	# It used to be added to the animal's height with `+=`, while the ground
+	# was only read again in the branch above, which does not run while an
+	# animal is resting. Two centimetres a frame, sixty times a second, for the
+	# one and a half to five seconds an animal stands still: they climbed into
+	# the air and stayed there. Reported as animals flying, which is what it
+	# was.
 	animal["bob"] = float(animal["bob"]) + delta * 3.0
-	node.position.y += sin(float(animal["bob"])) * 0.02
+	node.position.y = (
+		_footing(node.position.x, node.position.z)
+		+ sin(float(animal["bob"])) * 0.02
+	)
 
 ## Called every frame with where the player is and what they are carrying.
 ##

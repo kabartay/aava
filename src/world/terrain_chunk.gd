@@ -270,15 +270,34 @@ static func _tint(
 	# through the meadow is bare earth, and a route over a peak would still be
 	# under snow.
 	if paths_here:
-		var path := field.path_at(x, z)
+		var path := field.path_at(x, z, height)
 		if path > 0.0:
 			color = color.lerp(TerrainSpec.COLOR_PATH, path)
 
 	# Snow on the peaks, and only where it would settle.
 	# Snow begins above the treeline, not below it. It used to start at 96 m
 	# while trees grew to 140, so there was a band of forest standing in snow.
-	var snow := smoothstep(HeightField.TREELINE + 8.0, HeightField.TREELINE + 70.0, height) * (1.0 - smoothstep(0.6, 0.95, steep))
+	# Snow starts just above the treeline and reaches full white well before the
+	# summits, so the peaks read as snow-capped from the valley floor rather
+	# than as grey rock with a dusting on the very top. It began at +8 and only
+	# saturated at +70, which put the whole snow gradient above what can be seen
+	# from where a child actually stands.
+	#
+	# The steepness term is what keeps it honest: snow lies on shoulders and
+	# ridges, not on a cliff face, and a mountain white to its vertical walls
+	# looks like a cake rather than a mountain.
+	var snow := smoothstep(HeightField.TREELINE - 12.0, HeightField.TREELINE + 16.0, height) * (1.0 - smoothstep(0.88, 1.20, steep))
 	color = color.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
+
+	# Glaciers: ice gathers where it can lie, so this wants height *and*
+	# gentleness, unlike the snow above it which only asks not to be a cliff.
+	# Painted over the snow rather than instead of it, so a summit reads as
+	# white with blue ice in its hollows and shoulders.
+	var ice := (
+		smoothstep(HeightField.TREELINE + 14.0, HeightField.TREELINE + 60.0, height)
+		* (1.0 - smoothstep(0.30, 0.64, steep))
+	)
+	color = color.lerp(TerrainSpec.COLOR_ICE, clampf(ice, 0.0, 1.0))
 
 	return color
 

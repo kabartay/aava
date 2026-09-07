@@ -46,6 +46,12 @@ const COLOR_MEADOW := Color(0.52, 0.68, 0.30)
 const COLOR_ROCK := Color(0.44, 0.43, 0.44)
 const COLOR_SNOW := Color(0.92, 0.94, 0.97)
 
+## Glacier ice, for the high ground gentle enough for it to gather on. Bluer
+## and slightly darker than snow: an unbroken white cap reads as icing, and it
+## is the difference between the two that makes a range look like the Alps
+## rather than like a hill in winter.
+const COLOR_ICE := Color(0.78, 0.86, 0.94)
+
 ## Mown grass, and the paint on it. Two tones of green rather than one, because
 ## a pitch that is the same colour as the meadow does not read as a pitch.
 const COLOR_PITCH_DARK := Color(0.21, 0.47, 0.22)

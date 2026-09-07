@@ -151,6 +151,31 @@ func forget_tree_query() -> void:
 func nearest_tree(world_position: Vector3, reach: float) -> Vector3:
 	return nearest_tree_found(world_position, reach)[0]
 
+## Every standing tree within reach, nearest first.
+##
+## The same 3x3 tile scan the axe uses, kept here rather than in the collision
+## pool so that the generator stays the one place that knows where trees are.
+func trees_near(world_position: Vector3, reach: float) -> Array[Vector3]:
+	var found: Array[Vector3] = []
+	var base := Vector2i(
+		int(floor(world_position.x / float(TILE_SIZE))),
+		int(floor(world_position.z / float(TILE_SIZE)))
+	)
+	for dx: int in [-1, 0, 1]:
+		for dz: int in [-1, 0, 1]:
+			for candidate in _trees_in(Vector2i(base.x + dx, base.y + dz)):
+				var flat := Vector2(
+					candidate.x - world_position.x, candidate.z - world_position.z
+				)
+				if flat.length() <= reach:
+					found.append(candidate)
+	found.sort_custom(func(a: Vector3, b: Vector3) -> bool:
+		return (
+			Vector2(a.x - world_position.x, a.z - world_position.z).length_squared()
+			< Vector2(b.x - world_position.x, b.z - world_position.z).length_squared()
+		))
+	return found
+
 func _search_tree(world_position: Vector3, reach: float) -> Array:
 	var best := Vector3.ZERO
 	var found := false

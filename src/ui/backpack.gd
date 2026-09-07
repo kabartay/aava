@@ -79,23 +79,20 @@ func _build_row(kind: StringName) -> HBoxContainer:
 	row.add_theme_constant_override("separation", 10)
 	row.custom_minimum_size = Vector2(0.0, ROW_HEIGHT)
 
-	# A coloured disc behind the icon, which is what makes a list of characters
-	# read as a row of objects rather than as text.
+	# The thing itself, drawn in its own colour. It used to be a coloured disc
+	# with a letter on it — "o" for a stone, "*" for a seed — which is writing,
+	# in the one part of the interface that exists so a child need not read.
 	var disc := Panel.new()
 	disc.custom_minimum_size = Vector2(34.0, 34.0)
 	var chip := StyleBoxFlat.new()
-	chip.bg_color = ItemKinds.color(kind)
-	chip.bg_color.a = 0.85
+	chip.bg_color = Color(0.10, 0.11, 0.13, 0.55)
 	chip.set_corner_radius_all(17)
 	disc.add_theme_stylebox_override("panel", chip)
 	row.add_child(disc)
 
-	var icon := Label.new()
-	icon.text = ItemKinds.icon(kind)
-	icon.add_theme_font_size_override("font_size", 22)
-	icon.add_theme_color_override("font_color", Color(0.06, 0.07, 0.09))
-	icon.position = Vector2(11.0, 4.0)
-	disc.add_child(icon)
+	var shape := ItemChip.new(kind)
+	shape.set_anchors_preset(Control.PRESET_FULL_RECT)
+	disc.add_child(shape)
 
 	var name := Label.new()
 	name.text = ItemKinds.label(kind)

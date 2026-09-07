@@ -14,6 +14,7 @@ var world_seed: int
 var field: HeightField
 var terrain: Terrain
 var vegetation: Vegetation
+var tree_collision: TreeCollision
 var pickups: Pickups
 var boulders: Boulders
 var animals: Animals
@@ -43,6 +44,12 @@ func _ready() -> void:
 	vegetation = Vegetation.new(field, world_seed)
 	vegetation.name = "Vegetation"
 	add_child(vegetation)
+
+	# The forest is drawn as instances, which have no collision at all. This
+	# lends a handful of trunk-shaped bodies to whichever trees are nearest, so
+	# a child walking into a tree stops at it.
+	tree_collision = TreeCollision.new(vegetation)
+	add_child(tree_collision)
 
 	pickups = Pickups.new(field, world_seed)
 	pickups.name = "Pickups"
@@ -125,6 +132,7 @@ func follow(world_position: Vector3) -> void:
 	_last_centre = world_position
 	terrain.follow(world_position)
 	vegetation.follow(world_position)
+	tree_collision.follow(world_position)
 	pickups.follow(world_position)
 	boulders.follow(world_position)
 	animals.follow(world_position)

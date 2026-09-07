@@ -110,9 +110,7 @@ func follow(
 	var to_river := field.distance_to_river(at.x, at.z)
 	var to_water := to_river
 	if places != null:
-		for basin in Lakes.BASINS:
-			var flat := Vector2(at.x - basin.x, at.z - basin.z).length() - basin.y
-			to_water = minf(to_water, maxf(flat, 0.0))
+		to_water = minf(to_water, Lakes.distance_to_water(at.x, at.z))
 	_water_level = lerpf(
 		_water_level, 1.0 - smoothstep(4.0, WATER_REACH, to_water), weight
 	)

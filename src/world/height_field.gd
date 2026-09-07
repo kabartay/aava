@@ -230,8 +230,25 @@ func _box_near(
 ##
 ## How much of a walked path is at this point. Asked by the terrain when it
 ## chooses a colour and by the vegetation when it decides whether to grow.
-func path_at(x: float, z: float) -> float:
-	return Paths.influence_fast(x, z)
+## How much of a trodden path is at this point, given the ground there.
+##
+## Three of the five routes cross the river, and the worn-earth colour used to
+## be painted straight down the bank and along the riverbed — a path under
+## three and a half metres of water, which reads as a bug because it is one.
+## The ground is passed in rather than looked up: both callers already have it,
+## and asking for it again would put back the per-vertex height query that
+## building a chunk was just relieved of.
+##
+## What this gives instead is a route that arrives at the water and stops,
+## which is what a ford looks like, and picks up again on the far bank.
+const PATH_DRY := 0.85
+const PATH_WET := 0.15
+
+func path_at(x: float, z: float, ground: float) -> float:
+	var path := Paths.influence_fast(x, z)
+	if path <= 0.0:
+		return 0.0
+	return path * smoothstep(WATER_LEVEL + PATH_WET, WATER_LEVEL + PATH_DRY, ground)
 
 ## The terrain before anything is levelled into it. Separated from height_at so
 ## that the level the flattening aims at can be read without recursing through

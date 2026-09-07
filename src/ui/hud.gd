@@ -143,7 +143,7 @@ func _init() -> void:
 
 	# The kick button only appears when there is a ball to kick, so it never
 	# sits on screen as a control that does nothing.
-	_kick_button = _button(Text.of("ui_kick"), Color(0.98, 0.84, 0.36))
+	_kick_button = _icon_button(ActionIcon.Kind.KICK)
 	# button_down / button_up rather than pressed, because a kick is a hold.
 	_kick_button.button_down.connect(func() -> void: kick_started.emit())
 	_kick_button.button_up.connect(func() -> void: kick_released.emit())
@@ -176,11 +176,11 @@ func _init() -> void:
 
 	# Jump is always available, unlike kick and build, so it sits at the bottom
 	# of the stack where a thumb rests.
-	_jump_button = _button(Text.of("ui_jump"), Color(0.62, 0.90, 0.68))
+	_jump_button = _icon_button(ActionIcon.Kind.JUMP)
 	_jump_button.pressed.connect(func() -> void: jump_pressed.emit())
 	add_child(_jump_button)
 
-	_build_button = _button(Text.of("ui_build"), Color(0.42, 0.72, 0.98))
+	_build_button = _icon_button(ActionIcon.Kind.BUILD)
 	_build_button.pressed.connect(_on_build_pressed)
 	add_child(_build_button)
 
@@ -734,6 +734,26 @@ func _button(text: String, color: Color) -> Button:
 	button.focus_mode = Control.FOCUS_NONE
 	return button
 
+## A button whose face is drawn, not written. Square, because there is no word
+## to make room for — which is also why these three stopped changing width
+## between English, French and Russian.
+func _icon_button(which: ActionIcon.Kind) -> Button:
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(BUTTON, BUTTON)
+	button.focus_mode = Control.FOCUS_NONE
+
+	var icon := ActionIcon.new(which)
+	icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+	button.add_child(icon)
+	return button
+
+## The drawn face of a button made by _icon_button.
+func _face_of(button: Button) -> ActionIcon:
+	for child in button.get_children():
+		if child is ActionIcon:
+			return child
+	return null
+
 func _label(size: int, color: Color) -> Label:
 	var label := Label.new()
 	label.add_theme_font_size_override("font_size", size)
@@ -760,7 +780,9 @@ func set_building(enabled: bool) -> void:
 	_remove_button.visible = enabled
 	if enabled:
 		_show_house(_showing_house)
-	_build_button.text = Text.of("ui_close") if enabled else Text.of("ui_build")
+	var face := _face_of(_build_button)
+	if face != null:
+		face.show_kind(ActionIcon.Kind.CLOSE if enabled else ActionIcon.Kind.BUILD)
 	_status.text = ""
 	build_toggled.emit(enabled)
 	_layout()

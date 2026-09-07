@@ -18,6 +18,10 @@ extends MeshInstance3D
 ## Side of the water sheet. Sized to the fog distance: past that, air hides it.
 const EXTENT := 1400.0
 
+## As many ponds as the shader has room for. Matches the array size declared in
+## the shader itself, which cannot be sized from a constant here.
+const MAX_PONDS := 4
+
 ## Metres per quad. The vertex wave has a period of tens of metres, so this has
 ## to stay well below that or the motion turns into a flag flapping.
 const QUAD_SIZE := 6.0
@@ -37,6 +41,21 @@ uniform float wave_speed = 0.5;
 uniform float bank_fade = 26.0;
 uniform float river_half_width = 16.0;
 
+// The still ponds, handed in from Lakes so this file does not carry a second
+// copy of where they are. Each is centre x, centre z, long half-axis, short
+// half-axis, angle — the same five numbers, in the same order, as
+// Lakes.PONDS.
+uniform int pond_count = 0;
+uniform vec4 pond_place[4];
+uniform vec2 pond_turn[4];
+uniform float pond_shelf = 0.34;
+uniform float pond_wobble = 0.19;
+
+// The 1.1 radian phase of the second wobble, resolved to constants so no
+// trigonometry runs per vertex at all.
+const float COS_SHIFT = 0.453596;
+const float SIN_SHIFT = 0.891207;
+
 varying vec3 world_vertex;
 varying float bank_blend;
 
@@ -46,11 +65,55 @@ float river_centre_x(float z) {
 	return 46.0 * sin(z * 0.0038) + 22.0 * sin(z * 0.0111 + 1.3);
 }
 
+// Mirrors Lakes._pond_at. The ponds are dug into the ground by the height
+// field and filled by this: if the two shapes ever stop agreeing, the result
+// is water lying on grass, or a crater with nothing in it — which is what this
+// whole uniform block exists to have fixed.
+float pond_blend(vec3 at) {
+	float strongest = 0.0;
+	for (int i = 0; i < pond_count; i++) {
+		vec4 place = pond_place[i];
+		vec2 turn = pond_turn[i];
+		float dx = at.x - place.x;
+		float dz = at.z - place.y;
+
+		float along = dx * turn.x + dz * turn.y;
+		float across = -dx * turn.y + dz * turn.x;
+		vec2 unit = vec2(along / place.z, across / place.w);
+
+		float distance = length(unit);
+		if (distance > 1.0 + pond_wobble) {
+			continue;
+		}
+		// The centre has no bearing, and dividing by it there is a NaN that
+		// spreads across the whole sheet.
+		if (distance < 0.0001) {
+			strongest = 1.0;
+			continue;
+		}
+		// Mirrors Lakes._wobble_at. Written without atan or sin on purpose:
+		// this runs for every vertex of the water sheet, and the transcendental
+		// version cost the phone two thirds of its frame rate.
+		vec2 bearing = unit / distance;
+		float s = bearing.y;
+		float c = bearing.x;
+		float sin3 = s * (3.0 - 4.0 * s * s);
+		float shifted = (2.0 * s * c) * COS_SHIFT + (c * c - s * s) * SIN_SHIFT;
+		float edge = 1.0 + pond_wobble * (sin3 * 0.6 + shifted * 0.4);
+		if (distance > edge) {
+			continue;
+		}
+		strongest = max(strongest, 1.0 - smoothstep(edge * pond_shelf, edge, distance));
+	}
+	return strongest;
+}
+
 void vertex() {
 	world_vertex = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 
 	float to_river = abs(world_vertex.x - river_centre_x(world_vertex.z));
-	bank_blend = 1.0 - smoothstep(river_half_width, river_half_width + bank_fade, to_river);
+	float river = 1.0 - smoothstep(river_half_width, river_half_width + bank_fade, to_river);
+	bank_blend = max(river, pond_blend(world_vertex));
 
 	// Two crossed waves at different periods read as a current rather than a
 	// pulse, and cost two sines.
@@ -86,6 +149,26 @@ func _init() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = shader
 	material_override = material
+
+	# Where the still ponds are, read straight out of Lakes rather than written
+	# here a second time. The height field digs those holes; without this the
+	# sheet drew river water only and both ponds were dry craters.
+	var places: Array[Plane] = []
+	var turns: Array[Vector2] = []
+	var i := 0
+	while i < Lakes.PONDS.size() and places.size() < MAX_PONDS:
+		var angle := Lakes.PONDS[i + 4]
+		places.append(Plane(
+			Lakes.PONDS[i], Lakes.PONDS[i + 1], Lakes.PONDS[i + 2], Lakes.PONDS[i + 3]
+		))
+		turns.append(Vector2(cos(angle), sin(angle)))
+		i += Lakes.POND_STRIDE
+
+	material.set_shader_parameter("pond_count", places.size())
+	material.set_shader_parameter("pond_place", places)
+	material.set_shader_parameter("pond_turn", turns)
+	material.set_shader_parameter("pond_shelf", Lakes.SHELF)
+	material.set_shader_parameter("pond_wobble", Lakes.WOBBLE)
 
 	position.y = HeightField.WATER_LEVEL
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

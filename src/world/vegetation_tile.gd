@@ -95,7 +95,7 @@ func _init(
 			continue
 		# And none on a trodden path, for the same reason: grass placed by its
 		# own rule comes straight up through anything the terrain painted.
-		if field.path_at(world_x, world_z) > 0.35:
+		if field.path_at(world_x, world_z, height) > 0.35:
 			continue
 		# Nor in a lake: grass placed by its own rule comes straight up through
 		# the water otherwise.

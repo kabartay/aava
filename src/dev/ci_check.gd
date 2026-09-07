@@ -16,6 +16,7 @@ func _initialize() -> void:
 	_check_chunks_have_geometry()
 	_check_ground_rejects_what_it_cannot_touch()
 	_check_baking_on_threads_changes_nothing()
+	_check_the_ponds_hold_water()
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
@@ -42,6 +43,8 @@ func _initialize() -> void:
 	await _check_context_buttons_never_overlap()
 	_check_caring_pays()
 	_check_animals_dont_drown()
+	_check_animals_stay_on_the_ground()
+	_check_trees_are_solid()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -334,6 +337,179 @@ func _check_baking_on_threads_changes_nothing() -> void:
 			identical = false
 			printerr("  chunk %s has different collision when baked in parallel" % coords[i])
 	_expect(identical, "%d chunks baked in parallel match the same chunks baked alone" % coords.size())
+
+## A pond is two things that have to agree: a hole the height field digs, and
+## water the shader draws over it. They did not agree at all — the shader chose
+## where water went by distance from the river, so both ponds were dry craters
+## a child could walk into and stand at the bottom of. Nothing caught it,
+## because every check here asks the height field and the height field was
+## right.
+func _check_the_ponds_hold_water() -> void:
+	print("the ponds hold water")
+	var field := HeightField.new(20260903)
+
+	var i := 0
+	var index := 0
+	while i < Lakes.PONDS.size():
+		var cx := Lakes.PONDS[i]
+		var cz := Lakes.PONDS[i + 1]
+		var long_axis := Lakes.PONDS[i + 2]
+		var short_axis := Lakes.PONDS[i + 3]
+		i += Lakes.POND_STRIDE
+		index += 1
+
+		_expect(
+			field.height_at(cx, cz) < HeightField.WATER_LEVEL - 1.0,
+			"pond %d is dug below the waterline (%.1f m)" % [index, field.height_at(cx, cz)]
+		)
+		_expect(
+			Lakes.influence(cx, cz) > 0.95,
+			"pond %d is deepest at its own centre" % index
+		)
+		_expect(
+			long_axis > short_axis * 1.15,
+			"pond %d is an oval rather than a circle (%.0f by %.0f m)" % [
+				index, long_axis * 2.0, short_axis * 2.0
+			]
+		)
+
+		# Open water, measured rather than assumed: the bank shelves up, so the
+		# basin is always wider than the water in it.
+		var wet_metres := 0
+		for step in range(-60, 61):
+			if field.height_at(cx + float(step), cz) < HeightField.WATER_LEVEL:
+				wet_metres += 1
+		_expect(
+			wet_metres >= 12,
+			"pond %d has %d m of open water across, which is a pond and not a puddle" % [
+				index, wet_metres
+			]
+		)
+
+		# Far enough from the river to read as its own water.
+		_expect(
+			field.distance_to_river(cx, cz) > 40.0,
+			"pond %d is its own water, %d m from the river" % [
+				index, int(field.distance_to_river(cx, cz))
+			]
+		)
+
+		# And nothing grows in it.
+		_expect(Lakes.wet(cx, cz), "nothing is planted in pond %d" % index)
+
+	# The half of this the height field cannot see: the sheet has to be told
+	# where the ponds are, or the holes stay empty.
+	var water_source := _code_only(FileAccess.get_file_as_string("res://src/world/water.gd"))
+	_expect(
+		water_source.contains("pond_blend"),
+		"the water shader has a shape for still water, not only the river"
+	)
+	_expect(
+		water_source.contains("Lakes.PONDS"),
+		"and it takes that shape from Lakes rather than keeping its own copy"
+	)
+	_expect(
+		water_source.contains("pond_place") and water_source.contains("pond_turn"),
+		"every pond's place and angle reaches the shader"
+	)
+
+## An animal that stands still must stay on the ground.
+##
+## The idle bob was added to the animal's height every frame, while the ground
+## was only read again on frames the animal was walking. Standing still for the
+## few seconds animals rest for meant sixty small additions a second with
+## nothing to correct them, and they rose into the air — reported from the
+## phone as animals flying.
+func _check_animals_stay_on_the_ground() -> void:
+	print("an animal standing still stays on the ground")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+
+	var at := field.camp_centre()
+	at.y = field.height_at(at.x, at.z)
+	var node := Node3D.new()
+	get_root().add_child(node)
+	node.position = at
+
+	var resting := {
+		"kind": AnimalKinds.CAT,
+		"node": node,
+		"home": at,
+		# Already where it wants to be, so it rests rather than walks.
+		"target": at,
+		"tile": Vector2i(0, 0),
+		"rest": 1e9,
+		"cooldown": 0.0,
+		"bob": 0.0,
+	}
+
+	# Two minutes of standing still, at sixty frames a second.
+	for _frame in 7200:
+		animals._step(resting, 1.0 / 60.0)
+
+	var drift := absf(node.position.y - field.height_at(at.x, at.z))
+	_expect(
+		drift < 0.1,
+		"after two minutes of standing it is %.3f m from the ground" % drift
+	)
+
+	node.queue_free()
+	animals.queue_free()
+
+## A tree you can walk through is scenery.
+##
+## The forest is instanced — thousands of trees in a few draw calls, which is
+## the only way a tablet draws a wood — and instances carry no collision, so
+## every trunk in the valley was walk-through until someone on the phone walked
+## into one. A pool of trunk-shaped bodies follows the player instead.
+func _check_trees_are_solid() -> void:
+	print("a tree stops you")
+	var field := HeightField.new(20260903)
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+	var trunks := TreeCollision.new(forest)
+	get_root().add_child(trunks)
+
+	_expect(trunks.solid_count() == 0, "nothing is solid before the player is anywhere")
+
+	# Somewhere the forest actually is, rather than wherever the camp happens
+	# to be: a check that stands in a meadow proves nothing about trees.
+	var wooded := Vector3.ZERO
+	var best := 0.0
+	for z in range(-300, 301, 20):
+		for x in range(-300, 301, 20):
+			var density := field.forest_density_at(float(x), float(z))
+			if density > best:
+				best = density
+				wooded = Vector3(float(x), 0.0, float(z))
+	_expect(best > 0.3, "there is thick forest to test in (density %.2f)" % best)
+
+	var near := forest.trees_near(wooded, TreeCollision.REACH)
+	_expect(not near.is_empty(), "%d trees stand within reach of that spot" % near.size())
+
+	# Nearest first, or the pool lends its bodies to the trees furthest away.
+	var ordered := true
+	for i in range(1, near.size()):
+		var previous := Vector2(near[i - 1].x - wooded.x, near[i - 1].z - wooded.z).length()
+		var current := Vector2(near[i].x - wooded.x, near[i].z - wooded.z).length()
+		if current < previous - 0.001:
+			ordered = false
+	_expect(ordered, "and they come back nearest first")
+
+	trunks.follow(wooded)
+	_expect(trunks.solid_count() > 0, "standing in the wood makes trunks solid")
+	_expect(
+		trunks.solid_count() <= TreeCollision.BODIES,
+		"never more than the %d bodies it owns" % TreeCollision.BODIES
+	)
+
+	# And walking out of the wood releases them again.
+	trunks.set_trunks([] as Array[Vector3])
+	_expect(trunks.solid_count() == 0, "and leaving the wood frees them")
+
+	trunks.queue_free()
+	forest.queue_free()
 
 ## The player must not open the game underwater or on a cliff.
 func _check_spawn_is_habitable() -> void:
@@ -2040,26 +2216,81 @@ func _check_paths_lead_somewhere() -> void:
 	var field := HeightField.new(20260903)
 	var camp := field.camp_centre()
 
-	# Every route must actually arrive at a destination.
+	# Every route must actually arrive at a destination — on the dry ground
+	# beside it, since one destination is a swimming pool and the bottom of a
+	# swimming pool is not somewhere to paint a trodden path.
 	for route in Paths.ROUTES:
 		for end: StringName in [route["from"], route["to"]]:
 			var at: Vector3 = camp if end == &"" else PlaceSpec.centre_of(end, camp)
+			var arrives := false
+			for step in 24:
+				var reach := float(step)
+				for turn in 8:
+					var angle := TAU * float(turn) / 8.0
+					var near := at + Vector3(cos(angle) * reach, 0.0, sin(angle) * reach)
+					var ground := field.height_at(near.x, near.z)
+					if ground <= HeightField.WATER_LEVEL:
+						continue
+					if field.path_at(near.x, near.z, ground) > 0.5:
+						arrives = true
+						break
+				if arrives:
+					break
 			_expect(
-				field.path_at(at.x, at.z) > 0.5,
-				"there is a path at the %s" % ("camp" if end == &"" else String(end))
+				arrives,
+				"a path arrives at the %s" % ("camp" if end == &"" else String(end))
 			)
 
 	# And the middle of a route must be worn too, or it is two patches rather
 	# than a path.
-	var midway_worn := true
+	# A route may be interrupted by water — that is a ford, and it is on purpose
+	# — but it must be worn everywhere it is on land, or it is two patches
+	# rather than a path.
+	var worn := 0
+	var dry_samples := 0
 	for route in Paths.ROUTES:
 		var a: Vector3 = camp if route["from"] == &"" else PlaceSpec.centre_of(route["from"], camp)
 		var b: Vector3 = camp if route["to"] == &"" else PlaceSpec.centre_of(route["to"], camp)
-		for step: float in [0.25, 0.5, 0.75]:
-			var at := a.lerp(b, step)
-			if field.path_at(at.x, at.z) < 0.5:
-				midway_worn = false
-	_expect(midway_worn, "the ground is worn along the whole of every route, not just at the ends")
+		for step in 19:
+			var at := a.lerp(b, float(step + 1) / 20.0)
+			var ground := field.height_at(at.x, at.z)
+			# Well clear of the water, so the fade at a ford is not counted as
+			# a gap in the route.
+			if ground < HeightField.WATER_LEVEL + 1.5:
+				continue
+			dry_samples += 1
+			if field.path_at(at.x, at.z, ground) > 0.5:
+				worn += 1
+	_expect(
+		dry_samples > 0 and worn == dry_samples,
+		"every dry step along every route is worn ground (%d of %d)" % [worn, dry_samples]
+	)
+
+	# No route may be painted across the river. Three of the five cross it, and
+	# the worn-earth colour used to run straight down the bank and along three
+	# and a half metres of riverbed — reported, correctly, as looking like a
+	# bug. A path stops at the water now, which is what a ford looks like.
+	var dry := true
+	var wettest := 0.0
+	var i := 0
+	while i < Paths.SEGMENTS.size():
+		var ax := Paths.SEGMENTS[i]
+		var az := Paths.SEGMENTS[i + 1]
+		var bx := Paths.SEGMENTS[i + 2]
+		var bz := Paths.SEGMENTS[i + 3]
+		i += 4
+		for step in 201:
+			var along := float(step) / 200.0
+			var x := lerpf(ax, bx, along)
+			var z := lerpf(az, bz, along)
+			var ground := field.height_at(x, z)
+			if ground >= HeightField.WATER_LEVEL:
+				continue
+			var painted := field.path_at(x, z, ground)
+			wettest = maxf(wettest, painted)
+			if painted > 0.02:
+				dry = false
+	_expect(dry, "no path is painted on the riverbed (worst %.2f under water)" % wettest)
 
 	# The valley away from the camp must be untouched, or the whole world is a
 	# path and none of it is a signal.
@@ -2068,7 +2299,7 @@ func _check_paths_lead_somewhere() -> void:
 		for step in 8:
 			var angle := TAU * float(step) / 8.0
 			var at := camp + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
-			if field.path_at(at.x, at.z) > 0.0:
+			if field.path_at(at.x, at.z, field.height_at(at.x, at.z)) > 0.0:
 				open_valley = false
 	_expect(open_valley, "the open valley has no paths in it")
 
@@ -2084,8 +2315,14 @@ func _check_paths_lead_somewhere() -> void:
 	# A path is made of colour and bare earth, not of a dent. It used to sink by
 	# nine centimetres, which was too little to see and cost six milliseconds a
 	# chunk to compute — so the ground is left alone and these are what remain.
-	var on_path := camp.lerp(PlaceSpec.centre_of(&"pool", camp), 0.5)
-	_expect(field.path_at(on_path.x, on_path.z) > 0.5, "the middle of a route is a path")
+	# Taken a quarter of the way to the playground rather than half way to the
+	# pool: that midpoint turned out to be the river crossing, where a path is
+	# now deliberately absent.
+	var on_path := camp.lerp(PlaceSpec.centre_of(&"playground", camp), 0.25)
+	_expect(
+		field.path_at(on_path.x, on_path.z, field.height_at(on_path.x, on_path.z)) > 0.5,
+		"the middle of a route is a path"
+	)
 	_expect(
 		is_equal_approx(
 			field.height_at(on_path.x, on_path.z),
@@ -2722,12 +2959,23 @@ func _check_it_will_run_on_a_tablet() -> void:
 	)
 
 	# Nothing may assume a keyboard: every action needs an on-screen control.
-	var hud_source := FileAccess.get_file_as_string("res://src/ui/hud.gd")
+	# These used to be words and are drawn now, so what this looks for is the
+	# button being made at all rather than the label it once carried.
+	var hud_source := _code_only(FileAccess.get_file_as_string("res://src/ui/hud.gd"))
 	for control: String in ["jump", "build", "kick"]:
 		_expect(
-			hud_source.contains('"ui_%s"' % control) or hud_source.contains('"%s"' % control),
+			hud_source.contains("ActionIcon.Kind.%s" % control.to_upper()),
 			"there is an on-screen control for %s" % control
 		)
+	# And every drawn face must actually be drawn, or a button is a blank
+	# rectangle — the same gap the bed's missing palette icon left.
+	var icon_source := _code_only(FileAccess.get_file_as_string("res://src/ui/action_icon.gd"))
+	var drawn := true
+	for face: String in ["JUMP", "KICK", "BUILD", "CLOSE"]:
+		if not icon_source.contains("Kind.%s:" % face):
+			drawn = false
+			printerr("  action_icon.gd draws nothing for %s" % face)
+	_expect(drawn, "every action icon has something to draw")
 
 ## Voice is the only part of this game whose failures reach outside it, and the
 ## children are small. These checks read the source, because the rules have to
