@@ -2971,7 +2971,10 @@ func _check_it_will_run_on_a_tablet() -> void:
 	# rectangle — the same gap the bed's missing palette icon left.
 	var icon_source := _code_only(FileAccess.get_file_as_string("res://src/ui/action_icon.gd"))
 	var drawn := true
-	for face: String in ["JUMP", "KICK", "BUILD", "CLOSE"]:
+	for face: String in [
+		"JUMP", "KICK", "BUILD", "CLOSE", "DRINK", "WHISTLE", "CHOP", "RIDE",
+		"GET_OFF", "SHOOT", "SWING", "EAT", "GIVE_STICK", "FEED_FIRE", "SLEEP", "TALK",
+	]:
 		if not icon_source.contains("Kind.%s:" % face):
 			drawn = false
 			printerr("  action_icon.gd draws nothing for %s" % face)
@@ -3550,7 +3553,7 @@ func _check_context_buttons_never_overlap() -> void:
 	hud.set_fire_offer(true)
 	hud.set_sleep_offer(true)
 	hud.set_dam_offer(false)
-	hud.set_place_offer("")
+	hud.set_place_offer(&"")
 	hud._layout()
 	_expect(
 		not hud._fire_button.position.is_equal_approx(hud._sleep_button.position),
@@ -3561,7 +3564,7 @@ func _check_context_buttons_never_overlap() -> void:
 	hud.set_fire_offer(true)
 	hud.set_sleep_offer(true)
 	hud.set_dam_offer(true)
-	hud.set_place_offer("eat")
+	hud.set_place_offer(Places.CAFE)
 	hud._layout()
 	var spots: Dictionary = {}
 	var distinct := true

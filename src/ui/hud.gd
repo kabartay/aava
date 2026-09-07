@@ -228,34 +228,34 @@ func _init() -> void:
 
 	# Only shown when there is something to drink, so it never sits there
 	# inert inviting a press that does nothing.
-	_drink_button = _button(Text.of("ui_drink"), Color(0.58, 0.82, 0.96))
+	_drink_button = _icon_button(ActionIcon.Kind.DRINK)
 	_drink_button.visible = false
 	_drink_button.pressed.connect(func() -> void: drink_pressed.emit())
 	add_child(_drink_button)
 
 	# Appears only once the whistle has been bought, so the interface grows with
 	# what the child owns rather than showing controls that do nothing.
-	_whistle_button = _button(Text.of("ui_whistle"), Color(0.98, 0.84, 0.52))
+	_whistle_button = _icon_button(ActionIcon.Kind.WHISTLE)
 	_whistle_button.visible = false
 	_whistle_button.pressed.connect(func() -> void: whistle_pressed.emit())
 	add_child(_whistle_button)
 
 	# Shown only when the axe is owned and there is actually a tree in reach,
 	# so it never invites a press that does nothing.
-	_chop_button = _button(Text.of("ui_chop"), Color(0.86, 0.72, 0.52))
+	_chop_button = _icon_button(ActionIcon.Kind.CHOP)
 	_chop_button.visible = false
 	_chop_button.pressed.connect(func() -> void: chop_pressed.emit())
 	add_child(_chop_button)
 
 	# The same button gets on and gets off, because they are the same thought.
-	_ride_button = _button(Text.of("ui_ride"), Color(0.82, 0.88, 0.98))
+	_ride_button = _icon_button(ActionIcon.Kind.RIDE)
 	_ride_button.visible = false
 	_ride_button.pressed.connect(func() -> void: ride_pressed.emit())
 	add_child(_ride_button)
 
 	# Held to draw and released to loose, the same gesture as the kick, so a
 	# child who can shoot at goal can already shoot a bow.
-	_shoot_button = _button(Text.of("ui_shoot"), Color(0.96, 0.86, 0.62))
+	_shoot_button = _icon_button(ActionIcon.Kind.SHOOT)
 	_shoot_button.visible = false
 	_shoot_button.button_down.connect(func() -> void: shoot_started.emit())
 	_shoot_button.button_up.connect(func() -> void: shoot_released.emit())
@@ -264,25 +264,25 @@ func _init() -> void:
 	# One button for whatever the place a child is standing in offers, labelled
 	# by the place. A separate control per destination would mean three buttons
 	# of which two are always inert.
-	_visit_button = _button(Text.of("ui_swing"), Color(0.72, 0.92, 0.78))
+	_visit_button = _icon_button(ActionIcon.Kind.SWING)
 	_visit_button.visible = false
 	_visit_button.pressed.connect(func() -> void: place_used.emit())
 	add_child(_visit_button)
 
 	# Only shown at a dam site, with a stick in the bag.
-	_dam_button = _button(Text.of("ui_give_stick"), Color(0.78, 0.86, 0.70))
+	_dam_button = _icon_button(ActionIcon.Kind.GIVE_STICK)
 	_dam_button.visible = false
 	_dam_button.pressed.connect(func() -> void: dam_stick.emit())
 	add_child(_dam_button)
 
 	# Shown at a campfire, with wood in the bag.
-	_fire_button = _button(Text.of("ui_feed_fire"), Color(1.0, 0.78, 0.46))
+	_fire_button = _icon_button(ActionIcon.Kind.FEED_FIRE)
 	_fire_button.visible = false
 	_fire_button.pressed.connect(func() -> void: fire_fed.emit())
 	add_child(_fire_button)
 
 	# Shown at a bed, and only when there is a night to sleep through.
-	_sleep_button = _button(Text.of("ui_sleep"), Color(0.74, 0.78, 0.96))
+	_sleep_button = _icon_button(ActionIcon.Kind.SLEEP)
 	_sleep_button.visible = false
 	_sleep_button.pressed.connect(func() -> void: slept.emit())
 	add_child(_sleep_button)
@@ -306,7 +306,7 @@ func _init() -> void:
 	# Held to talk and released to stop, the same gesture as the kick and the
 	# bow. Shown only when there is somebody in the valley to talk to, so it
 	# never sits there inviting a child to speak to nobody.
-	_talk_button = _button(Text.of("ui_talk"), Color(0.96, 0.86, 0.62))
+	_talk_button = _icon_button(ActionIcon.Kind.TALK)
 	_talk_button.visible = false
 	_talk_button.button_down.connect(func() -> void: talk_started.emit())
 	_talk_button.button_up.connect(func() -> void: talk_released.emit())
@@ -603,10 +603,17 @@ func set_dam_offer(offered: bool) -> void:
 		_layout()
 
 ## What the place a child is standing in offers, or nothing at all.
-func set_place_offer(label: String) -> void:
-	var wanted := not label.is_empty()
-	if wanted and _visit_button.text != label:
-		_visit_button.text = label
+## Which place the child is standing in, or the empty name for none. The
+## button draws what that place offers — a swing at the playground, a meal at
+## the café — rather than being told a word to show.
+func set_place_offer(place: StringName) -> void:
+	var wanted := place != &""
+	if wanted:
+		var face := _face_of(_visit_button)
+		if face != null:
+			face.show_kind(
+				ActionIcon.Kind.EAT if place == Places.CAFE else ActionIcon.Kind.SWING
+			)
 	if _visit_button.visible != wanted:
 		_visit_button.visible = wanted
 		_layout()
@@ -620,9 +627,9 @@ func set_on_shooting_line(within: bool) -> void:
 ## Offer to get on when a mount is in reach, and to get off while riding.
 func set_mount_in_reach(available: bool, riding: bool) -> void:
 	var wanted := available or riding
-	var label := Text.of("ui_getoff") if riding else Text.of("ui_ride")
-	if _ride_button.text != label:
-		_ride_button.text = label
+	var face := _face_of(_ride_button)
+	if face != null:
+		face.show_kind(ActionIcon.Kind.GET_OFF if riding else ActionIcon.Kind.RIDE)
 	if _ride_button.visible != wanted:
 		_ride_button.visible = wanted
 		_layout()

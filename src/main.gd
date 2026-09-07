@@ -619,16 +619,14 @@ func _carry(delta: float, at: Vector3) -> void:
 		sounds.play(Sounds.Sound.JUMP, 1.4)
 
 ## What the place a child is standing in is offering, as a label — or nothing.
-func _offer_at(place: StringName) -> String:
+func _offer_at(place: StringName) -> StringName:
 	match place:
-		Places.PLAYGROUND:
-			return Text.of("ui_swing")
-		Places.CAFE:
-			return Text.of("ui_eat")
+		Places.PLAYGROUND, Places.CAFE:
+			return place
 		_:
 			# The pool needs no button: a child walks in and swims. Offering
 			# "swim" beside water you are already standing in is noise.
-			return ""
+			return &""
 
 ## The name a child is known by on the other machine. Their profile name if
 ## they have one, and otherwise something rather than nothing — a blank label
