@@ -20,6 +20,16 @@ extends Node3D
 ## else is any different.
 const CHUNKS_PER_FRAME := 1
 
+## How many chunks may be baking at once, and how many finished bakes may be
+## turned into nodes in a single frame.
+##
+## Baking moved off the main thread, but assembling did not: it is a mesh, two
+## nodes and a shape, about a millisecond. Letting a burst of finished bakes
+## all land in one frame would put a smaller version of the old hitch straight
+## back, so they are spread out instead.
+const BAKES_IN_FLIGHT := 3
+const ASSEMBLED_PER_FRAME := 1
+
 var field: HeightField
 
 var _material: StandardMaterial3D
@@ -29,6 +39,19 @@ var _queue: Array[Vector2i] = []
 ## Chunks that could stand to be coarser, done only when nothing is waiting.
 var _lazy: Array[Vector2i] = []
 var _centre := Vector2i(9999, 9999)
+
+## Chunks currently being baked on a worker, by coordinate, and the finished
+## bakes waiting to become nodes. The mutex guards only the handover list.
+var _baking: Dictionary = {}
+var _finished: Array = []
+var _finished_mutex := Mutex.new()
+
+## Bumped whenever the height field itself changes — which only a finished dam
+## does. A bake started before that change describes ground that no longer
+## exists, so anything stamped with an older generation is thrown away rather
+## than assembled. Without this, damming the river while the chunks beside it
+## were still baking would put the pre-dam riverbed back.
+var _generation := 0
 
 func _init(height_field: HeightField) -> void:
 	field = height_field
@@ -119,7 +142,14 @@ func _rebuild_queue() -> void:
 		return (a - _centre).length_squared() > (b - _centre).length_squared())
 
 func _process(_delta: float) -> void:
-	var built := 0
+	_assemble_finished()
+
+	# Only so many chunks in flight at once. Baking is off the main thread, but
+	# a phone has few cores and the game still needs some of them.
+	var in_flight := _baking.size()
+	if in_flight >= BAKES_IN_FLIGHT:
+		return
+
 	# When there is nothing urgent, spend the frame coarsening one chunk that
 	# the player has left behind.
 	if _queue.is_empty() and not _lazy.is_empty():
@@ -127,22 +157,27 @@ func _process(_delta: float) -> void:
 		var offset := stale - _centre
 		var ring := TerrainSpec.ring_for(maxi(absi(offset.x), absi(offset.y)))
 		if ring >= 0 and _chunks.has(stale):
-			_build_chunk(stale, ring)
+			_submit_chunk(stale, ring)
 		return
 
-	while built < CHUNKS_PER_FRAME and not _queue.is_empty():
+	var started := 0
+	while (
+		started < CHUNKS_PER_FRAME
+		and in_flight + started < BAKES_IN_FLIGHT
+		and not _queue.is_empty()
+	):
 		var coord: Vector2i = _queue.pop_front()
 		var ring := TerrainSpec.ring_for(maxi(absi(coord.x - _centre.x), absi(coord.y - _centre.y)))
 		if ring < 0:
 			continue
-		_build_chunk(coord, ring)
-		built += 1
+		_submit_chunk(coord, ring)
+		started += 1
 
 ## True when every chunk in range has been built. The screenshot tool waits on
 ## this instead of guessing a frame count, so a capture never photographs a
 ## half-generated world.
 func is_idle() -> bool:
-	return _queue.is_empty()
+	return _queue.is_empty() and _baking.is_empty() and _finished.is_empty()
 
 ## True once the ground the player is standing on is guaranteed to exist.
 func has_ground_at(world_position: Vector3) -> bool:
@@ -160,6 +195,9 @@ func has_ground_at(world_position: Vector3) -> bool:
 ## each owns a HeightMapShape3D as well as a mesh and the existing build path
 ## does both.
 func rebuild_near(world_position: Vector3, radius: float) -> void:
+	# Everything already baking describes the ground as it was a moment ago.
+	_generation += 1
+
 	var affected: Array[Vector2i] = []
 	for coord in _chunks.keys():
 		var centre := Vector3(
@@ -183,12 +221,61 @@ func rebuild_near(world_position: Vector3, radius: float) -> void:
 	_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return (a - _centre).length_squared() < (b - _centre).length_squared())
 
-func _build_chunk(coord: Vector2i, ring: int) -> void:
-	var previous = _chunks.get(coord)
-	if previous != null:
-		previous.queue_free()
-
+## Start a chunk on a worker thread. The ground appears a frame or two later
+## than it used to; nothing waits for it here.
+func _submit_chunk(coord: Vector2i, ring: int) -> void:
+	if _baking.has(coord):
+		return
 	var step: int = TerrainSpec.RINGS[ring]["step"]
-	var chunk := TerrainChunk.new(field, coord, step, ring, _material, TerrainSpec.RINGS[ring]["collide"])
-	add_child(chunk)
-	_chunks[coord] = chunk
+	var collide: bool = TerrainSpec.RINGS[ring]["collide"]
+	_baking[coord] = {
+		"ring": ring,
+		"collide": collide,
+		"generation": _generation,
+		"task": WorkerThreadPool.add_task(
+			_bake_on_worker.bind(coord, step, collide, _generation), true,
+			"aava terrain chunk"
+		),
+	}
+
+## Runs on a worker thread. Nothing here touches the scene tree, and the height
+## field it reads writes nothing back — see HeightField's constructor.
+func _bake_on_worker(coord: Vector2i, step: int, collide: bool, generation: int) -> void:
+	var baked := TerrainChunk.bake(field, coord, step, collide)
+	baked["generation"] = generation
+	_finished_mutex.lock()
+	_finished.append(baked)
+	_finished_mutex.unlock()
+
+## Assemble whatever the workers have finished. Cheap — a mesh, two nodes and a
+## shape — and deliberately capped, so a burst of finished bakes cannot put the
+## whole hitch back in one frame.
+func _assemble_finished() -> void:
+	var ready_now: Array = []
+	_finished_mutex.lock()
+	while not _finished.is_empty() and ready_now.size() < ASSEMBLED_PER_FRAME:
+		ready_now.append(_finished.pop_front())
+	_finished_mutex.unlock()
+
+	for baked in ready_now:
+		var coord: Vector2i = baked["coord"]
+		var job = _baking.get(coord)
+		_baking.erase(coord)
+		if job == null:
+			# The chunk went out of range while it was baking. Its work is
+			# thrown away rather than added to a world nobody is looking at.
+			continue
+		WorkerThreadPool.wait_for_task_completion(job["task"])
+		if int(baked["generation"]) != _generation:
+			# The ground changed under this bake. Ask for it again rather than
+			# showing the river where the pond now is.
+			if not _queue.has(coord):
+				_queue.append(coord)
+			continue
+
+		var previous = _chunks.get(coord)
+		if previous != null:
+			previous.queue_free()
+		var chunk := TerrainChunk.new(baked, job["ring"], _material, job["collide"])
+		add_child(chunk)
+		_chunks[coord] = chunk

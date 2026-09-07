@@ -15,6 +15,7 @@ func _initialize() -> void:
 	_check_world_has_relief()
 	_check_chunks_have_geometry()
 	_check_ground_rejects_what_it_cannot_touch()
+	_check_baking_on_threads_changes_nothing()
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
@@ -180,7 +181,10 @@ func _check_chunks_have_geometry() -> void:
 	var field := HeightField.new(20260903)
 	var steps := PackedInt32Array([1, 4, 8])
 	for step in steps:
-		var chunk := TerrainChunk.new(field, Vector2i(0, 0), step, 0, StandardMaterial3D.new(), false)
+		var chunk := TerrainChunk.new(
+			TerrainChunk.bake(field, Vector2i(0, 0), step, false), 0,
+			StandardMaterial3D.new(), false
+		)
 		var visual := chunk.get_child(0) as MeshInstance3D
 		if visual == null or visual.mesh == null or visual.mesh.get_surface_count() == 0:
 			_fail("step %d produced no surface" % step)
@@ -272,6 +276,64 @@ func _check_ground_rejects_what_it_cannot_touch() -> void:
 		worst < 0.25,
 		"collision read between sampled heights stays within %.2f m of the ground" % worst
 	)
+
+
+## Terrain is baked on worker threads now, which is only safe because reading
+## the height field writes nothing back. That is an assumption about
+## `FastNoiseLite`, about the lazily-cached camp level (primed in the
+## constructor for exactly this reason), and about every static leaf the field
+## consults. Assumptions of that shape fail silently and intermittently, so
+## this asserts it directly: the same chunks baked three at a time on workers
+## must come out byte-identical to baking them one at a time here.
+func _check_baking_on_threads_changes_nothing() -> void:
+	print("ground baked on threads is the same ground")
+	var field := HeightField.new(20260903)
+
+	var coords: Array[Vector2i] = [
+		Vector2i(0, 0), Vector2i(1, 0), Vector2i(-1, 1),
+		Vector2i(2, 2), Vector2i(-3, 0), Vector2i(4, -2),
+	]
+
+	var alone: Array = []
+	for coord in coords:
+		alone.append(TerrainChunk.bake(field, coord, 1, true))
+
+	# The same work, handed to the pool all at once.
+	var together: Array = []
+	together.resize(coords.size())
+	var guard := Mutex.new()
+	var tasks: Array[int] = []
+	for i in coords.size():
+		tasks.append(WorkerThreadPool.add_task(
+			func() -> void:
+				var baked := TerrainChunk.bake(field, coords[i], 1, true)
+				guard.lock()
+				together[i] = baked
+				guard.unlock()
+		))
+	for task in tasks:
+		WorkerThreadPool.wait_for_task_completion(task)
+
+	var identical := true
+	for i in coords.size():
+		var one: Dictionary = alone[i]
+		var many = together[i]
+		if many == null:
+			identical = false
+			printerr("  chunk %s never came back from the pool" % coords[i])
+			continue
+		var a: Array = one["arrays"]
+		var b: Array = many["arrays"]
+		if a[Mesh.ARRAY_VERTEX] != b[Mesh.ARRAY_VERTEX]:
+			identical = false
+			printerr("  chunk %s has different vertices when baked in parallel" % coords[i])
+		if a[Mesh.ARRAY_COLOR] != b[Mesh.ARRAY_COLOR]:
+			identical = false
+			printerr("  chunk %s has different colours when baked in parallel" % coords[i])
+		if one["collision"] != many["collision"]:
+			identical = false
+			printerr("  chunk %s has different collision when baked in parallel" % coords[i])
+	_expect(identical, "%d chunks baked in parallel match the same chunks baked alone" % coords.size())
 
 ## The player must not open the game underwater or on a cliff.
 func _check_spawn_is_habitable() -> void:

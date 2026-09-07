@@ -17,7 +17,9 @@ func _initialize() -> void:
 		print("z=%6.1f | %s" % [z, " | ".join(row)])
 
 	print("--- tint at a few spots (as the mesh stores it)")
-	var chunk := TerrainChunk.new(field, Vector2i(0, 0), 4, 2, StandardMaterial3D.new(), false)
+	var chunk := TerrainChunk.new(
+		TerrainChunk.bake(field, Vector2i(0, 0), 4, false), 2, StandardMaterial3D.new(), false
+	)
 	var arrays := (chunk.get_child(0) as MeshInstance3D).mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]

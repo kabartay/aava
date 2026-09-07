@@ -98,6 +98,14 @@ func _init(world_seed: int) -> void:
 	_detail.frequency = 0.05
 	_detail.fractal_octaves = 2
 
+	# Worked out now rather than on first use. It is one number and always the
+	# same one, but it used to be filled in lazily by whoever asked first —
+	# and terrain is baked on worker threads, where "whoever asked first"
+	# means two threads writing the same member at once. Priming it here makes
+	# this whole object read-only for everything that reads the ground, which
+	# is what makes baking off the main thread safe rather than merely lucky.
+	_cached_place_level = _raw_height(camp_centre().x, camp_centre().z)
+
 ## Where the river's centre line sits at a given depth into the world.
 ## Two sine waves of different periods read as a meander rather than a snake.
 func river_centre_x(z: float) -> float:

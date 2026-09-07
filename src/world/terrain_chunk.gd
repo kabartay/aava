@@ -19,24 +19,22 @@ var ring: int
 var step := 1
 var has_collision := false
 
-func _init(
-	field: HeightField,
-	coord: Vector2i,
-	step: int,
-	detail_ring: int,
-	material: StandardMaterial3D,
-	with_collision: bool
-) -> void:
-	ring = detail_ring
-	# Kept so the streamer can tell whether a rebuild would actually improve
-	# anything, rather than rebuilding whenever the ring number changes.
-	self.step = step
-	has_collision = with_collision
-
+## Work out everything about a chunk that does not touch the scene tree.
+##
+## Split out of _init so it can run on a worker thread. Building one near chunk
+## costs 25 ms even after the cheap wins, which is a dropped frame and a half
+## on a laptop and considerably worse on a child's phone — and there is nothing
+## about sampling a height field and filling three arrays that needs to happen
+## between two frames of a game. Reads the field and allocates its own arrays;
+## touches nothing shared, which is what makes it safe to run off the main
+## thread. `HeightField` is primed in its own constructor so that reading it
+## here writes nothing.
+static func bake(
+	field: HeightField, coord: Vector2i, step: int, with_collision: bool
+) -> Dictionary:
 	var size := TerrainSpec.CHUNK_SIZE
 	var origin_x := float(coord.x * size)
 	var origin_z := float(coord.y * size)
-	position = Vector3(origin_x, 0.0, origin_z)
 
 	var grid := size / step + 1
 
@@ -125,8 +123,37 @@ func _init(
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 
+	return {
+		"coord": coord,
+		"step": step,
+		"arrays": arrays,
+		"collision": (
+			_collision_data(size, step, heights, padded) if with_collision
+			else PackedFloat32Array()
+		),
+	}
+
+## Assemble a chunk from data already baked, on the main thread. Everything
+## expensive happened in bake(); this is a mesh, two nodes and a shape.
+func _init(
+	baked: Dictionary,
+	detail_ring: int,
+	material: StandardMaterial3D,
+	with_collision: bool
+) -> void:
+	ring = detail_ring
+	# Kept so the streamer can tell whether a rebuild would actually improve
+	# anything, rather than rebuilding whenever the ring number changes.
+	var baked_step: int = baked["step"]
+	step = baked_step
+	has_collision = with_collision
+
+	var size := TerrainSpec.CHUNK_SIZE
+	var coord: Vector2i = baked["coord"]
+	position = Vector3(float(coord.x * size), 0.0, float(coord.y * size))
+
 	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, baked["arrays"])
 
 	var visual := MeshInstance3D.new()
 	visual.mesh = mesh
@@ -134,8 +161,9 @@ func _init(
 	visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	add_child(visual)
 
-	if with_collision:
-		_add_collision(field, origin_x, origin_z, size, step, heights, padded)
+	var collision: PackedFloat32Array = baked["collision"]
+	if with_collision and not collision.is_empty():
+		_attach_collision(size, collision)
 
 ## Collision is always at full resolution. Detail rings exist to save triangles
 ## on screen; the player must never fall through a hill because the ground they
@@ -146,10 +174,9 @@ func _init(
 ## as they walk — its grid is reused rather than the field being asked for the
 ## same 4,225 heights a second time. That was eight of the twenty-two
 ## milliseconds a near chunk cost to build.
-func _add_collision(
-	field: HeightField, origin_x: float, origin_z: float, size: int,
-	step: int, heights: PackedFloat32Array, padded: int
-) -> void:
+static func _collision_data(
+	size: int, step: int, heights: PackedFloat32Array, padded: int
+) -> PackedFloat32Array:
 	var samples := size + 1
 	var data := PackedFloat32Array()
 	data.resize(samples * samples)
@@ -189,7 +216,11 @@ func _add_collision(
 				data[z * samples + x] = lerpf(
 					lerpf(h00, h10, tx), lerpf(h01, h11, tx), tz
 				)
+	return data
 
+## The scene-tree half: a shape and two nodes, from heights already worked out.
+func _attach_collision(size: int, data: PackedFloat32Array) -> void:
+	var samples := size + 1
 	var shape := HeightMapShape3D.new()
 	shape.map_width = samples
 	shape.map_depth = samples
@@ -210,7 +241,7 @@ func _add_collision(
 ## `pitch_here` and `paths_here` are the caller's per-chunk box tests. They are
 ## passed in rather than recomputed because this runs once per vertex and the
 ## answer cannot change within one chunk.
-func _tint(
+static func _tint(
 	field: HeightField, x: float, z: float, height: float, slope: float,
 	pitch_here: bool, paths_here: bool
 ) -> Color:
@@ -258,7 +289,7 @@ func _tint(
 ## drift out of alignment with the ground — but it does mean a line is only as
 ## crisp as the vertex spacing, which is why the pitch sits where terrain is
 ## sampled every metre.
-func _pitch_tint(x: float, z: float) -> Color:
+static func _pitch_tint(x: float, z: float) -> Color:
 	var centre := Pitch.centre()
 	var local_x := x - centre.x
 	var local_z := z - centre.z
