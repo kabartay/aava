@@ -311,15 +311,16 @@ static func _add_face(
 ## A red collar, which is the one thing that says "dog" from any distance.
 static func _add_collar(tool: SurfaceTool, scale: float, head_lift: float, head_forward: float) -> void:
 	var collar := TorusMesh.new()
-	collar.inner_radius = scale * 0.30
-	collar.outer_radius = scale * 0.42
+	collar.inner_radius = scale * 0.31
+	collar.outer_radius = scale * 0.50
 	collar.rings = 6
 	collar.ring_segments = 12
 	var tilt := Basis(Vector3.RIGHT, deg_to_rad(-32.0))
 	var neck_at := Vector3(0.0, head_lift - scale * 0.32, head_forward * 0.55)
-	# Down the neck a little towards the shoulders, where a collar sits.
+	# Up the neck a little, towards the head: at the shoulders the body's
+	# curve swallowed it, and the first collar was there and invisible.
 	var along := tilt * Vector3.UP
-	_add(tool, collar, Transform3D(tilt, neck_at - along * scale * 0.14), Color(0.80, 0.18, 0.16))
+	_add(tool, collar, Transform3D(tilt, neck_at + along * scale * 0.06), Color(0.80, 0.18, 0.16))
 
 ## The tail carries the identity: a squirrel's plume, a beaver's paddle, a
 ## dog's curl, a cat's raised question mark. It is the cheapest possible
