@@ -206,6 +206,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_dam_stick.connect(_on_remote_dam_stick)
 
 	world.football.goal_scored.connect(_on_goal)
+	world.places.basket.connect(func(total: int) -> void:
+		sounds.play(Sounds.Sound.GOAL)
+		hud.announce(Text.of("say_basket"), 1.6)
+		journal.record(Journal.GOALS))
 	world.boulders.jumped.connect(_on_boulder_jumped)
 	if save.has("boulders"):
 		world.boulders.from_data(save["boulders"])
@@ -282,6 +286,13 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	player.moved.connect(world.follow)
 	player.jumped.connect(func() -> void: sounds.play(Sounds.Sound.JUMP))
 	player.landed.connect(func(speed: float) -> void:
+		# Landing on the trampoline's mat throws some of the fall back up. Not
+		# all of it, so a child who simply steps on does not start bouncing
+		# for ever — jumping from the mat is what sends them high.
+		if world.places.on_trampoline(player.global_position):
+			player.velocity.y = clampf(speed * Places.TRAMPOLINE_REBOUND, 0.0, 9.0)
+			sounds.play(Sounds.Sound.JUMP, 0.8)
+			return
 		sounds.play(Sounds.Sound.LAND, clampf(1.2 - speed * 0.02, 0.75, 1.2)))
 	add_child(player)
 
@@ -355,6 +366,7 @@ func _process(delta: float) -> void:
 		player.is_running, player.is_moving
 	)
 	player.may_run = vitals.can_run()
+	player.jump_boost = Places.TRAMPOLINE_JUMP if world.places.on_trampoline(player.global_position) else 1.0
 
 	# Standing in the shallows fills the bottle without a button. A child who
 	# walks into the river to fill up has already expressed the intent; asking
@@ -365,6 +377,7 @@ func _process(delta: float) -> void:
 			hud.announce(Text.of("say_filled"), 1.6)
 
 	lantern.follow(world.atmosphere.darkness(), delta)
+	world.places.light_lamps(world.atmosphere.darkness(), delta)
 	ambience.follow(
 		player.global_position, world.field, world.places,
 		world.atmosphere.darkness(), delta
@@ -447,8 +460,8 @@ func _process(delta: float) -> void:
 	# The kick button appears only with a ball at your feet. The keyboard runs
 	# through the same two calls as the button, so the two controls cannot end
 	# up kicking differently.
-	var ball := world.football.ball_near(player.global_position)
-	hud.set_ball_in_reach(ball != null)
+	var ball := _ball_near()
+	hud.set_ball_in_reach(ball != null, ball != null and _can_throw(ball))
 	if ball != null and Input.is_action_just_pressed(InputActions.KICK):
 		_on_kick_start()
 	if player.is_charging() and Input.is_action_just_released(InputActions.KICK):
@@ -581,6 +594,8 @@ func _refresh_vitals() -> void:
 ## True when the player is standing in water shallow enough to reach into.
 func _standing_in_water() -> bool:
 	var at := player.global_position
+	if world.places.at_fountain(at):
+		return true
 	return at.y < HeightField.WATER_LEVEL + 0.9 and world.field.distance_to_river(at.x, at.z) < 30.0
 
 ## How much wood a tree is worth, and how far you must be to reach it.
@@ -961,14 +976,29 @@ func _on_remove() -> void:
 	]), 1.6)
 
 func _on_kick_start() -> void:
-	if world.football.ball_near(player.global_position) != null:
+	if _ball_near() != null:
 		player.start_charging()
+
+## The ball at the child's feet, whichever game it belongs to: the footballs
+## on the pitch or the basketballs at the playground. One kick serves both.
+func _ball_near() -> Ball:
+	var ball := world.football.ball_near(player.global_position)
+	if ball == null:
+		ball = world.places.ball_near(player.global_position)
+	return ball
 
 func _on_kick_release() -> void:
 	var strength := player.release_charge()
 	hud.set_kick_preview(false, 0.0, 0.0)
-	var ball := world.football.ball_near(player.global_position)
+	var ball := _ball_near()
 	if ball == null:
+		return
+	if _can_throw(ball):
+		# At the playground a basketball near the hoop is thrown at the ring,
+		# not kicked along the ground — the ring is what it is for. Holding
+		# the button steadies the aim; a tap still mostly goes in.
+		sounds.play(Sounds.Sound.KICK, 1.15)
+		ball.throw_to(world.places.ring_position(), strength)
 		return
 	# A tap is a nudge and a hold is a shot, but even the very shortest tap has
 	# to move the ball, or a child taps and concludes the button is broken.
@@ -980,6 +1010,10 @@ func _on_kick_release() -> void:
 		maxf(strength, 0.12),
 		camera_rig.aim_height()
 	)
+
+## A basketball within range of the ring is thrown, not kicked.
+func _can_throw(ball: Ball) -> bool:
+	return ball.look == Ball.Look.BASKETBALL and world.places.hoop_in_range(ball.position)
 
 func _on_boulder_jumped(_at: Vector3, total: int) -> void:
 	journal.record(Journal.ROCKS)

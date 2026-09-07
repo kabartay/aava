@@ -106,7 +106,7 @@ Last updated: 2026-09-06.
 |---|---|---|
 | Swimming | Done | Forgiving by design: no drowning, buoyancy pushes a child back up, capped so nobody launches out of deep water. A small hysteresis band now keeps a stationary swimmer from flickering between walking and swimming physics at the exact threshold depth. |
 | Swimming pool | Done | Dug into the height field, so the hole and the water are the same shape by construction. |
-| Playground | Done | The swing carries a child through its arc; stepping onto the top of the slide rides it down. Both end on their own. |
+| Playground | Done | Two swing frames with two seats each, a three-metre slide with a leaning ladder, a trampoline that bounces, a basketball hoop with three balls that are thrown at it, two benches with bins, a running fountain that fills the bottle, four flower beds, three lamps that come on at dusk, and a clipped hedge round the lot. Everything is solid. Laid out in bands on a 14 m pad so it reads as a place rather than a heap. |
 | Café | Done | A meal restores a large fraction of the energy bar — closes the energy loop from the other end. |
 | Levelled ground | Done | Playground, pool and café are flat by construction, like the football pitch. |
 | Spread out | Done | Destinations sit several hundred metres apart around the camp, so getting to one means crossing the valley rather than a courtyard. |

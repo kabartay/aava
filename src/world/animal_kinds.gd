@@ -198,6 +198,11 @@ static func build_mesh(kind: StringName) -> Mesh:
 				Basis(), Vector3(side * scale * 0.44, scale * 0.5, front * scale * long * 0.6)
 			), dark)
 
+	_add_paws(tool, scale, long, dark)
+	_add_belly(tool, scale, long, tall, colour)
+	_add_face(tool, kind, scale, head_lift, head_forward, snout_long, colour)
+	if kind == DOG:
+		_add_collar(tool, scale, head_lift, head_forward)
 	_add_tail(tool, kind, scale, colour, long)
 	tool.generate_normals()
 	# The material travels with the mesh. These meshes are built from vertex
@@ -218,20 +223,130 @@ static func fur_material() -> StandardMaterial3D:
 
 static var _fur: StandardMaterial3D = null
 
-## The tail carries the identity: a squirrel's plume, a beaver's paddle, a dog's
-## stub. It is the cheapest possible characterisation and the most legible.
+## Feet, so the legs end in something rather than stopping in the grass.
+static func _add_paws(tool: SurfaceTool, scale: float, long: float, dark: Color) -> void:
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		for front in PackedFloat32Array([-1.0, 1.0]):
+			var paw := SphereMesh.new()
+			paw.radius = scale * 0.15
+			paw.height = scale * 0.2
+			paw.radial_segments = 6
+			paw.rings = 3
+			_add(tool, paw, Transform3D(
+				Basis(), Vector3(side * scale * 0.44, scale * 0.09, front * scale * long * 0.6 - scale * 0.05)
+			), dark)
+
+## A paler underside. Every animal has one, and it is most of what makes a
+## body read as a body rather than a coloured egg.
+static func _add_belly(tool: SurfaceTool, scale: float, long: float, tall: float, colour: Color) -> void:
+	var belly := SphereMesh.new()
+	belly.radius = scale * 0.62
+	belly.height = scale * 0.9
+	belly.radial_segments = 8
+	belly.rings = 4
+	# Just proud of the body's underside, whatever the body's height.
+	var underside := scale * (1.05 - 0.85 * tall)
+	_add(tool, belly, Transform3D(
+		Basis().scaled(Vector3(0.8, 0.55, long * 0.62)),
+		Vector3(0.0, underside + scale * 0.16, -scale * long * 0.08)
+	), colour.lightened(0.3))
+
+## Eyes and a nose. Without eyes an animal is a toy; with them it is looking
+## at you, which is the whole of what a child wants from it. The cat has big
+## green eyes and whiskers; the others, dark eyes with a catchlight.
+static func _add_face(
+	tool: SurfaceTool, kind: StringName, scale: float, head_lift: float, head_forward: float,
+	snout_long: float, colour: Color
+) -> void:
+	var iris := Color(0.62, 0.78, 0.30) if kind == CAT else Color(0.08, 0.06, 0.05)
+	var pupil := Color(0.05, 0.05, 0.05)
+	var shine := Color(0.95, 0.95, 0.95)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var eye_at := Vector3(side * scale * 0.27, head_lift + scale * 0.1, head_forward - scale * 0.5)
+		var eye := SphereMesh.new()
+		eye.radius = scale * (0.12 if kind == CAT else 0.1)
+		eye.height = eye.radius * 2.0
+		eye.radial_segments = 6
+		eye.rings = 3
+		_add(tool, eye, Transform3D(Basis(), eye_at), iris)
+		if kind == CAT:
+			var slit := SphereMesh.new()
+			slit.radius = scale * 0.05
+			slit.height = scale * 0.16
+			slit.radial_segments = 4
+			slit.rings = 3
+			_add(tool, slit, Transform3D(Basis(), eye_at + Vector3(0.0, 0.0, -scale * 0.08)), pupil)
+		var glint := SphereMesh.new()
+		glint.radius = scale * 0.03
+		glint.height = scale * 0.06
+		glint.radial_segments = 4
+		glint.rings = 2
+		_add(tool, glint, Transform3D(Basis(), eye_at + Vector3(side * scale * 0.03, scale * 0.04, -scale * 0.09)), shine)
+
+	var nose := SphereMesh.new()
+	nose.radius = scale * 0.08
+	nose.height = scale * 0.13
+	nose.radial_segments = 5
+	nose.rings = 3
+	var nose_at := Vector3(0.0, head_lift - scale * 0.1, head_forward - scale * 0.5 - scale * 0.26 * snout_long)
+	_add(tool, nose, Transform3D(Basis(), nose_at), Color(0.75, 0.45, 0.45) if kind == CAT else pupil)
+
+	if kind == CAT:
+		# Whiskers: two each side, drooping a little.
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			for row in 2:
+				var whisker := CylinderMesh.new()
+				whisker.top_radius = scale * 0.012
+				whisker.bottom_radius = scale * 0.012
+				whisker.height = scale * 0.7
+				whisker.radial_segments = 3
+				whisker.rings = 1
+				# Rotating +Y about FORWARD by 105° lays it along +X and a
+				# little downwards; the other side is the mirror.
+				_add(tool, whisker, Transform3D(
+					Basis(Vector3.FORWARD, deg_to_rad(side * 105.0)),
+					nose_at + Vector3(side * scale * 0.42, scale * 0.02 - float(row) * scale * 0.07, scale * 0.18 + float(row) * scale * 0.06)
+				), colour.lightened(0.5))
+
+## A red collar, which is the one thing that says "dog" from any distance.
+static func _add_collar(tool: SurfaceTool, scale: float, head_lift: float, head_forward: float) -> void:
+	var collar := TorusMesh.new()
+	collar.inner_radius = scale * 0.30
+	collar.outer_radius = scale * 0.42
+	collar.rings = 6
+	collar.ring_segments = 12
+	var tilt := Basis(Vector3.RIGHT, deg_to_rad(-32.0))
+	var neck_at := Vector3(0.0, head_lift - scale * 0.32, head_forward * 0.55)
+	# Down the neck a little towards the shoulders, where a collar sits.
+	var along := tilt * Vector3.UP
+	_add(tool, collar, Transform3D(tilt, neck_at - along * scale * 0.14), Color(0.80, 0.18, 0.16))
+
+## The tail carries the identity: a squirrel's plume, a beaver's paddle, a
+## dog's curl, a cat's raised question mark. It is the cheapest possible
+## characterisation and the most legible.
 static func _add_tail(tool: SurfaceTool, kind: StringName, scale: float, colour: Color, long: float) -> void:
 	match kind:
 		SQUIRREL:
-			var plume := SphereMesh.new()
-			plume.radius = scale * 0.55
-			plume.height = scale * 1.9
-			plume.radial_segments = 7
-			plume.rings = 4
-			_add(tool, plume, Transform3D(
-				Basis(Vector3.RIGHT, deg_to_rad(-38.0)),
-				Vector3(0.0, scale * 2.05, scale * long * 0.95)
+			# Two plumes in an S: up from the rump, then curling forward over
+			# the back, which is how a squirrel actually carries it.
+			var lower := SphereMesh.new()
+			lower.radius = scale * 0.42
+			lower.height = scale * 1.5
+			lower.radial_segments = 7
+			lower.rings = 4
+			_add(tool, lower, Transform3D(
+				Basis(Vector3.RIGHT, deg_to_rad(15.0)),
+				Vector3(0.0, scale * 1.55, scale * long * 0.95)
 			), colour.lightened(0.15))
+			var upper := SphereMesh.new()
+			upper.radius = scale * 0.52
+			upper.height = scale * 1.6
+			upper.radial_segments = 7
+			upper.rings = 4
+			_add(tool, upper, Transform3D(
+				Basis(Vector3.RIGHT, deg_to_rad(-35.0)),
+				Vector3(0.0, scale * 2.55, scale * long * 0.75)
+			), colour.lightened(0.25))
 		BEAVER:
 			var paddle := BoxMesh.new()
 			paddle.size = Vector3(scale * 0.9, scale * 0.16, scale * 1.5)
@@ -240,23 +355,62 @@ static func _add_tail(tool: SurfaceTool, kind: StringName, scale: float, colour:
 				Vector3(0.0, scale * 0.55, scale * long * 1.35)
 			), colour.darkened(0.35))
 		CAT:
-			var tail := CylinderMesh.new()
-			tail.top_radius = scale * 0.09
-			tail.bottom_radius = scale * 0.13
-			tail.height = scale * 1.5
-			tail.radial_segments = 5
-			tail.rings = 1
-			_add(tool, tail, Transform3D(
-				Basis(Vector3.RIGHT, deg_to_rad(-55.0)),
-				Vector3(0.0, scale * 1.55, scale * long * 1.0)
-			), colour.darkened(0.15))
+			# Starts inside the rump and curves up in three pieces, tip
+			# forward: a cat pleased to see you. The first tail was one
+			# straight cylinder set at the body's edge, and floated beside it.
+			_add_tail_curve(
+				tool, Vector3(0.0, scale * 1.0, scale * long * 0.82),
+				PackedFloat32Array([72.0, 38.0, 8.0]),
+				PackedFloat32Array([scale * 0.5, scale * 0.5, scale * 0.45]),
+				scale * 0.13, scale * 0.06, colour.darkened(0.1)
+			)
 		_:
-			var stub := SphereMesh.new()
-			stub.radius = scale * 0.24
-			stub.height = scale * 0.6
-			stub.radial_segments = 6
-			stub.rings = 3
-			_add(tool, stub, Transform3D(Basis(), Vector3(0.0, scale * 1.3, scale * long * 1.02)), colour)
+			# A dog's tail: up and over in a curl, with a tuft at the end.
+			var tip := _add_tail_curve(
+				tool, Vector3(0.0, scale * 1.15, scale * long * 0.85),
+				PackedFloat32Array([50.0, 12.0]),
+				PackedFloat32Array([scale * 0.45, scale * 0.4]),
+				scale * 0.11, scale * 0.07, colour
+			)
+			var tuft := SphereMesh.new()
+			tuft.radius = scale * 0.13
+			tuft.height = scale * 0.26
+			tuft.radial_segments = 6
+			tuft.rings = 3
+			_add(tool, tuft, Transform3D(Basis(), tip), colour.lightened(0.2))
+
+## A tail in pieces: each piece a tapering cylinder tipped by its angle from
+## straight up, laid end to end from `start`, with a ball at each joint to
+## hide the seam. Returns where the tip ends up.
+static func _add_tail_curve(
+	tool: SurfaceTool, start: Vector3, tilts: PackedFloat32Array, lengths: PackedFloat32Array,
+	radius_from: float, radius_to: float, colour: Color
+) -> Vector3:
+	var at := start
+	var count := tilts.size()
+	for i in count:
+		var tilt := deg_to_rad(tilts[i])
+		# Rotating +Y about X by a positive angle tips it towards +Z, which is
+		# backwards on these animals: 90° is a tail held straight out behind,
+		# 0° one held straight up.
+		var direction := Vector3(0.0, cos(tilt), sin(tilt))
+		var thick := lerpf(radius_from, radius_to, float(i) / float(count))
+		var thin := lerpf(radius_from, radius_to, float(i + 1) / float(count))
+		var piece := CylinderMesh.new()
+		piece.top_radius = thin
+		piece.bottom_radius = thick
+		piece.height = lengths[i]
+		piece.radial_segments = 5
+		piece.rings = 1
+		_add(tool, piece, Transform3D(Basis(Vector3.RIGHT, tilt), at + direction * lengths[i] * 0.5), colour)
+		at += direction * lengths[i]
+		var joint := SphereMesh.new()
+		joint.radius = thin * 1.05
+		joint.height = thin * 2.1
+		joint.radial_segments = 5
+		joint.rings = 3
+		_add(tool, joint, Transform3D(Basis(), at), colour)
+	return at
 
 static func _add(tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, colour: Color) -> void:
 	var arrays := source.get_mesh_arrays()

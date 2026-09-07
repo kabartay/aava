@@ -11,6 +11,7 @@ a control a child has to be told about is a control he forgets.
 | Jump | **jump** button | `Space` |
 | Gather | walk over it | walk over it |
 | Kick | hold **kick**; look up to chip, down to drive | hold `E` |
+| Throw | hold **throw** beside a basketball near the hoop, release to shoot | hold `E` |
 | Build | **build**, then a tab and a piece, then `+` | same |
 | Remove | `−` next to a piece | same |
 | Care for an animal | **feed** / **pet** when one is close | same |
@@ -37,6 +38,11 @@ adds to whatever the hold gave.
 
 **Where you look is where it goes.** Looking level drives the ball along the
 ground; looking up chips it. The words under the power bar say which.
+
+**A basketball is thrown, not kicked.** Within a few metres of the hoop the kick
+button becomes a throw, and releasing it lobs the ball at the ring. Holding
+longer steadies the aim; a tap still goes in more often than not. A ball
+through the ring is a basket, and the game says so.
 
 **You build on the storey you are standing on.** Walk up, build up. The screen
 says which floor the piece will land on.

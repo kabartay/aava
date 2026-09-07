@@ -82,6 +82,10 @@ var is_carried := false
 var water_depth := 0.0
 var is_swimming := false
 
+## Multiplies the next jump. 1.0 everywhere but on the trampoline, where the
+## game sets it higher while the child stands on the mat.
+var jump_boost := 1.0
+
 ## How high the child's body is lifted while riding, so they sit on the mount
 ## rather than standing inside it. Eased, so mounting looks like climbing on.
 var _ride_lift := 0.0
@@ -115,6 +119,8 @@ func _init() -> void:
 	floor_max_angle = deg_to_rad(52.0)
 	safe_margin = 0.02
 	slide_on_ceiling = false
+	# The ground, and the thin props the camera is allowed to see through.
+	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
 
 	var shape := CapsuleShape3D.new()
 	shape.height = HEIGHT
@@ -243,7 +249,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * falling_multiplier * delta
 
 	if _buffered_jump > 0.0 and _coyote > 0.0 and not afloat:
-		velocity.y = JUMP_VELOCITY
+		velocity.y = JUMP_VELOCITY * jump_boost
 		_buffered_jump = 0.0
 		_coyote = 0.0
 		jumped.emit()

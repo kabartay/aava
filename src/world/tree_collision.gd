@@ -66,6 +66,7 @@ func _init(forest: Vegetation) -> void:
 		collider.position = Vector3(0.0, TRUNK_HEIGHT * 0.5, 0.0)
 		body.add_child(collider)
 		body.position = PARKED
+		body.collision_layer = TerrainSpec.LAYER_PROPS
 		add_child(body)
 		_bodies.append(body)
 

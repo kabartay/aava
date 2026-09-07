@@ -105,6 +105,8 @@ func _ready() -> void:
 	if _lantern != null:
 		# A large delta so the fade completes rather than being caught halfway.
 		_lantern.follow(_world.atmosphere.darkness(), 10.0)
+	# The playground's lamps likewise, or a night shot of it shows them dark.
+	_world.places.light_lamps(_world.atmosphere.darkness(), 10.0)
 	# Terrain streams a couple of chunks per frame, so a capture taken on frame
 	# one would photograph an empty world. Waiting is not optional here.
 	_world.follow(_camera_position)
@@ -539,8 +541,10 @@ func _gather_animals() -> void:
 		spot.y = _world.field.height_at(spot.x, spot.z)
 		var body := MeshInstance3D.new()
 		body.mesh = AnimalKinds.build_mesh(kind)
-		# Facing the camera, so a screenshot shows heads rather than tails.
-		body.rotation.y = heading
+		# Facing the camera, so a screenshot shows heads rather than tails. The
+		# meshes face -Z, as Godot does, so turning them by the heading alone
+		# pointed them the way the camera looks — tails first.
+		body.rotation.y = heading + PI
 		add_child(body)
 		# After add_child, or the position is overwritten by the parent's.
 		body.global_position = spot

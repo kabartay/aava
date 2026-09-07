@@ -262,6 +262,9 @@ const STRINGS := {
 		EN: "Today's thing is done", FR: "C'est fait pour aujourd'hui",
 		RU: "На сегодня всё сделано",
 	},
+	"say_basket": {
+		EN: "Basket!", FR: "Panier !", RU: "Попал!",
+	},
 	"say_today": {
 		EN: "done for today! +%d", FR: "fait pour aujourd'hui ! +%d",
 		RU: "на сегодня готово! +%d",

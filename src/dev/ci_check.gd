@@ -47,6 +47,7 @@ func _initialize() -> void:
 	_check_animals_dont_drown()
 	_check_animals_stay_on_the_ground()
 	_check_trees_are_solid()
+	_check_a_thrown_ball_comes_down_on_the_ring()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -465,6 +466,34 @@ func _check_animals_stay_on_the_ground() -> void:
 ## the only way a tablet draws a wood — and instances carry no collision, so
 ## every trunk in the valley was walk-through until someone on the phone walked
 ## into one. A pool of trunk-shaped bodies follows the player instead.
+## A thrown basketball has to arrive: the throw solves for a launch velocity
+## under gravity and drag, and this integrates the flight the way the physics
+## server does — gravity, then drag as a per-step factor — to see that the
+## ball is at the ring when the flight time runs out.
+func _check_a_thrown_ball_comes_down_on_the_ring() -> void:
+	print("a thrown basketball comes down on the ring")
+	var ball := Ball.new(Vector3(0.0, Ball.RADIUS, 0.0), Ball.Look.BASKETBALL)
+	var ring := Vector3(6.0, 3.3, 1.5)
+	var launch := ball.throw_to(ring, 1.0)
+	_expect(launch.y > 0.0, "the ball leaves upwards")
+	var gravity := Vector3(0.0, -ball.gravity_strength(), 0.0)
+	var damp := ball.effective_linear_damp()
+	_expect(damp > 0.3, "the air drags on the ball (damp %.2f), so the throw must allow for it" % damp)
+	var step := 1.0 / 240.0
+	var at := ball.position
+	var velocity := launch
+	var nearest := 1e9
+	var peak := at.y
+	for _i in int(2.0 / step):
+		velocity += gravity * step
+		velocity *= maxf(0.0, 1.0 - damp * step)
+		at += velocity * step
+		peak = maxf(peak, at.y)
+		nearest = minf(nearest, at.distance_to(ring))
+	_expect(nearest < 0.15, "the throw passes within %.2f m of the ring" % nearest)
+	_expect(peak > ring.y + 0.4, "and comes down on it from above (apex %.1f m over the ring)" % (peak - ring.y))
+	ball.free()
+
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
 	var field := HeightField.new(20260903)
@@ -2188,8 +2217,61 @@ func _check_places_worth_walking_to() -> void:
 	_expect(places.nearest(places.slide_top()) == &"", "standing at the slide is not offered a swing it cannot reach")
 	# A playground you can walk through is scenery — reported from the phone as
 	# "I cannot get on the swings, I go straight through them".
-	# Eight posts, a deck, four legs, the ladder, two benches.
-	_expect(places.solid_shape_count() == 16, "the playground has %d solid pieces to bump into and stand on" % places.solid_shape_count())
+	# Eight posts, a deck, four legs, the ladder, two benches; a pole and a
+	# backboard; the trampoline's mat; two bins; the fountain's basin — and
+	# every block of the hedge, the four corner trunks, the three lamp posts.
+	var fixed_solids := 22
+	var expected_solids := fixed_solids + places.hedge_segment_count() + 4 + Places.LAMPS.size()
+	_expect(places.hedge_segment_count() >= 30, "the hedge is %d solid blocks" % places.hedge_segment_count())
+	_expect(
+		places.solid_shape_count() == expected_solids,
+		"the playground has %d solid pieces to bump into and stand on (expected %d)" % [places.solid_shape_count(), expected_solids]
+	)
+	_expect(places.ball_count() == 3, "three basketballs lie by the hoop")
+	_expect(places.has_hoop(), "and there is a hoop to throw them at")
+	_expect(places.flower_bed_count() == 4, "four flower beds, in a valley that had no flowers")
+	var spot: Vector3 = places._spots[Places.PLAYGROUND]
+	var basketball := places.ball_near(spot + Places.BASKETBALLS[0])
+	_expect(basketball != null and basketball.look == Ball.Look.BASKETBALL, "a child beside a basketball can kick it")
+	_expect(places.ball_near(spot + Vector3(30.0, 0.0, 30.0)) == null, "but not from across the pad")
+	# The player's origin is at its feet, so a child on the mat has it at the mat's top.
+	var mat := spot + Places.TRAMPOLINE + Vector3(0.0, Places.TRAMPOLINE_TOP, 0.0)
+	_expect(places.on_trampoline(mat), "standing on the mat counts as on the trampoline")
+	_expect(not places.on_trampoline(mat + Vector3(Places.TRAMPOLINE_RADIUS + 1.0, 0.0, 0.0)), "standing beside it does not")
+	_expect(not places.on_trampoline(mat + Vector3(0.0, 0.78, 0.0)), "nor does a body whose feet are not on the mat")
+	_expect(places.at_fountain(spot + Places.FOUNTAIN + Vector3(1.2, 0.0, 0.0)), "the fountain fills a bottle from beside it")
+	_expect(not places.at_fountain(spot + Places.FOUNTAIN + Vector3(6.0, 0.0, 0.0)), "not from six metres away")
+	_expect(places.fountain_plays(), "and the fountain has a jet")
+	# The lamps: dark by day, all three lit once it is properly night, and
+	# dark again by morning.
+	_expect(places.lamp_count() == 3, "three lamps stand round the pad")
+	places.light_lamps(0.0, 10.0)
+	_expect(places.lamps_lit() == 0, "unlit in daylight")
+	places.light_lamps(1.0, 10.0)
+	_expect(places.lamps_lit() == 3, "all lit at midnight")
+	places.light_lamps(0.15, 10.0)
+	_expect(places.lamps_lit() >= 1 and places.lamps_lit() < 3, "%d of them lit at dusk: they come on one by one" % places.lamps_lit())
+	places.light_lamps(0.0, 10.0)
+	_expect(places.lamps_lit() == 0, "and out again by morning")
+	# A basketball beside the hoop is thrown at it; one across the valley is not.
+	_expect(places.hoop_in_range(spot + Places.BASKETBALLS[0]), "a ball beside the hoop is within throwing range")
+	_expect(not places.hoop_in_range(spot + Vector3(12.0, 0.0, 12.0)), "one across the pad is not")
+	# A ball dropped through the ring scores.
+	var ring := places.ring_position()
+	basketball.position = ring + Vector3(0.0, 0.5, 0.0)
+	places._watch_balls()
+	basketball.position = ring + Vector3(0.0, -0.3, 0.0)
+	places._watch_balls()
+	_expect(places.baskets == 1, "a ball falling through the ring is a basket")
+	# The camera must not catch on the furniture. Its arm rattled against every
+	# post it passed; props live on their own layer that only bodies collide with.
+	_expect(places._solid.collision_layer == TerrainSpec.LAYER_PROPS, "the playground's solids are on the props layer")
+	var probe_player := Player.new()
+	_expect((probe_player.collision_mask & TerrainSpec.LAYER_PROPS) != 0, "which the player collides with")
+	var probe_rig := CameraRig.new(probe_player)
+	_expect((probe_rig._arm.collision_mask & TerrainSpec.LAYER_PROPS) == 0, "and the camera arm does not")
+	probe_rig.free()
+	probe_player.free()
 	var climb_angle := rad_to_deg(atan2(Places.SLIDE_TOP.y, absf(Places.LADDER_RUN.z)))
 	_expect(climb_angle < 52.0, "the ladder leans at %.0f degrees, which a child can walk up" % climb_angle)
 	_expect(places.bench_count() == 2, "and there are two benches to sit and watch from")

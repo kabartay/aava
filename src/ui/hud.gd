@@ -812,8 +812,12 @@ func set_build_state(kind: StringName, valid: bool, reason: String) -> void:
 	_status.text = name if valid else "%s — %s" % [name, reason]
 	_layout()
 
-## Show or hide the kick button. Driven by whether a ball is actually in reach.
-func set_ball_in_reach(in_reach: bool) -> void:
+## Show or hide the kick button, and give it the right face: a kick for a
+## ball on the ground, a throw for a basketball within range of the ring.
+func set_ball_in_reach(in_reach: bool, throwing := false) -> void:
+	var face := _face_of(_kick_button)
+	if face != null:
+		face.show_kind(ActionIcon.Kind.THROW if throwing else ActionIcon.Kind.KICK)
 	if _kick_button.visible == in_reach:
 		return
 	_kick_button.visible = in_reach

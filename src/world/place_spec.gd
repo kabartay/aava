@@ -39,7 +39,7 @@ const OFFSETS := {
 ## frame and slide together span about seven metres, so a six-metre radius left
 ## the slide's foot on a slope.
 const RADIUS := {
-	&"playground": 17.0,
+	&"playground": 20.4,
 	&"cafe": 7.0,
 	&"pool": 13.0,
 }
@@ -48,7 +48,7 @@ const RADIUS := {
 ## that radius is the feathered edge where the ground slopes back into the
 ## valley — flat ground is only guaranteed inside the footprint.
 const FOOTPRINT := {
-	&"playground": 12.0,
+	&"playground": 14.4,
 	&"cafe": 2.5,
 	&"pool": 7.0,
 }

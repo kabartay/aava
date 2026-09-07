@@ -21,7 +21,7 @@ extends Control
 enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
-	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK,
+	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -93,6 +93,8 @@ func _draw() -> void:
 			_sleep(box)
 		Kind.TALK:
 			_talk(box)
+		Kind.THROW:
+			_throw(box)
 
 ## A cross. The build button turns into this while the palette is open, which
 ## is the same button saying "shut this" — it used to say it in words, and the
@@ -298,6 +300,37 @@ func _shoot(box: Rect2) -> void:
 		tip + Vector2(-unit * 0.14, -unit * 0.09),
 		tip + Vector2(-unit * 0.14, unit * 0.09),
 	]), tint)
+
+## A throw: a ball at the bottom left, an arc up and over, and a hoop with
+## its net at the top right, backboard behind it. Shown in place of the kick
+## when a basketball is close enough to the ring to be thrown at it.
+func _throw(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var ball_at := centre + Vector2(-unit * 0.28, unit * 0.20)
+	draw_circle(ball_at, unit * 0.11, tint)
+
+	# The arc, dashed, so it reads as a path rather than a rope.
+	var hoop_at := centre + Vector2(unit * 0.22, -unit * 0.14)
+	var control := Vector2((ball_at.x + hoop_at.x) * 0.5, centre.y - unit * 0.46)
+	var steps := 10
+	for i in steps:
+		if i % 2 == 1:
+			continue
+		var t0 := float(i) / float(steps)
+		var t1 := float(i + 1) / float(steps)
+		var from := ball_at.lerp(control, t0).lerp(control.lerp(hoop_at, t0), t0)
+		var to := ball_at.lerp(control, t1).lerp(control.lerp(hoop_at, t1), t1)
+		draw_line(from, to, tint, maxf(2.0, unit * 0.05))
+
+	# The ring, seen edge-on, with the net hanging from it.
+	draw_line(hoop_at + Vector2(-unit * 0.17, 0.0), hoop_at + Vector2(unit * 0.17, 0.0), tint, unit * 0.07)
+	var net_depth := unit * 0.22
+	draw_line(hoop_at + Vector2(-unit * 0.14, 0.0), hoop_at + Vector2(-unit * 0.08, net_depth), tint, unit * 0.04)
+	draw_line(hoop_at + Vector2(unit * 0.14, 0.0), hoop_at + Vector2(unit * 0.08, net_depth), tint, unit * 0.04)
+	draw_line(hoop_at + Vector2(-unit * 0.08, net_depth), hoop_at + Vector2(unit * 0.08, net_depth), tint, unit * 0.04)
+	# The backboard, standing behind the ring.
+	draw_line(hoop_at + Vector2(unit * 0.21, -unit * 0.22), hoop_at + Vector2(unit * 0.21, unit * 0.06), tint, unit * 0.06)
 
 ## A swing: two ropes from a bar and a seat between them, already leaning.
 func _swing(box: Rect2) -> void:

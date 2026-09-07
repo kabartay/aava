@@ -65,13 +65,34 @@ const KICK_REACH := 1.9
 ## Below this speed the ball counts as at rest.
 const AT_REST_SPEED := 0.35
 
+## How far from the ring a basketball is thrown at it rather than kicked along
+## the ground, and how long the throw is in the air, by distance. Gravity here
+## is two and a half times Earth's, so these are short: at 1.15 s a throw from
+## the edge of the range still peaks two and a half metres over the ring, and
+## any longer sent the ball up like a flare.
+const THROW_RANGE := 9.0
+const THROW_TIME_NEAR := 0.85
+const THROW_TIME_FAR := 1.15
+## How far off the mark a careless throw lands, and a careful one. Even the
+## careless one is inside the ring most of the time, because a six-year-old
+## taps the button and should still see the ball go in.
+const THROW_SLACK_LOOSE := 0.26
+const THROW_SLACK_TIGHT := 0.05
+
 ## Emitted with the strength of the kick, from 0 to 1, and its loft, also 0 to
 ## 1. The interface uses these to say what is about to happen.
 signal kicked(strength: float, loft: float)
 
 var home := Vector3.ZERO
 
-func _init(start: Vector3) -> void:
+## What a ball looks like. A football is white with dark panels; a basketball is
+## orange with dark seams. Same physics — a child kicks both.
+enum Look {FOOTBALL, BASKETBALL}
+
+var look: Look = Look.FOOTBALL
+
+func _init(start: Vector3, which: Look = Look.FOOTBALL) -> void:
+	look = which
 	home = start
 	position = start
 
@@ -80,6 +101,8 @@ func _init(start: Vector3) -> void:
 	# diameter in one physics tick, and without this it tunnels straight
 	# through a goalpost instead of hitting it.
 	continuous_cd = true
+	# Bounces off a hoop's pole and a swing's post, not only the ground.
+	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
 	can_sleep = true
 	linear_damp = ROLL_DAMP
 	angular_damp = SPIN_DAMP
@@ -96,7 +119,7 @@ func _init(start: Vector3) -> void:
 	add_child(shape)
 
 	var mesh := MeshInstance3D.new()
-	mesh.mesh = _build_mesh()
+	mesh.mesh = _build_mesh(look)
 	var skin := StandardMaterial3D.new()
 	skin.vertex_color_use_as_albedo = true
 	skin.vertex_color_is_srgb = true
@@ -113,7 +136,7 @@ func _init(start: Vector3) -> void:
 ## into a sphere still bulges, and twelve of them turned a football into a
 ## blackberry. Colouring the vertices it already has costs no geometry and
 ## cannot bulge by construction.
-func _build_mesh() -> Mesh:
+func _build_mesh(which: Look) -> Mesh:
 	var sphere := SphereMesh.new()
 	sphere.radius = RADIUS
 	sphere.height = RADIUS * 2.0
@@ -148,8 +171,16 @@ func _build_mesh() -> Mesh:
 		var nearest := -1.0
 		for seed_direction in seeds:
 			nearest = maxf(nearest, unit.dot(seed_direction))
-		var panel := nearest > 0.905
-		tool.set_color(Color(0.13, 0.14, 0.18) if panel else Color(0.96, 0.96, 0.94))
+		if which == Look.BASKETBALL:
+			# Seams: the three great circles where the unit vector is nearly in
+			# a coordinate plane. Orange between them, the way the real thing is.
+			var seam := (
+				absf(unit.x) < 0.07 or absf(unit.y) < 0.07 or absf(unit.z) < 0.07
+			)
+			tool.set_color(Color(0.16, 0.10, 0.06) if seam else Color(0.86, 0.43, 0.14))
+		else:
+			var panel := nearest > 0.905
+			tool.set_color(Color(0.13, 0.14, 0.18) if panel else Color(0.96, 0.96, 0.94))
 		tool.add_vertex(vertex)
 	tool.generate_normals()
 	return tool.commit()
@@ -196,6 +227,54 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft
 
 	kicked.emit(charged, clampf(loft, 0.0, 1.0))
 	return speed
+
+## Lob the ball so that it comes down on `target`, with `accuracy` from 0 to
+## 1 tightening the aim. Returns the launch velocity.
+##
+## Gravity pulls and the air drags the whole way up and down, and with both
+## acting the velocity that arrives at a point after a given time has a
+## closed form:
+##     v(t) = g/d + (v0 - g/d) e^(-dt)
+##     x(t) = x0 + (g/d) t + (v0 - g/d)(1 - e^(-dt)) / d
+## solved here for v0. Leaving the drag out, as the first attempt did, put
+## every throw a hand's width short of the ring.
+func throw_to(target: Vector3, accuracy: float) -> Vector3:
+	var flat := Vector2(target.x - position.x, target.z - position.z).length()
+	var flight := lerpf(THROW_TIME_NEAR, THROW_TIME_FAR, clampf(flat / THROW_RANGE, 0.0, 1.0))
+	var slack := lerpf(THROW_SLACK_LOOSE, THROW_SLACK_TIGHT, clampf(accuracy, 0.0, 1.0))
+	var wobble := Vector3(randf_range(-slack, slack), 0.0, randf_range(-slack, slack))
+	var wanted := target + wobble - position
+
+	var gravity := Vector3(0.0, -gravity_strength(), 0.0)
+	var damp := effective_linear_damp()
+	var launch: Vector3
+	if damp < 0.0001:
+		launch = wanted / flight - gravity * flight * 0.5
+	else:
+		var settled := gravity / damp
+		launch = settled + (wanted - settled * flight) * damp / (1.0 - exp(-damp * flight))
+
+	sleeping = false
+	# Set outright, for the reason given in kick(): an impulse on a body that
+	# has not been stepped yet is lost.
+	linear_velocity = launch
+	# Backspin, the way a shot leaves the fingers.
+	var direction := Vector3(wanted.x, 0.0, wanted.z).normalized()
+	angular_velocity = direction.cross(Vector3.UP) * -5.0
+	return launch
+
+## What pulls the ball down, in metres per second squared, as the project has
+## set it — which is not 9.8 here.
+func gravity_strength() -> float:
+	return float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * gravity_scale
+
+## The drag the physics server actually applies: the body's own plus, in the
+## default combine mode, the world's.
+func effective_linear_damp() -> float:
+	var total := linear_damp
+	if linear_damp_mode == RigidBody3D.DAMP_MODE_COMBINE:
+		total += float(ProjectSettings.get_setting("physics/3d/default_linear_damp", 0.1))
+	return total
 
 func speed() -> float:
 	return linear_velocity.length()

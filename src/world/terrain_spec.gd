@@ -12,6 +12,15 @@ extends RefCounted
 ## the height field is sampled once per metre at ring zero.
 const CHUNK_SIZE := 64
 
+## Physics layers. The ground is on the first, like everything Godot puts there
+## by default. Thin props — swing posts, tree trunks, a bin — are on PROPS: the
+## player and the balls collide with it, the camera's spring arm does not.
+## Before this the arm caught on every post and trunk it passed, shortening
+## and lengthening a few centimetres a frame, and the whole view rattled when
+## a child walked up to the slide.
+const LAYER_GROUND := 1
+const LAYER_PROPS := 4
+
 ## Sampling step per detail ring and how far out each ring reaches, in chunks.
 ## Ring zero is where the player stands, so it is the only detail that has to
 ## survive a camera two metres off the ground.

@@ -16,6 +16,7 @@ extends Node3D
 ## two-year-old's entry point: he cannot work the stick reliably, but he can
 ## press a button and watch something happen.
 
+signal basket(total: int)
 signal used(place: StringName)
 
 const PLAYGROUND := &"playground"
@@ -53,7 +54,7 @@ const SWING_WIDTH := 4.3
 const SWING_BAR := 3.72
 const SWING_POST := 3.9
 const SWING_ROPE := 2.75
-const SWING_FRAMES: Array[float] = [-7.5, 3.25]
+const SWING_FRAMES: Array[float] = [-9.0, 1.75]
 const SWING_SEATS: Array[float] = [-1.05, 1.05]
 ## How close a child has to be to a seat to be the one pushing it.
 const SWING_REACH := 3.0
@@ -66,8 +67,8 @@ const SLIDE_SPEED := 4.2
 ## A couple of paces from the nearer swing frame's post, so the slide belongs
 ## to the same playground without a child on the swing kicking someone on the
 ## ladder.
-const SLIDE_TOP := Vector3(8.5, 3.0, -2.65)
-const SLIDE_FOOT := Vector3(8.5, 0.22, 3.0)
+const SLIDE_TOP := Vector3(7.0, 3.0, -2.65)
+const SLIDE_FOOT := Vector3(7.0, 0.22, 3.0)
 ## How close to the top of the slide a child has to be to start sliding.
 const SLIDE_GRAB := 1.1
 ## Where the ladder's foot is, relative to its top: three metres up over this
@@ -76,8 +77,70 @@ const SLIDE_GRAB := 1.1
 const LADDER_RUN := Vector3(0.0, -SLIDE_TOP.y, -2.7)
 ## Where the benches stand: in front of the swings, one per frame, far enough
 ## forward that a child on a full swing does not reach them.
-const BENCHES: Array[float] = [-7.5, 3.25]
-const BENCH_Z := 6.2
+const BENCHES: Array[float] = [-9.0, 1.75]
+const BENCH_Z := 7.5
+
+## The pad is laid out in bands, all relative to its centre and all inside
+## the flat footprint (PlaceSpec.FOOTPRINT, 14.4 m). The middle band, z from
+## -3 to 3, is the swings and the slide. Behind them (-z) the trampoline, clear
+## of the seats' arc, with a flower bed in each back corner. In front (+z) the
+## benches face the swings, a bin beside each, and beyond them the fountain
+## with a flower bed to either side. The hoop stands at the far -x edge with
+## its balls, and three lamps stand round the rim. The first layout put all of
+## this on a pad a fifth smaller and it read as a heap; the point of the
+## bands is that a child sees one thing at a time.
+const TRAMPOLINE := Vector3(-3.5, 0.0, -8.0)
+## Twice the first size: a trampoline a child can miss is not a trampoline.
+const TRAMPOLINE_RADIUS := 2.9
+const TRAMPOLINE_TOP := 0.78
+## How much higher a jump from the mat goes, and how much of a landing comes
+## back as a bounce.
+const TRAMPOLINE_JUMP := 1.6
+const TRAMPOLINE_REBOUND := 0.6
+## The ring's height is the real one; the ring is wider than a real one, so a
+## throw that is nearly right goes in. The net has a child under it, not a
+## league.
+const HOOP := Vector3(-13.0, 0.0, -3.0)
+const HOOP_HEIGHT := 3.3
+const HOOP_RING := 0.30
+const HOOP_REACH := HOOP_RING + 0.22
+const BASKETBALLS: Array[Vector3] = [
+	Vector3(-11.0, 0.5, -4.4), Vector3(-10.2, 0.5, -5.8), Vector3(-11.8, 0.5, -6.0),
+]
+const BINS: Array[Vector3] = [Vector3(-11.5, 0.0, 7.5), Vector3(4.6, 0.0, 7.5)]
+const FOUNTAIN := Vector3(-3.6, 0.0, 11.0)
+const FOUNTAIN_REACH := 2.0
+const FLOWER_BEDS: Array[Vector3] = [
+	Vector3(-9.0, 0.0, 11.0), Vector3(3.5, 0.0, 11.5),
+	Vector3(-9.5, 0.0, -10.5), Vector3(4.5, 0.0, -11.0),
+]
+
+## Three lamps round the pad, which come on as it gets dark. Not floodlights:
+## a playground at night should be pools of warm light with dark between them,
+## the way a real one is, so each lamp reaches about as far as the next one
+## and no further. They light one after another rather than together, because
+## nothing in a real street switches on all at once.
+const LAMPS: Array[Vector3] = [
+	Vector3(-13.0, 0.0, 9.0), Vector3(12.5, 0.0, 8.0), Vector3(0.5, 0.0, -13.0),
+]
+const LAMP_THRESHOLDS: Array[float] = [0.12, 0.18, 0.25]
+const LAMP_HEIGHT := 3.6
+const LAMP_RANGE := 13.0
+const LAMP_ENERGY := 1.5
+const LAMP_COLOUR := Color(1.0, 0.82, 0.55)
+const LAMP_FADE := 2.4
+
+## A clipped hedge round the lot — a green wall, the kind that fences a real
+## playground — with an opening on the side the path arrives from and one
+## opposite. It was a ring of broadleaf bushes first, which read as a ring of
+## small trees, and could be walked through.
+const HEDGE_RADIUS := 17.4
+const HEDGE_SEGMENTS := 44
+const HEDGE_HEIGHT := 1.35
+const HEDGE_THICKNESS := 0.85
+## Half-width of each opening, in radians of the ring.
+const HEDGE_GAP := 0.21
+const CORNER_TREES := 21.0
 
 var field: HeightField
 
@@ -90,6 +153,15 @@ var _rider := -1
 ## The playground's collision and furniture, kept so a check can count them.
 var _solid: StaticBody3D = null
 var _benches := 0
+var _balls: Array[Ball] = []
+var _has_hoop := false
+var _flower_beds := 0
+var _hedge_segments := 0
+var _jet: MeshInstance3D = null
+var _lamps: Array[Dictionary] = []
+## Each ball's height last frame, to see one drop through the ring.
+var _ball_heights: Array[float] = []
+var baskets := 0
 
 ## How far an empty seat stirs in the wind, and how slowly. A swing that hangs
 ## perfectly still reads as a model of a swing; one that moves a hand's width
@@ -254,6 +326,11 @@ func _swing_angle(swing: float) -> float:
 
 func _process(delta: float) -> void:
 	_wind_time += delta
+	_watch_balls()
+	if _jet != null:
+		# The jet breathes: a fountain that stands perfectly still is a statue
+		# of a fountain.
+		_jet.scale = Vector3(1.0, 1.0 + 0.10 * sin(_wind_time * 7.3), 1.0)
 	for i in _seats.size():
 		var seat: Dictionary = _seats[i]
 		var node: Node3D = seat["node"]
@@ -304,8 +381,13 @@ func _build_playground(at: Vector3) -> void:
 				post.height = SWING_POST
 				post.radial_segments = 6
 				post.rings = 1
+				# Rotating about X by a positive angle tips a post's top towards
+				# +Z, so a post standing at +Z and leaning +13° leans *outwards*:
+				# both posts met at the ground and parted at the top, an upside-
+				# down A that had been there since the first swing. The angle is
+				# negated so the tops meet under the bar and the feet spread.
 				_add(tool, post, Transform3D(
-					Basis(Vector3.RIGHT, deg_to_rad(lean * 13.0)),
+					Basis(Vector3.RIGHT, deg_to_rad(-lean * 13.0)),
 					Vector3(frame_x + side * SWING_WIDTH * 0.5, SWING_POST * 0.485, lean * 0.44)
 				), timber)
 		var bar := CylinderMesh.new()
@@ -331,7 +413,7 @@ func _build_playground(at: Vector3) -> void:
 				Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(frame_x + side * SWING_WIDTH * 0.5, SWING_BAR, 0.0)
 			), metal)
 			var beam := BoxMesh.new()
-			beam.size = Vector3(0.14, 0.10, 1.3)
+			beam.size = Vector3(0.14, 0.10, 2.1)
 			_add(tool, beam, Transform3D(Basis(), Vector3(frame_x + side * SWING_WIDTH * 0.5, 0.05, 0.0)), timber)
 
 	# The slide. A platform on four legs at the top, a ladder up the back of
@@ -419,7 +501,7 @@ func _build_playground(at: Vector3) -> void:
 				post_shape.radius = 0.11
 				post_shape.height = SWING_POST
 				_collide(solid, post_shape, Transform3D(
-					Basis(Vector3.RIGHT, deg_to_rad(lean * 13.0)),
+					Basis(Vector3.RIGHT, deg_to_rad(-lean * 13.0)),
 					Vector3(frame_x + side * SWING_WIDTH * 0.5, SWING_POST * 0.485, lean * 0.44)
 				))
 	var deck := BoxShape3D.new()
@@ -443,6 +525,25 @@ func _build_playground(at: Vector3) -> void:
 		_build_bench(at, Vector3(bench_x, 0.0, BENCH_Z), solid)
 	_benches = BENCHES.size()
 
+	_build_trampoline(at, solid)
+	_build_lamps(at, solid)
+	_build_hoop(at, solid)
+	for bin_at in BINS:
+		_build_bin(at, bin_at, solid)
+	_build_fountain(at, solid)
+	for bed in FLOWER_BEDS:
+		_build_flower_bed(at, bed)
+	_flower_beds = FLOWER_BEDS.size()
+
+	_balls.clear()
+	_ball_heights.clear()
+	for local in BASKETBALLS:
+		var ball := Ball.new(at + local, Ball.Look.BASKETBALL)
+		add_child(ball)
+		_balls.append(ball)
+		_ball_heights.append(ball.position.y)
+
+	solid.collision_layer = TerrainSpec.LAYER_PROPS
 	add_child(solid)
 	_solid = solid
 
@@ -488,8 +589,12 @@ func _build_playground(at: Vector3) -> void:
 			for half in PackedFloat32Array([-1.0, 1.0]):
 				var slab := BoxMesh.new()
 				slab.size = Vector3(0.44, 0.06, 0.30)
+				# Rotating about FORWARD by a positive angle sends the +X end
+				# *down* — worked out from n x v rather than assumed, after the
+				# first version peaked in the middle like a little roof. The outer
+				# edge of each half has to rise for the seat to sag.
 				_add(seat_tool, slab, Transform3D(
-					Basis(Vector3.FORWARD, half * deg_to_rad(9.0)),
+					Basis(Vector3.FORWARD, -half * deg_to_rad(9.0)),
 					Vector3(half * 0.21, -SWING_ROPE + 0.02, 0.0)
 				), rubber)
 			seat_tool.generate_normals()
@@ -500,42 +605,61 @@ func _build_playground(at: Vector3) -> void:
 			pivot.add_child(seat_node)
 			_seats.append({"pivot": pivot_at, "node": seat_node, "swing": 0.0})
 
-	_plant_hedge(at)
+	_plant_hedge(at, solid)
 
-## A ring of bushes round the playground with a gap either side to walk in
-## through, and a tree at each corner. Planted here, by the place, rather than
-## left to the forest: the forest is kept off the flat ground on purpose, so
-## without this a playground stood on a bald patch.
-func _plant_hedge(at: Vector3) -> void:
+## The hedge: a ring of clipped blocks, each a box, so it reads as one green
+## wall with a slightly uneven top, the way a real clipped hedge does. Solid,
+## block by block, because a hedge you can walk through is a painting of a
+## hedge. Four broadleaf trees stand outside the corners, with solid trunks.
+func _plant_hedge(at: Vector3, solid: StaticBody3D) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7741
-	var hedge_radius := 14.5
-	var bushes: Array[Transform3D] = []
-	var count := 38
-	for i in count:
-		var angle := TAU * float(i) / float(count)
-		# Gaps in the hedge facing towards and away from the camp's side, so
-		# the path arrives at an opening rather than at a bush.
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var leaf := Color(0.21, 0.44, 0.19)
+	var leaf_light := Color(0.30, 0.53, 0.25)
+	var length := TAU * HEDGE_RADIUS / float(HEDGE_SEGMENTS)
+	# Blocks overlap a little, so the wall has no chinks; the collider is
+	# taller than the block and sunk a little, so no gap opens at the ground
+	# where the pad's edge starts to slope.
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(length * 1.03, HEDGE_HEIGHT + 0.3, HEDGE_THICKNESS)
+	_hedge_segments = 0
+	for i in HEDGE_SEGMENTS:
+		var angle := TAU * (float(i) + 0.5) / float(HEDGE_SEGMENTS)
+		# Openings facing towards and away from the camp's side, so the path
+		# arrives at a gap in the hedge rather than at the hedge.
 		var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
-		if to_gap < 0.30:
+		if to_gap < HEDGE_GAP:
 			continue
-		var radius := hedge_radius + rng.randf_range(-0.5, 0.5)
-		var spot := Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+		var height := HEDGE_HEIGHT + rng.randf_range(-0.06, 0.08)
+		var spot := Vector3(cos(angle) * HEDGE_RADIUS, 0.0, sin(angle) * HEDGE_RADIUS)
 		var world := at + spot
-		spot.y = field.height_at(world.x, world.z) - at.y - 0.1
-		var scale := rng.randf_range(0.8, 1.2)
-		bushes.append(Transform3D(
-			Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale, scale * 0.85, scale)), spot
-		))
-	_scatter(PlantMeshes.broadleaf(1.6), bushes, at)
+		spot.y = field.height_at(world.x, world.z) - at.y - 0.05
+		# A box lying along X, turned so that X runs along the ring's tangent.
+		# Rotating about Y by θ sends +X to (cos θ, 0, -sin θ), and the tangent
+		# at `angle` is (-sin, 0, cos), so θ is -angle - 90°. The first version
+		# had the sign wrong, and every block on a diagonal stood radially, with
+		# a gap either side of it.
+		var basis := Basis(Vector3.UP, -angle - PI * 0.5)
+		var block := BoxMesh.new()
+		block.size = Vector3(length * 1.03, height, HEDGE_THICKNESS)
+		_add(tool, block, Transform3D(basis, spot + Vector3(0.0, height * 0.5, 0.0)), leaf.lerp(leaf_light, rng.randf()))
+		_collide(solid, shape, Transform3D(basis, spot + Vector3(0.0, (HEDGE_HEIGHT + 0.3) * 0.5 - 0.15, 0.0)))
+		_hedge_segments += 1
+	_finish_into(tool, at)
 
+	var trunk := CylinderShape3D.new()
+	trunk.radius = 0.36
+	trunk.height = 4.0
 	var trees: Array[Transform3D] = []
 	for corner in 4:
 		var angle := PI * 0.25 + PI * 0.5 * float(corner)
-		var spot := Vector3(cos(angle), 0.0, sin(angle)) * 17.5
+		var spot := Vector3(cos(angle), 0.0, sin(angle)) * CORNER_TREES
 		var world := at + spot
 		spot.y = field.height_at(world.x, world.z) - at.y - 0.15
 		trees.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU), spot))
+		_collide(solid, trunk, Transform3D(Basis(), spot + Vector3(0.0, 2.0, 0.0)))
 	_scatter(PlantMeshes.broadleaf(4.8), trees, at)
 
 func _scatter(mesh: Mesh, transforms: Array[Transform3D], at: Vector3) -> void:
@@ -660,6 +784,485 @@ func _build_cafe(at: Vector3) -> void:
 
 ## One material for every place, vertex-coloured and shipped with the mesh so
 ## nothing can attach the geometry without it — see LESSONS.md.
+## The basketball nearest a child, within kicking reach, or null. Mirrors the
+## football ground's version so the same kick serves both.
+func ball_near(from: Vector3) -> Ball:
+	var best: Ball = null
+	var best_distance := Ball.KICK_REACH + Ball.RADIUS
+	for ball in _balls:
+		var offset := ball.position - from
+		offset.y = 0.0
+		if offset.length() <= best_distance:
+			best_distance = offset.length()
+			best = ball
+	return best
+
+func ball_count() -> int:
+	return _balls.size()
+
+func has_hoop() -> bool:
+	return _has_hoop
+
+func flower_bed_count() -> int:
+	return _flower_beds
+
+## Where the ring is, in the world: what a thrown ball is aimed at.
+func ring_position() -> Vector3:
+	if not _spots.has(PLAYGROUND):
+		return Vector3.ZERO
+	return _spots[PLAYGROUND] + HOOP + Vector3(HOOP_REACH, HOOP_HEIGHT, 0.0)
+
+## Is a ball here close enough to the ring to be thrown at it rather than
+## kicked along the ground?
+func hoop_in_range(from: Vector3) -> bool:
+	if not _has_hoop or not _spots.has(PLAYGROUND):
+		return false
+	var ring := ring_position()
+	return Vector2(from.x - ring.x, from.z - ring.z).length() < Ball.THROW_RANGE
+
+## Does the fountain actually run? True once its jet exists. For the checks.
+func fountain_plays() -> bool:
+	return _jet != null
+
+func hedge_segment_count() -> int:
+	return _hedge_segments
+
+func lamp_count() -> int:
+	return _lamps.size()
+
+## How many lamps are giving light right now.
+func lamps_lit() -> int:
+	var count := 0
+	for lamp in _lamps:
+		if (lamp["light"] as OmniLight3D).visible:
+			count += 1
+	return count
+
+## Called every frame with how dark it is; the lamps decide for themselves,
+## the way the child's lantern does. Each has its own threshold, so dusk
+## lights them one by one, and each fades up over a couple of seconds rather
+## than snapping on.
+func light_lamps(darkness: float, delta: float) -> void:
+	for i in _lamps.size():
+		var lamp: Dictionary = _lamps[i]
+		var threshold := float(lamp["threshold"])
+		var lit := move_toward(float(lamp["lit"]), 1.0 if darkness > threshold else 0.0, delta / LAMP_FADE)
+		lamp["lit"] = lit
+		var strength := lit * smoothstep(threshold, threshold + 0.3, darkness)
+		# The faintest slow breathing. Electric light is steady, but a value
+		# that never changes at all reads as painted on.
+		var breathe := 1.0 + 0.025 * sin(_wind_time * 2.3 + float(i) * 2.1)
+		var light: OmniLight3D = lamp["light"]
+		light.light_energy = LAMP_ENERGY * strength * breathe
+		# Switched off outright when dark enough not to matter: an omni light
+		# at zero energy still costs the phone its share of the frame.
+		light.visible = strength > 0.01
+		(lamp["glass"] as MeshInstance3D).visible = strength > 0.05
+
+## Is a child standing on the trampoline's mat?
+func on_trampoline(at: Vector3) -> bool:
+	if not _spots.has(PLAYGROUND):
+		return false
+	var mat: Vector3 = _spots[PLAYGROUND] + TRAMPOLINE
+	var flat := Vector2(at.x - mat.x, at.z - mat.z).length()
+	# The player's origin is at its feet — the capsule is lifted half its own
+	# height above it — so standing on the mat puts the origin at the mat's top.
+	# The first version added the capsule's half-height here, expecting the
+	# origin in the middle of the body, and the trampoline never bounced anyone.
+	return flat < TRAMPOLINE_RADIUS and absf(at.y - (mat.y + TRAMPOLINE_TOP)) < 0.6
+
+## Is a child close enough to the fountain to fill a bottle?
+func at_fountain(at: Vector3) -> bool:
+	if not _spots.has(PLAYGROUND):
+		return false
+	var spout: Vector3 = _spots[PLAYGROUND] + FOUNTAIN
+	return Vector2(at.x - spout.x, at.z - spout.z).length() < FOUNTAIN_REACH
+
+## A ball that drops through the ring scores; a ball that rolls off into the
+## trees comes back to where it started.
+func _watch_balls() -> void:
+	if not _spots.has(PLAYGROUND):
+		return
+	var ring := ring_position()
+	for i in _balls.size():
+		var ball := _balls[i]
+		var now := ball.position.y
+		var before := _ball_heights[i]
+		_ball_heights[i] = now
+		var flat := Vector2(ball.position.x - ring.x, ball.position.z - ring.z).length()
+		if flat < HOOP_RING and before > ring.y and now <= ring.y:
+			baskets += 1
+			basket.emit(baskets)
+		var home_distance := Vector2(ball.position.x - ball.home.x, ball.position.z - ball.home.z).length()
+		if home_distance > 28.0 and ball.at_rest():
+			ball.reset_to(ball.home)
+
+## A round trampoline: a frame on legs and a dark mat stretched across it. The
+## mat is solid to stand on; the bounce is the game's business.
+func _build_trampoline(at: Vector3, solid: StaticBody3D) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var frame_colour := Color(0.20, 0.32, 0.62)
+	var frame := TorusMesh.new()
+	frame.inner_radius = TRAMPOLINE_RADIUS - 0.08
+	frame.outer_radius = TRAMPOLINE_RADIUS + 0.06
+	frame.rings = 8
+	frame.ring_segments = 28
+	_add(tool, frame, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP, 0.0)), frame_colour)
+	for i in 10:
+		var angle := TAU * float(i) / 10.0
+		var leg := CylinderMesh.new()
+		leg.top_radius = 0.04
+		leg.bottom_radius = 0.045
+		leg.height = TRAMPOLINE_TOP
+		leg.radial_segments = 6
+		leg.rings = 1
+		_add(tool, leg, Transform3D(Basis(),
+			TRAMPOLINE + Vector3(cos(angle) * TRAMPOLINE_RADIUS, TRAMPOLINE_TOP * 0.5, sin(angle) * TRAMPOLINE_RADIUS)
+		), frame_colour)
+	var mat := CylinderMesh.new()
+	mat.top_radius = TRAMPOLINE_RADIUS - 0.06
+	mat.bottom_radius = TRAMPOLINE_RADIUS - 0.06
+	mat.height = 0.05
+	mat.radial_segments = 28
+	mat.rings = 1
+	_add(tool, mat, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP - 0.03, 0.0)), Color(0.12, 0.12, 0.14))
+	_finish_into(tool, at)
+	var stand := CylinderShape3D.new()
+	stand.radius = TRAMPOLINE_RADIUS
+	stand.height = 0.12
+	_collide(solid, stand, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP - 0.06, 0.0)))
+
+## A basketball hoop: pole, backboard, ring. The ring counts what falls
+## through it; the balls beside it are ordinary balls with an orange coat.
+func _build_hoop(at: Vector3, solid: StaticBody3D) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var metal := Color(0.40, 0.42, 0.46)
+	var pole := CylinderMesh.new()
+	pole.top_radius = 0.06
+	pole.bottom_radius = 0.07
+	pole.height = HOOP_HEIGHT + 0.5
+	pole.radial_segments = 8
+	pole.rings = 1
+	_add(tool, pole, Transform3D(Basis(), HOOP + Vector3(0.0, (HOOP_HEIGHT + 0.5) * 0.5, 0.0)), metal)
+	var pole_shape := CylinderShape3D.new()
+	pole_shape.radius = 0.08
+	pole_shape.height = HOOP_HEIGHT + 0.5
+	_collide(solid, pole_shape, Transform3D(Basis(), HOOP + Vector3(0.0, (HOOP_HEIGHT + 0.5) * 0.5, 0.0)))
+	# The board faces +X, into the playground.
+	var board := BoxMesh.new()
+	board.size = Vector3(0.08, 1.15, 1.8)
+	var board_at := HOOP + Vector3(0.12, HOOP_HEIGHT + 0.35, 0.0)
+	_add(tool, board, Transform3D(Basis(), board_at), Color(0.95, 0.95, 0.92))
+	var board_shape := BoxShape3D.new()
+	board_shape.size = board.size
+	_collide(solid, board_shape, Transform3D(Basis(), board_at))
+	var target := BoxMesh.new()
+	target.size = Vector3(0.02, 0.50, 0.70)
+	_add(tool, target, Transform3D(Basis(), board_at + Vector3(0.05, -0.2, 0.0)), Color(0.86, 0.30, 0.26))
+	var ring := TorusMesh.new()
+	ring.inner_radius = HOOP_RING - 0.02
+	ring.outer_radius = HOOP_RING + 0.02
+	ring.rings = 6
+	ring.ring_segments = 20
+	_add(tool, ring, Transform3D(Basis(), HOOP + Vector3(HOOP_REACH, HOOP_HEIGHT, 0.0)), Color(0.90, 0.42, 0.14))
+	# A few strands of net, so it reads as a hoop from the far side of the pad.
+	for i in 8:
+		var angle := TAU * float(i) / 8.0
+		var strand := CylinderMesh.new()
+		strand.top_radius = 0.012
+		strand.bottom_radius = 0.012
+		strand.height = 0.42
+		strand.radial_segments = 4
+		strand.rings = 1
+		var rim := HOOP + Vector3(HOOP_REACH + cos(angle) * HOOP_RING, HOOP_HEIGHT - 0.21, sin(angle) * HOOP_RING * 0.8)
+		_add(tool, strand, Transform3D(Basis(), rim), Color(0.92, 0.92, 0.90))
+	_finish_into(tool, at)
+	_has_hoop = true
+
+## A bin: a dark green drum with a rim, solid.
+func _build_bin(at: Vector3, local: Vector3, solid: StaticBody3D) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var drum := CylinderMesh.new()
+	drum.top_radius = 0.22
+	drum.bottom_radius = 0.20
+	drum.height = 0.72
+	drum.radial_segments = 10
+	drum.rings = 1
+	_add(tool, drum, Transform3D(Basis(), local + Vector3(0.0, 0.36, 0.0)), Color(0.18, 0.36, 0.22))
+	var rim := TorusMesh.new()
+	rim.inner_radius = 0.19
+	rim.outer_radius = 0.25
+	rim.rings = 6
+	rim.ring_segments = 12
+	_add(tool, rim, Transform3D(Basis(), local + Vector3(0.0, 0.72, 0.0)), Color(0.30, 0.31, 0.34))
+	_finish_into(tool, at)
+	var shape := CylinderShape3D.new()
+	shape.radius = 0.24
+	shape.height = 0.75
+	_collide(solid, shape, Transform3D(Basis(), local + Vector3(0.0, 0.375, 0.0)))
+
+## A drinking fountain, in two tiers: a plinth and basin, a column with a
+## smaller bowl on top, a jet rising from the bowl and water spilling from its
+## rim back into the basin. The first one was a tub with a ball on a stick —
+## the parts a fountain is made of, not what one looks like; the water in
+## motion is the fountain. Standing beside it fills the bottle, the way the
+## river's shallows do.
+func _build_fountain(at: Vector3, solid: StaticBody3D) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var stone := Color(0.62, 0.60, 0.56)
+	var pale := Color(0.70, 0.68, 0.63)
+	var water := Color(0.36, 0.64, 0.80)
+	var spray := Color(0.70, 0.86, 0.95)
+
+	# An octagonal step to stand on, then the basin with a rounded lip.
+	var plinth := CylinderMesh.new()
+	plinth.top_radius = 1.35
+	plinth.bottom_radius = 1.42
+	plinth.height = 0.14
+	plinth.radial_segments = 8
+	plinth.rings = 1
+	_add(tool, plinth, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.07, 0.0)), pale)
+	var basin := CylinderMesh.new()
+	basin.top_radius = 1.10
+	basin.bottom_radius = 0.98
+	basin.height = 0.42
+	basin.radial_segments = 18
+	basin.rings = 1
+	_add(tool, basin, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.35, 0.0)), stone)
+	var lip := TorusMesh.new()
+	lip.inner_radius = 0.96
+	lip.outer_radius = 1.20
+	lip.rings = 8
+	lip.ring_segments = 24
+	_add(tool, lip, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.56, 0.0)), pale)
+	var pool := CylinderMesh.new()
+	pool.top_radius = 1.0
+	pool.bottom_radius = 1.0
+	pool.height = 0.03
+	pool.radial_segments = 18
+	pool.rings = 1
+	_add(tool, pool, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.53, 0.0)), water)
+
+	# The upper tier: a column out of the water and a bowl on it.
+	var column := CylinderMesh.new()
+	column.top_radius = 0.11
+	column.bottom_radius = 0.16
+	column.height = 0.78
+	column.radial_segments = 10
+	column.rings = 1
+	_add(tool, column, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.92, 0.0)), stone)
+	var bowl := CylinderMesh.new()
+	bowl.top_radius = 0.52
+	bowl.bottom_radius = 0.26
+	bowl.height = 0.22
+	bowl.radial_segments = 14
+	bowl.rings = 1
+	_add(tool, bowl, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 1.42, 0.0)), stone)
+	var bowl_water := CylinderMesh.new()
+	bowl_water.top_radius = 0.46
+	bowl_water.bottom_radius = 0.46
+	bowl_water.height = 0.02
+	bowl_water.radial_segments = 14
+	bowl_water.rings = 1
+	_add(tool, bowl_water, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 1.535, 0.0)), water)
+
+	# Water spilling over the bowl's rim in thin streams to the basin. Six
+	# still lines, but they read as falling water, which is what sells it.
+	for i in 6:
+		var angle := TAU * float(i) / 6.0
+		var stream := CylinderMesh.new()
+		stream.top_radius = 0.022
+		stream.bottom_radius = 0.032
+		stream.height = 1.0
+		stream.radial_segments = 4
+		stream.rings = 1
+		_add(tool, stream, Transform3D(
+			Basis(), FOUNTAIN + Vector3(cos(angle) * 0.56, 1.03, sin(angle) * 0.56)
+		), spray)
+	_finish_into(tool, at)
+
+	# The jet is its own node so that it can move: _process scales it up and
+	# down a little, and a fountain that moves is a fountain.
+	var jet_tool := SurfaceTool.new()
+	jet_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var jet := CylinderMesh.new()
+	jet.top_radius = 0.03
+	jet.bottom_radius = 0.055
+	jet.height = 0.6
+	jet.radial_segments = 6
+	jet.rings = 1
+	_add(jet_tool, jet, Transform3D(Basis(), Vector3(0.0, 0.3, 0.0)), spray)
+	var crown := SphereMesh.new()
+	crown.radius = 0.11
+	crown.height = 0.09
+	crown.radial_segments = 8
+	crown.rings = 3
+	_add(jet_tool, crown, Transform3D(Basis(), Vector3(0.0, 0.6, 0.0)), spray)
+	jet_tool.generate_normals()
+	jet_tool.set_material(_material())
+	_jet = MeshInstance3D.new()
+	_jet.mesh = jet_tool.commit()
+	_jet.transform = Transform3D(Basis(), at + FOUNTAIN + Vector3(0.0, 1.545, 0.0))
+	add_child(_jet)
+
+	var shape := CylinderShape3D.new()
+	shape.radius = 1.2
+	shape.height = 0.56
+	_collide(solid, shape, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.28, 0.0)))
+
+## Three lamp posts round the pad. Each is a post with a lantern head, a pane
+## that glows when lit, and an omni light with no shadows — three shadowed
+## lights over five thousand blades of grass would cost more than the rest of
+## the frame. The lights start dark; `light_lamps` brings them up with dusk.
+func _build_lamps(at: Vector3, solid: StaticBody3D) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var iron := Color(0.16, 0.18, 0.19)
+	var pane := Color(0.78, 0.80, 0.82)
+	var post_shape := CylinderShape3D.new()
+	post_shape.radius = 0.10
+	post_shape.height = LAMP_HEIGHT
+	for i in LAMPS.size():
+		var local: Vector3 = LAMPS[i]
+		var world := at + local
+		# The rim of the pad is where the level ground starts to fall away, so
+		# each post is footed on the ground it actually stands on.
+		local.y = field.height_at(world.x, world.z) - at.y - 0.05
+
+		var base := CylinderMesh.new()
+		base.top_radius = 0.13
+		base.bottom_radius = 0.19
+		base.height = 0.28
+		base.radial_segments = 8
+		base.rings = 1
+		_add(tool, base, Transform3D(Basis(), local + Vector3(0.0, 0.14, 0.0)), iron)
+		var post := CylinderMesh.new()
+		post.top_radius = 0.06
+		post.bottom_radius = 0.085
+		post.height = LAMP_HEIGHT
+		post.radial_segments = 8
+		post.rings = 1
+		_add(tool, post, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)), iron)
+		_collide(solid, post_shape, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)))
+
+		# The lantern: a pale pane in an iron frame, with a little roof.
+		var head_at := local + Vector3(0.0, LAMP_HEIGHT + 0.17, 0.0)
+		var glass := BoxMesh.new()
+		glass.size = Vector3(0.26, 0.24, 0.26)
+		_add(tool, glass, Transform3D(Basis(), head_at), pane)
+		for corner in 4:
+			var angle := PI * 0.25 + PI * 0.5 * float(corner)
+			var rib := BoxMesh.new()
+			rib.size = Vector3(0.035, 0.3, 0.035)
+			_add(tool, rib, Transform3D(Basis(), head_at + Vector3(cos(angle) * 0.185, 0.0, sin(angle) * 0.185)), iron)
+		var roof := CylinderMesh.new()
+		roof.top_radius = 0.0
+		roof.bottom_radius = 0.27
+		roof.height = 0.17
+		roof.radial_segments = 4
+		roof.rings = 1
+		_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.25), head_at + Vector3(0.0, 0.23, 0.0)), iron)
+
+		# What glows: a slightly larger pane in an unshaded, emissive material,
+		# shown only while the lamp is lit.
+		var glow_mesh := BoxMesh.new()
+		glow_mesh.size = Vector3(0.28, 0.26, 0.28)
+		var glow := StandardMaterial3D.new()
+		glow.albedo_color = LAMP_COLOUR
+		glow.emission_enabled = true
+		glow.emission = LAMP_COLOUR
+		glow.emission_energy_multiplier = 1.8
+		glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var lit_pane := MeshInstance3D.new()
+		lit_pane.mesh = glow_mesh
+		lit_pane.material_override = glow
+		lit_pane.position = at + head_at
+		lit_pane.visible = false
+		add_child(lit_pane)
+
+		var light := OmniLight3D.new()
+		light.omni_range = LAMP_RANGE
+		light.light_color = LAMP_COLOUR
+		light.light_energy = 0.0
+		light.shadow_enabled = false
+		light.visible = false
+		light.position = at + head_at + Vector3(0.0, -0.1, 0.0)
+		add_child(light)
+
+		_lamps.append({
+			"light": light, "glass": lit_pane,
+			"threshold": LAMP_THRESHOLDS[i % LAMP_THRESHOLDS.size()], "lit": 0.0,
+		})
+	_finish_into(tool, at)
+
+## A flower bed: a ring of turned earth with flowers standing in it. The valley
+## has almost no flowers; this is where a few are.
+func _build_flower_bed(at: Vector3, local: Vector3) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(local)
+	var earth := TorusMesh.new()
+	earth.inner_radius = 0.72
+	earth.outer_radius = 0.98
+	earth.rings = 6
+	earth.ring_segments = 18
+	_add(tool, earth, Transform3D(Basis(), local + Vector3(0.0, 0.06, 0.0)), Color(0.40, 0.28, 0.18))
+	var petals: Array[Color] = [
+		Color(0.90, 0.24, 0.30), Color(0.98, 0.82, 0.22), Color(0.94, 0.52, 0.72),
+		Color(0.96, 0.96, 0.92), Color(0.58, 0.36, 0.82), Color(0.98, 0.56, 0.20),
+	]
+	# Knee-high and thick: twelve short stems read as a few weeds in a ring of
+	# dirt, which is what the first version looked like. Two dozen taller ones
+	# with bigger heads and a leaf each read as a bed in flower.
+	var leaf := Color(0.30, 0.56, 0.26)
+	for i in 26:
+		var r := sqrt(rng.randf()) * 0.72
+		var angle := rng.randf() * TAU
+		var spot := local + Vector3(cos(angle) * r, 0.0, sin(angle) * r)
+		var stem_height := rng.randf_range(0.48, 0.72)
+		var lean := Basis(Vector3(rng.randf_range(-1.0, 1.0), 0.0, rng.randf_range(-1.0, 1.0)).normalized(), rng.randf_range(0.0, 0.16))
+		var stem := CylinderMesh.new()
+		stem.top_radius = 0.014
+		stem.bottom_radius = 0.02
+		stem.height = stem_height
+		stem.radial_segments = 4
+		stem.rings = 1
+		_add(tool, stem, Transform3D(lean, spot + lean * Vector3(0.0, stem_height * 0.5, 0.0)), leaf)
+		var blade := BoxMesh.new()
+		blade.size = Vector3(0.05, 0.012, 0.16)
+		_add(tool, blade, Transform3D(
+			lean * Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, -0.5),
+			spot + lean * Vector3(0.0, stem_height * 0.45, 0.0)
+		), leaf)
+		var head := SphereMesh.new()
+		head.radius = rng.randf_range(0.075, 0.115)
+		head.height = head.radius * 1.6
+		head.radial_segments = 7
+		head.rings = 4
+		_add(tool, head, Transform3D(lean, spot + lean * Vector3(0.0, stem_height + 0.02, 0.0)), petals[rng.randi_range(0, petals.size() - 1)])
+		# A dark centre, so a head is a flower and not a coloured ball.
+		var eye := SphereMesh.new()
+		eye.radius = head.radius * 0.36
+		eye.height = eye.radius * 2.0
+		eye.radial_segments = 5
+		eye.rings = 3
+		_add(tool, eye, Transform3D(lean, spot + lean * Vector3(0.0, stem_height + 0.02 + head.radius * 0.72, 0.0)), Color(0.28, 0.20, 0.10))
+	_finish_into(tool, at)
+
+## Commit a tool's geometry as one mesh node at the playground's origin.
+func _finish_into(tool: SurfaceTool, at: Vector3) -> void:
+	tool.generate_normals()
+	tool.set_material(_material())
+	var mesh := MeshInstance3D.new()
+	mesh.mesh = tool.commit()
+	mesh.transform = Transform3D(Basis(), at)
+	add_child(mesh)
+
 ## A bench: plank seat, plank back, two end frames. Faces -Z, towards the
 ## swings, and is solid, so it can be walked round but not through.
 func _build_bench(at: Vector3, local: Vector3, solid: StaticBody3D) -> void:
