@@ -142,6 +142,11 @@ func _ready() -> void:
 	world.ready_at_spawn.connect(_on_world_ready.bind(save))
 	add_child(world)
 
+	# What the frame actually costs, on whatever this is running on. Debug
+	# builds only, which is what gets installed on a tablet for testing.
+	if OS.is_debug_build():
+		add_child(PerfLog.new())
+
 func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	if save.has("pickups_taken"):
 		world.pickups.from_data(save["pickups_taken"])

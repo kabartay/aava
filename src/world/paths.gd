@@ -86,6 +86,37 @@ const SEGMENTS: Array[float] = [
 	0.0, 18.0, 330.0, -162.0,
 ]
 
+## Whether any route comes near this box at all, so a caller working over a
+## whole chunk of ground can ask once instead of once per vertex.
+##
+## `influence_fast` is already cheap per call, but a terrain chunk asks it 4,225
+## times and almost every chunk in the valley contains no path whatsoever: the
+## routes are three-metre ribbons in a kilometre of meadow. Rejecting the entire
+## chunk on one test is the same lesson the segment boxes below already
+## encode, applied one level further out.
+static func touches_box(x0: float, z0: float, x1: float, z1: float) -> bool:
+	# The same global rejection influence_fast starts with, against the box
+	# rather than a point.
+	if x1 < -BOUNDS_HALF or x0 > BOUNDS_HALF:
+		return false
+	if z1 < -(BOUNDS_HALF + 40.0) or z0 > BOUNDS_HALF + 40.0:
+		return false
+
+	var reach := HALF_WIDTH + FEATHER
+	var i := 0
+	while i < SEGMENTS.size():
+		var ax := SEGMENTS[i]
+		var az := SEGMENTS[i + 1]
+		var bx := SEGMENTS[i + 2]
+		var bz := SEGMENTS[i + 3]
+		i += 4
+		if x1 < (ax if ax < bx else bx) - reach or x0 > (ax if ax > bx else bx) + reach:
+			continue
+		if z1 < (az if az < bz else bz) - reach or z0 > (az if az > bz else bz) + reach:
+			continue
+		return true
+	return false
+
 ## How much of a path is at this point, from 1 in the middle to 0 off it.
 static func influence_fast(x: float, z: float) -> float:
 	if absf(x) > BOUNDS_HALF or absf(z) > BOUNDS_HALF + 40.0:

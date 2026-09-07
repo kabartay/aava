@@ -69,6 +69,20 @@ func _init(
 		origin_x - float(step), origin_z - float(step), float(step), padded
 	)
 
+	# The same box-before-the-work rejection fill_grid does, for the two things
+	# the tint asks the world about. Almost every chunk in the valley contains
+	# neither a football pitch nor a path, and asking that per vertex — 4,225
+	# times a chunk — was half of what a near chunk cost to build.
+	var margin := 8.0
+	var far_x := origin_x + float(size)
+	var far_z := origin_z + float(size)
+	var pitch_here := Pitch.touches_box(
+		origin_x - margin, origin_z - margin, far_x + margin, far_z + margin
+	)
+	var paths_here := Paths.touches_box(
+		origin_x - margin, origin_z - margin, far_x + margin, far_z + margin
+	)
+
 	var span := float(step) * 2.0
 	for gz in grid:
 		for gx in grid:
@@ -89,7 +103,9 @@ func _init(
 			var index := gz * grid + gx
 			vertices[index] = Vector3(local_x, height, local_z)
 			normals[index] = Vector3(-dx, span, -dz).normalized()
-			colors[index] = _tint(field, world_x, world_z, height, slope)
+			colors[index] = _tint(
+				field, world_x, world_z, height, slope, pitch_here, paths_here
+			)
 
 	for gz in grid - 1:
 		for gx in grid - 1:
@@ -145,9 +161,34 @@ func _add_collision(
 			for x in samples:
 				data[z * samples + x] = heights[(z + 1) * padded + (x + 1)]
 	else:
+		# Coarser mesh, but collision still wants a sample every metre. Those
+		# heights are read *between* the ones already sampled rather than asked
+		# of the field again: 4,225 field queries cost 15.8 ms on a laptop and
+		# were two thirds of what a step-2 chunk took to build.
+		#
+		# Interpolating is also the more honest answer. Sampling the true field
+		# here gave collision bumps at a finer spacing than the ground being
+		# drawn, so a child could feel a ridge that was not on screen; reading
+		# between the drawn vertices makes the surface you touch the surface
+		# you see, which is what "never fall through a hill" actually asks for.
+		var last := padded - 2
 		for z in samples:
+			var fz := float(z) / float(step)
+			var gz0 := mini(int(fz), last - 1)
+			var tz := fz - float(gz0)
 			for x in samples:
-				data[z * samples + x] = field.height_at(origin_x + float(x), origin_z + float(z))
+				var fx := float(x) / float(step)
+				var gx0 := mini(int(fx), last - 1)
+				var tx := fx - float(gx0)
+
+				var row := (gz0 + 1) * padded + (gx0 + 1)
+				var h00 := heights[row]
+				var h10 := heights[row + 1]
+				var h01 := heights[row + padded]
+				var h11 := heights[row + padded + 1]
+				data[z * samples + x] = lerpf(
+					lerpf(h00, h10, tx), lerpf(h01, h11, tx), tz
+				)
 
 	var shape := HeightMapShape3D.new()
 	shape.map_width = samples
@@ -166,13 +207,20 @@ func _add_collision(
 
 ## `slope` is passed in rather than asked of the field, because the caller has
 ## already worked it out from the grid it sampled — see the note there.
-func _tint(field: HeightField, x: float, z: float, height: float, slope: float) -> Color:
+## `pitch_here` and `paths_here` are the caller's per-chunk box tests. They are
+## passed in rather than recomputed because this runs once per vertex and the
+## answer cannot change within one chunk.
+func _tint(
+	field: HeightField, x: float, z: float, height: float, slope: float,
+	pitch_here: bool, paths_here: bool
+) -> Color:
 	# The pitch is painted before anything else and returns immediately: none of
 	# the natural tinting below — shore sand, rock on slopes, snow — has any
 	# business on a mown surface.
-	var pitch := Pitch.influence(x, z)
-	if pitch > 0.5 and Pitch.is_levelled(x, z):
-		return _pitch_tint(x, z)
+	if pitch_here:
+		var pitch := Pitch.influence(x, z)
+		if pitch > 0.5 and Pitch.is_levelled(x, z):
+			return _pitch_tint(x, z)
 
 	var steep := slope
 	var color := TerrainSpec.COLOR_GRASS
@@ -190,9 +238,10 @@ func _tint(field: HeightField, x: float, z: float, height: float, slope: float) 
 	# A trodden path, over the natural tinting but under the snow: a route
 	# through the meadow is bare earth, and a route over a peak would still be
 	# under snow.
-	var path := field.path_at(x, z)
-	if path > 0.0:
-		color = color.lerp(TerrainSpec.COLOR_PATH, path)
+	if paths_here:
+		var path := field.path_at(x, z)
+		if path > 0.0:
+			color = color.lerp(TerrainSpec.COLOR_PATH, path)
 
 	# Snow on the peaks, and only where it would settle.
 	# Snow begins above the treeline, not below it. It used to start at 96 m

@@ -14,6 +14,7 @@ func _initialize() -> void:
 	_check_every_script_loads()
 	_check_world_has_relief()
 	_check_chunks_have_geometry()
+	_check_ground_rejects_what_it_cannot_touch()
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
@@ -195,6 +196,82 @@ func _check_chunks_have_geometry() -> void:
 		else:
 			_ok("step %d: %d vertices, %d triangles" % [step, vertices.size(), indices.size() / 3])
 		chunk.free()
+
+## Two rejections that carry the cost of building ground, and one accuracy
+## claim that pays for the cheaper of them.
+##
+## `Paths.touches_box` and `Pitch.touches_box` are what let a chunk skip
+## asking, once per vertex, about a pitch and a path that are nowhere near it.
+## If either ever answered "no" for a chunk that does contain one, the ground
+## would quietly lose its markings — invisible in a check that only counts
+## triangles, so it is asserted directly here.
+func _check_ground_rejects_what_it_cannot_touch() -> void:
+	print("a chunk asks about the pitch and the paths only where they are")
+	var size := float(TerrainSpec.CHUNK_SIZE)
+
+	# The pitch: its own chunk must admit it, and one far across the valley
+	# must not.
+	var pitch := Pitch.centre()
+	_expect(
+		Pitch.touches_box(pitch.x - size, pitch.z - size, pitch.x + size, pitch.z + size),
+		"the pitch's own ground knows the pitch is there"
+	)
+	_expect(
+		not Pitch.touches_box(pitch.x + 400.0, pitch.z + 400.0, pitch.x + 400.0 + size, pitch.z + 400.0 + size),
+		"and ground four hundred metres away does not"
+	)
+
+	# The paths: every route's own midpoint must be admitted, or a path
+	# vanishes from the ground it is drawn on.
+	var admitted := true
+	var i := 0
+	while i < Paths.SEGMENTS.size():
+		var mid_x := (Paths.SEGMENTS[i] + Paths.SEGMENTS[i + 2]) * 0.5
+		var mid_z := (Paths.SEGMENTS[i + 1] + Paths.SEGMENTS[i + 3]) * 0.5
+		i += 4
+		if not Paths.touches_box(mid_x - 1.0, mid_z - 1.0, mid_x + 1.0, mid_z + 1.0):
+			admitted = false
+			printerr("  a path at (%.0f, %.0f) is rejected by its own box" % [mid_x, mid_z])
+	_expect(admitted, "every route is admitted where it actually runs")
+	_expect(
+		not Paths.touches_box(900.0, 900.0, 900.0 + size, 900.0 + size),
+		"and ground outside every route is rejected outright"
+	)
+
+	# Collision on a coarser ring is read between the heights already sampled
+	# rather than asked of the field again — 4,225 queries that cost two thirds
+	# of what such a chunk took to build. The surface a child stands on has to
+	# stay within a hand's width of the true ground for that to be honest.
+	var field := HeightField.new(20260903)
+	var step := 2
+	var grid := TerrainSpec.CHUNK_SIZE / step + 1
+	var padded := grid + 2
+	var origin_x := 2.0 * size
+	var origin_z := 0.0
+	var heights := field.fill_grid(
+		origin_x - float(step), origin_z - float(step), float(step), padded
+	)
+	var last := padded - 2
+	var worst := 0.0
+	for z in TerrainSpec.CHUNK_SIZE + 1:
+		var fz := float(z) / float(step)
+		var gz0 := mini(int(fz), last - 1)
+		var tz := fz - float(gz0)
+		for x in TerrainSpec.CHUNK_SIZE + 1:
+			var fx := float(x) / float(step)
+			var gx0 := mini(int(fx), last - 1)
+			var tx := fx - float(gx0)
+			var row := (gz0 + 1) * padded + (gx0 + 1)
+			var between := lerpf(
+				lerpf(heights[row], heights[row + 1], tx),
+				lerpf(heights[row + padded], heights[row + padded + 1], tx),
+				tz
+			)
+			worst = maxf(worst, absf(between - field.height_at(origin_x + float(x), origin_z + float(z))))
+	_expect(
+		worst < 0.25,
+		"collision read between sampled heights stays within %.2f m of the ground" % worst
+	)
 
 ## The player must not open the game underwater or on a cliff.
 func _check_spawn_is_habitable() -> void:
