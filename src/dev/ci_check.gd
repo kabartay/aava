@@ -16,7 +16,9 @@ func _initialize() -> void:
 	_check_chunks_have_geometry()
 	_check_ground_rejects_what_it_cannot_touch()
 	_check_baking_on_threads_changes_nothing()
+	_check_planting_on_threads_changes_nothing()
 	_check_the_ponds_hold_water()
+	_check_no_place_is_in_a_pit()
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
@@ -510,6 +512,126 @@ func _check_trees_are_solid() -> void:
 
 	trunks.queue_free()
 	forest.queue_free()
+
+## Vegetation is baked on worker threads now, like the terrain, and for the
+## same reason: a tile with grass is two thousand height-field queries, and it
+## landed on the main thread every thirty metres walked. The same assertion
+## the terrain has: tiles baked together on the pool must match tiles baked
+## alone, tuft for tuft — and a stump must appear exactly where a felled tree
+## no longer does.
+func _check_planting_on_threads_changes_nothing() -> void:
+	print("a forest baked on threads is the same forest")
+	var field := HeightField.new(20260903)
+	var seed_value := 20260903
+	var size := Vegetation.TILE_SIZE
+
+	# A wood, found rather than assumed.
+	var wooded := Vector2i.ZERO
+	var best := 0.0
+	for z in range(-8, 9):
+		for x in range(-8, 9):
+			var d := field.forest_density_at(float(x * size) + size * 0.5, float(z * size) + size * 0.5)
+			if d > best:
+				best = d
+				wooded = Vector2i(x, z)
+
+	var coords: Array[Vector2i] = [
+		wooded, wooded + Vector2i(1, 0), wooded + Vector2i(0, 1),
+		wooded + Vector2i(-1, -1), Vector2i(0, 0), Vector2i(2, -3),
+	]
+
+	var alone: Array = []
+	for coord in coords:
+		alone.append(VegetationTile.bake(field, coord, size, seed_value, null, true))
+
+	var together: Array = []
+	together.resize(coords.size())
+	var guard := Mutex.new()
+	var tasks: Array[int] = []
+	for i in coords.size():
+		tasks.append(WorkerThreadPool.add_task(
+			func() -> void:
+				var baked := VegetationTile.bake(field, coords[i], size, seed_value, null, true)
+				guard.lock()
+				together[i] = baked
+				guard.unlock()
+		))
+	for task in tasks:
+		WorkerThreadPool.wait_for_task_completion(task)
+
+	var identical := true
+	var any_trees := 0
+	var any_grass := 0
+	for i in coords.size():
+		var one: Dictionary = alone[i]
+		var many = together[i]
+		if many == null:
+			identical = false
+			printerr("  tile %s never came back from the pool" % coords[i])
+			continue
+		for layer: String in ["conifers", "broadleaves", "stumps", "grass"]:
+			if one[layer] != many[layer]:
+				identical = false
+				printerr("  tile %s: %s differ when baked in parallel" % [coords[i], layer])
+		any_trees += (one["conifers"] as Array).size() + (one["broadleaves"] as Array).size()
+		any_grass += (one["grass"] as Array).size()
+	_expect(any_trees > 0 and any_grass > 0, "the tiles have %d trees and %d tufts to compare" % [any_trees, any_grass])
+	_expect(identical, "%d tiles baked in parallel match the same tiles baked alone" % coords.size())
+
+	# Felling: one pass now produces both the standing trees and the stumps, so
+	# a felled tree must leave the standing set and enter the stump set.
+	var before: Dictionary = alone[0]
+	var standing_before: int = (before["conifers"] as Array).size() + (before["broadleaves"] as Array).size()
+	if standing_before > 0:
+		var trees := VegetationTile.generate_trees(field, wooded, size, seed_value, null)
+		var victim: Vector3 = trees[0]["position"]
+		var felled := Felled.new()
+		felled.fell(victim)
+		var after := VegetationTile.bake(field, wooded, size, seed_value, felled.snapshot(), true)
+		var standing_after: int = (after["conifers"] as Array).size() + (after["broadleaves"] as Array).size()
+		_expect(standing_after == standing_before - 1, "felling one tree removes exactly one standing tree")
+		_expect((after["stumps"] as Array).size() == 1, "and leaves exactly one stump")
+		# The snapshot must be a copy: felling another tree afterwards must not
+		# reach into a bake already handed to a thread.
+		var snap := felled.snapshot()
+		felled.fell(trees[1]["position"] if trees.size() > 1 else victim + Vector3(1.0, 0.0, 0.0))
+		_expect(snap.count() == 1, "a snapshot does not change when the live record does")
+
+## Every place stands on ground near its own natural height.
+##
+## All three were flattened to one level, read at the camp, and two of them
+## stand on hills thirty metres above it: the playground and the café were at
+## the bottom of thirty-metre craters, reported from the phone as "a huge pit
+## with the playground in it". No check noticed because every check asked the
+## height field, and the height field was doing exactly what it was told.
+func _check_no_place_is_in_a_pit() -> void:
+	print("no place is at the bottom of a pit")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	for place in PlaceSpec.OFFSETS:
+		var centre := PlaceSpec.centre_of(place, camp)
+		var levelled := field.height_at(centre.x, centre.z)
+		var natural := field._raw_height(centre.x, centre.z)
+		# The pool is dug on purpose; its rim, not its floor, is the level.
+		if place == &"pool":
+			levelled += PlaceSpec.POOL_DEPTH
+		_expect(
+			absf(levelled - natural) < 0.5,
+			"the %s stands at %.1f m, on ground that is naturally %.1f m" % [place, levelled, natural]
+		)
+		# And where the flat ground ends there is a bank, not a cliff. Measured
+		# just past the feathered edge, which is where a child would meet it —
+		# not forty metres out, where a café on a hillside is simply on a hill.
+		var reach: float = PlaceSpec.RADIUS[place] + PlaceSpec.FEATHER + 2.0
+		var bank := 0.0
+		for turn in 12:
+			var a := TAU * float(turn) / 12.0
+			var edge := centre + Vector3(cos(a), 0.0, sin(a)) * reach
+			bank = maxf(bank, absf(field.height_at(edge.x, edge.z) - levelled))
+		_expect(
+			bank < 9.0,
+			"and the ground at the edge of the %s's flat patch is within %.1f m of it" % [place, bank]
+		)
 
 ## The player must not open the game underwater or on a cliff.
 func _check_spawn_is_habitable() -> void:
@@ -2058,7 +2180,27 @@ func _check_places_worth_walking_to() -> void:
 		"but sixty metres above it is not"
 	)
 
-	_expect(places.push_swing(), "the swing can be pushed")
+	_expect(places.seat_positions().size() == 4, "the playground has four swing seats: two frames, two children each")
+	var seat_at: Vector3 = places.seat_positions()[0]
+	_expect(places.push_swing(seat_at), "a swing can be pushed by a child standing at it")
+	_expect(not places.push_swing(seat_at + Vector3(40.0, 0.0, 0.0)), "but not from across the field")
+	_expect(places.nearest(seat_at) == Places.PLAYGROUND, "standing at a seat is offered the swing")
+	_expect(places.nearest(places.slide_top()) == &"", "standing at the slide is not offered a swing it cannot reach")
+	# A playground you can walk through is scenery — reported from the phone as
+	# "I cannot get on the swings, I go straight through them".
+	# Eight posts, a deck, four legs, the ladder, two benches.
+	_expect(places.solid_shape_count() == 16, "the playground has %d solid pieces to bump into and stand on" % places.solid_shape_count())
+	var climb_angle := rad_to_deg(atan2(Places.SLIDE_TOP.y, absf(Places.LADDER_RUN.z)))
+	_expect(climb_angle < 52.0, "the ladder leans at %.0f degrees, which a child can walk up" % climb_angle)
+	_expect(places.bench_count() == 2, "and there are two benches to sit and watch from")
+	_expect(
+		places.slide_top().y - places.slide_foot().y >= 2.7,
+		"the slide is %.1f m tall" % (places.slide_top().y - places.slide_foot().y)
+	)
+	_expect(
+		Vector2(places.slide_top().x - places.slide_foot().x, places.slide_top().z - places.slide_foot().z).length() >= 5.0,
+		"and runs %.1f m along the ground" % Vector2(places.slide_top().x - places.slide_foot().x, places.slide_top().z - places.slide_foot().z).length()
+	)
 	_expect(places.swinging(), "and it swings")
 
 	# Swimming itself: forgiving by design. No drowning, and slower than
@@ -2357,7 +2499,7 @@ func _check_paths_lead_somewhere() -> void:
 	get_root().add_child(places)
 	places.stand_up(camp)
 
-	places.push_swing()
+	places.push_swing(places.seat_positions()[0])
 	var swung := 0.0
 	while places.swinging() and swung < 30.0:
 		places._process(1.0 / 60.0)

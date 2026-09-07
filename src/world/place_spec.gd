@@ -39,7 +39,7 @@ const OFFSETS := {
 ## frame and slide together span about seven metres, so a six-metre radius left
 ## the slide's foot on a slope.
 const RADIUS := {
-	&"playground": 11.0,
+	&"playground": 17.0,
 	&"cafe": 7.0,
 	&"pool": 13.0,
 }
@@ -48,7 +48,7 @@ const RADIUS := {
 ## that radius is the feathered edge where the ground slopes back into the
 ## valley — flat ground is only guaranteed inside the footprint.
 const FOOTPRINT := {
-	&"playground": 5.0,
+	&"playground": 12.0,
 	&"cafe": 2.5,
 	&"pool": 7.0,
 }
@@ -89,6 +89,44 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 		var distance := sqrt(squared)
 		strongest = maxf(strongest, 1.0 - smoothstep(radius, radius + FEATHER, distance))
 	return strongest
+
+## The levelling for one named place alone, from 1 at its centre to 0 outside
+## its feathered edge. The height field asks per place now, because each place
+## is levelled to its own ground: one shared level, read at the camp, put the
+## playground and the café — four hundred metres out, on hills thirty metres
+## higher — at the bottom of thirty-metre pits.
+static func influence_of(place: StringName, x: float, z: float, camp: Vector3) -> float:
+	var centre: Vector3 = camp + OFFSETS[place]
+	var radius: float = RADIUS[place]
+	var reach := radius + FEATHER
+	var dx := x - centre.x
+	var dz := z - centre.z
+	if absf(dx) > reach or absf(dz) > reach:
+		return 0.0
+	var squared := dx * dx + dz * dz
+	if squared > reach * reach:
+		return 0.0
+	return 1.0 - smoothstep(radius, radius + FEATHER, sqrt(squared))
+
+## Whether any place reaches into this box at all — asked once per terrain
+## chunk, so the tint can skip every vertex of the chunks that hold no place.
+static func touches_box(x0: float, z0: float, x1: float, z1: float, camp: Vector3) -> bool:
+	for place in OFFSETS:
+		var centre: Vector3 = camp + OFFSETS[place]
+		var reach: float = RADIUS[place] + FEATHER
+		if x1 < centre.x - reach or x0 > centre.x + reach:
+			continue
+		if z1 < centre.z - reach or z0 > centre.z + reach:
+			continue
+		return true
+	return false
+
+## How trodden the ground is here: the playground and the café are gathering
+## places, worn to earth by feet, in a way the pool's tiled surround is not.
+static func trodden(x: float, z: float, camp: Vector3) -> float:
+	return maxf(
+		influence_of(&"playground", x, z, camp), influence_of(&"cafe", x, z, camp)
+	)
 
 static func centre_of(place: StringName, camp: Vector3) -> Vector3:
 	return camp + OFFSETS[place]

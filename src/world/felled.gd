@@ -58,6 +58,18 @@ func is_felled(world_x: float, world_z: float) -> bool:
 					return true
 	return false
 
+## An exact copy, for a worker thread to read while this one keeps being
+## written to. `to_data()` would do but it snaps every stump to a tenth of a
+## metre on the way, and a copy for a thread should not be a slightly different
+## forest. Cheap: there are as many stumps as a child has had the patience to
+## make.
+func snapshot() -> Felled:
+	var copy := Felled.new()
+	for key in _stumps:
+		copy._stumps[key] = (_stumps[key] as PackedVector2Array).duplicate()
+	copy._count = _count
+	return copy
+
 func _cell_of(world_x: float, world_z: float) -> Vector2i:
 	return Vector2i(int(floor(world_x / CELL)), int(floor(world_z / CELL)))
 

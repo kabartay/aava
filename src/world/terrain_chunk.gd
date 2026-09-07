@@ -80,6 +80,10 @@ static func bake(
 	var paths_here := Paths.touches_box(
 		origin_x - margin, origin_z - margin, far_x + margin, far_z + margin
 	)
+	var places_here := PlaceSpec.touches_box(
+		origin_x - margin, origin_z - margin, far_x + margin, far_z + margin,
+		field.camp_centre()
+	)
 
 	var span := float(step) * 2.0
 	for gz in grid:
@@ -102,7 +106,7 @@ static func bake(
 			vertices[index] = Vector3(local_x, height, local_z)
 			normals[index] = Vector3(-dx, span, -dz).normalized()
 			colors[index] = _tint(
-				field, world_x, world_z, height, slope, pitch_here, paths_here
+				field, world_x, world_z, height, slope, pitch_here, paths_here, places_here
 			)
 
 	for gz in grid - 1:
@@ -243,7 +247,7 @@ func _attach_collision(size: int, data: PackedFloat32Array) -> void:
 ## answer cannot change within one chunk.
 static func _tint(
 	field: HeightField, x: float, z: float, height: float, slope: float,
-	pitch_here: bool, paths_here: bool
+	pitch_here: bool, paths_here: bool, places_here: bool
 ) -> Color:
 	# The pitch is painted before anything else and returns immediately: none of
 	# the natural tinting below — shore sand, rock on slopes, snow — has any
@@ -266,6 +270,15 @@ static func _tint(
 	# Rock where nothing could root.
 	color = color.lerp(TerrainSpec.COLOR_ROCK, smoothstep(0.35, 0.75, steep))
 
+	# The playground and the café are worn to earth by feet — a yellow-brown
+	# more like a path than a meadow, fading back into grass at the edge of the
+	# flat ground. A playground on pristine lawn looked like a model on a
+	# baize table.
+	if places_here:
+		var worn := PlaceSpec.trodden(x, z, field.camp_centre())
+		if worn > 0.0:
+			color = color.lerp(TerrainSpec.COLOR_TRODDEN, clampf(worn * 0.85, 0.0, 0.85))
+
 	# A trodden path, over the natural tinting but under the snow: a route
 	# through the meadow is bare earth, and a route over a peak would still be
 	# under snow.
@@ -286,7 +299,7 @@ static func _tint(
 	# The steepness term is what keeps it honest: snow lies on shoulders and
 	# ridges, not on a cliff face, and a mountain white to its vertical walls
 	# looks like a cake rather than a mountain.
-	var snow := smoothstep(HeightField.TREELINE - 12.0, HeightField.TREELINE + 16.0, height) * (1.0 - smoothstep(0.88, 1.20, steep))
+	var snow := smoothstep(HeightField.TREELINE - 22.0, HeightField.TREELINE + 6.0, height) * (1.0 - smoothstep(0.98, 1.34, steep))
 	color = color.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
 
 	# Glaciers: ice gathers where it can lie, so this wants height *and*

@@ -19,6 +19,13 @@ const GRASS_RADIUS := 2
 ## chunk, so this is deliberately lower.
 const TILES_PER_FRAME := 1
 
+## How many tiles may be baking on the pool at once, and how many finished
+## bakes become instances in one frame. The terrain has the same pair, for the
+## same reason: a burst of completions landing together would be the old hitch
+## in a smaller hat.
+const BAKES_IN_FLIGHT := 2
+const ASSEMBLED_PER_FRAME := 1
+
 ## Wind. One shader serves every plant; the uniforms are what make grass whip
 ## and a conifer barely lean.
 const WIND_SHADER := """
@@ -68,6 +75,15 @@ var _grass_material: ShaderMaterial
 
 var _tiles: Dictionary = {}
 var _queue: Array[Vector2i] = []
+
+## Tiles baking on a worker, by coordinate; finished bakes waiting to become
+## instances; the mutex guards only the handover. A bake carries the
+## generation it started in, and felling a tree bumps it — a tile baked before
+## the axe fell describes a forest that no longer exists.
+var _baking: Dictionary = {}
+var _finished: Array = []
+var _finished_mutex := Mutex.new()
+var _generation := 0
 var _centre := Vector2i(9999, 9999)
 
 ## Trees that have been cut down. Set by the world before streaming begins.
@@ -212,6 +228,7 @@ func _trees_in(coord: Vector2i) -> Array[Vector3]:
 ## and they come back over the next few frames, nearest first.
 func rebuild_all() -> void:
 	forget_tree_query()
+	_generation += 1
 	for coord in _tiles.keys():
 		if not _queue.has(coord):
 			_queue.append(coord)
@@ -222,6 +239,7 @@ func rebuild_all() -> void:
 ## the whole forest for one stump, and the visible result is identical.
 func rebuild_around(world_position: Vector3) -> void:
 	forget_tree_query()
+	_generation += 1
 	var base := Vector2i(
 		int(floor(world_position.x / float(TILE_SIZE))),
 		int(floor(world_position.z / float(TILE_SIZE)))
@@ -233,7 +251,7 @@ func rebuild_around(world_position: Vector3) -> void:
 				_queue.push_front(coord)
 
 func is_idle() -> bool:
-	return _queue.is_empty()
+	return _queue.is_empty() and _baking.is_empty() and _finished.is_empty()
 
 func _rebuild_queue() -> void:
 	var wanted: Dictionary = {}
@@ -263,27 +281,75 @@ func _rebuild_queue() -> void:
 	_queue = pending
 
 func _process(_delta: float) -> void:
-	var built := 0
-	while built < TILES_PER_FRAME and not _queue.is_empty():
+	_assemble_finished()
+
+	var in_flight := _baking.size()
+	var started := 0
+	while (
+		started < TILES_PER_FRAME
+		and in_flight + started < BAKES_IN_FLIGHT
+		and not _queue.is_empty()
+	):
 		var coord: Vector2i = _queue.pop_front()
 		var offset := coord - _centre
 		if offset.length_squared() > TREE_RADIUS * TREE_RADIUS:
 			continue
 		var with_grass := offset.length_squared() <= GRASS_RADIUS * GRASS_RADIUS
-		_build_tile(coord, with_grass)
-		built += 1
+		_submit_tile(coord, with_grass)
+		started += 1
 
-func _build_tile(coord: Vector2i, with_grass: bool) -> void:
-	var previous = _tiles.get(coord)
-	if previous != null:
-		previous.queue_free()
+## Start a tile on a worker thread.
+func _submit_tile(coord: Vector2i, with_grass: bool) -> void:
+	if _baking.has(coord):
+		return
+	# The live record keeps being written by the axe on this thread; the worker
+	# gets its own copy of it as of now.
+	var stumps := felled.snapshot() if felled != null else null
+	_baking[coord] = {
+		"generation": _generation,
+		"task": WorkerThreadPool.add_task(
+			_bake_on_worker.bind(coord, with_grass, stumps, _generation), true,
+			"aava vegetation tile"
+		),
+	}
 
-	var tile := VegetationTile.new(
-		field, coord, TILE_SIZE, world_seed,
-		_conifer, _broadleaf, _grass,
-		_tree_material, _grass_material,
-		with_grass, felled, _stump
-	)
-	tile.has_grass = with_grass
-	add_child(tile)
-	_tiles[coord] = tile
+## Runs on a worker thread. Reads the height field, which writes nothing back,
+## and a snapshot of the felled trees that nothing else holds.
+func _bake_on_worker(coord: Vector2i, with_grass: bool, stumps: Felled, generation: int) -> void:
+	var baked := VegetationTile.bake(field, coord, TILE_SIZE, world_seed, stumps, with_grass)
+	baked["generation"] = generation
+	_finished_mutex.lock()
+	_finished.append(baked)
+	_finished_mutex.unlock()
+
+## Turn finished bakes into instances, a few a frame.
+func _assemble_finished() -> void:
+	var ready_now: Array = []
+	_finished_mutex.lock()
+	while not _finished.is_empty() and ready_now.size() < ASSEMBLED_PER_FRAME:
+		ready_now.append(_finished.pop_front())
+	_finished_mutex.unlock()
+
+	for baked in ready_now:
+		var coord: Vector2i = baked["coord"]
+		var job = _baking.get(coord)
+		_baking.erase(coord)
+		if job == null:
+			continue
+		WorkerThreadPool.wait_for_task_completion(job["task"])
+		if int(baked["generation"]) != _generation:
+			# A tree was felled while this baked. Ask again rather than draw a
+			# tree that has already been cut down.
+			if not _queue.has(coord):
+				_queue.push_front(coord)
+			continue
+
+		var previous = _tiles.get(coord)
+		if previous != null:
+			previous.queue_free()
+		var tile := VegetationTile.new(
+			baked, TILE_SIZE, _conifer, _broadleaf, _grass,
+			_tree_material, _grass_material, _stump
+		)
+		add_child(tile)
+		_tiles[coord] = tile

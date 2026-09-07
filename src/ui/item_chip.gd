@@ -89,20 +89,41 @@ func _seed(box: Rect2) -> void:
 		centre + Vector2(r * 0.92, r * 0.35),
 	]), tint)
 
-## A cone: stacked scales narrowing to a point, which is what tells it apart
-## from the seed beside it in the same brown.
+## A pine cone: an egg-shaped body covered in staggered scales, with a stalk.
+## The first version was a triangle with two stripes across it, and read as a
+## triangle. Scales are what make a cone a cone.
 func _cone(box: Rect2) -> void:
-	var centre := box.get_center()
+	var centre := box.get_center() + Vector2(0.0, minf(box.size.x, box.size.y) * 0.04)
 	var unit := minf(box.size.x, box.size.y)
-	var half := unit * 0.30
-	draw_colored_polygon(PackedVector2Array([
-		centre + Vector2(-half * 0.72, half),
-		centre + Vector2(0.0, -half * 1.15),
-		centre + Vector2(half * 0.72, half),
-	]), tint)
-	# Two darker courses across it, so the silhouette reads as scaled.
-	var shade := Color(tint.darkened(0.35), 0.9)
-	for course in 2:
-		var y := centre.y + half * (0.05 + float(course) * 0.42)
-		var width := half * (0.42 + float(course) * 0.26)
-		draw_line(Vector2(centre.x - width, y), Vector2(centre.x + width, y), shade, unit * 0.06)
+	var half_h := unit * 0.32
+	var half_w := unit * 0.22
+
+	# The body: fuller below the middle, tapering to a rounded top.
+	var body := PackedVector2Array()
+	var steps := 24
+	for i in steps:
+		var a := TAU * float(i) / float(steps)
+		var y := sin(a)
+		# Wider towards the bottom (positive y is down on screen).
+		var w := half_w * (0.72 + 0.28 * clampf(y, -1.0, 1.0))
+		body.append(centre + Vector2(cos(a) * w, y * half_h))
+	draw_colored_polygon(body, tint)
+
+	# The stalk.
+	draw_line(
+		centre + Vector2(0.0, -half_h),
+		centre + Vector2(unit * 0.03, -half_h - unit * 0.09),
+		tint.darkened(0.25), maxf(2.0, unit * 0.05)
+	)
+
+	# Scales: rows of small dark half-discs, each row offset by half a scale,
+	# which is the one thing a triangle can never look like.
+	var scale := Color(tint.darkened(0.45), 0.9)
+	var rows := 4
+	for row in rows:
+		var y := centre.y - half_h * 0.55 + float(row) * half_h * 0.42
+		var count := 2 if row % 2 == 0 else 3
+		var w_here := half_w * (0.72 + 0.28 * clampf((y - centre.y) / half_h, -1.0, 1.0))
+		for k in count:
+			var x := centre.x + (float(k) - float(count - 1) * 0.5) * w_here * 0.9
+			draw_arc(Vector2(x, y), unit * 0.055, PI, TAU, 8, scale, maxf(1.5, unit * 0.035))

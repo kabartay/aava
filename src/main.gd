@@ -268,6 +268,11 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	if save.has("player"):
 		var at: Dictionary = save["player"]
 		start = Vector3(at.get("x", spawn.x), at.get("y", spawn.y), at.get("z", spawn.z))
+	# Never below the ground as it is *now*. A saved height is only as good as
+	# the terrain it was saved against, and the terrain can change between
+	# sessions: the day the playground stopped being a thirty-metre pit, a child
+	# saved at the bottom of it would have loaded thirty metres inside a hill.
+	start.y = maxf(start.y, world.field.height_at(start.x, start.z))
 	player.position = start + Vector3.UP * SPAWN_CLEARANCE
 	# Terrain arrives a few chunks per frame, so for the first instants there is
 	# nothing under the player's feet. Physics stays off until the ground they
@@ -765,7 +770,7 @@ func _on_place_used() -> void:
 	var here := world.places.nearest(player.global_position)
 	match here:
 		Places.PLAYGROUND:
-			if world.places.push_swing():
+			if world.places.push_swing(player.global_position):
 				sounds.play(Sounds.Sound.JUMP, 1.2)
 		Places.CAFE:
 			_eat()

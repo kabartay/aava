@@ -18,96 +18,120 @@ const GRASS_CANDIDATES := 620
 ## tile that has come closer needs replanting.
 var has_grass := false
 
-func _init(
+## Work out everything about a tile that does not touch the scene tree, so a
+## worker thread can do it.
+##
+## A tile with grass is six hundred and twenty candidates times three height
+## samples, plus a path test, a lake test and a pitch test each, plus the trees
+## — about two thousand height-field queries, all on the main thread, one tile
+## every thirty metres walked. That is what "it stutters a little after walking
+## for a while" was. Same treatment as the terrain: this runs on the pool and
+## returns arrays; `_init` turns them into instances.
+##
+## `felled` is a snapshot, not the live record: the axe writes to the live one
+## on the main thread while this reads.
+static func bake(
 	field: HeightField,
 	coord: Vector2i,
 	tile_size: int,
 	world_seed: int,
+	felled: Felled,
+	with_grass: bool
+) -> Dictionary:
+	var origin_x := float(coord.x * tile_size)
+	var origin_z := float(coord.y * tile_size)
+
+	# One pass over the trees, split into standing and felled, rather than the
+	# two passes this used to make — once for the trees and once more, over the
+	# whole tile again, for the stumps.
+	var conifers: Array[Transform3D] = []
+	var broadleaves: Array[Transform3D] = []
+	var stumps: Array[Transform3D] = []
+	for grown in generate_trees(field, coord, tile_size, world_seed, null):
+		var at: Vector3 = grown["position"]
+		if felled != null and felled.is_felled(at.x, at.z):
+			stumps.append(Transform3D(
+				Basis(Vector3.UP, float(stumps.size()) * 1.1),
+				Vector3(at.x - origin_x, at.y, at.z - origin_z)
+			))
+		elif grown["conifer"]:
+			conifers.append(grown["transform"])
+		else:
+			broadleaves.append(grown["transform"])
+
+	var tufts: Array[Transform3D] = []
+	if with_grass:
+		# Its own generator, seeded the same way the trees' is. The two never
+		# shared one: generate_trees makes its own, so grass has always drawn
+		# from the seed directly — and must keep doing so, or every tuft moves.
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash(Vector3i(world_seed, coord.x, coord.y))
+		for _i in GRASS_CANDIDATES:
+			var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
+			var world_x := origin_x + local.x
+			var world_z := origin_z + local.z
+			var height := field.height_at(world_x, world_z)
+			if height < HeightField.WATER_LEVEL + 0.35 or height > HeightField.TREELINE:
+				continue
+			# A forward difference from the height already in hand, rather than
+			# steepness_at, which takes four more samples of its own.
+			var rise_x := field.height_at(world_x + 1.2, world_z) - height
+			var rise_z := field.height_at(world_x, world_z + 1.2) - height
+			if (rise_x * rise_x + rise_z * rise_z) > 0.36:
+				continue
+			# Nothing grows on a mown pitch, on a trodden path, or in a lake:
+			# grass placed by its own rule comes straight up through anything
+			# the terrain painted or the water covers.
+			if Pitch.is_levelled(world_x, world_z):
+				continue
+			if field.path_at(world_x, world_z, height) > 0.35:
+				continue
+			if Lakes.wet(world_x, world_z):
+				continue
+			# Trodden ground grows a tuft here and there, not a lawn. Decided by
+			# a hash of the spot rather than a draw from the generator, so the
+			# generator's sequence — and every other tuft in the tile — is
+			# untouched.
+			var worn := PlaceSpec.trodden(world_x, world_z, field.camp_centre())
+			if worn > 0.2 and (hash(Vector2i(int(world_x * 7.0), int(world_z * 7.0))) % 100) < int(worn * 80.0):
+				continue
+			local.y = height
+			var scale := rng.randf_range(0.75, 1.45)
+			tufts.append(Transform3D(
+				Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale, scale * rng.randf_range(0.8, 1.3), scale)),
+				local
+			))
+
+	return {
+		"coord": coord,
+		"with_grass": with_grass,
+		"conifers": conifers,
+		"broadleaves": broadleaves,
+		"stumps": stumps,
+		"grass": tufts,
+	}
+
+## Assemble a tile from data already baked, on the main thread: four
+## MultiMeshes at most, and nothing that asks the height field anything.
+func _init(
+	baked: Dictionary,
+	tile_size: int,
 	conifer: Mesh,
 	broadleaf: Mesh,
 	grass: Mesh,
 	tree_material: ShaderMaterial,
 	grass_material: ShaderMaterial,
-	with_grass: bool,
-	felled: Felled,
 	stump: Mesh
 ) -> void:
-	var origin_x := float(coord.x * tile_size)
-	var origin_z := float(coord.y * tile_size)
-	position = Vector3(origin_x, 0.0, origin_z)
+	var coord: Vector2i = baked["coord"]
+	position = Vector3(float(coord.x * tile_size), 0.0, float(coord.y * tile_size))
+	has_grass = baked["with_grass"]
 
-	# Placement is a pure function of the world seed and the tile coordinate, so
-	# a tile that streams out and back in comes back identical. Anything else
-	# means the forest rearranges itself behind the player's back.
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(Vector3i(world_seed, coord.x, coord.y))
-
-	var conifers: Array[Transform3D] = []
-	var broadleaves: Array[Transform3D] = []
-	for placed in generate_trees(field, coord, tile_size, world_seed, felled):
-		var transform: Transform3D = placed["transform"]
-		if placed["conifer"]:
-			conifers.append(transform)
-		else:
-			broadleaves.append(transform)
-
-	_add_layer(conifer, tree_material, conifers, tile_size, 24.0, true, 0.0)
-	_add_layer(broadleaf, tree_material, broadleaves, tile_size, 24.0, true, 0.0)
-
-	# A stump wherever this tile would have drawn a tree that has been felled.
-	if felled != null and felled.count() > 0 and stump != null:
-		var stumps: Array[Transform3D] = []
-		for gone in generate_trees(field, coord, tile_size, world_seed, null):
-			var at: Vector3 = gone["position"]
-			if not felled.is_felled(at.x, at.z):
-				continue
-			stumps.append(Transform3D(
-				Basis(Vector3.UP, float(stumps.size()) * 1.1),
-				Vector3(at.x - origin_x, at.y, at.z - origin_z)
-			))
-		if not stumps.is_empty():
-			_add_layer(stump, tree_material, stumps, tile_size, 24.0, true, 0.0)
-
-	if not with_grass:
-		return
-
-	var tufts: Array[Transform3D] = []
-	for _i in GRASS_CANDIDATES:
-		var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
-		var world_x := origin_x + local.x
-		var world_z := origin_z + local.z
-		var height := field.height_at(world_x, world_z)
-		if height < HeightField.WATER_LEVEL + 0.35 or height > HeightField.TREELINE:
-			continue
-		# A forward difference from the height already in hand, rather than
-		# steepness_at, which takes four more samples of its own. Six hundred
-		# and twenty candidates a tile times four calls is most of what a tile
-		# costs, and a tuft of grass does not need the exact gradient — it needs
-		# to know whether this is a slope.
-		var rise_x := field.height_at(world_x + 1.2, world_z) - height
-		var rise_z := field.height_at(world_x, world_z + 1.2) - height
-		if (rise_x * rise_x + rise_z * rise_z) > 0.36:
-			continue
-		# Nothing grows on a mown pitch. Grass tufts are placed by their own
-		# rule rather than by forest density, so suppressing trees there was
-		# not enough — long grass came straight up through the markings.
-		if Pitch.is_levelled(world_x, world_z):
-			continue
-		# And none on a trodden path, for the same reason: grass placed by its
-		# own rule comes straight up through anything the terrain painted.
-		if field.path_at(world_x, world_z, height) > 0.35:
-			continue
-		# Nor in a lake: grass placed by its own rule comes straight up through
-		# the water otherwise.
-		if Lakes.wet(world_x, world_z):
-			continue
-		local.y = height
-		var scale := rng.randf_range(0.75, 1.45)
-		tufts.append(Transform3D(
-			Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale, scale * rng.randf_range(0.8, 1.3), scale)),
-			local
-		))
-	_add_layer(grass, grass_material, tufts, tile_size, 1.5, false, 74.0)
+	_add_layer(conifer, tree_material, baked["conifers"], tile_size, 24.0, true, 0.0)
+	_add_layer(broadleaf, tree_material, baked["broadleaves"], tile_size, 24.0, true, 0.0)
+	if stump != null:
+		_add_layer(stump, tree_material, baked["stumps"], tile_size, 24.0, true, 0.0)
+	_add_layer(grass, grass_material, baked["grass"], tile_size, 1.5, false, 74.0)
 
 ## Where every tree in a tile stands, as a pure function of the world seed.
 ##

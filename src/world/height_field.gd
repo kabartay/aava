@@ -98,13 +98,20 @@ func _init(world_seed: int) -> void:
 	_detail.frequency = 0.05
 	_detail.fractal_octaves = 2
 
-	# Worked out now rather than on first use. It is one number and always the
-	# same one, but it used to be filled in lazily by whoever asked first —
-	# and terrain is baked on worker threads, where "whoever asked first"
-	# means two threads writing the same member at once. Priming it here makes
-	# this whole object read-only for everything that reads the ground, which
-	# is what makes baking off the main thread safe rather than merely lucky.
-	_cached_place_level = _raw_height(camp_centre().x, camp_centre().z)
+	# The level each place is flattened to: the natural ground at its own
+	# centre. Worked out now rather than on first use, because terrain is baked
+	# on worker threads and a lazily-filled cache is two threads writing the
+	# same member at once; priming it here makes this whole object read-only
+	# for everything that reads the ground.
+	#
+	# It used to be one number for all three, read at the camp. That was right
+	# while the places stood beside the camp and wrong the day they moved four
+	# hundred metres out onto the hills: the playground's ground is thirty-one
+	# metres above the camp's, and flattening it *down* to the camp's level dug
+	# a thirty-one-metre pit with a swing at the bottom of it.
+	for place in PlaceSpec.OFFSETS:
+		var centre := PlaceSpec.centre_of(place, camp_centre())
+		_place_levels[place] = _raw_height(centre.x, centre.z)
 
 ## Where the river's centre line sits at a given depth into the world.
 ## Two sine waves of different periods read as a meander rather than a snake.
@@ -130,9 +137,11 @@ func height_at(x: float, z: float) -> float:
 	# that function calls height_at: asking it here would recurse, and a height
 	# field that depends on a search is no longer a pure function of position
 	# and seed — which is the property every other system relies on.
-	var places := PlaceSpec.influence(x, z, camp_centre())
-	if places > 0.0:
-		floor_height = lerpf(floor_height, _place_level(), places)
+	if PlaceSpec.influence(x, z, camp_centre()) > 0.0:
+		for place in PlaceSpec.OFFSETS:
+			var pull := PlaceSpec.influence_of(place, x, z, camp_centre())
+			if pull > 0.0:
+				floor_height = lerpf(floor_height, float(_place_levels[place]), pull)
 		# And the pool is dug out of that levelled ground. Done here so the
 		# terrain mesh, the collision heightmap, the grass and the pickups all
 		# agree there is a hole, rather than a rim being drawn on flat grass.
@@ -193,11 +202,12 @@ func fill_grid(
 				var pitch := Pitch.influence(x, z)
 				if pitch > 0.0:
 					height = lerpf(height, PITCH_LEVEL, pitch)
-			if places_here:
-				var places := PlaceSpec.influence(x, z, camp)
-				if places > 0.0:
-					height = lerpf(height, _place_level(), places)
-					height -= PlaceSpec.excavation(x, z, camp)
+			if places_here and PlaceSpec.influence(x, z, camp) > 0.0:
+				for place in PlaceSpec.OFFSETS:
+					var pull := PlaceSpec.influence_of(place, x, z, camp)
+					if pull > 0.0:
+						height = lerpf(height, float(_place_levels[place]), pull)
+				height -= PlaceSpec.excavation(x, z, camp)
 			if lakes_here:
 				var lake := Lakes.influence(x, z)
 				if lake > 0.0:
@@ -386,18 +396,9 @@ var dams_built: Array = []
 func camp_centre() -> Vector3:
 	return Vector3(0.0, 0.0, 18.0)
 
-## The height the levelled ground around the camp settles at. Read from the raw
-## terrain at the camp so the buildings sit at the valley's own level rather
-## than on a plateau of their own.
-func _place_level() -> float:
-	if _cached_place_level < -1e8:
-		var camp := camp_centre()
-		# Deliberately not height_at: that would recurse straight back into the
-		# levelling this value is for.
-		_cached_place_level = _raw_height(camp.x, camp.z)
-	return _cached_place_level
-
-var _cached_place_level := -1e9
+## The natural ground at each place's centre, which is what that place is
+## flattened to. Filled in the constructor; see the note there.
+var _place_levels: Dictionary = {}
 
 ## A calm, flat, dry spot near the river to put the player and the first camp.
 func find_spawn_point() -> Vector3:
