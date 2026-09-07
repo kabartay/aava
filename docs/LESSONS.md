@@ -62,6 +62,8 @@ recur.
 | An animal's wander target used raw ground height near the river | A beaver could wander onto the riverbed, well under the water | `_footing()` clamps to a wade, never the bottom |
 | A blanket lint flagged code with no actual bug | CI silently red on every push for two days | Type-annotate the flagged loop variables, don't weaken the rule |
 | A round trip was tested against every local address, not just one | Passed on a laptop, failed in CI behind a Docker bridge | Test only `local_addresses()[0]`, the one it was ever documented for |
+| Height compared from the wrong origin | The trampoline never bounced anyone; its check shared the assumption and passed | Feet-to-mat comparison; check includes a case the wrong model fails |
+| Wrong sign turning boxes onto a ring's tangent | Diagonal hedge blocks stood radially, gaps either side | θ = −a − 90° for `Basis(UP, θ)`; screenshot review |
 
 
 ## Godot 4.7
@@ -130,6 +132,25 @@ excluded, collapsing the camera into the character's head.
 **Applying an impulse to a body the physics server has not stepped does
 nothing.** Setting `linear_velocity` is both reliable and the truthful model for
 a kick, which replaces motion rather than adding to it.
+
+**Know where a body's origin is before comparing heights.** The trampoline
+asked whether a child stood on its mat by comparing the player's position
+with the mat's top plus the capsule's half-height — the origin was assumed to
+be the middle of the body. It is at the feet (the collider is lifted half
+the height above it), so a child on the mat was always 0.78 m "above" it,
+the test never passed, and the trampoline never bounced anyone. The check
+mirrored the same assumption and passed anyway. A check written from the
+same mental model as the code proves only that the model is consistent with
+itself; the fix added a case the wrong model could not pass — a body whose
+feet are *not* on the mat must not count.
+
+**`Basis(UP, θ)` sends +X to (cos θ, 0, −sin θ) — mind the sign.** To lay a
+box along the tangent of a ring at angle `a`, whose tangent is (−sin a, 0,
+cos a), the turn is θ = −a − 90°, not a + 90°. With the wrong sign every
+block on a diagonal stood radially, with a gap either side, and only the
+four blocks on the axes looked right. The direction of a rotation is worth
+checking with one substituted angle before trusting it, as the slide's ramp
+and the swing's A-frame had already taught.
 
 ## Android
 
