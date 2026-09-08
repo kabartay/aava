@@ -90,6 +90,8 @@ func _init(player: Player) -> void:
 	_arm.shape = SphereShape3D.new()
 	(_arm.shape as SphereShape3D).radius = 0.45
 	_arm.margin = 0.2
+	# The ground and walls stop the camera; furniture does not — see TerrainSpec.
+	_arm.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_WALLS
 	add_child(_arm)
 
 	_tip = Node3D.new()

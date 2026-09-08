@@ -195,6 +195,7 @@ var _meals: Array[Dictionary] = []
 ## The café's collision, kept so a check can count it, and every seat in it:
 ## where to sit, where on the table the meal goes, and which way to face.
 var _cafe_solid: StaticBody3D = null
+var _cafe_walls: StaticBody3D = null
 var _cafe_seats: Array[Dictionary] = []
 ## Each ball's height last frame, to see one drop through the ring.
 var _ball_heights: Array[float] = []
@@ -978,6 +979,13 @@ func _build_cafe(at: Vector3) -> void:
 	solid.collision_layer = TerrainSpec.LAYER_PROPS
 	add_child(solid)
 	_cafe_solid = solid
+	# The walls and ceiling are on a layer the camera respects too, so that
+	# turning round inside does not put the camera outside the building.
+	var walls := StaticBody3D.new()
+	walls.transform = Transform3D(Basis(), at)
+	walls.collision_layer = TerrainSpec.LAYER_PROPS | TerrainSpec.LAYER_WALLS
+	add_child(walls)
+	_cafe_walls = walls
 	_cafe_seats.clear()
 
 	var wall := Color(0.92, 0.88, 0.78)
@@ -998,9 +1006,9 @@ func _build_cafe(at: Vector3) -> void:
 	var thick := 0.2
 
 	# --- The shell: walls with a door and windows, floor, ceiling, roof.
-	_wall(tool, solid, Vector3(w, h, thick), Vector3(0.0, h * 0.5, back - thick * 0.5), wall)
+	_wall(tool, walls, Vector3(w, h, thick), Vector3(0.0, h * 0.5, back - thick * 0.5), wall)
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		_wall(tool, solid, Vector3(thick, h, d), Vector3(side * (w * 0.5 - thick * 0.5), h * 0.5, mid), wall)
+		_wall(tool, walls, Vector3(thick, h, d), Vector3(side * (w * 0.5 - thick * 0.5), h * 0.5, mid), wall)
 		for wz in PackedFloat32Array([mid - 1.9, mid + 1.5]):
 			var pane := BoxMesh.new()
 			pane.size = Vector3(0.06, 1.2, 1.6)
@@ -1011,7 +1019,7 @@ func _build_cafe(at: Vector3) -> void:
 		# The front wall, either side of the door, with a shop window.
 		var segment_w := w * 0.5 - CAFE_DOOR_HALF
 		var segment_x := side * (CAFE_DOOR_HALF + segment_w * 0.5)
-		_wall(tool, solid, Vector3(segment_w, h, thick), Vector3(segment_x, h * 0.5, front + thick * 0.5), wall)
+		_wall(tool, walls, Vector3(segment_w, h, thick), Vector3(segment_x, h * 0.5, front + thick * 0.5), wall)
 		var shop_window := BoxMesh.new()
 		shop_window.size = Vector3(2.2, 1.4, 0.06)
 		_add(tool, shop_window, Transform3D(Basis(), Vector3(side * 3.0, 1.85, front - 0.02)), glass)
@@ -1021,7 +1029,7 @@ func _build_cafe(at: Vector3) -> void:
 		var post := BoxMesh.new()
 		post.size = Vector3(0.14, 2.55, 0.3)
 		_add(tool, post, Transform3D(Basis(), Vector3(side * (CAFE_DOOR_HALF + 0.07), 1.275, front)), timber)
-	_wall(tool, solid, Vector3(CAFE_DOOR_HALF * 2.0 + 0.3, h - 2.55, thick), Vector3(0.0, (2.55 + h) * 0.5, front + thick * 0.5), wall)
+	_wall(tool, walls, Vector3(CAFE_DOOR_HALF * 2.0 + 0.3, h - 2.55, thick), Vector3(0.0, (2.55 + h) * 0.5, front + thick * 0.5), wall)
 	var mat := BoxMesh.new()
 	mat.size = Vector3(1.8, 0.03, 0.9)
 	_add(tool, mat, Transform3D(Basis(), Vector3(0.0, 0.015, front - 0.5)), Color(0.36, 0.30, 0.24))
@@ -1031,6 +1039,11 @@ func _build_cafe(at: Vector3) -> void:
 	var ceiling := BoxMesh.new()
 	ceiling.size = Vector3(w, 0.08, d)
 	_add(tool, ceiling, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)), inner_wall)
+	# The ceiling stops the camera too, or looking down at the table lifts
+	# it through the roof.
+	var lid := BoxShape3D.new()
+	lid.size = Vector3(w, 0.1, d)
+	_collide(walls, lid, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)))
 	var roof := PrismMesh.new()
 	roof.size = Vector3(d + 0.9, 2.0, w + 0.9)
 	_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0.0, h + 1.0, mid)), tiles)
@@ -1609,7 +1622,14 @@ func cafe_seat_count() -> int:
 	return _cafe_seats.size()
 
 func cafe_solid_count() -> int:
-	return 0 if _cafe_solid == null else _cafe_solid.get_child_count()
+	var count := 0 if _cafe_solid == null else _cafe_solid.get_child_count()
+	if _cafe_walls != null:
+		count += _cafe_walls.get_child_count()
+	return count
+
+## How many of the café's solids also stop the camera. For the checks.
+func cafe_wall_count() -> int:
+	return 0 if _cafe_walls == null else _cafe_walls.get_child_count()
 
 func _tick_meals(delta: float) -> void:
 	for i in range(_meals.size() - 1, -1, -1):

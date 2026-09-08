@@ -20,6 +20,10 @@ const CHUNK_SIZE := 64
 ## a child walked up to the slide.
 const LAYER_GROUND := 1
 const LAYER_PROPS := 4
+## Walls a camera must not pass through: the café's, so a child sitting at a
+## table is not watched from outside the building with the wall in the way.
+## Furniture stays off this layer, for the rattling reason above.
+const LAYER_WALLS := 8
 
 ## Sampling step per detail ring and how far out each ring reaches, in chunks.
 ## Ring zero is where the player stands, so it is the only detail that has to

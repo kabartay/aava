@@ -703,7 +703,13 @@ func _check_the_cafe_serves() -> void:
 	places.stand_up(field.camp_centre())
 	var spot: Vector3 = places._spots[Places.CAFE]
 	_expect(places.cafe_solid_count() >= 30, "the café has %d solid pieces: walls, bar, stools, tables, chairs, sofa" % places.cafe_solid_count())
-	_expect(places._cafe_solid.collision_layer == TerrainSpec.LAYER_PROPS, "on the props layer, so the camera passes")
+	_expect(places._cafe_solid.collision_layer == TerrainSpec.LAYER_PROPS, "the furniture on the props layer, so the camera passes it")
+	_expect(places.cafe_wall_count() == 7, "%d walls and a ceiling on the walls layer as well" % places.cafe_wall_count())
+	_expect((places._cafe_walls.collision_layer & TerrainSpec.LAYER_WALLS) != 0, "which the camera does not pass")
+	var wall_probe := CameraRig.new(Player.new())
+	_expect((wall_probe._arm.collision_mask & TerrainSpec.LAYER_WALLS) != 0, "because its arm stops at walls")
+	_expect((wall_probe._arm.collision_mask & TerrainSpec.LAYER_PROPS) == 0, "and still not at furniture")
+	wall_probe.free()
 	_expect(places.cafe_seat_count() == 15, "%d seats: three stools, six chairs inside, two on the sofa, four on the terrace" % places.cafe_seat_count())
 	var inside := spot + Places.CAFE_TABLES[0]
 	_expect(places.nearest(inside) == Places.CAFE, "a child at a table inside is offered a meal")
@@ -714,7 +720,7 @@ func _check_the_cafe_serves() -> void:
 	# The door is a way in: the ground in the doorway is not a wall.
 	var door := spot + Vector3(0.0, 0.0, Places.CAFE_MID_Z - Places.CAFE_DEPTH * 0.5)
 	var doorway_blocked := false
-	for shape in places._cafe_solid.get_children():
+	for shape in places._cafe_solid.get_children() + places._cafe_walls.get_children():
 		var collider := shape as CollisionShape3D
 		if collider == null or not (collider.shape is BoxShape3D):
 			continue
