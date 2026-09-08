@@ -294,9 +294,13 @@ func _physics_process(delta: float) -> void:
 		# crossing something rather than like a faster way to travel.
 		top = SWIM_SPEED * minf(push, 1.0)
 	elif riding != &"":
-		# A mount has one speed, reached by pushing the stick, and no walk/run
-		# distinction — a child on a horse is not choosing a gait.
-		top = MountKinds.speed(riding) * minf(push, 1.0)
+		# The stick chooses the gait. Up to three quarters it goes from a walk
+		# to a trot — the mount's speed at most — and past that the mount
+		# stretches out to a canter, a little faster than its speed. It had
+		# one speed reached at any push, and a child could neither dawdle on
+		# the horse nor let it go.
+		var gait := smoothstep(0.0, 0.72, push) * 0.75 + smoothstep(0.72, 1.0, push) * 0.4
+		top = MountKinds.speed(riding) * gait
 	elif not may_run:
 		# Too tired to run, but never too tired to walk. Energy shapes the pace
 		# of a day; it must not strand a child halfway up a hill.

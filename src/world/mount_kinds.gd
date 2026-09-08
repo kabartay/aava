@@ -57,7 +57,7 @@ const INFO := {
 		"max_slope": 0.62,
 		"fords": true,
 		"floats": false,
-		"eye": 1.05,
+		"eye": 1.26,
 		"colour": Color(0.42, 0.29, 0.20),
 	},
 	BICYCLE: {
@@ -129,72 +129,156 @@ static func build_mesh(kind: StringName) -> Mesh:
 	tool.set_material(AnimalKinds.fur_material())
 	return tool.commit()
 
+## A horse, a fifth bigger than the first one and with what makes a horse a
+## horse: a fuller chest and rump, a blaze on the face, eyes, pointed ears, a
+## mane in locks down the neck, a tail in two pieces, socks and hooves — and
+## a saddle on a red blanket, with stirrups, because a horse a child rides
+## should look like one that is ridden.
 static func _horse(tool: SurfaceTool) -> void:
+	var s := 1.2
 	var hide: Color = colour(HORSE)
 	var dark := hide.darkened(0.3)
+	var pale := Color(0.93, 0.90, 0.84)
+	var hoof := Color(0.15, 0.12, 0.10)
+	var leather := Color(0.36, 0.22, 0.12)
+	var blanket := Color(0.80, 0.22, 0.20)
 
 	var body := SphereMesh.new()
-	body.radius = 0.52
-	body.height = 1.0
+	body.radius = 0.52 * s
+	body.height = 1.0 * s
 	body.radial_segments = 10
 	body.rings = 6
 	_add(tool, body, Transform3D(
-		Basis().scaled(Vector3(1.0, 0.92, 1.75)), Vector3(0.0, 1.32, 0.0)
+		Basis().scaled(Vector3(1.0, 0.92, 1.75)), Vector3(0.0, 1.32 * s, 0.0)
 	), hide)
+	var chest := SphereMesh.new()
+	chest.radius = 0.42 * s
+	chest.height = 0.84 * s
+	chest.radial_segments = 8
+	chest.rings = 5
+	_add(tool, chest, Transform3D(Basis().scaled(Vector3(1.0, 1.05, 1.0)), Vector3(0.0, 1.26 * s, -0.74 * s)), hide)
+	var rump := SphereMesh.new()
+	rump.radius = 0.44 * s
+	rump.height = 0.88 * s
+	rump.radial_segments = 8
+	rump.rings = 5
+	_add(tool, rump, Transform3D(Basis(), Vector3(0.0, 1.36 * s, 0.72 * s)), hide)
 
 	# The neck rises forward; without it a horse is a barrel with a ball on it.
+	var neck_tilt := Basis(Vector3.RIGHT, deg_to_rad(-38.0))
 	var neck := CylinderMesh.new()
-	neck.top_radius = 0.19
-	neck.bottom_radius = 0.28
-	neck.height = 0.82
+	neck.top_radius = 0.19 * s
+	neck.bottom_radius = 0.30 * s
+	neck.height = 0.9 * s
 	neck.radial_segments = 8
-	_add(tool, neck, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(-38.0)), Vector3(0.0, 1.76, -0.72)
-	), hide)
+	_add(tool, neck, Transform3D(neck_tilt, Vector3(0.0, 1.8 * s, -0.74 * s)), hide)
 
 	var head := SphereMesh.new()
-	head.radius = 0.21
-	head.height = 0.5
+	head.radius = 0.21 * s
+	head.height = 0.5 * s
 	head.radial_segments = 8
 	head.rings = 5
 	_add(tool, head, Transform3D(
-		Basis().scaled(Vector3(1.0, 1.0, 1.5)), Vector3(0.0, 2.06, -1.08)
+		Basis().scaled(Vector3(1.0, 1.0, 1.55)), Vector3(0.0, 2.1 * s, -1.12 * s)
 	), hide)
-
+	var muzzle := SphereMesh.new()
+	muzzle.radius = 0.14 * s
+	muzzle.height = 0.26 * s
+	muzzle.radial_segments = 8
+	muzzle.rings = 4
+	_add(tool, muzzle, Transform3D(Basis(), Vector3(0.0, 2.02 * s, -1.42 * s)), hide.lightened(0.12))
+	var blaze := BoxMesh.new()
+	blaze.size = Vector3(0.07 * s, 0.3 * s, 0.02 * s)
+	_add(tool, blaze, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-20.0)), Vector3(0.0, 2.15 * s, -1.33 * s)), pale)
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		var ear := SphereMesh.new()
-		ear.radius = 0.06
-		ear.height = 0.2
+		var eye := SphereMesh.new()
+		eye.radius = 0.04 * s
+		eye.height = 0.08 * s
+		eye.radial_segments = 6
+		eye.rings = 3
+		_add(tool, eye, Transform3D(Basis(), Vector3(side * 0.16 * s, 2.17 * s, -1.2 * s)), hoof)
+		var nostril := SphereMesh.new()
+		nostril.radius = 0.022 * s
+		nostril.height = 0.044 * s
+		nostril.radial_segments = 5
+		nostril.rings = 3
+		_add(tool, nostril, Transform3D(Basis(), Vector3(side * 0.06 * s, 2.0 * s, -1.55 * s)), dark)
+		var ear := CylinderMesh.new()
+		ear.top_radius = 0.0
+		ear.bottom_radius = 0.06 * s
+		ear.height = 0.22 * s
 		ear.radial_segments = 5
-		ear.rings = 3
-		_add(tool, ear, Transform3D(Basis(), Vector3(side * 0.09, 2.24, -1.0)), dark)
+		ear.rings = 1
+		_add(tool, ear, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(14.0)), Vector3(side * 0.09 * s, 2.36 * s, -1.02 * s)), dark)
 
 		for front in PackedFloat32Array([-1.0, 1.0]):
 			var leg := CylinderMesh.new()
-			leg.top_radius = 0.11
-			leg.bottom_radius = 0.08
-			leg.height = 1.3
+			leg.top_radius = 0.11 * s
+			leg.bottom_radius = 0.08 * s
+			leg.height = 1.3 * s
 			leg.radial_segments = 6
 			_add(tool, leg, Transform3D(
-				Basis(), Vector3(side * 0.3, 0.65, front * 0.62)
+				Basis(), Vector3(side * 0.3 * s, 0.65 * s, front * 0.62 * s)
 			), dark)
+			var sock := CylinderMesh.new()
+			sock.top_radius = 0.085 * s
+			sock.bottom_radius = 0.085 * s
+			sock.height = 0.2 * s
+			sock.radial_segments = 6
+			_add(tool, sock, Transform3D(Basis(), Vector3(side * 0.3 * s, 0.2 * s, front * 0.62 * s)), pale)
+			var foot := CylinderMesh.new()
+			foot.top_radius = 0.095 * s
+			foot.bottom_radius = 0.1 * s
+			foot.height = 0.1 * s
+			foot.radial_segments = 6
+			_add(tool, foot, Transform3D(Basis(), Vector3(side * 0.3 * s, 0.05 * s, front * 0.62 * s)), hoof)
 
-	# Mane and tail, which is most of what makes it read as a horse rather than
-	# as a very large dog.
-	var mane := BoxMesh.new()
-	mane.size = Vector3(0.08, 0.34, 0.9)
-	_add(tool, mane, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(-38.0)), Vector3(0.0, 1.94, -0.76)
-	), dark)
-
+	# The mane, in locks down the neck, and a forelock; the tail in two pieces.
+	for i in 4:
+		var t := 0.15 + float(i) * 0.24
+		var along := Vector3(0.0, 1.5 * s, -0.42 * s).lerp(Vector3(0.0, 2.3 * s, -1.02 * s), t)
+		var lock := BoxMesh.new()
+		lock.size = Vector3(0.09 * s, 0.34 * s, 0.26 * s)
+		_add(tool, lock, Transform3D(neck_tilt, along + neck_tilt * Vector3(0.0, 0.0, 0.16 * s)), dark)
+	var forelock := BoxMesh.new()
+	forelock.size = Vector3(0.12 * s, 0.1 * s, 0.24 * s)
+	_add(tool, forelock, Transform3D(Basis(), Vector3(0.0, 2.34 * s, -1.18 * s)), dark)
 	var tail := CylinderMesh.new()
-	tail.top_radius = 0.05
-	tail.bottom_radius = 0.13
-	tail.height = 0.78
+	tail.top_radius = 0.06 * s
+	tail.bottom_radius = 0.14 * s
+	tail.height = 0.55 * s
 	tail.radial_segments = 6
-	_add(tool, tail, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(28.0)), Vector3(0.0, 1.32, 1.0)
-	), dark)
+	_add(tool, tail, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(22.0)), Vector3(0.0, 1.28 * s, 1.06 * s)), dark)
+	var tail_tip := CylinderMesh.new()
+	tail_tip.top_radius = 0.03 * s
+	tail_tip.bottom_radius = 0.09 * s
+	tail_tip.height = 0.5 * s
+	tail_tip.radial_segments = 6
+	_add(tool, tail_tip, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(6.0)), Vector3(0.0, 0.82 * s, 1.24 * s)), dark)
+
+	# The saddle: a blanket, the seat with its pommel and cantle, stirrups.
+	var pad := BoxMesh.new()
+	pad.size = Vector3(0.74 * s, 0.05 * s, 0.82 * s)
+	_add(tool, pad, Transform3D(Basis(), Vector3(0.0, 1.78 * s, 0.04 * s)), blanket)
+	var seat := BoxMesh.new()
+	seat.size = Vector3(0.44 * s, 0.14 * s, 0.54 * s)
+	_add(tool, seat, Transform3D(Basis(), Vector3(0.0, 1.87 * s, 0.04 * s)), leather)
+	var pommel := SphereMesh.new()
+	pommel.radius = 0.07 * s
+	pommel.height = 0.14 * s
+	pommel.radial_segments = 6
+	pommel.rings = 3
+	_add(tool, pommel, Transform3D(Basis(), Vector3(0.0, 1.98 * s, -0.2 * s)), leather)
+	var cantle := BoxMesh.new()
+	cantle.size = Vector3(0.4 * s, 0.12 * s, 0.08 * s)
+	_add(tool, cantle, Transform3D(Basis(), Vector3(0.0, 1.97 * s, 0.29 * s)), leather)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var strap := BoxMesh.new()
+		strap.size = Vector3(0.05 * s, 0.34 * s, 0.05 * s)
+		_add(tool, strap, Transform3D(Basis(), Vector3(side * 0.44 * s, 1.6 * s, 0.04 * s)), leather)
+		var stirrup := BoxMesh.new()
+		stirrup.size = Vector3(0.1 * s, 0.09 * s, 0.05 * s)
+		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.44 * s, 1.4 * s, 0.04 * s)), hoof)
 
 ## A rowing boat, facing -Z like everything else that is ridden: a hull with a
 ## pointed bow and a flat stern, a pale wooden inside with two thwarts to sit

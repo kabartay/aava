@@ -53,6 +53,7 @@ func _initialize() -> void:
 	_check_the_map_bakes_off_thread()
 	_check_boats_float_on_the_pond()
 	_check_nothing_is_built_on_the_playground()
+	_check_the_cafe_serves()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -690,6 +691,50 @@ func _check_nothing_is_built_on_the_playground() -> void:
 	structures.queue_free()
 
 	_expect(Text.of("why_reserved") != "", "and there is a word for why not")
+
+## The café could be walked through, and three coins bought a word. It is
+## solid now, and a paid-for meal is a thing on the bar that steams and is
+## cleared away.
+func _check_the_cafe_serves() -> void:
+	print("the café serves")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.CAFE]
+	_expect(places.cafe_solid_count() >= 30, "the café has %d solid pieces: walls, bar, stools, tables, chairs, sofa" % places.cafe_solid_count())
+	_expect(places._cafe_solid.collision_layer == TerrainSpec.LAYER_PROPS, "on the props layer, so the camera passes")
+	_expect(places.cafe_seat_count() == 15, "%d seats: three stools, six chairs inside, two on the sofa, four on the terrace" % places.cafe_seat_count())
+	var inside := spot + Places.CAFE_TABLES[0]
+	_expect(places.nearest(inside) == Places.CAFE, "a child at a table inside is offered a meal")
+	_expect(places.nearest(spot + Places.CAFE_TERRACE[0]) == Places.CAFE, "and one at a terrace table")
+	_expect(places.nearest(spot + Vector3(0.0, 0.0, -16.0)) == &"", "not one sixteen metres off")
+	_expect(places.obstructed(spot.x, spot.z + Places.CAFE_MID_Z), "the building is not somewhere an animal walks")
+	_expect(not places.obstructed(spot.x, spot.z - 12.0), "the ground beyond the terrace is")
+	# The door is a way in: the ground in the doorway is not a wall.
+	var door := spot + Vector3(0.0, 0.0, Places.CAFE_MID_Z - Places.CAFE_DEPTH * 0.5)
+	var doorway_blocked := false
+	for shape in places._cafe_solid.get_children():
+		var collider := shape as CollisionShape3D
+		if collider == null or not (collider.shape is BoxShape3D):
+			continue
+		var box := collider.shape as BoxShape3D
+		var local := collider.transform.origin
+		if absf(local.z - (door.z - spot.z)) < 0.3 and absf(local.x) < box.size.x * 0.5 and local.y - box.size.y * 0.5 < 1.0:
+			doorway_blocked = true
+	_expect(not doorway_blocked, "and nothing solid stands in the doorway below head height")
+	_expect(places.meals_served() == 0, "nothing on the tables before anyone orders")
+	var seat := places.serve_meal(inside + Vector3(1.0, 0.0, 0.0))
+	_expect(places.meals_served() == 1, "a paid-for meal appears")
+	_expect(not seat.is_empty() and seat["seat"].distance_to(inside + Vector3(1.05, 0.45, 0.0)) < 0.01, "at the chair the child stood by")
+	_expect(is_equal_approx(float(seat["facing"]), PI * 0.5), "facing the table")
+	var far := places.serve_meal(spot + Vector3(0.0, 0.0, -20.0))
+	_expect(far.is_empty(), "a child too far from any seat is not sat down")
+	places._tick(1.0)
+	_expect(places.meals_served() == 2, "and both meals are still there a second later")
+	places._tick(Places.MEAL_SHOWN)
+	_expect(places.meals_served() == 0, "and cleared away when they have been eaten")
+	places.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
@@ -2447,13 +2492,13 @@ func _check_places_worth_walking_to() -> void:
 	_expect(places.fountain_plays(), "and the fountain has a jet")
 	# The lamps: dark by day, all three lit once it is properly night, and
 	# dark again by morning.
-	_expect(places.lamp_count() == 3, "three lamps stand round the pad")
+	_expect(places.lamp_count() == Places.LAMPS.size() + Places.CAFE_LAMPS.size(), "%d lamps stand round the pad and the café" % places.lamp_count())
 	places.light_lamps(0.0, 10.0)
 	_expect(places.lamps_lit() == 0, "unlit in daylight")
 	places.light_lamps(1.0, 10.0)
-	_expect(places.lamps_lit() == 3, "all lit at midnight")
+	_expect(places.lamps_lit() == places.lamp_count(), "all lit at midnight")
 	places.light_lamps(0.15, 10.0)
-	_expect(places.lamps_lit() >= 1 and places.lamps_lit() < 3, "%d of them lit at dusk: they come on one by one" % places.lamps_lit())
+	_expect(places.lamps_lit() >= 1 and places.lamps_lit() < places.lamp_count(), "%d of them lit at dusk: they come on one by one" % places.lamps_lit())
 	places.light_lamps(0.0, 10.0)
 	_expect(places.lamps_lit() == 0, "and out again by morning")
 	# A basketball beside the hoop is thrown at it; one across the valley is not.

@@ -80,7 +80,7 @@ const BOUNDS_HALF := 480.0
 ## cannot quietly drift away from the readable one.
 const SEGMENTS: Array[float] = [
 	0.0, 18.0, -360.0, 268.0,
-	0.0, 18.0, -300.0, -242.0,
+	0.0, 18.0, -370.0, -282.0,
 	0.0, 18.0, 60.0, 398.0,
 	-360.0, 268.0, 60.0, 398.0,
 	0.0, 18.0, 330.0, -162.0,

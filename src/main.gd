@@ -356,7 +356,8 @@ func _process(delta: float) -> void:
 	# actually is. Never on a loop: a dog barking on a loop is wallpaper.
 	animal_voices.watch(
 		world.animals.living_near(player.global_position, AnimalVoices.AUDIBLE),
-		player.global_position, delta
+		player.global_position, delta,
+		inventory.count(ItemKinds.STICK) > 0
 	)
 
 	# Energy follows what the player actually did this frame, and gates running
@@ -614,6 +615,10 @@ const SHOOTING_LINE_REACH := 6.0
 ## along it they have come.
 var _sliding := -1.0
 var _slid := 0.0
+## How long the child has left sitting at a café table, and where they sit.
+var _dining := 0.0
+var _dining_seat := Vector3.ZERO
+var _dining_facing := 0.0
 
 ## Put the child where the ride says they should be, or let them go.
 func _carry(delta: float, at: Vector3) -> void:
@@ -644,6 +649,16 @@ func _carry(delta: float, at: Vector3) -> void:
 			_slid = 0.0
 			player.is_carried = false
 			sounds.play(Sounds.Sound.LAND, 1.2)
+		return
+
+	if _dining > 0.0:
+		_dining -= delta
+		player.carried_to = _dining_seat + Vector3(0.0, -0.3, 0.0)
+		player.is_carried = true
+		player.face(Vector3(-sin(_dining_facing), 0.0, -cos(_dining_facing)))
+		if _dining <= 0.0:
+			player.is_carried = false
+			player.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
 		return
 
 	if world.places.swinging():
@@ -825,6 +840,16 @@ func _eat() -> void:
 		Vitals.MAX_ENERGY, vitals.energy + Vitals.MAX_ENERGY * Places.MEAL_RESTORE
 	)
 	_refresh_vitals()
+	# The meal is served at the nearest seat, and the child is sat down at it
+	# for a while — eating is something you sit down for.
+	var seat := world.places.serve_meal(player.global_position)
+	if not seat.is_empty():
+		_dining = Places.MEAL_SHOWN * 0.8
+		_dining_seat = seat["seat"]
+		_dining_facing = float(seat["facing"])
+		# Down into the chair rather than standing on it: while seated the
+		# body ignores the furniture, and sits with its legs in the seat.
+		player.collision_mask = TerrainSpec.LAYER_GROUND
 	sounds.play(Sounds.Sound.PICKUP, 0.9)
 	hud.announce(Text.of("say_ate"), 2.0)
 

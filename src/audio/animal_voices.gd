@@ -150,7 +150,8 @@ func _play(kind: StringName, at: Vector3, pitch: float) -> void:
 ## Called every frame with the creatures near the player. One of them speaks
 ## when the wait runs out, chosen at random from those close enough to be worth
 ## hearing.
-func watch(near: Array[Dictionary], listener: Vector3, delta: float) -> void:
+func watch(near: Array[Dictionary], listener: Vector3, delta: float, stick_in_hand := false) -> void:
+	_beg(near, listener, delta, stick_in_hand)
 	_wait -= delta
 	if _wait > 0.0:
 		return
@@ -181,6 +182,35 @@ func watch(near: Array[Dictionary], listener: Vector3, delta: float) -> void:
 
 	var gap: Array = GAPS[kind]
 	_wait = _rng.randf_range(float(gap[0]), float(gap[1]))
+
+## How close a dog must be to ask for the stick, and how often it asks.
+const BEG_REACH := 7.0
+const BEG_GAP_MIN := 2.4
+const BEG_GAP_MAX := 4.6
+
+var _beg_wait := 0.0
+
+## A dog that sees the stick in a child's hand asks for it: a bark every few
+## seconds while the child is near and holding one, until it is given — a
+## dog just given a stick (its cooldown running) is quiet. Requested from the
+## phone: a dog that wants something should say so.
+func _beg(near: Array[Dictionary], listener: Vector3, delta: float, stick_in_hand: bool) -> void:
+	_beg_wait -= delta
+	if _beg_wait > 0.0 or not stick_in_hand:
+		return
+	for animal in near:
+		if animal["kind"] != &"dog" or float(animal.get("cooldown", 0.0)) > 0.0:
+			continue
+		var node = animal.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		var at := (node as Node3D).global_position
+		if at.distance_to(listener) > BEG_REACH:
+			continue
+		_play(&"dog", at, _rng.randf_range(1.02, 1.14))
+		_beg_wait = _rng.randf_range(BEG_GAP_MIN, BEG_GAP_MAX)
+		return
+	_beg_wait = 0.5
 
 ## A bark: a burst of noise with a hard attack and a falling pitch, twice.
 func _bark() -> AudioStreamWAV:

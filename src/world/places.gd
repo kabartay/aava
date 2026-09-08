@@ -25,8 +25,28 @@ const CAFE := &"cafe"
 
 const ALL: Array[StringName] = [PLAYGROUND, POOL, CAFE]
 
-## How close a child must be for a place to offer itself.
+## How close a child must be for a place to offer itself. The café is bigger
+## than the others' reach: a child at a terrace table is at the café.
 const REACH := 5.5
+const CAFE_REACH := 7.5
+## How long a served meal sits on the counter, steaming.
+const MEAL_SHOWN := 8.0
+## The café's shape, relative to its centre. It faces -Z: the door is in the
+## front wall, the bar along the back wall, the terrace out in front.
+const CAFE_WIDTH := 10.4
+const CAFE_DEPTH := 7.6
+const CAFE_HEIGHT := 3.5
+const CAFE_MID_Z := 1.6
+const CAFE_DOOR_HALF := 0.9
+## Where the tables stand inside, and out on the terrace under umbrellas, and
+## the two lamps that light the terrace at dusk like the playground's.
+const CAFE_TABLES: Array[Vector3] = [
+	Vector3(-3.2, 0.0, -0.4), Vector3(-3.2, 0.0, 2.6), Vector3(2.9, 0.0, -0.4),
+]
+const CAFE_TERRACE: Array[Vector3] = [Vector3(-3.6, 0.0, -4.8), Vector3(3.6, 0.0, -4.8)]
+const CAFE_LAMPS: Array[Vector3] = [Vector3(-6.4, 0.0, -3.4), Vector3(6.4, 0.0, -3.4)]
+## How far from a seat a child may be and still be sat down at it.
+const CAFE_SEAT_REACH := 6.0
 
 ## What a plate of food at the café costs, and what it restores. Priced so that
 ## a hungry child can afford it from one round of looking after animals.
@@ -170,6 +190,12 @@ var _hedge_segments := 0
 var _obstacles: Array[Dictionary] = []
 var _jet: MeshInstance3D = null
 var _lamps: Array[Dictionary] = []
+## Meals on the café's counter, each a node and how long it has left.
+var _meals: Array[Dictionary] = []
+## The café's collision, kept so a check can count it, and every seat in it:
+## where to sit, where on the table the meal goes, and which way to face.
+var _cafe_solid: StaticBody3D = null
+var _cafe_seats: Array[Dictionary] = []
 ## Each ball's height last frame, to see one drop through the ring.
 var _ball_heights: Array[float] = []
 var baskets := 0
@@ -217,6 +243,10 @@ func nearest(at: Vector3) -> StringName:
 			var flat: Vector3 = _spots[place] - at
 			flat.y = 0.0
 			distance = flat.length()
+			if place == CAFE:
+				# Measured against the café's own, longer reach, then put on
+				# the common scale so the nearest place still wins.
+				distance *= REACH / CAFE_REACH
 		if distance < best_distance:
 			best_distance = distance
 			best = place
@@ -470,6 +500,7 @@ func _tick(delta: float) -> void:
 		# The jet breathes: a fountain that stands perfectly still is a statue
 		# of a fountain.
 		_jet.scale = Vector3(1.0, 1.0 + 0.10 * sin(_wind_time * 7.3), 1.0)
+	_tick_meals(delta)
 	for i in _seats.size():
 		var seat: Dictionary = _seats[i]
 		var node: Node3D = seat["node"]
@@ -501,7 +532,7 @@ func _place(place: StringName, at: Vector3) -> void:
 			_obstacles.append(_obstacle_group(spot, [Vector3(0.0, POOL_HALF + 1.2, 0.0)]))
 		CAFE:
 			_build_cafe(spot)
-			_obstacles.append(_obstacle_group(spot, [Vector3(0.0, 3.2, 0.0)]))
+			_note_cafe_obstacles(spot)
 
 ## Two swing frames, a slide with a ladder, a hedge round the lot and a tree at
 ## each corner — a playground rather than a swing standing in a field.
@@ -928,61 +959,693 @@ func _build_pool(at: Vector3) -> void:
 	water.transform = Transform3D(Basis(), at + Vector3(0.0, -0.04, 0.0))
 	add_child(water)
 
-## A hut with a counter, a striped awning and two stools.
+## The café, which a child can walk into. Twice the width and depth of the
+## hut it replaced and a fifth taller: four walls with a door in the front
+## and windows all round, a floor and a ceiling under a pitched roof; inside,
+## a bar along the back with what is on offer laid out along it, shelves of
+## jars behind, a menu board on the wall, three stools, three round tables
+## with chairs, a sofa with cushions and a low table, three pendant lights,
+## plants in the corners; outside, a striped awning and a sign over the door,
+## two tables under umbrellas, flower pots, a menu board, two lamps that
+## light at dusk, and a bin. Every wall and every piece of furniture is
+## solid — the first café was a shed you could walk through — and every
+## seat is a place a child can be sat at to eat.
 func _build_cafe(at: Vector3) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var solid := StaticBody3D.new()
+	solid.transform = Transform3D(Basis(), at)
+	solid.collision_layer = TerrainSpec.LAYER_PROPS
+	add_child(solid)
+	_cafe_solid = solid
+	_cafe_seats.clear()
 
-	var wall := Color(0.90, 0.86, 0.76)
+	var wall := Color(0.92, 0.88, 0.78)
+	var inner_wall := Color(0.96, 0.90, 0.80)
 	var timber := Color(0.54, 0.38, 0.24)
+	var boards := Color(0.66, 0.50, 0.32)
+	var tiles := Color(0.62, 0.30, 0.24)
 	var stripe_a := Color(0.88, 0.34, 0.30)
 	var stripe_b := Color(0.96, 0.94, 0.90)
+	var glass := Color(0.70, 0.84, 0.92)
 
-	var hut := BoxMesh.new()
-	hut.size = Vector3(3.4, 2.3, 2.6)
-	_add(tool, hut, Transform3D(Basis(), Vector3(0.0, 1.15, 0.8)), wall)
+	var w := CAFE_WIDTH
+	var d := CAFE_DEPTH
+	var h := CAFE_HEIGHT
+	var mid := CAFE_MID_Z
+	var front := mid - d * 0.5
+	var back := mid + d * 0.5
+	var thick := 0.2
 
-	# A counter across the front, which is what makes it read as somewhere that
-	# serves rather than as a shed.
-	var counter := BoxMesh.new()
-	counter.size = Vector3(3.6, 0.16, 0.8)
-	_add(tool, counter, Transform3D(Basis(), Vector3(0.0, 1.02, -0.7)), timber)
+	# --- The shell: walls with a door and windows, floor, ceiling, roof.
+	_wall(tool, solid, Vector3(w, h, thick), Vector3(0.0, h * 0.5, back - thick * 0.5), wall)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_wall(tool, solid, Vector3(thick, h, d), Vector3(side * (w * 0.5 - thick * 0.5), h * 0.5, mid), wall)
+		for wz in PackedFloat32Array([mid - 1.9, mid + 1.5]):
+			var pane := BoxMesh.new()
+			pane.size = Vector3(0.06, 1.2, 1.6)
+			_add(tool, pane, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.02), 1.9, wz)), glass)
+			var sill := BoxMesh.new()
+			sill.size = Vector3(0.14, 0.06, 1.8)
+			_add(tool, sill, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.03), 1.28, wz)), timber)
+		# The front wall, either side of the door, with a shop window.
+		var segment_w := w * 0.5 - CAFE_DOOR_HALF
+		var segment_x := side * (CAFE_DOOR_HALF + segment_w * 0.5)
+		_wall(tool, solid, Vector3(segment_w, h, thick), Vector3(segment_x, h * 0.5, front + thick * 0.5), wall)
+		var shop_window := BoxMesh.new()
+		shop_window.size = Vector3(2.2, 1.4, 0.06)
+		_add(tool, shop_window, Transform3D(Basis(), Vector3(side * 3.0, 1.85, front - 0.02)), glass)
+		var frame := BoxMesh.new()
+		frame.size = Vector3(2.4, 0.08, 0.12)
+		_add(tool, frame, Transform3D(Basis(), Vector3(side * 3.0, 1.11, front - 0.02)), timber)
+		var post := BoxMesh.new()
+		post.size = Vector3(0.14, 2.55, 0.3)
+		_add(tool, post, Transform3D(Basis(), Vector3(side * (CAFE_DOOR_HALF + 0.07), 1.275, front)), timber)
+	_wall(tool, solid, Vector3(CAFE_DOOR_HALF * 2.0 + 0.3, h - 2.55, thick), Vector3(0.0, (2.55 + h) * 0.5, front + thick * 0.5), wall)
+	var mat := BoxMesh.new()
+	mat.size = Vector3(1.8, 0.03, 0.9)
+	_add(tool, mat, Transform3D(Basis(), Vector3(0.0, 0.015, front - 0.5)), Color(0.36, 0.30, 0.24))
+	var floor_slab := BoxMesh.new()
+	floor_slab.size = Vector3(w - thick, 0.06, d - thick)
+	_add(tool, floor_slab, Transform3D(Basis(), Vector3(0.0, 0.03, mid)), boards)
+	var ceiling := BoxMesh.new()
+	ceiling.size = Vector3(w, 0.08, d)
+	_add(tool, ceiling, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)), inner_wall)
+	var roof := PrismMesh.new()
+	roof.size = Vector3(d + 0.9, 2.0, w + 0.9)
+	_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0.0, h + 1.0, mid)), tiles)
+	var ridge := BoxMesh.new()
+	ridge.size = Vector3(w + 1.0, 0.14, 0.24)
+	_add(tool, ridge, Transform3D(Basis(), Vector3(0.0, h + 2.0, mid)), tiles.darkened(0.25))
+	var chimney := BoxMesh.new()
+	chimney.size = Vector3(0.5, 1.1, 0.5)
+	_add(tool, chimney, Transform3D(Basis(), Vector3(3.4, h + 2.0, mid + 1.6)), Color(0.55, 0.42, 0.36))
 
-	for side in PackedFloat32Array([-1.6, 1.6]):
-		var leg := CylinderMesh.new()
-		leg.top_radius = 0.07
-		leg.bottom_radius = 0.07
-		leg.height = 1.0
-		leg.radial_segments = 6
-		leg.rings = 1
-		_add(tool, leg, Transform3D(Basis(), Vector3(side, 0.5, -0.7)), timber)
-
-	# The awning, in stripes, because a striped awning says "café" from further
-	# away than any amount of detail on the hut.
-	for i in 6:
+	# The awning over the door, and the sign above it.
+	for i in 7:
 		var band := BoxMesh.new()
-		band.size = Vector3(0.6, 0.07, 1.5)
+		band.size = Vector3(0.6, 0.07, 1.4)
 		_add(tool, band, Transform3D(
 			Basis(Vector3.RIGHT, deg_to_rad(-16.0)),
-			Vector3(-1.5 + float(i) * 0.6, 2.24, -0.5)
+			Vector3(-1.8 + float(i) * 0.6, 2.75, front - 0.62)
 		), stripe_a if i % 2 == 0 else stripe_b)
+	var sign := BoxMesh.new()
+	sign.size = Vector3(1.8, 0.66, 0.08)
+	_add(tool, sign, Transform3D(Basis(), Vector3(0.0, h + 0.5, front - 0.4)), stripe_b)
+	var sign_cup := CylinderMesh.new()
+	sign_cup.top_radius = 0.17
+	sign_cup.bottom_radius = 0.13
+	sign_cup.height = 0.32
+	sign_cup.radial_segments = 8
+	sign_cup.rings = 1
+	_add(tool, sign_cup, Transform3D(Basis(), Vector3(-0.1, h + 0.48, front - 0.46)), stripe_a)
+	var sign_handle := TorusMesh.new()
+	sign_handle.inner_radius = 0.06
+	sign_handle.outer_radius = 0.12
+	sign_handle.rings = 6
+	sign_handle.ring_segments = 10
+	_add(tool, sign_handle, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.16, h + 0.48, front - 0.46)), stripe_a)
 
-	for side in PackedFloat32Array([-1.2, 1.2]):
+	# --- Inside: the bar along the back wall, and what is on it.
+	var bar_x := 1.0
+	var bar_z := back - thick - 0.9
+	var bar := BoxMesh.new()
+	bar.size = Vector3(6.0, 0.16, 0.9)
+	_add(tool, bar, Transform3D(Basis(), Vector3(bar_x, 1.02, bar_z)), timber)
+	var panel := BoxMesh.new()
+	panel.size = Vector3(6.0, 0.96, 0.12)
+	_add(tool, panel, Transform3D(Basis(), Vector3(bar_x, 0.48, bar_z - 0.39)), timber.darkened(0.15))
+	var bar_shape := BoxShape3D.new()
+	bar_shape.size = Vector3(6.0, 1.15, 1.0)
+	_collide(solid, bar_shape, Transform3D(Basis(), Vector3(bar_x, 0.575, bar_z)))
+	_lay_the_counter(tool, Vector3(bar_x, 1.1, bar_z))
+	# Shelves of jars and cups behind it, and the menu board above them.
+	var jar_colours: Array[Color] = [
+		Color(0.86, 0.36, 0.30), Color(0.96, 0.78, 0.24), Color(0.38, 0.62, 0.86),
+		Color(0.46, 0.74, 0.40), Color(0.92, 0.92, 0.88), Color(0.70, 0.46, 0.72),
+	]
+	for level in 2:
+		var shelf := BoxMesh.new()
+		shelf.size = Vector3(5.6, 0.06, 0.34)
+		var shelf_y := 1.55 + float(level) * 0.55
+		_add(tool, shelf, Transform3D(Basis(), Vector3(bar_x, shelf_y, back - thick - 0.17)), timber)
+		for i in 7:
+			var jar := CylinderMesh.new()
+			jar.top_radius = 0.1 if level == 0 else 0.06
+			jar.bottom_radius = jar.top_radius
+			jar.height = 0.26 if level == 0 else 0.12
+			jar.radial_segments = 8
+			jar.rings = 1
+			_add(tool, jar, Transform3D(Basis(), Vector3(bar_x - 2.4 + float(i) * 0.8, shelf_y + 0.03 + jar.height * 0.5, back - thick - 0.17)), jar_colours[(i + level) % jar_colours.size()])
+	_build_menu_board_on_wall(tool, Vector3(bar_x - 0.4, 2.85, back - thick - 0.03))
+	for x in PackedFloat32Array([-0.5, 1.0, 2.5]):
+		var stool_at := Vector3(x, 0.0, bar_z - 1.15)
 		var stool := CylinderMesh.new()
 		stool.top_radius = 0.24
 		stool.bottom_radius = 0.20
 		stool.height = 0.62
 		stool.radial_segments = 8
 		stool.rings = 1
-		_add(tool, stool, Transform3D(Basis(), Vector3(side, 0.31, -1.7)), timber)
+		_add(tool, stool, Transform3D(Basis(), stool_at + Vector3(0.0, 0.31, 0.0)), timber)
+		var stool_shape := CylinderShape3D.new()
+		stool_shape.radius = 0.24
+		stool_shape.height = 0.62
+		_collide(solid, stool_shape, Transform3D(Basis(), stool_at + Vector3(0.0, 0.31, 0.0)))
+		# Facing the bar (+Z): a body faces -Z at rotation 0, so PI.
+		_cafe_seats.append({"seat": stool_at + Vector3(0.0, 0.62, 0.0), "table": Vector3(x, 1.1, bar_z - 0.3), "facing": PI})
 
+	# Tables and chairs inside, and the sofa corner.
+	for table_at in CAFE_TABLES:
+		_build_table(tool, table_at, Color.WHITE, solid, false)
+	_build_sofa(tool, Vector3(4.55, 0.0, 2.9), solid)
+	for pot_at: Vector3 in [Vector3(-4.6, 0.0, back - 0.7), Vector3(4.6, 0.0, front + 0.7)]:
+		_build_pot(tool, pot_at)
+	for light_at: Vector3 in [Vector3(-3.2, 0.0, 1.1), Vector3(bar_x, 0.0, bar_z - 0.6), Vector3(3.2, 0.0, 0.6)]:
+		_hang_light(tool, at, light_at)
+
+	# --- Outside: the terrace.
+	var canopies: Array[Color] = [stripe_a, Color(0.30, 0.52, 0.86)]
+	for i in CAFE_TERRACE.size():
+		_build_table(tool, CAFE_TERRACE[i], canopies[i % canopies.size()], solid, true)
+	for pot_at: Vector3 in [Vector3(-1.5, 0.0, front - 0.6), Vector3(1.5, 0.0, front - 0.6), Vector3(-5.6, 0.0, front - 0.8), Vector3(5.6, 0.0, front - 0.8)]:
+		_build_pot(tool, pot_at)
+	_build_menu_board(tool, Vector3(2.6, 0.0, front - 1.6), solid)
+	for lamp_at in CAFE_LAMPS:
+		_build_lamp(tool, at, lamp_at, solid, 0.16)
+	_build_bin(at, Vector3(-6.6, 0.0, front - 1.6), solid)
+	_finish_into(tool, at)
+
+## One wall: drawn and solid.
+func _wall(tool: SurfaceTool, solid: StaticBody3D, size: Vector3, centre: Vector3, colour: Color) -> void:
+	var slab := BoxMesh.new()
+	slab.size = size
+	_add(tool, slab, Transform3D(Basis(), centre), colour)
+	var shape := BoxShape3D.new()
+	shape.size = size
+	_collide(solid, shape, Transform3D(Basis(), centre))
+
+## What is on offer, laid along the bar: a cake on a stand, a bun on a plate,
+## a teapot with two cups, a coffee on a saucer, a jug of water and glasses.
+## The café said "tasty" and showed nothing; this is what a child sees before
+## deciding to spend three coins.
+func _lay_the_counter(tool: SurfaceTool, on: Vector3) -> void:
+	var china := Color(0.96, 0.96, 0.94)
+	var cream := Color(0.98, 0.92, 0.80)
+	var crust := Color(0.72, 0.48, 0.26)
+	var tea := Color(0.62, 0.40, 0.18)
+	var coffee := Color(0.30, 0.18, 0.10)
+	var water := Color(0.62, 0.80, 0.92)
+	var teapot_blue := Color(0.30, 0.50, 0.82)
+
+	var stand := CylinderMesh.new()
+	stand.top_radius = 0.24
+	stand.bottom_radius = 0.06
+	stand.height = 0.12
+	stand.radial_segments = 10
+	stand.rings = 1
+	_add(tool, stand, Transform3D(Basis(), on + Vector3(-2.2, 0.06, 0.0)), china)
+	var cake := CylinderMesh.new()
+	cake.top_radius = 0.19
+	cake.bottom_radius = 0.19
+	cake.height = 0.14
+	cake.radial_segments = 12
+	cake.rings = 1
+	_add(tool, cake, Transform3D(Basis(), on + Vector3(-2.2, 0.19, 0.0)), cream)
+	var icing := CylinderMesh.new()
+	icing.top_radius = 0.2
+	icing.bottom_radius = 0.2
+	icing.height = 0.03
+	icing.radial_segments = 12
+	icing.rings = 1
+	_add(tool, icing, Transform3D(Basis(), on + Vector3(-2.2, 0.275, 0.0)), Color(0.90, 0.40, 0.48))
+	var cherry := SphereMesh.new()
+	cherry.radius = 0.035
+	cherry.height = 0.07
+	cherry.radial_segments = 6
+	cherry.rings = 3
+	_add(tool, cherry, Transform3D(Basis(), on + Vector3(-2.2, 0.32, 0.0)), Color(0.80, 0.12, 0.14))
+
+	var plate := CylinderMesh.new()
+	plate.top_radius = 0.17
+	plate.bottom_radius = 0.14
+	plate.height = 0.02
+	plate.radial_segments = 12
+	plate.rings = 1
+	_add(tool, plate, Transform3D(Basis(), on + Vector3(-1.3, 0.01, 0.0)), china)
+	var bun := SphereMesh.new()
+	bun.radius = 0.11
+	bun.height = 0.14
+	bun.radial_segments = 8
+	bun.rings = 4
+	_add(tool, bun, Transform3D(Basis(), on + Vector3(-1.3, 0.08, 0.0)), crust)
+
+	var pot := SphereMesh.new()
+	pot.radius = 0.16
+	pot.height = 0.26
+	pot.radial_segments = 10
+	pot.rings = 5
+	_add(tool, pot, Transform3D(Basis(), on + Vector3(-0.3, 0.14, 0.05)), teapot_blue)
+	var spout := CylinderMesh.new()
+	spout.top_radius = 0.02
+	spout.bottom_radius = 0.035
+	spout.height = 0.22
+	spout.radial_segments = 6
+	spout.rings = 1
+	_add(tool, spout, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(-50.0)), on + Vector3(-0.48, 0.2, 0.05)), teapot_blue)
+	var knob := SphereMesh.new()
+	knob.radius = 0.03
+	knob.height = 0.06
+	knob.radial_segments = 6
+	knob.rings = 3
+	_add(tool, knob, Transform3D(Basis(), on + Vector3(-0.3, 0.29, 0.05)), teapot_blue)
+	for dx in PackedFloat32Array([0.1, 0.36]):
+		_add_cup(tool, on + Vector3(dx, 0.0, -0.15), 0.055, 0.075, china, tea)
+
+	var saucer := CylinderMesh.new()
+	saucer.top_radius = 0.1
+	saucer.bottom_radius = 0.08
+	saucer.height = 0.015
+	saucer.radial_segments = 10
+	saucer.rings = 1
+	_add(tool, saucer, Transform3D(Basis(), on + Vector3(0.9, 0.01, 0.0)), china)
+	_add_cup(tool, on + Vector3(0.9, 0.015, 0.0), 0.05, 0.1, china, coffee)
+
+	var jug := CylinderMesh.new()
+	jug.top_radius = 0.09
+	jug.bottom_radius = 0.11
+	jug.height = 0.3
+	jug.radial_segments = 10
+	jug.rings = 1
+	_add(tool, jug, Transform3D(Basis(), on + Vector3(1.6, 0.15, 0.05)), water)
+	var jug_handle := TorusMesh.new()
+	jug_handle.inner_radius = 0.04
+	jug_handle.outer_radius = 0.07
+	jug_handle.rings = 6
+	jug_handle.ring_segments = 8
+	_add(tool, jug_handle, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), on + Vector3(1.73, 0.18, 0.05)), water)
+	for dx in PackedFloat32Array([2.0, 2.25]):
+		var tumbler := CylinderMesh.new()
+		tumbler.top_radius = 0.045
+		tumbler.bottom_radius = 0.04
+		tumbler.height = 0.12
+		tumbler.radial_segments = 8
+		tumbler.rings = 1
+		_add(tool, tumbler, Transform3D(Basis(), on + Vector3(dx, 0.06, -0.12)), water)
+
+## A cup with a handle and something in it.
+func _add_cup(tool: SurfaceTool, at: Vector3, radius: float, height: float, china: Color, drink: Color) -> void:
+	var cup := CylinderMesh.new()
+	cup.top_radius = radius
+	cup.bottom_radius = radius * 0.8
+	cup.height = height
+	cup.radial_segments = 8
+	cup.rings = 1
+	_add(tool, cup, Transform3D(Basis(), at + Vector3(0.0, height * 0.5, 0.0)), china)
+	var drink_top := CylinderMesh.new()
+	drink_top.top_radius = radius * 0.85
+	drink_top.bottom_radius = radius * 0.85
+	drink_top.height = 0.01
+	drink_top.radial_segments = 8
+	drink_top.rings = 1
+	_add(tool, drink_top, Transform3D(Basis(), at + Vector3(0.0, height - 0.005, 0.0)), drink)
+	var handle := TorusMesh.new()
+	handle.inner_radius = radius * 0.35
+	handle.outer_radius = radius * 0.6
+	handle.rings = 5
+	handle.ring_segments = 8
+	_add(tool, handle, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), at + Vector3(radius * 1.05, height * 0.5, 0.0)), china)
+
+## A round table with a chair either side, all solid, and — outside — an
+## umbrella over it. Each chair is a seat a child can be sat at.
+func _build_table(tool: SurfaceTool, local: Vector3, canopy: Color, solid: StaticBody3D, umbrella: bool) -> void:
+	var timber := Color(0.54, 0.38, 0.24)
+	var iron := Color(0.20, 0.21, 0.23)
+	var top := CylinderMesh.new()
+	top.top_radius = 0.6
+	top.bottom_radius = 0.6
+	top.height = 0.05
+	top.radial_segments = 14
+	top.rings = 1
+	_add(tool, top, Transform3D(Basis(), local + Vector3(0.0, 0.75, 0.0)), timber)
+	var stem := CylinderMesh.new()
+	stem.top_radius = 0.04
+	stem.bottom_radius = 0.04
+	stem.height = 2.4 if umbrella else 0.72
+	stem.radial_segments = 6
+	stem.rings = 1
+	_add(tool, stem, Transform3D(Basis(), local + Vector3(0.0, stem.height * 0.5, 0.0)), iron)
+	var foot := CylinderMesh.new()
+	foot.top_radius = 0.25
+	foot.bottom_radius = 0.3
+	foot.height = 0.05
+	foot.radial_segments = 10
+	foot.rings = 1
+	_add(tool, foot, Transform3D(Basis(), local + Vector3(0.0, 0.025, 0.0)), iron)
+	if umbrella:
+		var shade := CylinderMesh.new()
+		shade.top_radius = 0.0
+		shade.bottom_radius = 1.35
+		shade.height = 0.5
+		shade.radial_segments = 8
+		shade.rings = 1
+		_add(tool, shade, Transform3D(Basis(), local + Vector3(0.0, 2.25, 0.0)), canopy)
+	var table_shape := CylinderShape3D.new()
+	table_shape.radius = 0.6
+	table_shape.height = 0.8
+	_collide(solid, table_shape, Transform3D(Basis(), local + Vector3(0.0, 0.4, 0.0)))
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var seat_at := local + Vector3(side * 1.05, 0.0, 0.0)
+		var seat := BoxMesh.new()
+		seat.size = Vector3(0.42, 0.05, 0.42)
+		_add(tool, seat, Transform3D(Basis(), seat_at + Vector3(0.0, 0.45, 0.0)), timber)
+		var back := BoxMesh.new()
+		back.size = Vector3(0.05, 0.45, 0.42)
+		_add(tool, back, Transform3D(Basis(), seat_at + Vector3(side * 0.19, 0.7, 0.0)), timber)
+		for dx in PackedFloat32Array([-0.17, 0.17]):
+			for dz in PackedFloat32Array([-0.17, 0.17]):
+				var leg := BoxMesh.new()
+				leg.size = Vector3(0.04, 0.45, 0.04)
+				_add(tool, leg, Transform3D(Basis(), seat_at + Vector3(dx, 0.225, dz)), iron)
+		var chair_shape := BoxShape3D.new()
+		chair_shape.size = Vector3(0.45, 0.95, 0.45)
+		_collide(solid, chair_shape, Transform3D(Basis(), seat_at + Vector3(0.0, 0.475, 0.0)))
+		# Facing the table: from +X the body looks along -X, which is rotation
+		# atan2(-(-1), 0) = +PI/2; from -X, -PI/2.
+		_cafe_seats.append({
+			"seat": seat_at + Vector3(0.0, 0.45, 0.0),
+			"table": local + Vector3(side * 0.42, 0.78, 0.0),
+			"facing": side * PI * 0.5,
+		})
+
+## A sofa against the wall, facing -X, with cushions and a low table in front
+## of it. Two seats.
+func _build_sofa(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void:
+	var fabric := Color(0.22, 0.42, 0.46)
+	var cushion_a := Color(0.92, 0.72, 0.30)
+	var cushion_b := Color(0.86, 0.40, 0.36)
+	var timber := Color(0.54, 0.38, 0.24)
+	var seat := BoxMesh.new()
+	seat.size = Vector3(0.8, 0.42, 3.0)
+	_add(tool, seat, Transform3D(Basis(), local + Vector3(0.0, 0.21, 0.0)), fabric)
+	var back := BoxMesh.new()
+	back.size = Vector3(0.22, 0.95, 3.0)
+	_add(tool, back, Transform3D(Basis(), local + Vector3(0.36, 0.475, 0.0)), fabric)
+	for dz in PackedFloat32Array([-1.55, 1.55]):
+		var arm := BoxMesh.new()
+		arm.size = Vector3(0.8, 0.58, 0.2)
+		_add(tool, arm, Transform3D(Basis(), local + Vector3(0.0, 0.29, dz)), fabric.darkened(0.15))
+	for i in 3:
+		var cushion := BoxMesh.new()
+		cushion.size = Vector3(0.24, 0.42, 0.7)
+		_add(tool, cushion, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(-8.0)), local + Vector3(0.2, 0.68, -1.0 + float(i) * 1.0)), cushion_a if i % 2 == 0 else cushion_b)
+	var sofa_shape := BoxShape3D.new()
+	sofa_shape.size = Vector3(0.95, 1.1, 3.4)
+	_collide(solid, sofa_shape, Transform3D(Basis(), local + Vector3(0.1, 0.55, 0.0)))
+	# The low table in front, with a little vase.
+	var table_at := local + Vector3(-1.1, 0.0, 0.0)
+	var top := BoxMesh.new()
+	top.size = Vector3(0.9, 0.05, 1.8)
+	_add(tool, top, Transform3D(Basis(), table_at + Vector3(0.0, 0.475, 0.0)), timber)
+	for dx in PackedFloat32Array([-0.38, 0.38]):
+		for dz in PackedFloat32Array([-0.82, 0.82]):
+			var leg := BoxMesh.new()
+			leg.size = Vector3(0.06, 0.45, 0.06)
+			_add(tool, leg, Transform3D(Basis(), table_at + Vector3(dx, 0.225, dz)), timber)
+	var vase := CylinderMesh.new()
+	vase.top_radius = 0.05
+	vase.bottom_radius = 0.08
+	vase.height = 0.2
+	vase.radial_segments = 8
+	vase.rings = 1
+	_add(tool, vase, Transform3D(Basis(), table_at + Vector3(0.0, 0.6, 0.0)), Color(0.30, 0.50, 0.82))
+	var flower := SphereMesh.new()
+	flower.radius = 0.06
+	flower.height = 0.12
+	flower.radial_segments = 6
+	flower.rings = 3
+	_add(tool, flower, Transform3D(Basis(), table_at + Vector3(0.0, 0.76, 0.0)), Color(0.92, 0.30, 0.34))
+	var table_shape := BoxShape3D.new()
+	table_shape.size = Vector3(0.9, 0.5, 1.8)
+	_collide(solid, table_shape, Transform3D(Basis(), table_at + Vector3(0.0, 0.25, 0.0)))
+	for dz in PackedFloat32Array([-0.75, 0.75]):
+		_cafe_seats.append({
+			"seat": local + Vector3(0.0, 0.42, dz),
+			"table": table_at + Vector3(0.3, 0.5, dz),
+			"facing": PI * 0.5,
+		})
+
+## A pendant light: a cord from the ceiling, a shade, a bulb that glows and
+## a warm light under it, always on — a café is lit.
+func _hang_light(tool: SurfaceTool, at: Vector3, local: Vector3) -> void:
+	var iron := Color(0.20, 0.21, 0.23)
+	var cord := CylinderMesh.new()
+	cord.top_radius = 0.012
+	cord.bottom_radius = 0.012
+	cord.height = 0.6
+	cord.radial_segments = 4
+	cord.rings = 1
+	_add(tool, cord, Transform3D(Basis(), local + Vector3(0.0, CAFE_HEIGHT - 0.38, 0.0)), iron)
+	var shade := CylinderMesh.new()
+	shade.top_radius = 0.06
+	shade.bottom_radius = 0.32
+	shade.height = 0.26
+	shade.radial_segments = 10
+	shade.rings = 1
+	_add(tool, shade, Transform3D(Basis(), local + Vector3(0.0, CAFE_HEIGHT - 0.8, 0.0)), Color(0.86, 0.34, 0.30))
+	var bulb := MeshInstance3D.new()
+	var ball := SphereMesh.new()
+	ball.radius = 0.07
+	ball.height = 0.14
+	ball.radial_segments = 8
+	ball.rings = 4
+	bulb.mesh = ball
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = LAMP_COLOUR
+	glow.emission_enabled = true
+	glow.emission = LAMP_COLOUR
+	glow.emission_energy_multiplier = 1.6
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bulb.material_override = glow
+	bulb.position = at + local + Vector3(0.0, CAFE_HEIGHT - 0.92, 0.0)
+	add_child(bulb)
+	var light := OmniLight3D.new()
+	light.omni_range = 7.0
+	light.light_color = LAMP_COLOUR
+	light.light_energy = 0.9
+	light.shadow_enabled = false
+	light.position = at + local + Vector3(0.0, CAFE_HEIGHT - 1.0, 0.0)
+	add_child(light)
+
+## A terracotta pot with a bush of flowers in it.
+func _build_pot(tool: SurfaceTool, local: Vector3) -> void:
+	var pot := CylinderMesh.new()
+	pot.top_radius = 0.24
+	pot.bottom_radius = 0.18
+	pot.height = 0.32
+	pot.radial_segments = 10
+	pot.rings = 1
+	_add(tool, pot, Transform3D(Basis(), local + Vector3(0.0, 0.16, 0.0)), Color(0.72, 0.42, 0.30))
+	var bush := SphereMesh.new()
+	bush.radius = 0.28
+	bush.height = 0.44
+	bush.radial_segments = 8
+	bush.rings = 4
+	_add(tool, bush, Transform3D(Basis(), local + Vector3(0.0, 0.46, 0.0)), Color(0.30, 0.56, 0.26))
+	var blooms: Array[Color] = [Color(0.92, 0.30, 0.34), Color(0.98, 0.80, 0.26), Color(0.92, 0.92, 0.96), Color(0.72, 0.42, 0.84)]
+	for i in 5:
+		var angle := TAU * float(i) / 5.0
+		var bloom := SphereMesh.new()
+		bloom.radius = 0.05
+		bloom.height = 0.1
+		bloom.radial_segments = 5
+		bloom.rings = 3
+		_add(tool, bloom, Transform3D(Basis(), local + Vector3(cos(angle) * 0.2, 0.6 + 0.04 * float(i % 2), sin(angle) * 0.2)), blooms[i % blooms.size()])
+
+## A chalkboard on an easel, with three pale lines of "writing", solid.
+func _build_menu_board(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void:
+	var timber := Color(0.54, 0.38, 0.24)
+	var lean := Basis(Vector3.RIGHT, deg_to_rad(12.0))
+	var board := BoxMesh.new()
+	board.size = Vector3(0.7, 0.9, 0.05)
+	_add(tool, board, Transform3D(lean, local + Vector3(0.0, 0.7, 0.0)), Color(0.14, 0.16, 0.15))
+	var frame := BoxMesh.new()
+	frame.size = Vector3(0.78, 0.98, 0.04)
+	_add(tool, frame, Transform3D(lean, local + Vector3(0.0, 0.7, 0.01)), timber)
+	for i in 3:
+		var line := BoxMesh.new()
+		line.size = Vector3(0.44 - float(i) * 0.08, 0.04, 0.01)
+		_add(tool, line, Transform3D(lean, lean * Vector3(-0.06 + float(i) * 0.03, 0.9 - float(i) * 0.2, -0.03) + local), Color(0.94, 0.94, 0.90))
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var leg := BoxMesh.new()
+		leg.size = Vector3(0.04, 1.2, 0.04)
+		_add(tool, leg, Transform3D(lean, local + Vector3(side * 0.34, 0.6, -0.02)), timber)
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.8, 1.2, 0.4)
+	_collide(solid, shape, Transform3D(Basis(), local + Vector3(0.0, 0.6, 0.0)))
+
+## The menu on the wall behind the bar: a board with lines of writing and a
+## little picture beside each — a cup, a cake, a bun, a glass — because the
+## reader is six.
+func _build_menu_board_on_wall(tool: SurfaceTool, centre: Vector3) -> void:
+	var board := BoxMesh.new()
+	board.size = Vector3(3.2, 1.1, 0.05)
+	_add(tool, board, Transform3D(Basis(), centre), Color(0.14, 0.16, 0.15))
+	var frame := BoxMesh.new()
+	frame.size = Vector3(3.3, 1.2, 0.03)
+	_add(tool, frame, Transform3D(Basis(), centre + Vector3(0.0, 0.0, 0.01)), Color(0.54, 0.38, 0.24))
+	var pictures: Array[Color] = [Color(0.62, 0.40, 0.18), Color(0.90, 0.40, 0.48), Color(0.72, 0.48, 0.26), Color(0.62, 0.80, 0.92)]
+	for i in 4:
+		var y := centre.y + 0.36 - float(i) * 0.24
+		var picture := SphereMesh.new()
+		picture.radius = 0.07
+		picture.height = 0.14
+		picture.radial_segments = 6
+		picture.rings = 3
+		_add(tool, picture, Transform3D(Basis(), Vector3(centre.x - 1.3, y, centre.z - 0.05)), pictures[i])
+		var line := BoxMesh.new()
+		line.size = Vector3(1.4 - float(i) * 0.15, 0.05, 0.01)
+		_add(tool, line, Transform3D(Basis(), Vector3(centre.x - 0.3, y, centre.z - 0.035)), Color(0.94, 0.94, 0.90))
+		var price := BoxMesh.new()
+		price.size = Vector3(0.3, 0.05, 0.01)
+		_add(tool, price, Transform3D(Basis(), Vector3(centre.x + 1.15, y, centre.z - 0.035)), Color(0.96, 0.82, 0.30))
+
+## Put a meal in front of whoever ordered it: the nearest seat within reach is
+## theirs, and the tray — a plate of food, a steaming cup and a glass of water
+## — goes on that seat's table. Returns the seat, with which way to face, so
+## the game can sit the child down; empty if no seat is near, in which case
+## the tray goes on the bar. The tray sits there for a while and is cleared.
+## Before this, three coins bought a number and a word.
+func serve_meal(near: Vector3) -> Dictionary:
+	if not _spots.has(CAFE):
+		return {}
+	var spot: Vector3 = _spots[CAFE]
+	var chosen: Dictionary = {}
+	var best := CAFE_SEAT_REACH
+	for seat in _cafe_seats:
+		var world_seat: Vector3 = spot + seat["seat"]
+		var distance := Vector2(world_seat.x - near.x, world_seat.z - near.z).length()
+		if distance < best:
+			best = distance
+			chosen = seat
+	var on: Vector3
+	if chosen.is_empty():
+		on = spot + Vector3(clampf(near.x - spot.x - 1.0, -2.6, 2.6) + 1.0, 1.1, CAFE_MID_Z + CAFE_DEPTH * 0.5 - 0.2 - 0.9 - 0.3)
+	else:
+		on = spot + chosen["table"]
+	_place_tray(on)
+	if chosen.is_empty():
+		return {}
+	return {"seat": spot + chosen["seat"], "facing": float(chosen["facing"])}
+
+func _place_tray(on: Vector3) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var china := Color(0.96, 0.96, 0.94)
+	var tray := BoxMesh.new()
+	tray.size = Vector3(0.7, 0.03, 0.42)
+	_add(tool, tray, Transform3D(Basis(), Vector3(0.0, 0.015, 0.0)), Color(0.54, 0.38, 0.24))
+	var plate := CylinderMesh.new()
+	plate.top_radius = 0.15
+	plate.bottom_radius = 0.12
+	plate.height = 0.02
+	plate.radial_segments = 12
+	plate.rings = 1
+	_add(tool, plate, Transform3D(Basis(), Vector3(-0.17, 0.04, 0.0)), china)
+	# The food: a sandwich — two slices with green between — and two tomatoes.
+	for layer in 2:
+		var bread := BoxMesh.new()
+		bread.size = Vector3(0.18, 0.035, 0.18)
+		_add(tool, bread, Transform3D(Basis(Vector3.UP, 0.3), Vector3(-0.17, 0.065 + float(layer) * 0.06, 0.0)), Color(0.86, 0.68, 0.40))
+	var leaf := BoxMesh.new()
+	leaf.size = Vector3(0.22, 0.02, 0.22)
+	_add(tool, leaf, Transform3D(Basis(Vector3.UP, 0.3), Vector3(-0.17, 0.095, 0.0)), Color(0.40, 0.70, 0.30))
+	for i in 2:
+		var tomato := SphereMesh.new()
+		tomato.radius = 0.03
+		tomato.height = 0.06
+		tomato.radial_segments = 6
+		tomato.rings = 3
+		_add(tool, tomato, Transform3D(Basis(), Vector3(-0.02 + float(i) * 0.07, 0.06, 0.1)), Color(0.88, 0.22, 0.18))
+	_add_cup(tool, Vector3(0.12, 0.03, -0.08), 0.055, 0.075, china, Color(0.62, 0.40, 0.18))
+	var tumbler := CylinderMesh.new()
+	tumbler.top_radius = 0.045
+	tumbler.bottom_radius = 0.04
+	tumbler.height = 0.12
+	tumbler.radial_segments = 8
+	tumbler.rings = 1
+	_add(tool, tumbler, Transform3D(Basis(), Vector3(0.27, 0.09, 0.08)), Color(0.62, 0.80, 0.92))
 	tool.generate_normals()
 	tool.set_material(_material())
+	var meal := MeshInstance3D.new()
+	meal.mesh = tool.commit()
+	meal.transform = Transform3D(Basis(), on)
+	add_child(meal)
+	# Three puffs of steam over the cup, moved each frame.
+	var puffs: Array[MeshInstance3D] = []
+	for i in 3:
+		var puff := MeshInstance3D.new()
+		var ball := SphereMesh.new()
+		ball.radius = 0.03
+		ball.height = 0.06
+		ball.radial_segments = 6
+		ball.rings = 3
+		puff.mesh = ball
+		var mist := StandardMaterial3D.new()
+		mist.albedo_color = Color(1.0, 1.0, 1.0, 0.55)
+		mist.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mist.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puff.material_override = mist
+		meal.add_child(puff)
+		puff.position = Vector3(0.12, 0.12 + float(i) * 0.06, -0.08)
+		puffs.append(puff)
+	_meals.append({"node": meal, "puffs": puffs, "left": MEAL_SHOWN, "age": 0.0})
 
-	var cafe := MeshInstance3D.new()
-	cafe.mesh = tool.commit()
-	cafe.transform = Transform3D(Basis(), at)
-	add_child(cafe)
+## How many meals are on the tables right now, and how many seats there are.
+## For the checks.
+func meals_served() -> int:
+	return _meals.size()
+
+func cafe_seat_count() -> int:
+	return _cafe_seats.size()
+
+func cafe_solid_count() -> int:
+	return 0 if _cafe_solid == null else _cafe_solid.get_child_count()
+
+func _tick_meals(delta: float) -> void:
+	for i in range(_meals.size() - 1, -1, -1):
+		var meal: Dictionary = _meals[i]
+		var node: Node3D = meal["node"]
+		meal["left"] = float(meal["left"]) - delta
+		meal["age"] = float(meal["age"]) + delta
+		if float(meal["left"]) <= 0.0 or not is_instance_valid(node):
+			if is_instance_valid(node):
+				node.queue_free()
+			_meals.remove_at(i)
+			continue
+		var age := float(meal["age"])
+		var puffs: Array[MeshInstance3D] = meal["puffs"]
+		for k in puffs.size():
+			var puff := puffs[k]
+			var phase := fmod(age * 0.6 + float(k) * 0.33, 1.0)
+			puff.position = Vector3(0.12 + sin(age * 3.0 + float(k)) * 0.02, 0.12 + phase * 0.3, -0.08)
+			puff.scale = Vector3.ONE * (0.6 + phase * 0.8) * (1.0 - phase * 0.7)
+		# Cleared away over the last second.
+		var left := float(meal["left"])
+		if left < 1.0:
+			node.scale = Vector3.ONE * maxf(left, 0.01)
+
+## The café's circles, for the animals: the building, the terrace tables, the
+## lamps, the board and the bin. Animals stay outside.
+func _note_cafe_obstacles(at: Vector3) -> void:
+	var circles: Array[Vector3] = [
+		Vector3(0.0, 6.6, CAFE_MID_Z),
+		Vector3(2.6, 0.6, CAFE_MID_Z - CAFE_DEPTH * 0.5 - 1.6), Vector3(-6.6, 0.5, CAFE_MID_Z - CAFE_DEPTH * 0.5 - 1.6),
+	]
+	for table in CAFE_TERRACE:
+		circles.append(Vector3(table.x, 1.8, table.z))
+	for lamp in CAFE_LAMPS:
+		circles.append(Vector3(lamp.x, 0.45, lamp.z))
+	_obstacles.append(_obstacle_group(at, circles))
 
 ## One material for every place, vertex-coloured and shipped with the mesh so
 ## nothing can attach the geometry without it — see LESSONS.md.
@@ -1316,90 +1979,93 @@ func _build_fountain(at: Vector3, solid: StaticBody3D) -> void:
 	shape.height = 0.56
 	_collide(solid, shape, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.28, 0.0)))
 
-## Three lamp posts round the pad. Each is a post with a lantern head, a pane
-## that glows when lit, and an omni light with no shadows — three shadowed
-## lights over five thousand blades of grass would cost more than the rest of
-## the frame. The lights start dark; `light_lamps` brings them up with dusk.
+## Three lamp posts round the pad. The lights start dark; `light_lamps`
+## brings them up with dusk.
 func _build_lamps(at: Vector3, solid: StaticBody3D) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in LAMPS.size():
+		_build_lamp(tool, at, LAMPS[i], solid, LAMP_THRESHOLDS[i % LAMP_THRESHOLDS.size()])
+	_finish_into(tool, at)
+
+## One lamp post: a post with a lantern head, a pane that glows when lit, and
+## an omni light with no shadows — three shadowed lights over five thousand
+## blades of grass would cost more than the rest of the frame. Its mesh goes
+## into the caller's tool; its light and glowing pane are nodes of their own.
+## Shared by the playground and the café.
+func _build_lamp(tool: SurfaceTool, at: Vector3, where: Vector3, solid: StaticBody3D, threshold: float) -> void:
 	var iron := Color(0.16, 0.18, 0.19)
 	var pane := Color(0.78, 0.80, 0.82)
+	var local := where
+	var world := at + local
+	# The rim of a pad is where the level ground starts to fall away, so each
+	# post is footed on the ground it actually stands on.
+	local.y = field.height_at(world.x, world.z) - at.y - 0.05
+
+	var base := CylinderMesh.new()
+	base.top_radius = 0.13
+	base.bottom_radius = 0.19
+	base.height = 0.28
+	base.radial_segments = 8
+	base.rings = 1
+	_add(tool, base, Transform3D(Basis(), local + Vector3(0.0, 0.14, 0.0)), iron)
+	var post := CylinderMesh.new()
+	post.top_radius = 0.06
+	post.bottom_radius = 0.085
+	post.height = LAMP_HEIGHT
+	post.radial_segments = 8
+	post.rings = 1
+	_add(tool, post, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)), iron)
 	var post_shape := CylinderShape3D.new()
 	post_shape.radius = 0.10
 	post_shape.height = LAMP_HEIGHT
-	for i in LAMPS.size():
-		var local: Vector3 = LAMPS[i]
-		var world := at + local
-		# The rim of the pad is where the level ground starts to fall away, so
-		# each post is footed on the ground it actually stands on.
-		local.y = field.height_at(world.x, world.z) - at.y - 0.05
+	_collide(solid, post_shape, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)))
 
-		var base := CylinderMesh.new()
-		base.top_radius = 0.13
-		base.bottom_radius = 0.19
-		base.height = 0.28
-		base.radial_segments = 8
-		base.rings = 1
-		_add(tool, base, Transform3D(Basis(), local + Vector3(0.0, 0.14, 0.0)), iron)
-		var post := CylinderMesh.new()
-		post.top_radius = 0.06
-		post.bottom_radius = 0.085
-		post.height = LAMP_HEIGHT
-		post.radial_segments = 8
-		post.rings = 1
-		_add(tool, post, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)), iron)
-		_collide(solid, post_shape, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)))
+	# The lantern: a pale pane in an iron frame, with a little roof.
+	var head_at := local + Vector3(0.0, LAMP_HEIGHT + 0.17, 0.0)
+	var glass := BoxMesh.new()
+	glass.size = Vector3(0.26, 0.24, 0.26)
+	_add(tool, glass, Transform3D(Basis(), head_at), pane)
+	for corner in 4:
+		var angle := PI * 0.25 + PI * 0.5 * float(corner)
+		var rib := BoxMesh.new()
+		rib.size = Vector3(0.035, 0.3, 0.035)
+		_add(tool, rib, Transform3D(Basis(), head_at + Vector3(cos(angle) * 0.185, 0.0, sin(angle) * 0.185)), iron)
+	var roof := CylinderMesh.new()
+	roof.top_radius = 0.0
+	roof.bottom_radius = 0.27
+	roof.height = 0.17
+	roof.radial_segments = 4
+	roof.rings = 1
+	_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.25), head_at + Vector3(0.0, 0.23, 0.0)), iron)
 
-		# The lantern: a pale pane in an iron frame, with a little roof.
-		var head_at := local + Vector3(0.0, LAMP_HEIGHT + 0.17, 0.0)
-		var glass := BoxMesh.new()
-		glass.size = Vector3(0.26, 0.24, 0.26)
-		_add(tool, glass, Transform3D(Basis(), head_at), pane)
-		for corner in 4:
-			var angle := PI * 0.25 + PI * 0.5 * float(corner)
-			var rib := BoxMesh.new()
-			rib.size = Vector3(0.035, 0.3, 0.035)
-			_add(tool, rib, Transform3D(Basis(), head_at + Vector3(cos(angle) * 0.185, 0.0, sin(angle) * 0.185)), iron)
-		var roof := CylinderMesh.new()
-		roof.top_radius = 0.0
-		roof.bottom_radius = 0.27
-		roof.height = 0.17
-		roof.radial_segments = 4
-		roof.rings = 1
-		_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.25), head_at + Vector3(0.0, 0.23, 0.0)), iron)
+	# What glows: a slightly larger pane in an unshaded, emissive material,
+	# shown only while the lamp is lit.
+	var glow_mesh := BoxMesh.new()
+	glow_mesh.size = Vector3(0.28, 0.26, 0.28)
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = LAMP_COLOUR
+	glow.emission_enabled = true
+	glow.emission = LAMP_COLOUR
+	glow.emission_energy_multiplier = 1.8
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var lit_pane := MeshInstance3D.new()
+	lit_pane.mesh = glow_mesh
+	lit_pane.material_override = glow
+	lit_pane.position = at + head_at
+	lit_pane.visible = false
+	add_child(lit_pane)
 
-		# What glows: a slightly larger pane in an unshaded, emissive material,
-		# shown only while the lamp is lit.
-		var glow_mesh := BoxMesh.new()
-		glow_mesh.size = Vector3(0.28, 0.26, 0.28)
-		var glow := StandardMaterial3D.new()
-		glow.albedo_color = LAMP_COLOUR
-		glow.emission_enabled = true
-		glow.emission = LAMP_COLOUR
-		glow.emission_energy_multiplier = 1.8
-		glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		var lit_pane := MeshInstance3D.new()
-		lit_pane.mesh = glow_mesh
-		lit_pane.material_override = glow
-		lit_pane.position = at + head_at
-		lit_pane.visible = false
-		add_child(lit_pane)
+	var light := OmniLight3D.new()
+	light.omni_range = LAMP_RANGE
+	light.light_color = LAMP_COLOUR
+	light.light_energy = 0.0
+	light.shadow_enabled = false
+	light.visible = false
+	light.position = at + head_at + Vector3(0.0, -0.1, 0.0)
+	add_child(light)
 
-		var light := OmniLight3D.new()
-		light.omni_range = LAMP_RANGE
-		light.light_color = LAMP_COLOUR
-		light.light_energy = 0.0
-		light.shadow_enabled = false
-		light.visible = false
-		light.position = at + head_at + Vector3(0.0, -0.1, 0.0)
-		add_child(light)
-
-		_lamps.append({
-			"light": light, "glass": lit_pane,
-			"threshold": LAMP_THRESHOLDS[i % LAMP_THRESHOLDS.size()], "lit": 0.0,
-		})
-	_finish_into(tool, at)
+	_lamps.append({"light": light, "glass": lit_pane, "threshold": threshold, "lit": 0.0})
 
 ## A flower bed: a ring of turned earth with flowers standing in it. The valley
 ## has almost no flowers; this is where a few are.

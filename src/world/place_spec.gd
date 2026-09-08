@@ -30,7 +30,9 @@ extends RefCounted
 ## clear of the river before being written down here.
 const OFFSETS := {
 	&"playground": Vector3(-360.0, 0.0, 250.0),
-	&"cafe": Vector3(-300.0, 0.0, -260.0),
+	# Moved from (-300, -260) when the café grew to a building: the old site
+	# sloped, and a sixteen-metre disc levelled into it left a nine-metre bank.
+	&"cafe": Vector3(-370.0, 0.0, -300.0),
 	&"pool": Vector3(60.0, 0.0, 380.0),
 }
 
@@ -40,7 +42,7 @@ const OFFSETS := {
 ## the slide's foot on a slope.
 const RADIUS := {
 	&"playground": 20.4,
-	&"cafe": 7.0,
+	&"cafe": 16.0,
 	&"pool": 13.0,
 }
 ## Half the width of the structure that actually stands at each place. The
@@ -49,7 +51,7 @@ const RADIUS := {
 ## valley — flat ground is only guaranteed inside the footprint.
 const FOOTPRINT := {
 	&"playground": 14.4,
-	&"cafe": 2.5,
+	&"cafe": 9.0,
 	&"pool": 7.0,
 }
 
