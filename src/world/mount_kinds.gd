@@ -267,27 +267,8 @@ static func _horse(tool: SurfaceTool) -> void:
 		ear.rings = 1
 		_add(tool, ear, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(14.0)), Vector3(side * 0.09 * s, 2.36 * s, -1.02 * s)), dark)
 
-		for front in PackedFloat32Array([-1.0, 1.0]):
-			var leg := CylinderMesh.new()
-			leg.top_radius = 0.11 * s
-			leg.bottom_radius = 0.08 * s
-			leg.height = 1.3 * s
-			leg.radial_segments = 6
-			_add(tool, leg, Transform3D(
-				Basis(), Vector3(side * 0.3 * s, 0.65 * s, front * 0.62 * s)
-			), dark)
-			var sock := CylinderMesh.new()
-			sock.top_radius = 0.085 * s
-			sock.bottom_radius = 0.085 * s
-			sock.height = 0.2 * s
-			sock.radial_segments = 6
-			_add(tool, sock, Transform3D(Basis(), Vector3(side * 0.3 * s, 0.2 * s, front * 0.62 * s)), pale)
-			var foot := CylinderMesh.new()
-			foot.top_radius = 0.095 * s
-			foot.bottom_radius = 0.1 * s
-			foot.height = 0.1 * s
-			foot.radial_segments = 6
-			_add(tool, foot, Transform3D(Basis(), Vector3(side * 0.3 * s, 0.05 * s, front * 0.62 * s)), hoof)
+		# The legs are not here: they hang from the body as nodes of their
+		# own, so that they can swing — see horse_leg() and HORSE_HIPS.
 
 	# The mane, in locks down the neck, and a forelock; the tail in two pieces.
 	for i in 4:
@@ -335,6 +316,66 @@ static func _horse(tool: SurfaceTool) -> void:
 		var stirrup := BoxMesh.new()
 		stirrup.size = Vector3(0.1 * s, 0.09 * s, 0.05 * s)
 		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.44 * s, 1.4 * s, 0.04 * s)), hoof)
+
+## Where the horse's four legs hang from, in the body's frame: the hips and
+## shoulders, at the height the leg mesh pivots from. Order: front-left,
+## front-right, hind-left, hind-right.
+const HORSE_HIPS: Array[Vector3] = [
+	Vector3(-0.36, 1.56, -0.744), Vector3(0.36, 1.56, -0.744),
+	Vector3(-0.36, 1.56, 0.744), Vector3(0.36, 1.56, 0.744),
+]
+
+## One horse leg, built with its pivot at the hip so that turning the node
+## about X swings the leg forward and back. The legs used to be part of the
+## baked horse and stood stiff at a gallop, which from the saddle read as a
+## horse on wheels.
+static func horse_leg() -> Mesh:
+	var s := 1.2
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var dark: Color = colour(HORSE).darkened(0.3)
+	var pale := Color(0.93, 0.90, 0.84)
+	var hoof := Color(0.15, 0.12, 0.10)
+	var leg := CylinderMesh.new()
+	leg.top_radius = 0.11 * s
+	leg.bottom_radius = 0.08 * s
+	leg.height = 1.3 * s
+	leg.radial_segments = 6
+	_add(tool, leg, Transform3D(Basis(), Vector3(0.0, -0.65 * s, 0.0)), dark)
+	var sock := CylinderMesh.new()
+	sock.top_radius = 0.085 * s
+	sock.bottom_radius = 0.085 * s
+	sock.height = 0.2 * s
+	sock.radial_segments = 6
+	_add(tool, sock, Transform3D(Basis(), Vector3(0.0, -1.1 * s, 0.0)), pale)
+	var foot := CylinderMesh.new()
+	foot.top_radius = 0.095 * s
+	foot.bottom_radius = 0.1 * s
+	foot.height = 0.1 * s
+	foot.radial_segments = 6
+	_add(tool, foot, Transform3D(Basis(), Vector3(0.0, -1.25 * s, 0.0)), hoof)
+	tool.generate_normals()
+	tool.set_material(AnimalKinds.fur_material())
+	return tool.commit()
+
+## A mount as a node: a body, and for the horse four legs hung from the hips
+## that Mounts swings as it moves. The mesh alone is not enough for something
+## that has to move its legs.
+static func build_node(kind: StringName) -> Node3D:
+	var root := Node3D.new()
+	var body := MeshInstance3D.new()
+	body.name = "Body"
+	body.mesh = build_mesh(kind)
+	root.add_child(body)
+	if kind_of(kind) == HORSE:
+		var leg_mesh := horse_leg()
+		for i in HORSE_HIPS.size():
+			var leg := MeshInstance3D.new()
+			leg.name = "Leg%d" % i
+			leg.mesh = leg_mesh
+			leg.position = HORSE_HIPS[i]
+			body.add_child(leg)
+	return root
 
 ## A rowing boat, facing -Z like everything else that is ridden: a hull with a
 ## pointed bow and a flat stern, a pale wooden inside with two thwarts to sit

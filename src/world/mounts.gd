@@ -37,8 +37,7 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 		if is_instance_valid(existing):
 			existing.queue_free()
 
-	var node := MeshInstance3D.new()
-	node.mesh = MountKinds.build_mesh(kind)
+	var node := MountKinds.build_node(kind)
 	# Solid while it stands. The horse could be walked through, which from
 	# the phone read as the horse not being there.
 	var body := StaticBody3D.new()
@@ -146,9 +145,63 @@ func carry(at: Vector3, facing: float) -> void:
 	var node: Node3D = _nodes[riding]
 	var spot := at
 	spot.y = _rest_height(riding, at)
+	# How fast the mount is actually moving, for its gait: from how far it
+	# was carried since last frame, smoothed so one odd frame does not kick.
+	var delta := get_process_delta_time()
+	if delta > 0.0:
+		var moved := Vector2(spot.x - _positions[riding].x, spot.z - _positions[riding].z).length() / delta
+		_pace = lerpf(_pace, minf(moved, 14.0), 1.0 - exp(-8.0 * delta))
 	node.global_position = spot
 	node.rotation.y = facing
 	_positions[riding] = spot
+
+## How fast the ridden mount is going, smoothed, and where in its stride it is.
+var _pace := 0.0
+var _stride := 0.0
+
+## Stride length in metres per full cycle, and how far a leg swings at full
+## pace. A trot: the diagonal pairs move together.
+const STRIDE_METRES := 2.6
+const LEG_SWING := deg_to_rad(32.0)
+
+func _process(delta: float) -> void:
+	if riding == &"":
+		return
+	if not exists(riding) or MountKinds.kind_of(riding) != MountKinds.HORSE:
+		return
+	var body := (_nodes[riding] as Node3D).get_node_or_null("Body") as Node3D
+	if body == null:
+		return
+	# A stationary horse settles its legs and stands; a moving one strides,
+	# faster the faster it goes, and its body rises and falls with each beat.
+	var effort := clampf(_pace / MountKinds.speed(MountKinds.HORSE), 0.0, 1.3)
+	_stride = fmod(_stride + delta * TAU * _pace / STRIDE_METRES, TAU)
+	var swing := sin(_stride) * LEG_SWING * clampf(effort * 1.6, 0.0, 1.0)
+	if effort < 0.02:
+		swing = 0.0
+	for i in MountKinds.HORSE_HIPS.size():
+		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
+		if leg == null:
+			continue
+		# Front-left with hind-right, front-right with hind-left.
+		var diagonal := 1.0 if (i == 0 or i == 3) else -1.0
+		leg.rotation.x = lerp_angle(leg.rotation.x, swing * diagonal, 1.0 - exp(-14.0 * delta))
+	body.position.y = absf(sin(_stride)) * 0.07 * effort
+	body.rotation.x = sin(_stride) * 0.02 * effort
+
+## Where the ridden horse's legs are, for the checks: the swing of each, in
+## radians.
+func leg_swings() -> Array[float]:
+	var out: Array[float] = []
+	if riding == &"" or not exists(riding):
+		return out
+	var body := (_nodes[riding] as Node3D).get_node_or_null("Body") as Node3D
+	if body == null:
+		return out
+	for i in MountKinds.HORSE_HIPS.size():
+		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
+		out.append(0.0 if leg == null else leg.rotation.x)
+	return out
 
 ## Get off. The mount is left standing where the player left it, which is how a
 ## child expects to find it again.

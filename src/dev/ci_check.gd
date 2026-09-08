@@ -2136,7 +2136,27 @@ func _check_riding() -> void:
 	_expect(mounts.nearest(spot + Vector3(40.0, 0.0, 0.0)) == &"", "one forty metres away is not")
 
 	_expect(mounts.is_solid(MountKinds.HORSE), "a standing horse is solid: a child bumps into it rather than through it")
+	var horse_node: Node3D = mounts._nodes[MountKinds.HORSE]
+	_expect(horse_node.get_node("Body").get_child_count() == 4, "the horse has four legs of its own")
 	_expect(mounts.mount(MountKinds.HORSE), "it can be mounted")
+	# Carried along at a canter, its legs swing; standing, they settle.
+	var start_at := spot + Vector3(2.0, 0.0, 0.0)
+	for frame in 30:
+		mounts.carry(start_at + Vector3(0.0, 0.0, -8.0 * float(frame + 1) / 60.0), 0.0)
+		mounts._process(1.0 / 60.0)
+	var swings := mounts.leg_swings()
+	var moved_legs := 0.0
+	for angle in swings:
+		moved_legs = maxf(moved_legs, absf(angle))
+	_expect(moved_legs > 0.05, "at a canter its legs swing (%.0f degrees)" % rad_to_deg(moved_legs))
+	_expect(swings.size() == 4 and signf(swings[0]) == signf(swings[3]) and signf(swings[0]) == -signf(swings[1]), "in diagonal pairs, like a trot")
+	for frame in 120:
+		mounts.carry(start_at + Vector3(0.0, 0.0, -4.0), 0.0)
+		mounts._process(1.0 / 60.0)
+	var rested := 0.0
+	for angle in mounts.leg_swings():
+		rested = maxf(rested, absf(angle))
+	_expect(rested < 0.02, "and standing still they hang straight (%.1f degrees)" % rad_to_deg(rested))
 	_expect(not mounts.is_solid(MountKinds.HORSE), "and stops being solid while ridden, or it would shove its rider")
 	_expect(mounts.riding == MountKinds.HORSE, "and the game knows what is being ridden")
 	_expect(not mounts.mount(MountKinds.HORSE), "it cannot be mounted twice")
