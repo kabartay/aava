@@ -60,7 +60,7 @@ static func reward_for(kind: StringName) -> int:
 
 const INFO := {
 	SAPLING: {
-		"label": "sapling", "icon": "T",
+		"label": "sapling",
 		"cost": {&"seed": 1},
 		"footprint": 1.8, "grows": true,
 		"hint": "plant three close together and a grove takes root",
@@ -73,31 +73,31 @@ const INFO := {
 	## tree that will still be there tomorrow. A fir is worth more when it
 	## matures precisely because of what it cost to plant.
 	PINE: {
-		"label": "fir", "icon": "A",
+		"label": "fir",
 		"cost": {&"cone": 1},
 		"footprint": 2.0, "grows": true,
 		"hint": "grows taller than the round ones, and slower",
 	},
 	FEEDER: {
-		"label": "feeder", "icon": "Y",
+		"label": "feeder",
 		"cost": {&"stick": 3, &"seed": 1},
 		"footprint": 1.2, "grows": false,
 		"hint": "birds come to it",
 	},
 	PATH: {
-		"label": "path", "icon": "=",
+		"label": "path",
 		"cost": {&"stone": 1},
 		"footprint": 0.9, "grows": false,
 		"hint": "marks the way home",
 	},
 	FENCE: {
-		"label": "fence", "icon": "#",
+		"label": "fence",
 		"cost": {&"stick": 2},
 		"footprint": 1.0, "grows": false,
 		"hint": "encloses what is yours",
 	},
 	CAMPFIRE: {
-		"label": "campfire", "icon": "^",
+		"label": "campfire",
 		"cost": {&"stick": 3, &"stone": 2},
 		"footprint": 1.6, "grows": false,
 		"hint": "a place to come back to",
@@ -106,9 +106,6 @@ const INFO := {
 
 static func label(kind: StringName) -> String:
 	return Text.of("build_" + String(kind))
-
-static func icon(kind: StringName) -> String:
-	return INFO[kind]["icon"]
 
 static func cost(kind: StringName) -> Dictionary:
 	return INFO[kind]["cost"]

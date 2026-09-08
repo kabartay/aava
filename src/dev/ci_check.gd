@@ -68,6 +68,7 @@ func _initialize() -> void:
 	_check_snow_lies_where_snow_lies()
 	_check_the_far_country_is_there()
 	_check_the_mountainside_has_zones()
+	_check_every_buildable_thing_has_a_picture()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -1530,6 +1531,60 @@ func _height_in_mesh(far: DistantLand, at: Vector3) -> float:
 			nearest = flat
 			best = world.y
 	return best
+
+## Every piece in the build palette must be a picture, not a letter.
+##
+## The house parts were given drawings and the objects were left behind: a
+## sapling was "T", a fir "A", a bird feeder "Y". A child who cannot read
+## cannot read a letter standing in for a thing either, and a picture nobody
+## drew shows as a blank square — which is how the bed went unnoticed for an
+## afternoon.
+func _check_every_buildable_thing_has_a_picture() -> void:
+	print("everything you can build has a picture")
+	var drawn := true
+	for kind in BuildKinds.ALL:
+		if not PartIcon.knows(kind):
+			drawn = false
+			printerr("  no picture for %s" % kind)
+	for kind in HouseParts.ALL:
+		if not PartIcon.knows(kind):
+			drawn = false
+			printerr("  no picture for %s" % kind)
+	_expect(drawn, "all %d objects and %d house parts are drawn" % [BuildKinds.ALL.size(), HouseParts.ALL.size()])
+
+	# And each drawing actually puts something on the screen: a `match` with
+	# no arm for a kind draws nothing at all and fails silently.
+	var blank := true
+	for kind in BuildKinds.ALL + HouseParts.ALL:
+		var icon := PartIcon.new(kind)
+		icon.size = Vector2(64.0, 64.0)
+		var drawn_kind := icon.kind
+		icon.free()
+		if drawn_kind != kind:
+			blank = false
+	_expect(blank, "and each one is asked to draw its own kind")
+
+	# The letters are gone from the data as well, so nothing can quietly go
+	# back to using them.
+	var source := FileAccess.get_file_as_string("res://src/build/build_kinds.gd")
+	source += FileAccess.get_file_as_string("res://src/build/house_parts.gd")
+	_expect(not source.contains('"icon"'), "and no letter icons are left in the data")
+
+	# The palette itself: every button carries a drawing.
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	var pictured := true
+	for kind in hud._palette_buttons:
+		var button: Button = hud._palette_buttons[kind]
+		var has_icon := false
+		for child in button.get_children():
+			if child is PartIcon:
+				has_icon = true
+		if not has_icon or button.text != "":
+			pictured = false
+			printerr("  the %s button is not a picture" % kind)
+	_expect(pictured, "every button in the palette is a picture")
+	hud.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

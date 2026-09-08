@@ -341,25 +341,28 @@ func _build_palette() -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.visible = false
+	# A picture of the thing rather than a letter, for the objects as well as
+	# the house parts: "T" for a sapling and "Y" for a bird feeder are as
+	# unreadable as "z" was for stairs, and an icon a child has to be taught
+	# is an icon that does not work.
 	for kind in BuildKinds.ALL:
-		var button := _button(BuildKinds.icon(kind), Color(0.86, 0.86, 0.90))
-		button.pressed.connect(func() -> void: build_selected.emit(kind))
-		row.add_child(button)
-		_palette_buttons[kind] = button
+		row.add_child(_palette_button(kind, BuildKinds.label(kind), true))
 	for kind in HouseParts.ALL:
-		# A picture of the piece rather than a letter. "z" for stairs and "n"
-		# for a door are unreadable, and an icon a child has to be taught is an
-		# icon that does not work.
-		var button := _button("", Color(0.86, 0.86, 0.90))
-		var icon := PartIcon.new(kind)
-		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		button.add_child(icon)
-		button.tooltip_text = HouseParts.label(kind)
-		button.pressed.connect(func() -> void: build_selected.emit(kind))
-		button.visible = false
-		row.add_child(button)
-		_palette_buttons[kind] = button
+		row.add_child(_palette_button(kind, HouseParts.label(kind), false))
 	return row
+
+## One button in the palette: a drawing of the piece, its name as a tooltip
+## for whoever can read, and the piece's own name emitted when it is pressed.
+func _palette_button(kind: StringName, named: String, shown: bool) -> Button:
+	var button := _button("", Color(0.86, 0.86, 0.90))
+	var icon := PartIcon.new(kind)
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	button.add_child(icon)
+	button.tooltip_text = named
+	button.pressed.connect(func() -> void: build_selected.emit(kind))
+	button.visible = shown
+	_palette_buttons[kind] = button
+	return button
 
 ## Two tabs, because eight house parts and five objects on one row is thirteen
 ## buttons and a six-year-old cannot find anything in thirteen buttons.

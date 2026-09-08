@@ -55,27 +55,24 @@ const STONE := Color(0.58, 0.57, 0.56)
 ## chore the house would never be finished — which for a child means the whole
 ## idea was a waste of an afternoon.
 const INFO := {
-	WALL: {"label": "wall", "icon": "|", "cost": {&"stick": 2}, "footprint": MODULE, "height": STOREY},
-	WALL_DOOR: {"label": "door", "icon": "n", "cost": {&"stick": 3}, "footprint": MODULE, "height": STOREY},
-	WALL_WINDOW: {"label": "window", "icon": "o", "cost": {&"stick": 2, &"reed": 1}, "footprint": MODULE, "height": STOREY},
-	FLOOR: {"label": "floor", "icon": "=", "cost": {&"stick": 2}, "footprint": MODULE, "height": 0.16},
-	ROOF: {"label": "roof", "icon": "/", "cost": {&"reed": 2}, "footprint": MODULE, "height": 1.1},
-	ROOF_PEAK: {"label": "peak", "icon": "^", "cost": {&"reed": 3}, "footprint": MODULE, "height": 1.5},
-	STAIRS: {"label": "stairs", "icon": "z", "cost": {&"stone": 2}, "footprint": MODULE, "height": STOREY},
-	POST: {"label": "post", "icon": "i", "cost": {&"stick": 1}, "footprint": 0.4, "height": STOREY},
+	WALL: {"label": "wall", "cost": {&"stick": 2}, "footprint": MODULE, "height": STOREY},
+	WALL_DOOR: {"label": "door", "cost": {&"stick": 3}, "footprint": MODULE, "height": STOREY},
+	WALL_WINDOW: {"label": "window", "cost": {&"stick": 2, &"reed": 1}, "footprint": MODULE, "height": STOREY},
+	FLOOR: {"label": "floor", "cost": {&"stick": 2}, "footprint": MODULE, "height": 0.16},
+	ROOF: {"label": "roof", "cost": {&"reed": 2}, "footprint": MODULE, "height": 1.1},
+	ROOF_PEAK: {"label": "peak", "cost": {&"reed": 3}, "footprint": MODULE, "height": 1.5},
+	STAIRS: {"label": "stairs", "cost": {&"stone": 2}, "footprint": MODULE, "height": STOREY},
+	POST: {"label": "post", "cost": {&"stick": 1}, "footprint": 0.4, "height": STOREY},
 	## The reason to build a house rather than to assemble one.
 	##
 	## Everything else here makes a shape; a bed makes a place you can be. A
 	## child who sleeps in one wakes at dawn, rested — so a house is somewhere
 	## to get through the night rather than something to look at afterwards.
-	BED: {"label": "bed", "icon": "b", "cost": {&"stick": 3, &"reed": 3}, "footprint": MODULE, "height": 0.55},
+	BED: {"label": "bed", "cost": {&"stick": 3, &"reed": 3}, "footprint": MODULE, "height": 0.55},
 }
 
 static func label(kind: StringName) -> String:
 	return Text.of("part_" + String(kind))
-
-static func icon(kind: StringName) -> String:
-	return INFO[kind]["icon"]
 
 static func cost(kind: StringName) -> Dictionary:
 	return INFO[kind]["cost"]
