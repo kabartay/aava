@@ -299,5 +299,25 @@ func from_data(data: Array) -> void:
 				BuildKinds.GROWTH_STAGES - 1
 			)
 		_records.append(record)
+	_move_out_of_places()
+	for record in _records:
 		_spawn_node(record)
 	_recompute_groves()
+
+## Anything built on ground that a place now keeps — see PlaceSpec.reserved —
+## is moved to the nearest ground outside it, on the same bearing from the
+## place's centre, and set on the ground there. Moved, not removed: the tree
+## a child planted is still their tree, only no longer in the trampoline.
+## Returns how many were moved.
+func _move_out_of_places() -> int:
+	var camp := field.camp_centre()
+	var moved := 0
+	for record in _records:
+		var at: Vector3 = record["position"]
+		if not PlaceSpec.reserved(at.x, at.z, camp):
+			continue
+		var free := PlaceSpec.nearest_free(at.x, at.z, camp)
+		free.y = field.height_at(free.x, free.z)
+		record["position"] = free
+		moved += 1
+	return moved

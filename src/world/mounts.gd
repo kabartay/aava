@@ -28,9 +28,10 @@ var _positions: Dictionary = {}
 func _init(height_field: HeightField) -> void:
 	field = height_field
 
-## Put a mount into the world. Called for the horse at the start, and for the
-## bicycle when it is bought.
-func place(kind: StringName, at: Vector3) -> void:
+## Put a mount into the world. Called for the horse and the boats at the
+## start, and for the bicycle when it is bought. `kind` is a mount id — see
+## MountKinds.kind_of. `facing` turns it, for a boat pointed out at the water.
+func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 	if _nodes.has(kind):
 		var existing: Node3D = _nodes[kind]
 		if is_instance_valid(existing):
@@ -40,10 +41,51 @@ func place(kind: StringName, at: Vector3) -> void:
 	node.mesh = MountKinds.build_mesh(kind)
 	add_child(node)
 	var grounded := at
-	grounded.y = field.height_at(at.x, at.z)
+	grounded.y = _rest_height(kind, at)
 	node.global_position = grounded
+	node.rotation.y = facing
 	_nodes[kind] = node
 	_positions[kind] = grounded
+
+## Where a mount rests: on the ground, or, for a boat, on the water wherever
+## the ground is under it. A boat left in the shallows sat on the bed with
+## its hull half under, until this.
+func _rest_height(kind: StringName, at: Vector3) -> float:
+	var ground := field.height_at(at.x, at.z)
+	if MountKinds.floats(kind):
+		return maxf(ground, HeightField.WATER_LEVEL)
+	return ground
+
+## Launch `count` boats round the shore of a pond, each where the water is
+## about `depth` deep — wading depth, so a child walks out to one — and each
+## pointed out across the water. The shore is found by walking out from the
+## middle of the pond along each bearing until the bed comes up to the depth.
+func launch_boats(pond: int, count: int, depth := 0.7) -> void:
+	var offset := pond * Lakes.POND_STRIDE
+	var centre := Vector3(Lakes.PONDS[offset], 0.0, Lakes.PONDS[offset + 1])
+	var reach := Lakes.PONDS[offset + 2] * (1.0 + Lakes.WOBBLE) + 4.0
+	for i in count:
+		var bearing := TAU * float(i) / float(count) + 0.4
+		var direction := Vector3(cos(bearing), 0.0, sin(bearing))
+		var spot := centre
+		var walked := 0.5
+		while walked < reach:
+			var probe := centre + direction * walked
+			if field.height_at(probe.x, probe.z) > HeightField.WATER_LEVEL - depth:
+				break
+			spot = probe
+			walked += 0.5
+		# Facing the middle of the pond: rotation about Y that sends -Z to
+		# -direction.
+		place(MountKinds.boat_id(i), spot, atan2(direction.x, direction.z))
+
+## How many boats there are. For the checks.
+func boat_count() -> int:
+	var count := 0
+	for kind in _nodes:
+		if MountKinds.boat_index(kind) >= 0 and is_instance_valid(_nodes[kind]):
+			count += 1
+	return count
 
 func exists(kind: StringName) -> bool:
 	return _nodes.has(kind) and is_instance_valid(_nodes[kind])
@@ -89,7 +131,7 @@ func carry(at: Vector3, facing: float) -> void:
 		return
 	var node: Node3D = _nodes[riding]
 	var spot := at
-	spot.y = field.height_at(at.x, at.z)
+	spot.y = _rest_height(riding, at)
 	node.global_position = spot
 	node.rotation.y = facing
 	_positions[riding] = spot
@@ -104,15 +146,19 @@ func dismount(at: Vector3) -> StringName:
 	var node: Node3D = _nodes[kind]
 	if is_instance_valid(node):
 		var spot := at
-		spot.y = field.height_at(spot.x, spot.z)
+		spot.y = _rest_height(kind, at)
 		node.global_position = spot
 		_positions[kind] = spot
 	dismounted.emit(kind)
 	return kind
 
 ## Whether the ground here can be ridden over on the current mount. A bicycle
-## refuses a steep hill and deep water; a horse takes both.
+## refuses a steep hill and deep water; a horse takes both; a boat wants
+## water under its keel and nothing else — which is how it puts a child down
+## on the far shore.
 func can_ride_over(kind: StringName, at: Vector3) -> bool:
+	if MountKinds.floats(kind):
+		return field.height_at(at.x, at.z) < HeightField.WATER_LEVEL - MountKinds.BOAT_DRAFT
 	if MountKinds.fords_water(kind):
 		return field.steepness_at(at.x, at.z) <= MountKinds.max_slope(kind)
 	if at.y < HeightField.WATER_LEVEL + 0.4:

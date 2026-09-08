@@ -51,6 +51,8 @@ func _initialize() -> void:
 	_check_animals_walk_round_the_playground()
 	_check_the_voices_bake_off_thread()
 	_check_the_map_bakes_off_thread()
+	_check_boats_float_on_the_pond()
+	_check_nothing_is_built_on_the_playground()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -593,6 +595,101 @@ func _check_the_map_bakes_off_thread() -> void:
 	var to_playground := Vector2(PlaceSpec.OFFSETS[&"playground"].x, PlaceSpec.OFFSETS[&"playground"].z).angle()
 	_expect(absf(angle_difference(playground.angle, to_playground)) < 0.05, "in the right direction")
 	map.queue_free()
+
+## Five boats wait round the big pond, in wading depth, and a boat goes where
+## there is water under it and nowhere else — which is how it lands a child on
+## the far shore.
+func _check_boats_float_on_the_pond() -> void:
+	print("boats float on the pond")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	mounts.launch_boats(0, 5)
+	_expect(mounts.boat_count() == 5, "%d boats wait at the pond" % mounts.boat_count())
+	_expect(MountKinds.kind_of(MountKinds.boat_id(3)) == MountKinds.BOAT, "a boat's id names its kind")
+	_expect(MountKinds.boat_index(MountKinds.boat_id(3)) == 3, "and which boat it is")
+	_expect(MountKinds.boat_index(MountKinds.HORSE) == -1, "a horse is not a boat")
+	_expect(MountKinds.floats(MountKinds.boat_id(0)) and not MountKinds.floats(MountKinds.HORSE), "boats float; horses do not")
+	_expect(is_equal_approx(MountKinds.speed(MountKinds.boat_id(1)), MountKinds.speed(MountKinds.BOAT)), "every boat is as fast as a boat")
+	var colours: Dictionary = {}
+	var afloat := true
+	var wadeable := true
+	var apart := true
+	var spots: Array[Vector3] = []
+	for i in 5:
+		var id := MountKinds.boat_id(i)
+		colours[str(MountKinds.colour(id))] = true
+		var at := mounts.position_of(id)
+		var ground := field.height_at(at.x, at.z)
+		if not is_equal_approx(at.y, HeightField.WATER_LEVEL):
+			afloat = false
+		if ground > HeightField.WATER_LEVEL - 0.35 or ground < HeightField.WATER_LEVEL - 1.05:
+			wadeable = false
+			printerr("  boat %d sits over ground %.2f m below the water" % [i, HeightField.WATER_LEVEL - ground])
+		for other in spots:
+			if other.distance_to(at) < 8.0:
+				apart = false
+		spots.append(at)
+	_expect(colours.size() == 5, "five boats, five colours")
+	_expect(afloat, "every boat rests on the waterline")
+	_expect(wadeable, "each in water a child can wade out to, not swim to")
+	_expect(apart, "and they are spread round the shore, not heaped in one cove")
+
+	var centre := Vector3(Lakes.PONDS[0], 0.0, Lakes.PONDS[1])
+	_expect(mounts.can_ride_over(MountKinds.boat_id(0), centre), "a boat can be rowed across the middle of the pond")
+	var meadow := centre + Vector3(Lakes.PONDS[2] * 2.0, 0.0, 0.0)
+	_expect(not mounts.can_ride_over(MountKinds.boat_id(0), meadow), "and not across the meadow beyond it")
+	# Left in the shallows on the far side, it floats there rather than
+	# sitting on the bed.
+	_expect(mounts.mount(MountKinds.boat_id(0)), "a boat can be boarded")
+	var shallows := spots[2]
+	mounts.dismount(shallows)
+	_expect(is_equal_approx(mounts.position_of(MountKinds.boat_id(0)).y, HeightField.WATER_LEVEL), "and floats where it is left")
+	# Saved and restored by id, so five boats come back as five boats.
+	var restored := Mounts.new(field)
+	get_root().add_child(restored)
+	restored.from_data(mounts.to_data())
+	_expect(restored.boat_count() == 5, "five boats come back from a save")
+	restored.queue_free()
+	mounts.queue_free()
+
+## A sapling planted beside the trampoline grew into a tree standing in it.
+## The places keep their ground now: building there is refused, and anything
+## already built there when a save is loaded is moved just outside.
+func _check_nothing_is_built_on_the_playground() -> void:
+	print("nothing is built on the playground")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var pad := PlaceSpec.centre_of(&"playground", camp)
+	_expect(PlaceSpec.reserved(pad.x - 3.5, pad.z - 8.0, camp), "the ground under the trampoline is kept")
+	_expect(PlaceSpec.reserved(pad.x, pad.z + Places.HEDGE_RADIUS, camp), "so is the hedge")
+	_expect(not PlaceSpec.reserved(pad.x + 30.0, pad.z, camp), "thirty metres out is not")
+	_expect(not PlaceSpec.reserved(camp.x, camp.z, camp), "and the camp is a child's own")
+	var free := PlaceSpec.nearest_free(pad.x - 3.5, pad.z - 8.0, camp)
+	_expect(not PlaceSpec.reserved(free.x, free.z, camp), "the nearest free ground is outside the pad")
+	_expect(Vector2(free.x - pad.x, free.z - pad.z).length() < PlaceSpec.RADIUS[&"playground"] + 3.0, "and only just")
+
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	structures.from_data([
+		{"kind": String(BuildKinds.SAPLING), "x": pad.x - 4.0, "y": pad.y, "z": pad.z - 5.0, "spin": 0.0, "age": 150.0},
+		{"kind": String(BuildKinds.SAPLING), "x": pad.x - 25.0, "y": pad.y, "z": pad.z - 7.0, "spin": 0.0, "age": 150.0},
+	])
+	var positions := structures.positions()
+	_expect(positions.size() == 2, "both saplings survive the load")
+	var on_pad := 0
+	for at in positions:
+		if PlaceSpec.reserved(at.x, at.z, camp):
+			on_pad += 1
+	_expect(on_pad == 0, "and neither stands on the playground any more")
+	var still_far := false
+	for at in positions:
+		if absf(at.x - (pad.x - 25.0)) < 0.01 and absf(at.z - (pad.z - 7.0)) < 0.01:
+			still_far = true
+	_expect(still_far, "the one that was outside was left where it was")
+	structures.queue_free()
+
+	_expect(Text.of("why_reserved") != "", "and there is a word for why not")
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
@@ -1967,6 +2064,12 @@ func _check_riding() -> void:
 	_expect(MountKinds.fords_water(MountKinds.HORSE), "the horse fords the river")
 	_expect(not MountKinds.fords_water(MountKinds.BICYCLE), "the bicycle does not")
 	for kind in MountKinds.ALL:
+		if MountKinds.floats(kind):
+			_expect(
+				MountKinds.speed(kind) > Player.SWIM_SPEED * 2.0,
+				"%s is well over twice as fast as swimming, or there is no point rowing it" % kind
+			)
+			continue
 		_expect(
 			MountKinds.speed(kind) > Player.RUN_SPEED,
 			"%s is faster than running, or there is no point riding it" % kind

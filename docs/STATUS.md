@@ -37,6 +37,7 @@ Last updated: 2026-09-06.
 | Walking, running, jumping | Done | `CharacterBody3D`, coyote time, jump buffer, floor snapping. Falling is now faster than rising, so a jump reads as a jump rather than a slow float back down. |
 | Camera | Done | `SpringArm3D` with a top-level camera and exponential smoothing; excludes the player's own capsule; snaps back quickly when a wall pushes it in but still eases pulling back out. |
 | Zoom | Done | Distance only — the aim point does not move, so zooming never disorients. |
+| Boats | Done | Five boats, each its own colour, wait round the shore of the big pond in wading depth. A boat is a mount that rides only on water: it carries a child across at twice swimming speed and puts them down where the bed comes up, leaving the boat floating at the far shore. |
 | Minimap | Done | Three sizes, cycled by tapping: small, large, and the whole valley. Baked on a worker thread, so opening it no longer freezes the game. Every destination is a picture on every size — a place off the map sits on the rim pointing at itself — and the worn paths are drawn between them. |
 | Football pitch | Done | Levelled inside the height field itself, so the ground is flat by construction rather than by flattening afterwards. |
 | Balls and kicking | Done | `RigidBody3D` with continuous collision detection. Kick sets velocity directly. |

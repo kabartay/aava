@@ -400,8 +400,10 @@ func _process(delta: float) -> void:
 	# parented to it.
 	if riding != &"":
 		world.mounts.carry(player.global_position, player.facing_angle())
+	var offered := world.mounts.nearest(player.global_position)
 	hud.set_mount_in_reach(
-		world.mounts.nearest(player.global_position) != &"", riding != &""
+		offered != &"", riding != &"",
+		MountKinds.floats(offered if offered != &"" else riding) if (offered != &"" or riding != &"") else false
 	)
 	if riding != &"" and not world.mounts.can_ride_over(riding, player.global_position):
 		# Ridden somewhere this mount cannot go — put the child down rather than
@@ -857,6 +859,8 @@ func _on_ride() -> void:
 		return
 
 	var kind := world.mounts.nearest(player.global_position)
+	if kind != &"" and MountKinds.floats(kind):
+		sounds.play(Sounds.Sound.SPLASH, 0.8)
 	if kind == &"" or not world.mounts.mount(kind):
 		return
 	player.riding = kind

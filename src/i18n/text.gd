@@ -381,6 +381,9 @@ const STRINGS := {
 	"mount_bicycle": {
 		EN: "bicycle", FR: "vélo", RU: "велосипед",
 	},
+	"mount_boat": {
+		EN: "boat", FR: "barque", RU: "лодка",
+	},
 	"ui_ride": {
 		EN: "ride", FR: "monter", RU: "сесть",
 	},
@@ -470,6 +473,7 @@ const STRINGS := {
 	"why_wet": {EN: "too wet", FR: "trop mouillé", RU: "слишком мокро"},
 	"why_steep": {EN: "too steep", FR: "trop pentu", RU: "слишком круто"},
 	"why_no_room": {EN: "no room", FR: "pas de place", RU: "нет места"},
+	"why_reserved": {EN: "not here", FR: "pas ici", RU: "не здесь"},
 	# %s is the list of missing materials.
 	"why_need": {EN: "need %s", FR: "il faut %s", RU: "нужно %s"},
 

@@ -252,6 +252,11 @@ func _evaluate() -> void:
 	elif field.steepness_at(_target.x, _target.z) > MAX_SLOPE:
 		_valid = false
 		_reason = Text.of("why_steep")
+	elif PlaceSpec.reserved(_target.x, _target.z, field.camp_centre()):
+		# The playground, the pool and the café are somebody else's work. A
+		# sapling planted beside the trampoline became a tree standing in it.
+		_valid = false
+		_reason = Text.of("why_reserved")
 	elif not structures.is_clear(_target, _footprint_of(selected)):
 		_valid = false
 		_reason = Text.of("why_no_room")

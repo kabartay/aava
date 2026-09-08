@@ -96,8 +96,9 @@ const BENCH_Z := 7.5
 ## this on a pad a fifth smaller and it read as a heap; the point of the
 ## bands is that a child sees one thing at a time.
 const TRAMPOLINE := Vector3(-3.5, 0.0, -8.0)
-## Twice the first size: a trampoline a child can miss is not a trampoline.
-const TRAMPOLINE_RADIUS := 2.9
+## Twice the first size, then a fifth more: a trampoline a child can miss is
+## not a trampoline.
+const TRAMPOLINE_RADIUS := 3.5
 const TRAMPOLINE_TOP := 0.78
 ## How much higher a jump from the mat goes, and how much of a landing comes
 ## back as a bounce.
@@ -1110,8 +1111,8 @@ func _build_trampoline(at: Vector3, solid: StaticBody3D) -> void:
 	frame.rings = 8
 	frame.ring_segments = 28
 	_add(tool, frame, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP, 0.0)), frame_colour)
-	for i in 10:
-		var angle := TAU * float(i) / 10.0
+	for i in 12:
+		var angle := TAU * float(i) / 12.0
 		var leg := CylinderMesh.new()
 		leg.top_radius = 0.04
 		leg.bottom_radius = 0.045

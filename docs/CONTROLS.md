@@ -21,6 +21,7 @@ a control a child has to be told about is a control he forgets.
 | Swing, eat | **swing** / **eat** at the playground or café | same |
 | Shoot | hold **shoot** at the range, release to loose | hold `E` |
 | Ride / get off | **ride** when a horse or bicycle is close | same |
+| Row | **row** beside a boat at the big pond; it stops at the far shore | same |
 | Chop a tree | **chop**, once the axe is bought | same |
 | Call animals | **whistle**, once bought | same |
 | Feed a fire | **feed fire**, when a log is in the bag | same |

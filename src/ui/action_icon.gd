@@ -21,7 +21,7 @@ extends Control
 enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
-	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW,
+	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -95,6 +95,8 @@ func _draw() -> void:
 			_talk(box)
 		Kind.THROW:
 			_throw(box)
+		Kind.ROW:
+			_row(box)
 
 ## A cross. The build button turns into this while the palette is open, which
 ## is the same button saying "shut this" — it used to say it in words, and the
@@ -331,6 +333,27 @@ func _throw(box: Rect2) -> void:
 	draw_line(hoop_at + Vector2(-unit * 0.08, net_depth), hoop_at + Vector2(unit * 0.08, net_depth), tint, unit * 0.04)
 	# The backboard, standing behind the ring.
 	draw_line(hoop_at + Vector2(unit * 0.21, -unit * 0.22), hoop_at + Vector2(unit * 0.21, unit * 0.06), tint, unit * 0.06)
+
+## A boat on water: a hull seen from the side with an oar out, on a wave.
+## Shown in place of the horseshoe when the thing to get into is a boat.
+func _row(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	# The hull: a shallow bowl, flat across the top.
+	var hull := PackedVector2Array([
+		centre + Vector2(-unit * 0.36, -unit * 0.02),
+		centre + Vector2(unit * 0.36, -unit * 0.02),
+		centre + Vector2(unit * 0.24, unit * 0.18),
+		centre + Vector2(-unit * 0.24, unit * 0.18),
+	])
+	draw_colored_polygon(hull, tint)
+	# The oar, from inside the hull down into the water on the right.
+	draw_line(centre + Vector2(unit * 0.02, -unit * 0.2), centre + Vector2(unit * 0.34, unit * 0.3), tint, maxf(2.0, unit * 0.06))
+	# Water: a wave under the hull.
+	var w := maxf(2.0, unit * 0.06)
+	for i in 3:
+		var x := centre.x + (float(i) - 1.0) * unit * 0.26
+		draw_arc(Vector2(x, centre.y + unit * 0.34), unit * 0.13, PI, TAU, 8, tint, w)
 
 ## A swing: two ropes from a bar and a seat between them, already leaning.
 func _swing(box: Rect2) -> void:

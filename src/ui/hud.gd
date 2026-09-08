@@ -625,11 +625,17 @@ func set_on_shooting_line(within: bool) -> void:
 		_layout()
 
 ## Offer to get on when a mount is in reach, and to get off while riding.
-func set_mount_in_reach(available: bool, riding: bool) -> void:
+func set_mount_in_reach(available: bool, riding: bool, boat := false) -> void:
 	var wanted := available or riding
 	var face := _face_of(_ride_button)
 	if face != null:
-		face.show_kind(ActionIcon.Kind.GET_OFF if riding else ActionIcon.Kind.RIDE)
+		var kind := ActionIcon.Kind.RIDE
+		if riding:
+			kind = ActionIcon.Kind.GET_OFF
+		elif boat:
+			# A horseshoe on a jetty would be a riddle; a boat says "row".
+			kind = ActionIcon.Kind.ROW
+		face.show_kind(kind)
 	if _ride_button.visible != wanted:
 		_ride_button.visible = wanted
 		_layout()

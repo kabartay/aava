@@ -103,6 +103,9 @@ func _ready() -> void:
 	# The horse waits near the spawn: close enough to be found on the first
 	# afternoon, not so close it is the first thing a child trips over.
 	mounts.place(MountKinds.HORSE, spawn + Vector3(7.0, 0.0, -5.0))
+	# Five boats round the shore of the big pond, the first in Lakes.PONDS:
+	# something to row across it in, and to find on the far side.
+	mounts.launch_boats(0, 5)
 	# The range points away from the camp and away from the pitch, so no arrow
 	# ever flies towards somewhere a child stands.
 	# Well away from the camp and from the pitch: an arrow and a football should

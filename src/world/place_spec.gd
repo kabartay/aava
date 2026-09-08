@@ -136,6 +136,38 @@ static func trodden(x: float, z: float, camp: Vector3) -> float:
 static func centre_of(place: StringName, camp: Vector3) -> Vector3:
 	return camp + OFFSETS[place]
 
+## Is this ground kept for a place — the playground, the pool, the café —
+## where nothing may be built? A sapling planted beside the trampoline grew
+## into a tree standing in it, which is how this came to exist. The whole
+## levelled disc is kept, hedge and all.
+static func reserved(x: float, z: float, camp: Vector3) -> bool:
+	return reserved_by(x, z, camp) != &""
+
+## Which place keeps this ground, or nothing.
+static func reserved_by(x: float, z: float, camp: Vector3) -> StringName:
+	for place in OFFSETS:
+		var centre: Vector3 = camp + OFFSETS[place]
+		var radius: float = RADIUS[place]
+		if absf(x - centre.x) > radius or absf(z - centre.z) > radius:
+			continue
+		if Vector2(x - centre.x, z - centre.z).length() < radius:
+			return place
+	return &""
+
+## The nearest ground outside whatever place keeps this point: straight out
+## from the place's centre, a couple of metres past its edge. For things that
+## were built there before the ground was kept.
+static func nearest_free(x: float, z: float, camp: Vector3) -> Vector3:
+	var place := reserved_by(x, z, camp)
+	if place == &"":
+		return Vector3(x, 0.0, z)
+	var centre: Vector3 = camp + OFFSETS[place]
+	var out := Vector2(x - centre.x, z - centre.z)
+	if out.length() < 0.001:
+		out = Vector2(1.0, 0.0)
+	out = out.normalized() * (float(RADIUS[place]) + 2.0)
+	return Vector3(centre.x + out.x, 0.0, centre.z + out.y)
+
 ## How deep the pool is, and how far its walls reach. Declared here rather than
 ## in Places because the height field has to dig the hole: a pool drawn as a
 ## rim on flat ground is a white square painted on the grass, which is exactly

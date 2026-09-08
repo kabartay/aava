@@ -209,16 +209,26 @@ func _physics_process(delta: float) -> void:
 	# leaving swimming at different depths gives that equilibrium a place to
 	# rest on the swimming side of the line instead of straddling it.
 	var afloat := water_depth > (SWIM_DEPTH if not is_swimming else SWIM_DEPTH - SWIM_HYSTERESIS)
+	# In a boat the water is under the hull, not the child: no swimming, no
+	# falling, the body held at the seat's height above the waterline.
+	var boating := riding != &"" and MountKinds.floats(riding)
+	if boating:
+		afloat = false
 	if is_swimming != afloat:
 		is_swimming = afloat
 
-	var grounded := is_on_floor() and not afloat
+	var grounded := (is_on_floor() and not afloat) or boating
 	_coyote = COYOTE_TIME if grounded else maxf(0.0, _coyote - delta)
 	_buffered_jump = maxf(0.0, _buffered_jump - delta)
 	if Input.is_action_just_pressed(InputActions.JUMP):
 		_buffered_jump = JUMP_BUFFER
 
-	if afloat:
+	if boating:
+		# Sprung to the seat rather than snapped, so getting in reads as
+		# climbing in and a wave of the pond's surface would read as a wave.
+		var seat := HeightField.WATER_LEVEL + MountKinds.BOAT_SEAT
+		velocity.y = (seat - global_position.y) * 8.0
+	elif afloat:
 		# Pushed towards the surface rather than pulled to the bed, and damped
 		# so the child settles at the waterline instead of bobbing forever.
 		#
@@ -248,7 +258,7 @@ func _physics_process(delta: float) -> void:
 		var falling_multiplier := FALL_GRAVITY_MULTIPLIER if velocity.y < 0.0 else 1.0
 		velocity.y -= _gravity * falling_multiplier * delta
 
-	if _buffered_jump > 0.0 and _coyote > 0.0 and not afloat:
+	if _buffered_jump > 0.0 and _coyote > 0.0 and not afloat and not boating:
 		velocity.y = JUMP_VELOCITY * jump_boost
 		_buffered_jump = 0.0
 		_coyote = 0.0
