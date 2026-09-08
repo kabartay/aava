@@ -62,6 +62,7 @@ func _initialize() -> void:
 	_check_swimming_looks_like_swimming()
 	_check_animals_are_solid()
 	_check_a_dog_asks_for_a_stick()
+	_check_water_sounds_and_looks_like_water()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -1215,6 +1216,69 @@ func _check_a_dog_asks_for_a_stick() -> void:
 	_expect(far == 0, "nor is one across the meadow")
 	node.queue_free()
 	voices.queue_free()
+
+## Water a child is standing in has to look and sound different from the
+## meadow beside it. Ground below the waterline was painted the beach's own
+## sand, so a hollow full of water read as a patch of sand — until the child
+## walked into it and sank to the chest; and the valley's voices did not
+## change at all when they did.
+func _check_water_sounds_and_looks_like_water() -> void:
+	print("water sounds and looks like water")
+	var field := HeightField.new(20260903)
+
+	# Colour: the bed of the water is silt, the beach above it is sand, and
+	# the meadow beyond is neither.
+	var bed := TerrainChunk._tint(field, 0.0, 0.0, HeightField.WATER_LEVEL - 0.9, 0.0, false, false, false)
+	var beach := TerrainChunk._tint(field, 0.0, 0.0, HeightField.WATER_LEVEL + 0.4, 0.0, false, false, false)
+	_expect(
+		_closer_to(bed, TerrainSpec.COLOR_SILT, TerrainSpec.COLOR_SAND),
+		"the ground under the water is silt, not sand"
+	)
+	_expect(
+		_closer_to(beach, TerrainSpec.COLOR_SAND, TerrainSpec.COLOR_SILT),
+		"the beach just above it is sand"
+	)
+	_expect(bed.v < beach.v, "and the bed is darker than the beach (%.2f against %.2f)" % [bed.v, beach.v])
+
+	# Sound: in the water there is a voice for it, and the meadow's own
+	# voices give way.
+	var ambience := Ambience.new()
+	get_root().add_child(ambience)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	var wooded := Vector3(0.0, 6.0, 0.0)
+	var best := 0.0
+	for z in range(-200, 201, 20):
+		for x in range(-200, 201, 20):
+			var here := field.forest_density_at(float(x), float(z))
+			if here > best:
+				best = here
+				wooded = Vector3(float(x), 6.0, float(z))
+	for _frame in 200:
+		ambience.follow(wooded, field, places, 0.0, 1.0 / 60.0, 0.0)
+	var dry: Dictionary = ambience.levels()
+	_expect(float(dry["swimming"]) < 0.02, "on dry land there is no sound of being in water")
+	_expect(not ambience.is_sounding("swimming"), "and that voice is not even playing")
+	var leaves_dry := float(dry["leaves"])
+
+	for _frame in 200:
+		ambience.follow(wooded, field, places, 0.0, 1.0 / 60.0, 1.0)
+	var wet: Dictionary = ambience.levels()
+	_expect(float(wet["swimming"]) > 0.9, "in the water there is")
+	_expect(ambience.is_sounding("swimming"), "and it is sounding")
+	# The leaves are not turned off — the mix ducks them. Their own level
+	# drifts with the weather, so what is asserted is the ducking.
+	_expect(float(dry["hush"]) > 0.98, "on the bank the valley is heard in full")
+	_expect(float(wet["hush"]) < 0.4, "in the water it is hushed to %.0f%% behind the water" % (float(wet["hush"]) * 100.0))
+	_expect(float(wet["leaves"]) > 0.0 and leaves_dry > 0.0, "and the leaves are still there, in the wood, either way")
+	ambience.queue_free()
+	places.queue_free()
+
+## Which of two colours a colour is nearer to.
+func _closer_to(colour: Color, wanted: Color, other: Color) -> bool:
+	var to_wanted := Vector3(colour.r - wanted.r, colour.g - wanted.g, colour.b - wanted.b).length()
+	var to_other := Vector3(colour.r - other.r, colour.g - other.g, colour.b - other.b).length()
+	return to_wanted < to_other
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

@@ -50,6 +50,12 @@ const RINGS := [
 ]
 
 const COLOR_SAND := Color(0.83, 0.76, 0.56)
+## The bed under water: silt, dark and green-blue. Ground below the waterline
+## was painted the same sand as the beach, so a hollow full of water — a
+## backwater beside the river, a dip near a pond — read as a patch of sand
+## you then sank into up to the chest. Sand is what a beach is; the bed of
+## the water is not a beach.
+const COLOR_SILT := Color(0.29, 0.38, 0.33)
 const COLOR_GRASS := Color(0.36, 0.60, 0.28)
 
 ## Bare, trodden earth. Warmer and lighter than the grass so a route reads from

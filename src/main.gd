@@ -386,7 +386,8 @@ func _process(delta: float) -> void:
 	world.places.light_lamps(world.atmosphere.evening(), delta)
 	ambience.follow(
 		player.global_position, world.field, world.places,
-		world.atmosphere.darkness(), delta
+		world.atmosphere.darkness(), delta,
+		clampf(player.water_depth / Player.SWIM_DEPTH, 0.0, 1.0)
 	)
 	session.report_position(player.global_position, player.rotation.y)
 	# Offered only when there is somebody in the valley to talk to.

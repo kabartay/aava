@@ -43,6 +43,8 @@ var _wind: AudioStreamPlayer
 var _leaves: AudioStreamPlayer
 var _water: AudioStreamPlayer
 var _birds: AudioStreamPlayer
+## The sound of being in the water rather than beside it.
+var _swimming: AudioStreamPlayer
 
 var _wind_level := 0.0
 var _leaf_level := 0.0
@@ -56,6 +58,12 @@ var _weather_target := 0.5
 var _weather_wait := 0.0
 var _water_level := 0.0
 var _bird_level := 0.0
+var _swim_level := 0.0
+
+## How much the rest of the valley is hushed while a child is in the water.
+## Standing in the river the wind and the leaves were exactly as loud as they
+## are in a meadow, so being in the water sounded like being beside it.
+const HUSHED_IN_WATER := 0.7
 
 func _init() -> void:
 	name = "Ambience"
@@ -65,6 +73,7 @@ func _init() -> void:
 	_water = _voice(_make_water())
 	_leaves = _voice(_make_leaves())
 	_birds = _voice(_make_birds())
+	_swimming = _voice(_make_swimming())
 
 func _voice(stream: AudioStreamWAV) -> AudioStreamPlayer:
 	var player := AudioStreamPlayer.new()
@@ -77,7 +86,8 @@ func _voice(stream: AudioStreamWAV) -> AudioStreamPlayer:
 
 ## Called every frame with where the player is and what is around them.
 func follow(
-	at: Vector3, field: HeightField, places: Places, darkness: float, delta: float
+	at: Vector3, field: HeightField, places: Places, darkness: float, delta: float,
+	in_water := 0.0
 ) -> void:
 	# Clamped, because `delta / FOLLOW` passes 1.0 on any frame longer than six
 	# tenths of a second — a chunk loading, a dam finishing — and an unclamped
@@ -115,6 +125,13 @@ func follow(
 		_water_level, 1.0 - smoothstep(4.0, WATER_REACH, to_water), weight
 	)
 
+	# In the water: the water itself, close and moving, and everything else
+	# hushed behind it. `in_water` is how deep the child is, from nothing on
+	# the bank to one when swimming.
+	var swimming := clampf(in_water, 0.0, 1.0)
+	_swim_level = lerpf(_swim_level, swimming, weight)
+	var hushed := 1.0 - _swim_level * HUSHED_IN_WATER
+
 	# Leaves: only where there are leaves. Rustling was mixed into the wind
 	# itself, so it followed a child out into an empty meadow and rustled there.
 	# It is its own voice now, and it falls away sharply with the trees.
@@ -124,12 +141,87 @@ func follow(
 	# Birds: daylight, and where there is something for them to sit in.
 	_bird_level = lerpf(_bird_level, (1.0 - darkness) * clampf(wooded * 1.6, 0.0, 1.0), weight)
 
-	# Quiet. All three were mixed by ear on a laptop and were far too loud on a
-	# tablet held at arm's length — the wind in particular drowned the game.
-	_apply(_wind, _wind_level, -36.0)
-	_apply(_leaves, _leaf_level, -34.0)
-	_apply(_water, _water_level, -28.0)
-	_apply(_birds, _bird_level, -40.0)
+	# Quiet. All of these were mixed by ear on a laptop and were far too loud
+	# on a tablet held at arm's length — the wind in particular drowned the
+	# game.
+	_apply(_wind, _wind_level * hushed, -36.0)
+	_apply(_leaves, _leaf_level * hushed, -34.0)
+	# The water heard from the bank gives way to the water you are in.
+	_apply(_water, _water_level * (1.0 - _swim_level * 0.5), -28.0)
+	_apply(_birds, _bird_level * hushed, -40.0)
+	_apply(_swimming, _swim_level, -22.0)
+
+## How loud each voice is right now, for the checks: nothing else can hear
+## the mix.
+func levels() -> Dictionary:
+	return {
+		"wind": _wind_level, "leaves": _leaf_level, "water": _water_level,
+		"birds": _bird_level, "swimming": _swim_level,
+		# How much of the meadow's own voices is let through while the child
+		# is in the water: one on the bank, less than half of it swimming.
+		"hush": 1.0 - _swim_level * HUSHED_IN_WATER,
+	}
+
+## Whether a voice is actually sounding. Also for the checks.
+func is_sounding(voice: String) -> bool:
+	match voice:
+		"wind":
+			return _wind.playing
+		"leaves":
+			return _leaves.playing
+		"water":
+			return _water.playing
+		"birds":
+			return _birds.playing
+		_:
+			return _swimming.playing
+
+## The sound of being in the water: a low, close wash with slow slaps in it,
+## the way water sounds around your ears rather than across a meadow. Darker
+## than the river's voice, which is bright because it is heard at a distance
+## and over stones.
+func _make_swimming() -> AudioStreamWAV:
+	var samples := int(RATE * LOOP_SECONDS)
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 313131
+
+	# The wash: noise run through two passes of smoothing, which takes the
+	# hiss off it and leaves the low rolling part.
+	var slow := 0.0
+	var slower := 0.0
+	for i in samples:
+		slow = lerpf(slow, noise.randf_range(-1.0, 1.0), 0.06)
+		slower = lerpf(slower, slow, 0.08)
+		# Breathing in and out over a few seconds, as water does around you.
+		var swell := 0.65 + 0.35 * sin(TAU * float(i) / float(samples) * 2.0)
+		values[i] = slower * 2.4 * swell
+
+	# Slaps: short soft knocks of water, a handful of times through the loop,
+	# each a burst of low noise that dies away.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 424242
+	var at := int(RATE * 0.3)
+	while at < samples - int(RATE * 0.4):
+		var length := int(RATE * rng.randf_range(0.10, 0.22))
+		var pitch := rng.randf_range(110.0, 230.0)
+		var carried := 0.0
+		for i in length:
+			var index := at + i
+			if index >= samples:
+				break
+			var fade := 1.0 - float(i) / float(length)
+			carried = lerpf(carried, rng.randf_range(-1.0, 1.0), 0.25)
+			var body := sin(TAU * pitch * float(i) / float(RATE)) * 0.6 + carried * 0.4
+			values[index] += body * fade * fade * 0.5
+		at += length + int(RATE * rng.randf_range(0.25, 0.8))
+
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 32767.0))
+	return _wrap(data)
 
 ## Below a whisper, a voice is stopped outright rather than left playing at a
 ## volume nobody can hear but the mixer still has to work on.

@@ -263,9 +263,13 @@ static func _tint(
 	# Meadow tint breaks up the green so the valley floor is not one flat colour.
 	color = color.lerp(TerrainSpec.COLOR_MEADOW, clampf((height - 1.0) / 14.0, 0.0, 1.0))
 
-	# A beach follows the water line wherever it goes.
-	var shore := 1.0 - smoothstep(0.05, 1.15, height - HeightField.WATER_LEVEL)
+	# A beach follows the water line wherever it goes — above it. Below it the
+	# ground is the bed of the water, and is silt.
+	var above := height - HeightField.WATER_LEVEL
+	var shore := 1.0 - smoothstep(0.05, 1.15, above)
 	color = color.lerp(TerrainSpec.COLOR_SAND, clampf(shore, 0.0, 1.0))
+	var under := 1.0 - smoothstep(-0.75, 0.1, above)
+	color = color.lerp(TerrainSpec.COLOR_SILT, clampf(under, 0.0, 1.0))
 
 	# Rock where nothing could root.
 	color = color.lerp(TerrainSpec.COLOR_ROCK, smoothstep(0.35, 0.75, steep))
