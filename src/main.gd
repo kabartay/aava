@@ -1093,8 +1093,11 @@ func _on_groves_changed(centres: Array) -> void:
 		return
 	if not _seen_first_grove:
 		_seen_first_grove = true
-		sounds.play(Sounds.Sound.CHIME)
-		hud.announce(Text.of("say_grove"), 5.0)
+		# On a returning visit this fires during the restore, before the HUD
+		# exists. The grove is old news then, and there is nobody to tell.
+		if hud != null:
+			sounds.play(Sounds.Sound.CHIME)
+			hud.announce(Text.of("say_grove"), 5.0)
 
 func _notification(what: int) -> void:
 	# Both of these arrive when the game is closing: the desktop window button,
