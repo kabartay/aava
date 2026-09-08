@@ -303,7 +303,17 @@ static func _tint(
 	# The steepness term is what keeps it honest: snow lies on shoulders and
 	# ridges, not on a cliff face, and a mountain white to its vertical walls
 	# looks like a cake rather than a mountain.
-	var snow := smoothstep(HeightField.TREELINE - 22.0, HeightField.TREELINE + 6.0, height) * (1.0 - smoothstep(0.98, 1.34, steep))
+	# Steepness is measured 0 to 1 (see HeightField.steepness_at), and the old
+	# band of 0.98 to 1.34 was almost entirely off that scale: the term was
+	# one nearly everywhere, so snow lay on vertical rock as readily as on a
+	# shoulder and the peaks read as white cake. On a real mountain snow
+	# holds on anything gentle and slides off anything steep, and that
+	# contrast between white shoulders and dark crags is most of what a
+	# mountain looks like.
+	var snow := (
+		smoothstep(HeightField.TREELINE - 30.0, HeightField.TREELINE + 2.0, height)
+		* (1.0 - smoothstep(0.42, 0.78, steep))
+	)
 	color = color.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
 
 	# Glaciers: ice gathers where it can lie, so this wants height *and*
@@ -311,8 +321,8 @@ static func _tint(
 	# Painted over the snow rather than instead of it, so a summit reads as
 	# white with blue ice in its hollows and shoulders.
 	var ice := (
-		smoothstep(HeightField.TREELINE + 14.0, HeightField.TREELINE + 60.0, height)
-		* (1.0 - smoothstep(0.30, 0.64, steep))
+		smoothstep(HeightField.TREELINE + 6.0, HeightField.TREELINE + 40.0, height)
+		* (1.0 - smoothstep(0.16, 0.38, steep))
 	)
 	color = color.lerp(TerrainSpec.COLOR_ICE, clampf(ice, 0.0, 1.0))
 

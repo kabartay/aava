@@ -32,7 +32,17 @@ const WIND_SHADER := """
 shader_type spatial;
 render_mode world_vertex_coords, cull_disabled, diffuse_lambert, specular_disabled;
 
-uniform float sway_strength = 0.22;
+// How far the top of the plant moves, in metres, and how tall the plant is:
+// the bend is a fraction of its own height rather than of how many metres
+// above its root a vertex happens to be.
+//
+// It used to be pow(height_above_root, stiffness) * strength, which for a
+// six-metre tree raised six to the power of 1.6 and multiplied: the crown
+// swung a metre and a half either way, some thirty degrees, and a wooden
+// trunk does not do that. Grass and trees share one shader, and only one of
+// them could be tuned right by that formula.
+uniform float sway_amplitude = 0.2;
+uniform float plant_height = 6.4;
 uniform float sway_speed = 1.3;
 uniform float stiffness = 1.6;
 uniform float gust_scale = 0.012;
@@ -50,8 +60,11 @@ void vertex() {
 	float gust = sin((origin.x + origin.z) * gust_scale + TIME * 0.27) * 0.5 + 0.75;
 	float t = TIME * sway_speed + phase;
 
-	// Bending grows with height above the root, so the base stays planted.
-	float bend = pow(local_height, stiffness) * sway_strength * gust;
+	// Bending grows towards the top of the plant, so the trunk stays put and
+	// only the crown moves — the higher the stiffness the more the movement
+	// is confined to the thin end.
+	float along = clamp(local_height / max(plant_height, 0.001), 0.0, 1.0);
+	float bend = pow(along, stiffness) * sway_amplitude * gust;
 	VERTEX.x += sin(t) * bend;
 	VERTEX.z += cos(t * 0.81) * bend * 0.7;
 }
@@ -105,15 +118,21 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 
 	_tree_material = ShaderMaterial.new()
 	_tree_material.shader = shader
-	_tree_material.set_shader_parameter("sway_strength", 0.055)
+	# A quarter of a metre at the crown of a six-metre tree: about two degrees,
+	# which is a tree in a breeze. Stiff, so the trunk itself is still.
+	_tree_material.set_shader_parameter("sway_amplitude", 0.26)
+	_tree_material.set_shader_parameter("plant_height", 6.4)
+	_tree_material.set_shader_parameter("stiffness", 2.6)
 	_tree_material.set_shader_parameter("sway_speed", 0.9)
-	_tree_material.set_shader_parameter("stiffness", 1.9)
 
 	_grass_material = ShaderMaterial.new()
 	_grass_material.shader = shader
-	_grass_material.set_shader_parameter("sway_strength", 1.9)
+	# Grass is all thin end: its tips move a good part of their own height,
+	# which is what makes a meadow read as moving at all.
+	_grass_material.set_shader_parameter("sway_amplitude", 0.12)
+	_grass_material.set_shader_parameter("plant_height", 0.3)
+	_grass_material.set_shader_parameter("stiffness", 1.3)
 	_grass_material.set_shader_parameter("sway_speed", 2.1)
-	_grass_material.set_shader_parameter("stiffness", 1.25)
 
 func follow(world_position: Vector3) -> void:
 	var tile := Vector2i(

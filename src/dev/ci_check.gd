@@ -64,6 +64,8 @@ func _initialize() -> void:
 	_check_a_dog_asks_for_a_stick()
 	_check_water_sounds_and_looks_like_water()
 	_check_every_wet_place_shows_water()
+	_check_the_wind_moves_only_the_crown()
+	_check_snow_lies_where_snow_lies()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -1332,6 +1334,72 @@ func _check_every_wet_place_shows_water() -> void:
 	_expect(field.height_at(river_x, 40.0) < HeightField.WATER_LEVEL - 1.0, "the river is still a river")
 	var pond := Vector3(Lakes.PONDS[0], 0.0, Lakes.PONDS[1])
 	_expect(field.height_at(pond.x, pond.z) < HeightField.WATER_LEVEL - 1.0, "and the pond is still a pond")
+
+## A tree bends at the crown, not at the trunk, and not by much.
+##
+## The bend was `pow(metres_above_the_root, stiffness)`, which for a
+## six-metre tree came to a metre and a half of swing — some thirty degrees,
+## reported from the phone as trees waving like grass. It is a fraction of
+## the plant's own height now, so the same shader can hold a tree still and
+## whip a blade of grass.
+func _check_the_wind_moves_only_the_crown() -> void:
+	print("the wind moves only the crown")
+	var forest := Vegetation.new(HeightField.new(20260903), 20260903)
+	get_root().add_child(forest)
+	for named: String in ["sway_amplitude", "plant_height", "stiffness", "sway_speed"]:
+		_expect(
+			forest._tree_material.get_shader_parameter(named) != null
+			and forest._grass_material.get_shader_parameter(named) != null,
+			"both trees and grass are told their %s" % named
+		)
+	var tree_amplitude := float(forest._tree_material.get_shader_parameter("sway_amplitude"))
+	var tree_height := float(forest._tree_material.get_shader_parameter("plant_height"))
+	var stiffness := float(forest._tree_material.get_shader_parameter("stiffness"))
+	var lean := rad_to_deg(atan2(tree_amplitude, tree_height))
+	_expect(lean < 5.0, "a tree's crown leans %.1f degrees at most, not thirty" % lean)
+	_expect(stiffness > 2.0, "and the bend is confined to the thin end (stiffness %.1f)" % stiffness)
+	# Half way up the tree, the same formula must give far less than at the top.
+	var half := pow(0.5, stiffness) * tree_amplitude
+	_expect(half < tree_amplitude * 0.25, "half way up it moves %.0f%% as far" % (half / tree_amplitude * 100.0))
+	# Grass, by contrast, moves a real fraction of its own height.
+	var grass_amplitude := float(forest._grass_material.get_shader_parameter("sway_amplitude"))
+	var grass_height := float(forest._grass_material.get_shader_parameter("plant_height"))
+	_expect(grass_amplitude / grass_height > 0.2, "grass still whips (%.0f%% of its height)" % (grass_amplitude / grass_height * 100.0))
+	_expect(tree_amplitude / tree_height < grass_amplitude / grass_height * 0.3, "and moves far more, for its size, than a tree")
+	forest.queue_free()
+
+## Snow lies on gentle ground high up and slides off cliffs. The steepness
+## term used to be measured against a scale steepness never reaches, so it
+## was one everywhere and the mountains were white to their vertical walls.
+func _check_snow_lies_where_snow_lies() -> void:
+	print("snow lies where snow lies")
+	var field := HeightField.new(20260903)
+	var high := HeightField.TREELINE + 30.0
+	var gentle := _snow_in(field, high, 0.1)
+	var cliff := _snow_in(field, high, 0.9)
+	var valley := _snow_in(field, 20.0, 0.1)
+	# High and gentle is white — snow, and above it the blue of glacier ice,
+	# which is a shade darker than snow and still nothing like rock.
+	_expect(gentle > 0.7, "a high shoulder is white with snow and ice (%.2f)" % gentle)
+	_expect(_snow_in(field, HeightField.TREELINE + 8.0, 0.1) > 0.85, "just above the treeline it is snow, before the ice starts")
+	_expect(cliff < 0.15, "a high cliff face is bare rock (%.2f)" % cliff)
+	_expect(valley < 0.02, "and the valley floor never is (%.2f)" % valley)
+	# The treeline is where snow starts, not somewhere in the middle of the
+	# forest: trees stop at TREELINE and snow must not be under them.
+	_expect(_snow_in(field, HeightField.TREELINE - 40.0, 0.1) < 0.05, "no snow lies below the treeline")
+
+## How white the ground comes out at a height and steepness, as a fraction.
+##
+## Measured as how pale its *darkest* channel is: snow and ice are pale in
+## all three, while grass and rock have a dark one apiece. Projecting onto
+## the rock-to-snow line instead reported the valley's green as an eighth
+## snow, because green is not on that line at all.
+func _snow_in(field: HeightField, height: float, steep: float) -> float:
+	var colour := TerrainChunk._tint(field, 4000.0, 4000.0, height, steep, false, false, false)
+	var palest := minf(colour.r, minf(colour.g, colour.b))
+	var rock := minf(TerrainSpec.COLOR_ROCK.r, minf(TerrainSpec.COLOR_ROCK.g, TerrainSpec.COLOR_ROCK.b))
+	var snow := minf(TerrainSpec.COLOR_SNOW.r, minf(TerrainSpec.COLOR_SNOW.g, TerrainSpec.COLOR_SNOW.b))
+	return clampf((palest - rock) / (snow - rock), 0.0, 1.0)
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

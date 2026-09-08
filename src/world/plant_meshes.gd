@@ -18,66 +18,129 @@ const LEAF_LIGHT := Color(0.36, 0.58, 0.24)
 const GRASS_BASE := Color(0.24, 0.40, 0.18)
 const GRASS_TIP := Color(0.55, 0.72, 0.32)
 
-## A conifer: straight trunk, two stacked cones. Reads clearly at any distance,
-## which is what a tree seen across a valley has to do.
-static func conifer(height := 6.0) -> ArrayMesh:
+## A conifer: a trunk that tapers the whole way up, four skirts of branches
+## that shorten towards the top, and a leader above them.
+##
+## It was two stacked cones on a stump, which reads as a tree at two hundred
+## metres and as a paper hat at five. Four tiers give the silhouette the
+## stepped edge a spruce has, and the colours run darker at the bottom, where
+## a real one is in its own shade.
+static func conifer(height := 6.0, seed_value := 0) -> ArrayMesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
 
 	var trunk := CylinderMesh.new()
-	trunk.top_radius = height * 0.026
-	trunk.bottom_radius = height * 0.045
-	trunk.height = height * 0.42
+	trunk.top_radius = height * 0.012
+	trunk.bottom_radius = height * 0.05
+	trunk.height = height * 0.92
 	trunk.radial_segments = 6
 	trunk.rings = 1
-	_append(tool, trunk, Transform3D(Basis(), Vector3(0.0, height * 0.21, 0.0)), TRUNK_COLOR)
+	_append(tool, trunk, Transform3D(Basis(), Vector3(0.0, height * 0.46, 0.0)), TRUNK_COLOR)
+	# The flare where the trunk meets the ground: a tree grows out of the
+	# earth rather than being pushed into it.
+	var flare := CylinderMesh.new()
+	flare.top_radius = height * 0.05
+	flare.bottom_radius = height * 0.09
+	flare.height = height * 0.08
+	flare.radial_segments = 6
+	flare.rings = 1
+	_append(tool, flare, Transform3D(Basis(), Vector3(0.0, height * 0.04, 0.0)), TRUNK_COLOR.darkened(0.15))
 
-	var lower := CylinderMesh.new()
-	lower.top_radius = 0.0
-	lower.bottom_radius = height * 0.24
-	lower.height = height * 0.46
-	lower.radial_segments = 7
-	lower.rings = 1
-	_append(tool, lower, Transform3D(Basis(), Vector3(0.0, height * 0.56, 0.0)), LEAF_DARK)
-
-	var upper := CylinderMesh.new()
-	upper.top_radius = 0.0
-	upper.bottom_radius = height * 0.16
-	upper.height = height * 0.38
-	upper.radial_segments = 7
-	upper.rings = 1
-	_append(tool, upper, Transform3D(Basis(), Vector3(0.0, height * 0.81, 0.0)), LEAF_LIGHT)
+	# Four skirts, each narrower and shorter than the one below it, each
+	# turned a little so the edges do not line up into a ridge.
+	var tiers := 4
+	for i in tiers:
+		var t := float(i) / float(tiers - 1)
+		var skirt := CylinderMesh.new()
+		skirt.top_radius = height * lerpf(0.10, 0.02, t)
+		skirt.bottom_radius = height * lerpf(0.27, 0.10, t)
+		skirt.height = height * lerpf(0.30, 0.20, t)
+		skirt.radial_segments = 8
+		skirt.rings = 1
+		var at := height * lerpf(0.34, 0.84, t)
+		_append(
+			tool, skirt,
+			Transform3D(
+				Basis(Vector3.UP, rng.randf_range(0.0, TAU)),
+				Vector3(rng.randf_range(-0.02, 0.02) * height, at, rng.randf_range(-0.02, 0.02) * height)
+			),
+			LEAF_DARK.lerp(LEAF_LIGHT, t * 0.8)
+		)
+	# The leader: the thin spire a spruce ends in.
+	var leader := CylinderMesh.new()
+	leader.top_radius = 0.0
+	leader.bottom_radius = height * 0.06
+	leader.height = height * 0.22
+	leader.radial_segments = 6
+	leader.rings = 1
+	_append(tool, leader, Transform3D(Basis(), Vector3(0.0, height * 1.0, 0.0)), LEAF_LIGHT)
 
 	tool.generate_normals()
 	return tool.commit()
 
-## A broadleaf: shorter trunk, one rounded crown. Present so a forest is not one
-## shape repeated, which is the thing that makes procedural planting look fake.
-static func broadleaf(height := 5.0) -> ArrayMesh:
+## A broadleaf: a trunk that forks into two limbs, and a crown of four
+## overlapping masses of leaf rather than one ball.
+##
+## One sphere on a stick is a lollipop. What makes a broadleaf read is that
+## its crown has lumps and gaps in it and is not centred on the trunk.
+static func broadleaf(height := 5.0, seed_value := 0) -> ArrayMesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value + 977
 
 	var trunk := CylinderMesh.new()
-	trunk.top_radius = height * 0.04
-	trunk.bottom_radius = height * 0.06
-	trunk.height = height * 0.5
+	trunk.top_radius = height * 0.035
+	trunk.bottom_radius = height * 0.07
+	trunk.height = height * 0.52
 	trunk.radial_segments = 6
 	trunk.rings = 1
-	_append(tool, trunk, Transform3D(Basis(), Vector3(0.0, height * 0.25, 0.0)), TRUNK_COLOR)
+	_append(tool, trunk, Transform3D(Basis(), Vector3(0.0, height * 0.26, 0.0)), TRUNK_COLOR)
+	var flare := CylinderMesh.new()
+	flare.top_radius = height * 0.07
+	flare.bottom_radius = height * 0.12
+	flare.height = height * 0.08
+	flare.radial_segments = 6
+	flare.rings = 1
+	_append(tool, flare, Transform3D(Basis(), Vector3(0.0, height * 0.04, 0.0)), TRUNK_COLOR.darkened(0.15))
 
-	var crown := SphereMesh.new()
-	crown.radius = height * 0.30
-	crown.height = height * 0.52
-	crown.radial_segments = 9
-	crown.rings = 5
-	_append(tool, crown, Transform3D(Basis(), Vector3(0.0, height * 0.72, 0.0)), LEAF_DARK)
+	# Two limbs out of the fork, leaning opposite ways into the crown.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var limb := CylinderMesh.new()
+		limb.top_radius = height * 0.018
+		limb.bottom_radius = height * 0.035
+		limb.height = height * 0.34
+		limb.radial_segments = 5
+		limb.rings = 1
+		var lean := deg_to_rad(side * rng.randf_range(20.0, 32.0))
+		_append(
+			tool, limb,
+			Transform3D(Basis(Vector3.FORWARD, lean), Vector3(side * height * 0.06, height * 0.66, 0.0)),
+			TRUNK_COLOR
+		)
 
-	var highlight := SphereMesh.new()
-	highlight.radius = height * 0.22
-	highlight.height = height * 0.34
-	highlight.radial_segments = 8
-	highlight.rings = 4
-	_append(tool, highlight, Transform3D(Basis(), Vector3(height * 0.08, height * 0.86, -height * 0.06)), LEAF_LIGHT)
+	# The crown: four masses, the biggest low and off to one side.
+	var lumps := 4
+	for i in lumps:
+		var mass := SphereMesh.new()
+		var size := height * lerpf(0.27, 0.17, float(i) / float(lumps - 1))
+		mass.radius = size
+		mass.height = size * 1.7
+		mass.radial_segments = 9
+		mass.rings = 5
+		var angle := TAU * float(i) / float(lumps) + rng.randf_range(-0.4, 0.4)
+		var out := height * rng.randf_range(0.08, 0.17)
+		_append(
+			tool, mass,
+			Transform3D(Basis(), Vector3(
+				cos(angle) * out,
+				height * lerpf(0.74, 0.94, float(i) / float(lumps - 1)),
+				sin(angle) * out
+			)),
+			LEAF_DARK.lerp(LEAF_LIGHT, rng.randf_range(0.1, 0.9))
+		)
 
 	tool.generate_normals()
 	return tool.commit()
