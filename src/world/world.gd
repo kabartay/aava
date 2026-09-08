@@ -15,6 +15,7 @@ var field: HeightField
 var terrain: Terrain
 var vegetation: Vegetation
 var tree_collision: TreeCollision
+var animal_collision: AnimalCollision
 var pickups: Pickups
 var boulders: Boulders
 var animals: Animals
@@ -91,6 +92,12 @@ func _ready() -> void:
 	animals.obstacles = places
 	add_child(animals)
 
+	# The animals are drawn nodes with no collision of their own; this lends a
+	# few bodies to whichever are nearest, so a child bumps into the dog
+	# rather than walking through it.
+	animal_collision = AnimalCollision.new(animals)
+	add_child(animal_collision)
+
 	football = FootballGround.new(field)
 	football.name = "Football"
 	add_child(football)
@@ -153,6 +160,7 @@ func follow(world_position: Vector3) -> void:
 	PerfLog.note("pickups+boulders", stamp)
 	stamp = PerfLog.stamp()
 	animals.follow(world_position)
+	animal_collision.follow(world_position)
 	PerfLog.note("animals follow", stamp)
 	stamp = PerfLog.stamp()
 	water.follow(world_position)

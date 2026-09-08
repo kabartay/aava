@@ -150,8 +150,8 @@ func _play(kind: StringName, at: Vector3, pitch: float) -> void:
 ## Called every frame with the creatures near the player. One of them speaks
 ## when the wait runs out, chosen at random from those close enough to be worth
 ## hearing.
-func watch(near: Array[Dictionary], listener: Vector3, delta: float, stick_in_hand := false) -> void:
-	_beg(near, listener, delta, stick_in_hand)
+func watch(near: Array[Dictionary], listener: Vector3, delta: float) -> void:
+	_beg(near, listener, delta)
 	_wait -= delta
 	if _wait > 0.0:
 		return
@@ -190,14 +190,19 @@ const BEG_GAP_MAX := 8.5
 
 var _beg_wait := 0.0
 
-## A dog that sees the stick in a child's hand asks for it: a bark every few
-## seconds while the child is near and holding one, until it is given — a
-## dog just given a stick (its cooldown running) is quiet. Requested from the
-## phone: a dog that wants something should say so.
-func _beg(near: Array[Dictionary], listener: Vector3, delta: float, stick_in_hand: bool) -> void:
+## A dog near a child asks for its stick: a bark every few seconds until it
+## has been given one, then quiet while it is happy.
+##
+## It used to ask only while the child was already carrying a stick, which is
+## backwards — the asking is what sends a child to look for one — and meant a
+## dog walked up to with an empty bag said nothing at all. What stops it is
+## having been given something: a fed animal's cooldown is running.
+##
+## Returns whether it barked, so a check can watch for it.
+func _beg(near: Array[Dictionary], listener: Vector3, delta: float) -> bool:
 	_beg_wait -= delta
-	if _beg_wait > 0.0 or not stick_in_hand:
-		return
+	if _beg_wait > 0.0:
+		return false
 	for animal in near:
 		if animal["kind"] != &"dog" or float(animal.get("cooldown", 0.0)) > 0.0:
 			continue
@@ -211,8 +216,9 @@ func _beg(near: Array[Dictionary], listener: Vector3, delta: float, stick_in_han
 		# telling off.
 		_play(&"dog", at, _rng.randf_range(1.12, 1.26))
 		_beg_wait = _rng.randf_range(BEG_GAP_MIN, BEG_GAP_MAX)
-		return
+		return true
 	_beg_wait = 0.5
+	return false
 
 ## A bark: a burst of noise with a hard attack and a falling pitch, twice.
 func _bark() -> AudioStreamWAV:

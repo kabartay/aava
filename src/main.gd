@@ -359,8 +359,7 @@ func _process(delta: float) -> void:
 	# actually is. Never on a loop: a dog barking on a loop is wallpaper.
 	animal_voices.watch(
 		world.animals.living_near(player.global_position, AnimalVoices.AUDIBLE),
-		player.global_position, delta,
-		inventory.count(ItemKinds.STICK) > 0
+		player.global_position, delta
 	)
 
 	# Energy follows what the player actually did this frame, and gates running

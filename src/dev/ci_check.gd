@@ -60,6 +60,8 @@ func _initialize() -> void:
 	_check_the_pool_takes_a_ticket()
 	_check_getting_off_a_mount_is_safe()
 	_check_swimming_looks_like_swimming()
+	_check_animals_are_solid()
+	_check_a_dog_asks_for_a_stick()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -1132,6 +1134,87 @@ func _check_swimming_looks_like_swimming() -> void:
 		player._settle_in_water(1.0 / 60.0)
 	_expect(player.swim_sink() < 0.02 and player.swim_lean() < 0.02, "and stands up again on dry land")
 	player.queue_free()
+
+## A child walked straight through the dog. The animals are drawn nodes with
+## no collision, so a few bodies follow whichever are nearest — the same
+## answer as the forest's.
+func _check_animals_are_solid() -> void:
+	print("animals are solid")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var solid := AnimalCollision.new(animals)
+	get_root().add_child(solid)
+	_expect(solid.solid_count() == 0, "nothing is solid before the child is anywhere")
+	_expect(solid._bodies.size() == AnimalCollision.BODIES, "%d bodies wait to be lent out" % AnimalCollision.BODIES)
+	_expect(solid._bodies[0].collision_layer == TerrainSpec.LAYER_PROPS, "on the props layer, which the player collides with and the camera does not")
+
+	# Three animals in a row, the middle one nearest.
+	var here := Vector3(0.0, 0.0, 0.0)
+	var made: Array[Dictionary] = []
+	for i in 3:
+		var node := AnimalKinds.build_node(AnimalKinds.DOG)
+		animals.add_child(node)
+		node.position = Vector3(float(i) * 3.0 - 3.0, 0.0, 0.0)
+		made.append({"kind": AnimalKinds.DOG, "node": node})
+	solid.follow(here)
+	solid.set_animals(made)
+	_expect(solid.solid_count() == 3, "three animals nearby are three solid bodies")
+	var nearest_body: StaticBody3D = solid._bodies[0]
+	_expect(
+		Vector2(nearest_body.position.x, nearest_body.position.z).length() < 0.01,
+		"the nearest animal gets the first body"
+	)
+	var girth: CapsuleShape3D = solid._shapes[0]
+	_expect(
+		girth.radius > 0.2 and girth.height > girth.radius * 2.0,
+		"whose shape is the size of a dog (%.2f m across, %.2f m tall)" % [girth.radius * 2.0, girth.height]
+	)
+	_expect(nearest_body.position.y > 0.1, "standing on the ground rather than sunk into it")
+	solid.set_animals([] as Array[Dictionary])
+	_expect(solid.solid_count() == 0, "and they are free again when the animals wander off")
+	solid.queue_free()
+	animals.queue_free()
+
+## A dog asks for a stick until it is given one. It used to ask only while
+## the child already carried a stick, which is backwards: the asking is what
+## sends a child to look for one.
+func _check_a_dog_asks_for_a_stick() -> void:
+	print("a dog asks for a stick")
+	var voices := AnimalVoices.new()
+	get_root().add_child(voices)
+	voices.bake_now()
+	var node := Node3D.new()
+	get_root().add_child(node)
+	node.position = Vector3(2.0, 0.0, 0.0)
+	var dog := {"kind": &"dog", "node": node, "cooldown": 0.0}
+	var near: Array[Dictionary] = [dog]
+
+	var barks := 0
+	for _frame in 600:
+		if voices._beg(near, Vector3.ZERO, 1.0 / 60.0):
+			barks += 1
+	_expect(barks > 0, "a dog beside an empty-handed child asks for one (%d times in ten seconds)" % barks)
+	_expect(barks < 6, "and not more often than every few seconds")
+
+	# Given something, it is quiet.
+	dog["cooldown"] = 30.0
+	var after := 0
+	for _frame in 600:
+		if voices._beg(near, Vector3.ZERO, 1.0 / 60.0):
+			after += 1
+	_expect(after == 0, "once it has been given something it is quiet")
+
+	# And a dog across the meadow is not heard asking.
+	dog["cooldown"] = 0.0
+	node.position = Vector3(40.0, 0.0, 0.0)
+	var far := 0
+	for _frame in 600:
+		if voices._beg(near, Vector3.ZERO, 1.0 / 60.0):
+			far += 1
+	_expect(far == 0, "nor is one across the meadow")
+	node.queue_free()
+	voices.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
