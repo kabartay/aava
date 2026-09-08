@@ -16,6 +16,7 @@ var terrain: Terrain
 var vegetation: Vegetation
 var tree_collision: TreeCollision
 var animal_collision: AnimalCollision
+var distant_land: DistantLand
 var pickups: Pickups
 var boulders: Boulders
 var animals: Animals
@@ -45,6 +46,11 @@ func _ready() -> void:
 	vegetation = Vegetation.new(field, world_seed)
 	vegetation.name = "Vegetation"
 	add_child(vegetation)
+
+	# Beyond where chunks are streamed there was nothing but sky. This is the
+	# rest of the valley, out to the far mountains, in one coarse mesh.
+	distant_land = DistantLand.new(field)
+	add_child(distant_land)
 
 	# The forest is drawn as instances, which have no collision at all. This
 	# lends a handful of trunk-shaped bodies to whichever trees are nearest, so
@@ -147,6 +153,7 @@ func follow(world_position: Vector3) -> void:
 	# a hitch on the phone is otherwise a number with no cause attached.
 	var stamp := PerfLog.stamp()
 	terrain.follow(world_position)
+	distant_land.follow(world_position)
 	PerfLog.note("terrain follow", stamp)
 	stamp = PerfLog.stamp()
 	vegetation.follow(world_position)

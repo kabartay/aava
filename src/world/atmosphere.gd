@@ -56,8 +56,12 @@ func _init() -> void:
 	# instead of as a wall standing right behind the trees.
 	_environment.fog_enabled = true
 	_environment.fog_mode = Environment.FOG_MODE_DEPTH
-	_environment.fog_depth_begin = 140.0
-	_environment.fog_depth_end = 1600.0
+	# The far country reaches two kilometres now, so the air has to as well:
+	# fog that ended at 1,600 m turned the mountains behind it into a flat
+	# wall of sky colour, which is what "you can see a band of water and then
+	# nothing" looked like from a hilltop.
+	_environment.fog_depth_begin = 220.0
+	_environment.fog_depth_end = 2600.0
 	_environment.fog_depth_curve = 1.35
 	_environment.fog_density = 1.0
 	# A little fog on the sky as well, or the fogged terrain meets an unfogged

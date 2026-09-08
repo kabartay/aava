@@ -66,6 +66,7 @@ func _initialize() -> void:
 	_check_every_wet_place_shows_water()
 	_check_the_wind_moves_only_the_crown()
 	_check_snow_lies_where_snow_lies()
+	_check_the_far_country_is_there()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -1400,6 +1401,65 @@ func _snow_in(field: HeightField, height: float, steep: float) -> float:
 	var rock := minf(TerrainSpec.COLOR_ROCK.r, minf(TerrainSpec.COLOR_ROCK.g, TerrainSpec.COLOR_ROCK.b))
 	var snow := minf(TerrainSpec.COLOR_SNOW.r, minf(TerrainSpec.COLOR_SNOW.g, TerrainSpec.COLOR_SNOW.b))
 	return clampf((palest - rock) / (snow - rock), 0.0, 1.0)
+
+## From a hilltop a child must see a valley, not the edge of what is
+## streamed. The ground is built in chunks out to nine of them — a little
+## under six hundred metres — and past that there was sky. One coarse ring
+## carries the rest of the way to the mountains in a single draw call.
+func _check_the_far_country_is_there() -> void:
+	print("the far country is there")
+	var field := HeightField.new(20260903)
+	var far := DistantLand.new(field)
+	get_root().add_child(far)
+	_expect(not far.is_drawn(), "nothing is drawn before anyone is anywhere")
+
+	var streamed: int = TerrainSpec.RINGS[TerrainSpec.RINGS.size() - 1]["radius"] * TerrainSpec.CHUNK_SIZE
+	_expect(
+		DistantLand.INNER < float(streamed),
+		"the ring starts at %d m, inside the %d m the chunks reach, so no sky shows between them" % [int(DistantLand.INNER), streamed]
+	)
+	_expect(DistantLand.OUTER > 1500.0, "and reaches %d m out" % int(DistantLand.OUTER))
+
+	far.follow(Vector3.ZERO)
+	far.wait_for_it()
+	_expect(far.is_drawn(), "it is drawn once the bake comes back")
+	var triangles := far.triangle_count()
+	_expect(triangles > 2000, "%d triangles of far country" % triangles)
+	_expect(triangles < 40000, "and few enough to be worth one draw call")
+
+	# It must agree with the ground it stands beyond: a point just outside the
+	# ring's inner edge is at the same height in both.
+	var probe := Vector3(DistantLand.INNER + DistantLand.STEP * 2.0, 0.0, 0.0)
+	var mesh_height := _height_in_mesh(far, probe)
+	_expect(
+		absf(mesh_height - field.height_at(probe.x, probe.z)) < 6.0,
+		"and stands at the same height as the ground it continues (%.1f m against %.1f m)" % [
+			mesh_height, field.height_at(probe.x, probe.z)
+		]
+	)
+
+	# Walking a little does not rebuild it; walking far does.
+	var built_at := far._built_at
+	far.follow(Vector3(20.0, 0.0, 0.0))
+	_expect(far._built_at == built_at and far._task < 0, "a few steps do not rebuild it")
+	far.follow(Vector3(DistantLand.REBUILD_AFTER + 50.0, 0.0, 0.0))
+	_expect(far._task >= 0 or far._built_at != built_at, "walking far enough does")
+	far.wait_for_it()
+	far.queue_free()
+
+## The height of the nearest vertex of a mesh to a point, in world terms.
+func _height_in_mesh(far: DistantLand, at: Vector3) -> float:
+	var vertices: PackedVector3Array = far._mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var origin: Vector3 = far._mesh.position
+	var best := 0.0
+	var nearest := 1e9
+	for vertex in vertices:
+		var world := vertex + origin
+		var flat := Vector2(world.x - at.x, world.z - at.z).length_squared()
+		if flat < nearest:
+			nearest = flat
+			best = world.y
+	return best
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
