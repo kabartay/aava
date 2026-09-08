@@ -39,6 +39,19 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 
 	var node := MeshInstance3D.new()
 	node.mesh = MountKinds.build_mesh(kind)
+	# Solid while it stands. The horse could be walked through, which from
+	# the phone read as the horse not being there.
+	var body := StaticBody3D.new()
+	body.name = "Solid"
+	body.collision_layer = TerrainSpec.LAYER_PROPS
+	var box: Array = MountKinds.body_box(kind)
+	var shape := BoxShape3D.new()
+	shape.size = box[0]
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	collider.position = Vector3(0.0, float(box[1]), 0.0)
+	body.add_child(collider)
+	node.add_child(body)
 	add_child(node)
 	var grounded := at
 	grounded.y = _rest_height(kind, at)
@@ -114,6 +127,7 @@ func mount(kind: StringName) -> bool:
 	if riding != &"" or not exists(kind):
 		return false
 	riding = kind
+	_set_solid(kind, false)
 	# The mount stays visible and is carried along under the child. Hiding it
 	# was the first version, on the reasoning that the player "becomes" the
 	# horse — but the child's own body is still drawn, so what a rider actually
@@ -149,8 +163,25 @@ func dismount(at: Vector3) -> StringName:
 		spot.y = _rest_height(kind, at)
 		node.global_position = spot
 		_positions[kind] = spot
+	_set_solid(kind, true)
 	dismounted.emit(kind)
 	return kind
+
+## Whether a standing mount stops the child. Off while it is ridden, or the
+## collider carried under the child would shove them along.
+func _set_solid(kind: StringName, solid: bool) -> void:
+	if not exists(kind):
+		return
+	var body := (_nodes[kind] as Node3D).get_node_or_null("Solid") as StaticBody3D
+	if body != null:
+		body.collision_layer = TerrainSpec.LAYER_PROPS if solid else 0
+
+## Is this mount solid right now? For the checks.
+func is_solid(kind: StringName) -> bool:
+	if not exists(kind):
+		return false
+	var body := (_nodes[kind] as Node3D).get_node_or_null("Solid") as StaticBody3D
+	return body != null and body.collision_layer != 0
 
 ## Whether the ground here can be ridden over on the current mount. A bicycle
 ## refuses a steep hill and deep water; a horse takes both; a boat wants

@@ -2129,7 +2129,9 @@ func _check_riding() -> void:
 	_expect(mounts.nearest(spot) == MountKinds.HORSE, "a horse two metres away is within reach")
 	_expect(mounts.nearest(spot + Vector3(40.0, 0.0, 0.0)) == &"", "one forty metres away is not")
 
+	_expect(mounts.is_solid(MountKinds.HORSE), "a standing horse is solid: a child bumps into it rather than through it")
 	_expect(mounts.mount(MountKinds.HORSE), "it can be mounted")
+	_expect(not mounts.is_solid(MountKinds.HORSE), "and stops being solid while ridden, or it would shove its rider")
 	_expect(mounts.riding == MountKinds.HORSE, "and the game knows what is being ridden")
 	_expect(not mounts.mount(MountKinds.HORSE), "it cannot be mounted twice")
 	_expect(mounts.nearest(spot) == &"", "nothing else is offered while riding")
@@ -2139,6 +2141,7 @@ func _check_riding() -> void:
 	var elsewhere := spot + Vector3(30.0, 0.0, -18.0)
 	_expect(mounts.dismount(elsewhere) == MountKinds.HORSE, "it can be dismounted")
 	_expect(mounts.riding == &"", "and riding stops")
+	_expect(mounts.is_solid(MountKinds.HORSE), "and it is solid again where it stands")
 	var left_at := mounts.position_of(MountKinds.HORSE)
 	_expect(
 		absf(left_at.x - elsewhere.x) < 0.01 and absf(left_at.z - elsewhere.z) < 0.01,

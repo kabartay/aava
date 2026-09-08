@@ -48,6 +48,18 @@ const BOAT_COLOURS: Array[Color] = [
 const BOAT_DRAFT := 0.3
 const BOAT_SEAT := 0.25
 
+## The box a standing mount takes up, as (size, centre height): what a child
+## bumps into instead of walking through it. Only while it stands — a mount
+## being ridden is carried under the child and must not push them.
+static func body_box(kind: StringName) -> Array:
+	match kind_of(kind):
+		HORSE:
+			return [Vector3(0.9, 2.1, 2.9), 1.15]
+		BOAT:
+			return [Vector3(1.4, 0.55, 3.5), 0.05]
+		_:
+			return [Vector3(0.5, 1.0, 1.9), 0.55]
+
 const INFO := {
 	HORSE: {
 		# Fast, but the real reason to ride one is that it fords the river and
@@ -57,7 +69,9 @@ const INFO := {
 		"max_slope": 0.62,
 		"fords": true,
 		"floats": false,
-		"eye": 1.26,
+		# Up to the saddle: the child's feet at the stirrups, body above the
+		# horse's back. At 1.26 the rider was inside the horse to the neck.
+		"eye": 2.1,
 		"colour": Color(0.42, 0.29, 0.20),
 	},
 	BICYCLE: {
@@ -146,22 +160,30 @@ static func _horse(tool: SurfaceTool) -> void:
 	var body := SphereMesh.new()
 	body.radius = 0.52 * s
 	body.height = 1.0 * s
-	body.radial_segments = 10
-	body.rings = 6
+	body.radial_segments = 14
+	body.rings = 8
 	_add(tool, body, Transform3D(
 		Basis().scaled(Vector3(1.0, 0.92, 1.75)), Vector3(0.0, 1.32 * s, 0.0)
 	), hide)
 	var chest := SphereMesh.new()
 	chest.radius = 0.42 * s
 	chest.height = 0.84 * s
-	chest.radial_segments = 8
-	chest.rings = 5
+	chest.radial_segments = 12
+	chest.rings = 7
 	_add(tool, chest, Transform3D(Basis().scaled(Vector3(1.0, 1.05, 1.0)), Vector3(0.0, 1.26 * s, -0.74 * s)), hide)
+	# The shoulder, where the neck meets the body, so the neck grows out of
+	# the horse instead of being stuck onto it.
+	var shoulder := SphereMesh.new()
+	shoulder.radius = 0.34 * s
+	shoulder.height = 0.68 * s
+	shoulder.radial_segments = 10
+	shoulder.rings = 6
+	_add(tool, shoulder, Transform3D(Basis(), Vector3(0.0, 1.56 * s, -0.62 * s)), hide)
 	var rump := SphereMesh.new()
 	rump.radius = 0.44 * s
 	rump.height = 0.88 * s
-	rump.radial_segments = 8
-	rump.rings = 5
+	rump.radial_segments = 12
+	rump.rings = 7
 	_add(tool, rump, Transform3D(Basis(), Vector3(0.0, 1.36 * s, 0.72 * s)), hide)
 
 	# The neck rises forward; without it a horse is a barrel with a ball on it.
@@ -187,6 +209,40 @@ static func _horse(tool: SurfaceTool) -> void:
 	muzzle.radial_segments = 8
 	muzzle.rings = 4
 	_add(tool, muzzle, Transform3D(Basis(), Vector3(0.0, 2.02 * s, -1.42 * s)), hide.lightened(0.12))
+	# The bridle: a noseband round the muzzle, a strap up each cheek to
+	# behind the ears, and reins running back to the saddle. A saddled horse
+	# with nothing on its head looked half-dressed.
+	var noseband := TorusMesh.new()
+	noseband.inner_radius = 0.13 * s
+	noseband.outer_radius = 0.16 * s
+	noseband.rings = 6
+	noseband.ring_segments = 10
+	_add(tool, noseband, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.0, 2.03 * s, -1.34 * s)), leather)
+	var brow := TorusMesh.new()
+	brow.inner_radius = 0.2 * s
+	brow.outer_radius = 0.23 * s
+	brow.rings = 6
+	brow.ring_segments = 10
+	_add(tool, brow, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.0, 2.14 * s, -1.02 * s)), leather)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var cheek := BoxMesh.new()
+		cheek.size = Vector3(0.02 * s, 0.03 * s, 0.34 * s)
+		_add(tool, cheek, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-12.0)), Vector3(side * 0.2 * s, 2.1 * s, -1.18 * s)), leather)
+		# A rein from the bit back to the pommel: a thin cylinder laid along
+		# the line between them.
+		var bit := Vector3(side * 0.16 * s, 2.0 * s, -1.36 * s)
+		var pommel_at := Vector3(side * 0.06 * s, 2.0 * s, -0.2 * s)
+		var run := pommel_at - bit
+		var rein := CylinderMesh.new()
+		rein.top_radius = 0.012 * s
+		rein.bottom_radius = 0.012 * s
+		rein.height = run.length()
+		rein.radial_segments = 4
+		rein.rings = 1
+		_add(tool, rein, Transform3D(
+			Basis.looking_at(run.normalized(), Vector3.UP) * Basis(Vector3.RIGHT, PI * 0.5),
+			bit + run * 0.5 + Vector3(0.0, -0.06 * s, 0.0)
+		), leather)
 	var blaze := BoxMesh.new()
 	blaze.size = Vector3(0.07 * s, 0.3 * s, 0.02 * s)
 	_add(tool, blaze, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-20.0)), Vector3(0.0, 2.15 * s, -1.33 * s)), pale)
