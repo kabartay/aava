@@ -40,6 +40,7 @@ var visitors: Visitors
 var voice: Voice
 var ambience: Ambience
 var animal_voices: AnimalVoices
+var kick_preview: KickPreview
 var today: Today
 var lantern: Lantern
 
@@ -183,6 +184,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 
 	ambience = Ambience.new()
 	add_child(ambience)
+	kick_preview = KickPreview.new()
+	add_child(kick_preview)
 	animal_voices = AnimalVoices.new()
 	add_child(animal_voices)
 
@@ -479,10 +482,13 @@ func _process(delta: float) -> void:
 		if ball == null:
 			player.release_charge()
 			hud.set_kick_preview(false, 0.0, 0.0)
+			kick_preview.hide_path()
 		else:
 			hud.set_kick_preview(true, player.kick_charge, camera_rig.aim_height())
+			_show_where_it_goes(ball)
 	else:
 		hud.set_kick_preview(false, 0.0, 0.0)
+		kick_preview.hide_path()
 
 	_autosave -= delta
 	if _autosave <= 0.0:
@@ -1060,6 +1066,25 @@ func _on_kick_release() -> void:
 		maxf(strength, 0.12),
 		camera_rig.aim_height()
 	)
+
+## While the kick button is held, a faint dotted arc in the air from the ball
+## to where it will land — the same arithmetic the kick and the throw use, so
+## it is not a guess. Which way a kick went and how far was the question
+## asked most from the phone; this answers it before the foot moves.
+func _show_where_it_goes(ball: Ball) -> void:
+	var velocity: Vector3
+	if _can_throw(ball):
+		velocity = ball.throw_velocity(world.places.ring_position())
+	else:
+		velocity = Ball.launch_velocity(
+			ball.position, player.global_position, player.facing(), player.is_sprinting(),
+			maxf(player.kick_charge, 0.12), camera_rig.aim_height()
+		)
+	var ground := func(x: float, z: float) -> float:
+		return world.field.height_at(x, z)
+	kick_preview.show_path(Ball.predict(
+		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, ground
+	))
 
 ## A basketball within range of the ring is thrown, not kicked.
 func _can_throw(ball: Ball) -> bool:

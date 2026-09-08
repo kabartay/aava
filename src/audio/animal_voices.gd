@@ -185,8 +185,8 @@ func watch(near: Array[Dictionary], listener: Vector3, delta: float, stick_in_ha
 
 ## How close a dog must be to ask for the stick, and how often it asks.
 const BEG_REACH := 7.0
-const BEG_GAP_MIN := 2.4
-const BEG_GAP_MAX := 4.6
+const BEG_GAP_MIN := 4.0
+const BEG_GAP_MAX := 8.5
 
 var _beg_wait := 0.0
 
@@ -207,7 +207,9 @@ func _beg(near: Array[Dictionary], listener: Vector3, delta: float, stick_in_han
 		var at := (node as Node3D).global_position
 		if at.distance_to(listener) > BEG_REACH:
 			continue
-		_play(&"dog", at, _rng.randf_range(1.02, 1.14))
+		# A little higher than its ordinary bark, and short: asking, not
+		# telling off.
+		_play(&"dog", at, _rng.randf_range(1.12, 1.26))
 		_beg_wait = _rng.randf_range(BEG_GAP_MIN, BEG_GAP_MAX)
 		return
 	_beg_wait = 0.5

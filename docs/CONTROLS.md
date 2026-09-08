@@ -38,7 +38,9 @@ metres; a full hold reaches the goal from the halfway line. Running at the ball
 adds to whatever the hold gave.
 
 **Where you look is where it goes.** Looking level drives the ball along the
-ground; looking up chips it. The words under the power bar say which.
+ground; looking up chips it. The words under the power bar say which, and a
+faint dotted arc in the air shows the ball's whole path while the button is
+held — the same for a basketball thrown at the ring.
 
 **A basketball is thrown, not kicked.** Within a few metres of the hoop the kick
 button becomes a throw, and releasing it lobs the ball at the ring. Holding

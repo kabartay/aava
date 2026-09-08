@@ -48,7 +48,9 @@ func _initialize() -> void:
 	_check_animals_stay_on_the_ground()
 	_check_trees_are_solid()
 	_check_a_thrown_ball_comes_down_on_the_ring()
+	_check_the_aim_shows_where_the_ball_goes()
 	_check_animals_walk_round_the_playground()
+	_check_animals_walk_on_their_legs()
 	_check_the_voices_bake_off_thread()
 	_check_the_map_bakes_off_thread()
 	_check_boats_float_on_the_pond()
@@ -741,6 +743,73 @@ func _check_the_cafe_serves() -> void:
 	places._tick(Places.MEAL_SHOWN)
 	_expect(places.meals_served() == 0, "and cleared away when they have been eaten")
 	places.queue_free()
+
+## The dotted arc shown while winding up must be the kick's own arithmetic,
+## or it lies: the predicted path has to start where the ball is, rise, come
+## down, and stop at the ground.
+func _check_the_aim_shows_where_the_ball_goes() -> void:
+	print("the aim shows where the ball goes")
+	var ball := Ball.new(Vector3(4.0, Ball.RADIUS, 0.0), Ball.Look.FOOTBALL)
+	var striker := Vector3(2.0, 0.0, 0.0)
+	var launch := Ball.launch_velocity(ball.position, striker, Vector3.FORWARD, false, 0.7, 0.6)
+	_expect(launch.x > 0.0 and absf(launch.z) < 0.01, "a kick goes along the line from the striker to the ball, not the way they face")
+	_expect(launch.y > 0.0, "and lofted, it rises")
+	var speed := ball.kick(striker, Vector3.FORWARD, false, 0.7, 0.6)
+	_expect(is_equal_approx(speed, launch.length()), "the kick itself uses the same numbers (%.1f m/s)" % speed)
+	var ground := func(_x: float, _z: float) -> float:
+		return 0.0
+	var path := Ball.predict(Vector3(4.0, Ball.RADIUS, 0.0), launch, ball.effective_linear_damp(), ball.gravity_strength(), 3.0, 0.09, ground)
+	_expect(path.size() > 6, "the path has %d dots in it" % path.size())
+	var peak := 0.0
+	for point in path:
+		peak = maxf(peak, point.y)
+	_expect(peak > 1.0, "rises to %.1f m" % peak)
+	_expect(is_equal_approx(path[path.size() - 1].y, Ball.RADIUS), "and ends on the ground")
+	_expect(path[path.size() - 1].x > 8.0, "%.0f m away" % path[path.size() - 1].x)
+	var preview := KickPreview.new()
+	preview.show_path(path)
+	_expect(preview.dots_shown() == path.size(), "and every dot of it is drawn")
+	preview.hide_path()
+	_expect(preview.dots_shown() == 0, "until the button is let go")
+	preview.free()
+	ball.free()
+
+## An animal's legs are nodes hung from its hips, and swing as it walks: a
+## dog carried across a meadow must move its legs, and a dog stood still must
+## not.
+func _check_animals_walk_on_their_legs() -> void:
+	print("animals walk on their legs")
+	for kind in AnimalKinds.ALL:
+		var node := AnimalKinds.build_node(kind)
+		var body := node.get_node("Body") as MeshInstance3D
+		_expect(body != null and body.get_child_count() == 4 and body.mesh != null, "the %s has a body and four legs" % kind)
+		_expect(AnimalKinds.hips(kind).size() == 4, "hung from four hips")
+		node.free()
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var dog := AnimalKinds.build_node(AnimalKinds.DOG)
+	animals.add_child(dog)
+	var start := Vector3(0.0, field.height_at(0.0, 0.0), 0.0)
+	dog.position = start
+	var walker := {
+		"kind": AnimalKinds.DOG, "node": dog, "home": start, "target": start + Vector3(0.0, 0.0, -30.0),
+		"tile": Vector2i.ZERO, "rest": 99.0, "cooldown": 0.0, "bob": 0.0, "heading": 0.0, "velocity": 0.0, "speed": Animals.SPEED,
+	}
+	var swung := 0.0
+	for _frame in 90:
+		animals._step(walker, 1.0 / 60.0)
+		for i in 4:
+			swung = maxf(swung, absf((dog.get_node("Body/Leg%d" % i) as Node3D).rotation.x))
+	_expect(swung > 0.15, "walking, the dog swings its legs (%.0f degrees at most)" % rad_to_deg(swung))
+	walker["target"] = dog.position
+	for _frame in 120:
+		animals._step(walker, 1.0 / 60.0)
+	var still := 0.0
+	for i in 4:
+		still = maxf(still, absf((dog.get_node("Body/Leg%d" % i) as Node3D).rotation.x))
+	_expect(still < 0.03, "and standing, they hang straight (%.1f degrees)" % rad_to_deg(still))
+	animals.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
@@ -2137,7 +2206,7 @@ func _check_riding() -> void:
 
 	_expect(mounts.is_solid(MountKinds.HORSE), "a standing horse is solid: a child bumps into it rather than through it")
 	var horse_node: Node3D = mounts._nodes[MountKinds.HORSE]
-	_expect(horse_node.get_node("Body").get_child_count() == 4, "the horse has four legs of its own")
+	_expect(horse_node.get_node("Body").get_child_count() == 6, "the horse has four legs, a head and a tail of its own")
 	_expect(mounts.mount(MountKinds.HORSE), "it can be mounted")
 	# Carried along at a canter, its legs swing; standing, they settle.
 	var start_at := spot + Vector3(2.0, 0.0, 0.0)

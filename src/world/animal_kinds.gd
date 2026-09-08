@@ -88,91 +88,189 @@ static func wish(kind: StringName) -> String:
 ## proportions per animal are enough to tell them apart at a glance, which is
 ## all a child needs and all a silhouette can carry at this size.
 static func build_mesh(kind: StringName) -> Mesh:
+	return _build(kind, true)
+
+## The body alone, for an animal whose legs are nodes of their own.
+static func body_mesh(kind: StringName) -> Mesh:
+	return _build(kind, false)
+
+## The shape of each species, in one place: how long and tall and narrow the
+## body is, how the legs are set. Proportions are what tell a cat from a
+## beaver — on screen, size and tint alone made all four the same lump.
+static func _shape(kind: StringName) -> Dictionary:
+	match kind:
+		CAT:
+			return {"long": 1.85, "tall": 0.64, "slim": 0.8, "leg": 1.0, "leg_slim": 0.8, "front_leg": 1.0, "hip_lift": 0.0}
+		DOG:
+			return {"long": 1.7, "tall": 0.8, "slim": 0.92, "leg": 1.05, "leg_slim": 1.0, "front_leg": 1.0, "hip_lift": 0.0}
+		SQUIRREL:
+			# Sitting up: short front legs held high on the chest, the body tall.
+			return {"long": 1.1, "tall": 1.1, "slim": 0.95, "leg": 0.9, "leg_slim": 1.1, "front_leg": 0.55, "hip_lift": 0.35}
+		_:
+			return {"long": 1.45, "tall": 0.92, "slim": 1.05, "leg": 0.85, "leg_slim": 1.2, "front_leg": 1.0, "hip_lift": 0.0}
+
+## Where the four legs hang from, in the body's frame: front-left,
+## front-right, hind-left, hind-right. Front is -Z.
+static func hips(kind: StringName) -> Array[Vector3]:
+	var scale := size_of(kind)
+	var shape := _shape(kind)
+	var out: Array[Vector3] = []
+	for front in PackedFloat32Array([-1.0, 1.0]):
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			var lift := float(shape["hip_lift"]) if front < 0.0 else 0.0
+			out.append(Vector3(
+				side * scale * 0.44 * float(shape["slim"]),
+				scale * (1.0 + lift),
+				front * scale * float(shape["long"]) * 0.6
+			))
+	return out
+
+## One leg, pivoted at the hip so that turning it about X swings it: the leg
+## itself, a paler paw. Front legs can be shorter than hind — the squirrel's.
+static func leg_mesh(kind: StringName, front: bool) -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var scale := size_of(kind)
+	var shape := _shape(kind)
+	var dark := colour(kind).darkened(0.25)
+	var reach := scale * float(shape["leg"]) * (float(shape["front_leg"]) if front else 1.0)
+	var thickness := scale * 0.13 * float(shape["leg_slim"])
+	var leg := CylinderMesh.new()
+	leg.top_radius = thickness
+	leg.bottom_radius = thickness * 0.8
+	leg.height = reach
+	leg.radial_segments = 6
+	leg.rings = 1
+	_add(tool, leg, Transform3D(Basis(), Vector3(0.0, -reach * 0.5, 0.0)), dark)
+	var paw := SphereMesh.new()
+	paw.radius = thickness * 1.15
+	paw.height = thickness * 1.5
+	paw.radial_segments = 6
+	paw.rings = 3
+	_add(tool, paw, Transform3D(Basis(), Vector3(0.0, -reach + thickness * 0.5, -thickness * 0.4)), dark if kind != DOG else colour(kind).lightened(0.25))
+	tool.generate_normals()
+	tool.set_material(fur_material())
+	return tool.commit()
+
+## An animal as a node: the body, and four legs hung from the hips that
+## Animals swings as it walks. The baked mesh alone stood stiff-legged.
+static func build_node(kind: StringName) -> Node3D:
+	var root := Node3D.new()
+	var body := MeshInstance3D.new()
+	body.name = "Body"
+	body.mesh = body_mesh(kind)
+	root.add_child(body)
+	var front_mesh := leg_mesh(kind, true)
+	var hind_mesh := leg_mesh(kind, false)
+	var points := hips(kind)
+	for i in points.size():
+		var leg := MeshInstance3D.new()
+		leg.name = "Leg%d" % i
+		leg.mesh = front_mesh if i < 2 else hind_mesh
+		leg.position = points[i]
+		body.add_child(leg)
+	return root
+
+## A body built from primitives: a body, a neck, a head with a face, a tail,
+## and — when baked in — four legs.
+static func _build(kind: StringName, with_legs: bool) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var scale := size_of(kind)
 	var colour := colour(kind)
 	var dark := colour.darkened(0.25)
-
-	# Proportions are per-species, because size and tint alone did not tell a
-	# cat from a beaver: on screen all four read as the same rounded lump. The
-	# silhouette has to differ — a long low body for the cat, a stocky one for
-	# the beaver, an upright one for the squirrel.
-	var long := 1.55
-	var tall := 0.80
-	# How narrow the body is across the shoulders. A cat is a slighter animal
-	# than the others by more than its size: narrow, long and low.
-	var slim := 1.0
-	match kind:
-		CAT:
-			long = 1.85
-			tall = 0.64
-			slim = 0.8
-		SQUIRREL:
-			long = 1.15
-			tall = 1.05
-		BEAVER:
-			long = 1.45
-			tall = 0.92
+	var shape := _shape(kind)
+	var long := float(shape["long"])
+	var tall := float(shape["tall"])
+	var slim := float(shape["slim"])
 
 	var body := SphereMesh.new()
 	body.radius = scale
 	body.height = scale * 1.7
-	body.radial_segments = 9
-	body.rings = 5
+	body.radial_segments = 12
+	body.rings = 7
 	_add(tool, body, Transform3D(
 		Basis().scaled(Vector3(slim, tall, long)), Vector3(0.0, scale * 1.05, 0.0)
 	), colour)
+	if kind == DOG:
+		# A deep chest, which is most of what makes a dog's outline a dog's.
+		var chest := SphereMesh.new()
+		chest.radius = scale * 0.62
+		chest.height = scale * 1.1
+		chest.radial_segments = 10
+		chest.rings = 5
+		_add(tool, chest, Transform3D(
+			Basis().scaled(Vector3(0.95, 1.0, 1.1)), Vector3(0.0, scale * 0.98, -scale * long * 0.42)
+		), colour)
 
 	# The neck lifts the head clear of the shoulders. Without it the head was
 	# swallowed by the body and every animal was a single blob.
 	var head_forward := -scale * (long * 0.92)
-	var head_lift := scale * (1.85 if kind == SQUIRREL else (1.52 if kind == CAT else 1.45))
+	var head_lift := scale * 1.45
+	match kind:
+		SQUIRREL:
+			head_lift = scale * 2.05
+			head_forward = -scale * long * 0.62
+		CAT:
+			head_lift = scale * 1.52
+		DOG:
+			head_lift = scale * 1.55
 
 	var neck := CylinderMesh.new()
 	neck.top_radius = scale * (0.24 if kind == CAT else 0.3)
-	neck.bottom_radius = scale * (0.3 if kind == CAT else 0.36)
+	neck.bottom_radius = scale * (0.3 if kind == CAT else 0.38)
 	neck.height = scale * (0.62 if kind == CAT else 0.5)
-	neck.radial_segments = 6
+	neck.radial_segments = 7
 	neck.rings = 1
 	_add(tool, neck, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(-32.0)),
+		Basis(Vector3.RIGHT, deg_to_rad(-32.0 if kind != SQUIRREL else -10.0)),
 		Vector3(0.0, head_lift - scale * 0.32, head_forward * 0.55)
 	), colour)
 
 	var head := SphereMesh.new()
-	head.radius = scale * (0.55 if kind == CAT else 0.62)
-	head.height = scale * (1.0 if kind == CAT else 1.1)
-	head.radial_segments = 8
-	head.rings = 4
+	head.radius = scale * (0.55 if kind == CAT else (0.58 if kind == DOG else 0.62))
+	head.height = head.radius * 1.8
+	head.radial_segments = 10
+	head.rings = 6
 	_add(tool, head, Transform3D(Basis(), Vector3(0.0, head_lift, head_forward)), colour)
 
-	# A muzzle, so there is a front. Longer on the dog, blunt on the beaver.
+	# A muzzle, so there is a front. Long and boxy on the dog, blunt on the
+	# beaver, small on the cat.
 	var snout := SphereMesh.new()
 	snout.radius = scale * 0.26
 	snout.height = scale * 0.52
-	snout.radial_segments = 6
-	snout.rings = 3
-	var snout_long := 1.5 if kind == DOG else 1.0
+	snout.radial_segments = 8
+	snout.rings = 4
+	var snout_long := 1.0
+	match kind:
+		DOG:
+			snout_long = 1.8
+		CAT:
+			snout_long = 0.8
+	var snout_colour := colour.lightened(0.28) if kind == DOG else colour.darkened(0.12)
 	_add(tool, snout, Transform3D(
-		Basis().scaled(Vector3(0.8, 0.8, snout_long)),
-		Vector3(0.0, head_lift - scale * 0.12, head_forward - scale * 0.5)
-	), colour.darkened(0.12))
+		Basis().scaled(Vector3(0.85, 0.75, snout_long)),
+		Vector3(0.0, head_lift - scale * 0.14, head_forward - scale * 0.5)
+	), snout_colour)
+	if kind == BEAVER:
+		# Two front teeth, which is the whole of a beaver's face.
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			var tooth := BoxMesh.new()
+			tooth.size = Vector3(scale * 0.06, scale * 0.12, scale * 0.03)
+			_add(tool, tooth, Transform3D(Basis(), Vector3(side * scale * 0.04, head_lift - scale * 0.3, head_forward - scale * 0.76)), Color(0.96, 0.92, 0.80))
 
 	# Ears, which is most of what separates a cat from a beaver at ten metres.
-	# A cat and a squirrel get tall pointed ears standing straight up; a dog gets
-	# long ones hanging down; a beaver gets almost none. Silhouette from behind
-	# is what a child actually sees, and these are the only part of the head
-	# that shows in it.
+	# A cat and a squirrel get tall pointed ears standing straight up; a dog
+	# gets long ones hanging down; a beaver gets almost none.
 	var pricked := kind == CAT or kind == SQUIRREL
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		if kind == DOG:
 			var flop := BoxMesh.new()
-			flop.size = Vector3(scale * 0.16, scale * 0.86, scale * 0.34)
+			flop.size = Vector3(scale * 0.16, scale * 0.9, scale * 0.4)
 			_add(tool, flop, Transform3D(
-				Basis(Vector3.FORWARD, deg_to_rad(side * 18.0)),
-				Vector3(side * scale * 0.52, head_lift - scale * 0.18, head_forward + scale * 0.1)
+				Basis(Vector3.FORWARD, deg_to_rad(side * 22.0)),
+				Vector3(side * scale * 0.56, head_lift - scale * 0.14, head_forward + scale * 0.08)
 			), dark)
 			continue
 		var ear := CylinderMesh.new()
@@ -189,21 +287,29 @@ static func build_mesh(kind: StringName) -> Mesh:
 				head_forward + scale * 0.12
 			)
 		), dark)
+		if pricked:
+			# The pink inside the ear.
+			var inner := CylinderMesh.new()
+			inner.top_radius = 0.0
+			inner.bottom_radius = scale * 0.12
+			inner.height = scale * 0.6
+			inner.radial_segments = 4
+			inner.rings = 1
+			_add(tool, inner, Transform3D(Basis(), Vector3(side * scale * 0.36, head_lift + scale * 0.78, head_forward + scale * 0.02)), Color(0.86, 0.60, 0.62))
 
-	var leg_slim := 0.8 if kind == CAT else 1.0
-	for side in PackedFloat32Array([-1.0, 1.0]):
-		for front in PackedFloat32Array([-1.0, 1.0]):
+	if with_legs:
+		var points := hips(kind)
+		for i in points.size():
+			var reach := scale * float(shape["leg"]) * (float(shape["front_leg"]) if i < 2 else 1.0)
 			var leg := CylinderMesh.new()
-			leg.top_radius = scale * 0.13 * leg_slim
-			leg.bottom_radius = scale * 0.11 * leg_slim
-			leg.height = scale * 1.0
-			leg.radial_segments = 5
+			leg.top_radius = scale * 0.13 * float(shape["leg_slim"])
+			leg.bottom_radius = leg.top_radius * 0.8
+			leg.height = reach
+			leg.radial_segments = 6
 			leg.rings = 1
-			_add(tool, leg, Transform3D(
-				Basis(), Vector3(side * scale * 0.44 * slim, scale * 0.5, front * scale * long * 0.6)
-			), dark)
+			_add(tool, leg, Transform3D(Basis(), points[i] + Vector3(0.0, -reach * 0.5, 0.0)), dark)
+		_add_paws(tool, scale, long, slim, dark)
 
-	_add_paws(tool, scale, long, slim, dark)
 	_add_belly(tool, scale, long, tall, slim, colour)
 	_add_face(tool, kind, scale, head_lift, head_forward, snout_long, colour)
 	if kind == DOG:

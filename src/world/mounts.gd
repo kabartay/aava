@@ -158,6 +158,7 @@ func carry(at: Vector3, facing: float) -> void:
 ## How fast the ridden mount is going, smoothed, and where in its stride it is.
 var _pace := 0.0
 var _stride := 0.0
+var _idle := 0.0
 
 ## Stride length in metres per full cycle, and how far a leg swings at full
 ## pace. A trot: the diagonal pairs move together.
@@ -175,19 +176,41 @@ func _process(delta: float) -> void:
 	# A stationary horse settles its legs and stands; a moving one strides,
 	# faster the faster it goes, and its body rises and falls with each beat.
 	var effort := clampf(_pace / MountKinds.speed(MountKinds.HORSE), 0.0, 1.3)
-	_stride = fmod(_stride + delta * TAU * _pace / STRIDE_METRES, TAU)
-	var swing := sin(_stride) * LEG_SWING * clampf(effort * 1.6, 0.0, 1.0)
+	# A trot up to about half pace, breaking into a gallop above it: at a
+	# trot the diagonal pairs move together; at a gallop the front legs reach
+	# together and the hind legs drive together a beat behind, the stride
+	# lengthens, and the whole body rocks and lifts. Blended, so the change
+	# of gait is a change and not a switch.
+	var gallop := smoothstep(0.5, 0.95, effort)
+	var stride_metres := lerpf(STRIDE_METRES, STRIDE_METRES * 1.7, gallop)
+	_stride = fmod(_stride + delta * TAU * _pace / stride_metres, TAU)
+	var reach := LEG_SWING * clampf(effort * 1.6, 0.0, 1.0) * lerpf(1.0, 1.5, gallop)
 	if effort < 0.02:
-		swing = 0.0
+		reach = 0.0
 	for i in MountKinds.HORSE_HIPS.size():
 		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
 		if leg == null:
 			continue
-		# Front-left with hind-right, front-right with hind-left.
 		var diagonal := 1.0 if (i == 0 or i == 3) else -1.0
-		leg.rotation.x = lerp_angle(leg.rotation.x, swing * diagonal, 1.0 - exp(-14.0 * delta))
-	body.position.y = absf(sin(_stride)) * 0.07 * effort
-	body.rotation.x = sin(_stride) * 0.02 * effort
+		var trot_swing := sin(_stride) * diagonal
+		var is_front := i < 2
+		var gallop_swing := sin(_stride if is_front else _stride + PI * 0.55) * (1.0 if is_front else -0.85)
+		var swing := lerpf(trot_swing, gallop_swing, gallop) * reach
+		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-14.0 * delta))
+	body.position.y = absf(sin(_stride)) * lerpf(0.07, 0.16, gallop) * effort
+	body.rotation.x = sin(_stride) * lerpf(0.02, 0.06, gallop) * effort
+	# The head nods with the stride and the tail swings behind; standing,
+	# both stir a little, because a horse is never quite still.
+	var head := body.get_node_or_null("Head") as Node3D
+	if head != null:
+		var idle_nod := sin(_idle * 0.9) * 0.03
+		head.rotation.x = lerp_angle(head.rotation.x, sin(_stride + 0.6) * 0.06 * effort + idle_nod, 1.0 - exp(-10.0 * delta))
+	var tail := body.get_node_or_null("Tail") as Node3D
+	if tail != null:
+		var sway := sin(_stride * 0.5) * 0.18 * effort + sin(_idle * 1.3) * 0.08
+		tail.rotation.y = lerp_angle(tail.rotation.y, sway, 1.0 - exp(-8.0 * delta))
+		tail.rotation.x = lerp_angle(tail.rotation.x, -0.15 * effort, 1.0 - exp(-4.0 * delta))
+	_idle += delta
 
 ## Where the ridden horse's legs are, for the checks: the swing of each, in
 ## radians.

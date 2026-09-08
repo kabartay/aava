@@ -196,21 +196,10 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft
 	if offset.length() > KICK_REACH + RADIUS:
 		return 0.0
 
-	# Kick along the line from striker to ball, not along the way the striker
-	# happens to be facing. A child aims by walking at the ball, and being sent
-	# somewhere else because the camera had swung feels like a bug.
-	var direction := offset.normalized() if offset.length_squared() > 0.02 else facing
-
+	var launch := launch_velocity(position, from, facing, sprinting, strength, loft)
+	var direction := Vector3(launch.x, 0.0, launch.z).normalized()
+	var speed := launch.length()
 	var charged := clampf(strength, 0.0, 1.0)
-	# Squared, so the first half of the hold barely adds anything and the last
-	# quarter adds a lot. A linear charge feels like the ball is being dragged
-	# up to speed; this feels like winding up to hit it.
-	var speed := lerpf(KICK_SPEED_MIN, KICK_SPEED_MAX, charged * charged)
-	if sprinting:
-		speed += SPRINT_BONUS
-
-	var lift := lerpf(LIFT_FLAT, LIFT_HIGH, clampf(loft, 0.0, 1.0))
-	var launch := (direction + Vector3.UP * lift).normalized() * speed
 
 	sleeping = false
 	# The velocity is set outright rather than applied as an impulse. An impulse
@@ -227,6 +216,64 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft
 
 	kicked.emit(charged, clampf(loft, 0.0, 1.0))
 	return speed
+
+## The velocity a kick gives a ball at `at`, from a striker at `from`. Pure,
+## so the aim preview can draw where the ball will go before it is kicked and
+## be right about it — the same arithmetic, in one place.
+##
+## The kick goes along the line from striker to ball, not the way the striker
+## happens to be facing: a child aims by walking at the ball, and being sent
+## somewhere else because the camera had swung feels like a bug. Strength is
+## squared, so the first half of the hold barely adds anything and the last
+## quarter adds a lot — winding up rather than being dragged up to speed.
+static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinting: bool, strength: float, loft: float) -> Vector3:
+	var offset := at - from
+	offset.y = 0.0
+	var direction := offset.normalized() if offset.length_squared() > 0.02 else facing
+	var charged := clampf(strength, 0.0, 1.0)
+	var speed := lerpf(KICK_SPEED_MIN, KICK_SPEED_MAX, charged * charged)
+	if sprinting:
+		speed += SPRINT_BONUS
+	var lift := lerpf(LIFT_FLAT, LIFT_HIGH, clampf(loft, 0.0, 1.0))
+	return (direction + Vector3.UP * lift).normalized() * speed
+
+## Where a ball launched from `start` at `velocity` will be, every `step`
+## seconds for up to `seconds`, under this world's gravity and the ball's
+## drag — integrated the way the physics server does it, so the dots land
+## where the ball does. Stops early where `ground` says the ball has landed.
+static func predict(start: Vector3, velocity: Vector3, damp: float, gravity: float, seconds: float, step: float, ground: Callable) -> PackedVector3Array:
+	var points := PackedVector3Array()
+	var at := start
+	var v := velocity
+	var fine := 1.0 / 120.0
+	var t := 0.0
+	var since_point := step
+	while t < seconds:
+		v.y -= gravity * fine
+		v *= maxf(0.0, 1.0 - damp * fine)
+		at += v * fine
+		t += fine
+		since_point += fine
+		if since_point >= step:
+			since_point = 0.0
+			if at.y < float(ground.call(at.x, at.z)) + RADIUS:
+				points.append(Vector3(at.x, float(ground.call(at.x, at.z)) + RADIUS, at.z))
+				break
+			points.append(at)
+	return points
+
+## The velocity `throw_to` would use for `target` before its wobble: for the
+## aim preview.
+func throw_velocity(target: Vector3) -> Vector3:
+	var flat := Vector2(target.x - position.x, target.z - position.z).length()
+	var flight := lerpf(THROW_TIME_NEAR, THROW_TIME_FAR, clampf(flat / THROW_RANGE, 0.0, 1.0))
+	var wanted := target - position
+	var gravity := Vector3(0.0, -gravity_strength(), 0.0)
+	var damp := effective_linear_damp()
+	if damp < 0.0001:
+		return wanted / flight - gravity * flight * 0.5
+	var settled := gravity / damp
+	return settled + (wanted - settled * flight) * damp / (1.0 - exp(-damp * flight))
 
 ## Lob the ball so that it comes down on `target`, with `accuracy` from 0 to
 ## 1 tightening the aim. Returns the launch velocity.

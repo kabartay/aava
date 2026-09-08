@@ -34,6 +34,15 @@ const NOTICE := 7.0
 ## Turning was instant and speed was constant, and every animal moved like a
 ## toy on a string; a body swings round and gathers pace.
 const TURN_RATE := 5.0
+## Each kind comes round at its own rate: a squirrel whips about, a cat
+## flows, a beaver lumbers.
+const TURN_RATES := {
+	AnimalKinds.CAT: 4.0, AnimalKinds.DOG: 6.0, AnimalKinds.SQUIRREL: 8.5, AnimalKinds.BEAVER: 3.5,
+}
+## How far the legs swing at a walk, per kind, and how the body bounces.
+const LEG_SWINGS := {
+	AnimalKinds.CAT: 0.42, AnimalKinds.DOG: 0.55, AnimalKinds.SQUIRREL: 0.5, AnimalKinds.BEAVER: 0.35,
+}
 const ACCEL := 3.5
 const LOOK_AHEAD := 3.2
 ## Seconds of standing against something before wanting somewhere else.
@@ -63,7 +72,6 @@ var friends: Dictionary = {}
 ## are. Optional: a check builds animals without places.
 var obstacles: Places = null
 
-var _meshes: Dictionary = {}
 var _material: StandardMaterial3D
 var _tiles: Dictionary = {}
 var _queue: Array[Vector2i] = []
@@ -75,9 +83,6 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 	world_seed = seed_value
 
 	_material = AnimalKinds.fur_material()
-
-	for kind in AnimalKinds.ALL:
-		_meshes[kind] = AnimalKinds.build_mesh(kind)
 
 func follow(world_position: Vector3) -> void:
 	var tile := Vector2i(
@@ -153,9 +158,7 @@ func _build_tile(coord: Vector2i) -> void:
 			continue
 
 		var home := Vector3(x, _footing(x, z), z)
-		var node := MeshInstance3D.new()
-		node.mesh = _meshes[kind]
-		node.material_override = _material
+		var node := AnimalKinds.build_node(kind)
 		node.position = home
 		var heading := rng.randf() * TAU
 		node.rotation.y = heading
@@ -234,7 +237,8 @@ func _step(animal: Dictionary, delta: float) -> void:
 			if push.length_squared() > 0.0:
 				direction = (direction + push).normalized()
 		var wanted := atan2(-direction.x, -direction.z)
-		heading = lerp_angle(heading, wanted, 1.0 - exp(-TURN_RATE * delta))
+		var turn_rate := float(TURN_RATES.get(animal["kind"], TURN_RATE))
+		heading = lerp_angle(heading, wanted, 1.0 - exp(-turn_rate * delta))
 		forward = Vector3(-sin(heading), 0.0, -cos(heading))
 		# Speed follows how squarely the body faces where it is going, and
 		# eases off on arrival, so a turn is a curve and a stop is a stop.
@@ -270,11 +274,37 @@ func _step(animal: Dictionary, delta: float) -> void:
 	animal["bob"] = float(animal["bob"]) + delta * (3.0 + moving * 6.0)
 	var trot := clampf(moving / SPEED, 0.0, 1.0)
 	var bob := float(animal["bob"])
+	var kind: StringName = animal["kind"]
+	var hops := kind == AnimalKinds.SQUIRREL
 	node.position.y = (
 		_footing(node.position.x, node.position.z)
 		+ sin(bob) * 0.02 * (1.0 - trot)
-		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * 0.02) * trot
+		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * (0.05 if hops else 0.02)) * trot
 	)
+	_stride(node, kind, bob, trot, delta)
+
+## The legs and the body as the animal walks: legs swing in diagonal pairs
+## — front-left with hind-right — as far as the kind's stride, or, for the
+## squirrel, front and hind together in a hop; standing, they hang straight
+## and the body breathes. What made them read as toys on strings was legs
+## that never moved.
+func _stride(node: Node3D, kind: StringName, bob: float, trot: float, delta: float) -> void:
+	var body := node.get_node_or_null("Body") as Node3D
+	if body == null:
+		return
+	var swing_amount := float(LEG_SWINGS.get(kind, 0.45))
+	var hops := kind == AnimalKinds.SQUIRREL
+	for i in 4:
+		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
+		if leg == null:
+			continue
+		var pair := 1.0 if (i == 0 or i == 3) else -1.0
+		if hops:
+			pair = 1.0 if i < 2 else -1.0
+		var swing := sin(bob) * swing_amount * trot * pair
+		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-12.0 * delta))
+	body.scale.y = 1.0 + 0.015 * sin(bob * 0.5) * (1.0 - trot)
+	body.rotation.x = (sin(bob) * 0.04 if hops else 0.0) * trot
 
 ## Somewhere else nearby to wander to, and a while to settle when it arrives.
 ## Constant motion reads as a machine; pauses read as an animal deciding. A
