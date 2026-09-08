@@ -63,6 +63,7 @@ func _initialize() -> void:
 	_check_animals_are_solid()
 	_check_a_dog_asks_for_a_stick()
 	_check_water_sounds_and_looks_like_water()
+	_check_every_wet_place_shows_water()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -1279,6 +1280,58 @@ func _closer_to(colour: Color, wanted: Color, other: Color) -> bool:
 	var to_wanted := Vector3(colour.r - wanted.r, colour.g - wanted.g, colour.b - wanted.b).length()
 	var to_other := Vector3(colour.r - other.r, colour.g - other.g, colour.b - other.b).length()
 	return to_wanted < to_other
+
+## Anywhere a child can swim must be somewhere they can see water.
+##
+## The valley floor is noise and noise dips: there were hollows below the
+## waterline out in the meadow, and the water sheet is drawn from the river's
+## line and the ponds' outlines, so nothing was drawn over them. A child
+## walked in and sank to the chest on what looked like sand, while the map,
+## which reads the ground, drew a blue lake there. The ground is held above
+## the waterline unless it is river or pond; this walks the valley and
+## checks it.
+func _check_every_wet_place_shows_water() -> void:
+	print("every wet place shows water")
+	var field := HeightField.new(20260903)
+	var stray := 0
+	var worst := Vector3.ZERO
+	var deepest := 0.0
+	var wet_samples := 0
+	for z in range(-400, 401, 7):
+		for x in range(-400, 401, 7):
+			var here := field.height_at(float(x), float(z))
+			if here >= HeightField.WATER_LEVEL:
+				continue
+			wet_samples += 1
+			# Water is drawn where the sheet's own blend is strong enough to be
+			# opaque — the same formula the shader runs, so this asks about the
+			# water a child actually sees rather than about a rule of thumb.
+			var to_river := absf(float(x) - field.river_centre_x(float(z)))
+			var blend := 1.0 - smoothstep(
+				HeightField.RIVER_HALF_WIDTH,
+				HeightField.RIVER_HALF_WIDTH + HeightField.RIVER_BANK_FADE,
+				to_river
+			)
+			var shown := blend > 0.3
+			shown = shown or Lakes.influence(float(x), float(z)) > 0.3
+			shown = shown or PlaceSpec.excavation(float(x), float(z), field.camp_centre()) > 0.0
+			if shown:
+				continue
+			stray += 1
+			if HeightField.WATER_LEVEL - here > deepest:
+				deepest = HeightField.WATER_LEVEL - here
+				worst = Vector3(float(x), here, float(z))
+	_expect(wet_samples > 0, "the valley has water in it at all (%d wet samples)" % wet_samples)
+	if stray > 0:
+		printerr("  worst is %.2f m under the water at (%.0f, %.0f)" % [deepest, worst.x, worst.z])
+	_expect(stray == 0, "and no hollow away from the river or a pond is below the waterline (%d found)" % stray)
+
+	# The river and the ponds are still wet, or the holding-up has flattened
+	# the valley's water away entirely.
+	var river_x := field.river_centre_x(40.0)
+	_expect(field.height_at(river_x, 40.0) < HeightField.WATER_LEVEL - 1.0, "the river is still a river")
+	var pond := Vector3(Lakes.PONDS[0], 0.0, Lakes.PONDS[1])
+	_expect(field.height_at(pond.x, pond.z) < HeightField.WATER_LEVEL - 1.0, "and the pond is still a pond")
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

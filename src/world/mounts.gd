@@ -79,14 +79,20 @@ func launch_boats(pond: int, count: int, depth := 0.7) -> void:
 	for i in count:
 		var bearing := TAU * float(i) / float(count) + 0.4
 		var direction := Vector3(cos(bearing), 0.0, sin(bearing))
+		# The spot whose water is nearest the wading depth wanted, rather than
+		# the last one deeper than it: the pond's shelf steepened when the
+		# valley's dry ground was held above the waterline, and a half-metre
+		# stride along it could step straight past the depth being looked for.
 		var spot := centre
-		var walked := 0.5
+		var closest := 1e9
+		var walked := 0.25
 		while walked < reach:
 			var probe := centre + direction * walked
-			if field.height_at(probe.x, probe.z) > HeightField.WATER_LEVEL - depth:
-				break
-			spot = probe
-			walked += 0.5
+			var under := HeightField.WATER_LEVEL - field.height_at(probe.x, probe.z)
+			if under > 0.0 and absf(under - depth) < closest:
+				closest = absf(under - depth)
+				spot = probe
+			walked += 0.25
 		# Facing the middle of the pond: rotation about Y that sends -Z to
 		# -direction.
 		place(MountKinds.boat_id(i), spot, atan2(direction.x, direction.z))

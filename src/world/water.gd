@@ -128,7 +128,10 @@ void fragment() {
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
 
 	ALBEDO = mix(shallow_color, deep_color, clamp(bank_blend, 0.0, 1.0));
-	ALPHA = mix(0.0, mix(0.62, 0.92, fresnel), clamp(bank_blend * 1.15, 0.0, 1.0));
+	// A definite edge rather than a long fade into nothing: water that fades
+	// out over twenty metres of bank leaves a sandy-blue smear where a child
+	// cannot tell which is water and which is beach.
+	ALPHA = mix(0.62, 0.92, fresnel) * smoothstep(0.06, 0.30, bank_blend);
 
 	ROUGHNESS = 0.08;
 	SPECULAR = 0.75;
@@ -167,6 +170,8 @@ func _init() -> void:
 	material.set_shader_parameter("pond_count", places.size())
 	material.set_shader_parameter("pond_place", places)
 	material.set_shader_parameter("pond_turn", turns)
+	material.set_shader_parameter("river_half_width", HeightField.RIVER_HALF_WIDTH)
+	material.set_shader_parameter("bank_fade", HeightField.RIVER_BANK_FADE)
 	material.set_shader_parameter("pond_shelf", Lakes.SHELF)
 	material.set_shader_parameter("pond_wobble", Lakes.WOBBLE)
 

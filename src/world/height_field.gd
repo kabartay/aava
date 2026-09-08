@@ -51,6 +51,24 @@ const TREELINE := 118.0
 ## ground, because a pitch has to be level and a level surface needs one number.
 const PITCH_LEVEL := 2.4
 
+## How wide the river's water is drawn, and over how far its edge fades out.
+## The water sheet's shader reads these, so the ground and the water agree
+## about where the river is rather than each holding its own numbers.
+const RIVER_HALF_WIDTH := 16.0
+const RIVER_BANK_FADE := 26.0
+
+## How far above the waterline dry land is held.
+##
+## The valley floor is noise, and noise dips: away from the river there were
+## hollows below the waterline with no water drawn over them, because water
+## is drawn from the river's line and the ponds' outlines and knows nothing
+## about a dip in a meadow. A child walking into one sank to the chest on
+## what looked like sand, and the map — which reads the ground — drew a
+## little blue lake where the eye saw none. Ground that is not river or pond
+## is held above the water instead, so that everywhere a child can swim is
+## somewhere they can see water.
+const DRY_BANK := 0.35
+
 var seed: int
 
 var _plains := FastNoiseLite.new()
@@ -161,7 +179,23 @@ func height_at(x: float, z: float) -> float:
 	if lake > 0.0:
 		floor_height = lerpf(floor_height, WATER_LEVEL - Lakes.DEPTH, lake)
 
-	return floor_height
+	return _dry_unless_water(floor_height, x, z, lake)
+
+## Hold the ground above the waterline unless this is somewhere water is
+## actually drawn: the river's own width, or a pond. Excavated ground — the
+## swimming pool — is left alone, since it is a basin of its own.
+func _dry_unless_water(floor_height: float, x: float, z: float, lake: float) -> float:
+	if floor_height > WATER_LEVEL + DRY_BANK:
+		return floor_height
+	var wet := 1.0 - smoothstep(
+		RIVER_HALF_WIDTH, RIVER_HALF_WIDTH + RIVER_BANK_FADE, absf(x - river_centre_x(z))
+	)
+	wet = maxf(wet, lake)
+	if wet > 0.999:
+		return floor_height
+	if PlaceSpec.excavation(x, z, camp_centre()) > 0.0:
+		return floor_height
+	return maxf(floor_height, lerpf(WATER_LEVEL + DRY_BANK, floor_height, wet))
 
 ## Fill a square grid of heights in one call.
 ##
@@ -214,7 +248,12 @@ func fill_grid(
 					height = lerpf(height, WATER_LEVEL - Lakes.DEPTH, lake)
 			if dams_here:
 				height += DamSpec.fill(x, z, river_centre_x(z), dams_built)
-			out[gz * count + gx] = height
+			# The same holding-above-water as height_at does, or the mesh and
+			# the collision would disagree with everything that asks a point
+			# at a time. A check compares the two.
+			out[gz * count + gx] = _dry_unless_water(
+				height, x, z, Lakes.influence(x, z) if lakes_here else 0.0
+			)
 	return out
 
 ## Whether a box comes within `reach` of a centre. Both are axis-aligned, so
