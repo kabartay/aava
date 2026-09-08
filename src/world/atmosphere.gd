@@ -152,6 +152,14 @@ func _apply_time() -> void:
 			0.0
 		)
 
+## How far into the evening it is, from 0 in daylight to 1 once the sun is
+## well down. Earlier than `darkness`: street lamps come on at sunset, while
+## the sky is still light, and a child watching the lamps as it got dark
+## saw them stay off until it was properly night. Read by the lamps.
+func evening() -> float:
+	var height := sin((time_of_day - 0.25) * TAU)
+	return smoothstep(0.14, -0.06, height)
+
 ## How dark it is right now, from 0 in daylight to 1 at midnight. Read by the
 ## lantern, which is the only thing that needs to know.
 func darkness() -> float:

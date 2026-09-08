@@ -106,7 +106,7 @@ func _ready() -> void:
 		# A large delta so the fade completes rather than being caught halfway.
 		_lantern.follow(_world.atmosphere.darkness(), 10.0)
 	# The playground's lamps likewise, or a night shot of it shows them dark.
-	_world.places.light_lamps(_world.atmosphere.darkness(), 10.0)
+	_world.places.light_lamps(_world.atmosphere.evening(), 10.0)
 	# Terrain streams a couple of chunks per frame, so a capture taken on frame
 	# one would photograph an empty world. Waiting is not optional here.
 	_world.follow(_camera_position)

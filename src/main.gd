@@ -381,7 +381,7 @@ func _process(delta: float) -> void:
 			hud.announce(Text.of("say_filled"), 1.6)
 
 	lantern.follow(world.atmosphere.darkness(), delta)
-	world.places.light_lamps(world.atmosphere.darkness(), delta)
+	world.places.light_lamps(world.atmosphere.evening(), delta)
 	ambience.follow(
 		player.global_position, world.field, world.places,
 		world.atmosphere.darkness(), delta
@@ -891,7 +891,7 @@ func _on_ride() -> void:
 	player.riding = kind
 	camera_rig.set_eye_lift(MountKinds.eye_lift(kind))
 	sounds.play(Sounds.Sound.JUMP, 0.8)
-	hud.announce(Text.format("say_mounted", [MountKinds.label(kind)]), 2.0)
+	hud.announce(Text.format("say_mounted", [Text.of("mount_%s_on" % MountKinds.kind_of(kind))]), 2.0)
 
 func _on_chop() -> void:
 	if not wallet.has(ShopStock.AXE):

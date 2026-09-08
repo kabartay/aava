@@ -82,7 +82,7 @@ static func wish(kind: StringName) -> String:
 	var wanted := want(kind)
 	if wanted == &"":
 		return Text.of("wish_stroke")
-	return Text.format("wish_give", [ItemKinds.label(wanted)])
+	return Text.format("wish_give", [ItemKinds.label_object(wanted)])
 
 ## A body built from primitives: four legs, a body, a head, a tail. Different
 ## proportions per animal are enough to tell them apart at a glance, which is

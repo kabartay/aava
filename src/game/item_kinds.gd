@@ -30,6 +30,11 @@ const INFO := {
 static func label(kind: StringName) -> String:
 	return Text.of("item_" + String(kind))
 
+## The item's name as the object of a sentence — "wants a stick" — which
+## Russian declines. See the *_object entries in Text.
+static func label_object(kind: StringName) -> String:
+	return Text.of("item_" + String(kind) + "_object")
+
 static func icon(kind: StringName) -> String:
 	return INFO[kind]["icon"]
 

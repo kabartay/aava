@@ -40,6 +40,15 @@ const STRINGS := {
 	"item_reed": {EN: "reed", FR: "roseau", RU: "тростник"},
 	"item_seed": {EN: "seed", FR: "graine", RU: "семечко"},
 	"item_cone": {EN: "cone", FR: "pomme de pin", RU: "шишка"},
+	# The same items as the object of a verb — "wants a stick" — which in
+	# Russian is a different form of the word. English and French do not
+	# decline, so those repeat the name; the key exists so that every
+	# language has somewhere to put its accusative.
+	"item_stick_object": {EN: "stick", FR: "bâton", RU: "палку"},
+	"item_stone_object": {EN: "stone", FR: "pierre", RU: "камень"},
+	"item_reed_object": {EN: "reed", FR: "roseau", RU: "тростник"},
+	"item_seed_object": {EN: "seed", FR: "graine", RU: "семечко"},
+	"item_cone_object": {EN: "cone", FR: "pomme de pin", RU: "шишку"},
 
 	# Things you can build.
 	"build_sapling": {EN: "sapling", FR: "jeune arbre", RU: "саженец"},
@@ -183,6 +192,7 @@ const STRINGS := {
 	"animal_squirrel": {EN: "squirrel", FR: "écureuil", RU: "белка"},
 	"animal_beaver": {EN: "beaver", FR: "castor", RU: "бобр"},
 	"wish_stroke": {EN: "wants a stroke", FR: "veut une caresse", RU: "хочет, чтобы её погладили"},
+	# The item goes in as its object form — Russian declines it: "хочет палку".
 	"wish_give": {EN: "wants a %s", FR: "veut %s", RU: "хочет %s"},
 	"say_fed": {EN: "+%d", FR: "+%d", RU: "+%d"},
 	"say_friend": {
@@ -384,6 +394,11 @@ const STRINGS := {
 	"mount_boat": {
 		EN: "boat", FR: "barque", RU: "лодка",
 	},
+	# "you are riding the horse": Russian wants the mount in the prepositional
+	# case after "на".
+	"mount_horse_on": {EN: "horse", FR: "cheval", RU: "на коне"},
+	"mount_bicycle_on": {EN: "bicycle", FR: "vélo", RU: "на велосипеде"},
+	"mount_boat_on": {EN: "boat", FR: "barque", RU: "на лодке"},
 	"ui_ride": {
 		EN: "ride", FR: "monter", RU: "сесть",
 	},
@@ -391,7 +406,7 @@ const STRINGS := {
 		EN: "get off", FR: "descendre", RU: "слезть",
 	},
 	"say_mounted": {
-		EN: "you are riding the %s", FR: "tu montes le %s", RU: "ты едешь: %s",
+		EN: "you are riding the %s", FR: "tu montes le %s", RU: "ты едешь %s",
 	},
 	"ui_chop": {
 		EN: "chop", FR: "couper", RU: "срубить",
@@ -421,7 +436,9 @@ const STRINGS := {
 		RU: "снова можно бежать",
 	},
 	"say_watered": {
-		EN: "%s had a drink", FR: "%s a bu", RU: "%s попил",
+		# Present tense in Russian: the past agrees with the animal's gender,
+		# and three of the four are feminine.
+		EN: "%s had a drink", FR: "%s a bu", RU: "%s пьёт",
 	},
 	"ui_shop": {EN: "shop", FR: "boutique", RU: "магазин"},
 	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
@@ -509,7 +526,7 @@ const STRINGS := {
 		RU: "тут нечего разбирать",
 	},
 	# %s is the name of the piece.
-	"say_took_back": {EN: "took the %s back", FR: "%s récupéré", RU: "%s разобрано"},
+	"say_took_back": {EN: "took the %s back", FR: "%s récupéré", RU: "разобрано: %s"},
 }
 
 static func language() -> StringName:
