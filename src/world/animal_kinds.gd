@@ -101,10 +101,14 @@ static func build_mesh(kind: StringName) -> Mesh:
 	# the beaver, an upright one for the squirrel.
 	var long := 1.55
 	var tall := 0.80
+	# How narrow the body is across the shoulders. A cat is a slighter animal
+	# than the others by more than its size: narrow, long and low.
+	var slim := 1.0
 	match kind:
 		CAT:
-			long = 1.75
-			tall = 0.70
+			long = 1.85
+			tall = 0.64
+			slim = 0.8
 		SQUIRREL:
 			long = 1.15
 			tall = 1.05
@@ -118,18 +122,18 @@ static func build_mesh(kind: StringName) -> Mesh:
 	body.radial_segments = 9
 	body.rings = 5
 	_add(tool, body, Transform3D(
-		Basis().scaled(Vector3(1.0, tall, long)), Vector3(0.0, scale * 1.05, 0.0)
+		Basis().scaled(Vector3(slim, tall, long)), Vector3(0.0, scale * 1.05, 0.0)
 	), colour)
 
 	# The neck lifts the head clear of the shoulders. Without it the head was
 	# swallowed by the body and every animal was a single blob.
 	var head_forward := -scale * (long * 0.92)
-	var head_lift := scale * (1.85 if kind == SQUIRREL else 1.45)
+	var head_lift := scale * (1.85 if kind == SQUIRREL else (1.52 if kind == CAT else 1.45))
 
 	var neck := CylinderMesh.new()
-	neck.top_radius = scale * 0.3
-	neck.bottom_radius = scale * 0.36
-	neck.height = scale * 0.5
+	neck.top_radius = scale * (0.24 if kind == CAT else 0.3)
+	neck.bottom_radius = scale * (0.3 if kind == CAT else 0.36)
+	neck.height = scale * (0.62 if kind == CAT else 0.5)
 	neck.radial_segments = 6
 	neck.rings = 1
 	_add(tool, neck, Transform3D(
@@ -138,8 +142,8 @@ static func build_mesh(kind: StringName) -> Mesh:
 	), colour)
 
 	var head := SphereMesh.new()
-	head.radius = scale * 0.62
-	head.height = scale * 1.1
+	head.radius = scale * (0.55 if kind == CAT else 0.62)
+	head.height = scale * (1.0 if kind == CAT else 1.1)
 	head.radial_segments = 8
 	head.rings = 4
 	_add(tool, head, Transform3D(Basis(), Vector3(0.0, head_lift, head_forward)), colour)
@@ -186,20 +190,21 @@ static func build_mesh(kind: StringName) -> Mesh:
 			)
 		), dark)
 
+	var leg_slim := 0.8 if kind == CAT else 1.0
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		for front in PackedFloat32Array([-1.0, 1.0]):
 			var leg := CylinderMesh.new()
-			leg.top_radius = scale * 0.13
-			leg.bottom_radius = scale * 0.11
+			leg.top_radius = scale * 0.13 * leg_slim
+			leg.bottom_radius = scale * 0.11 * leg_slim
 			leg.height = scale * 1.0
 			leg.radial_segments = 5
 			leg.rings = 1
 			_add(tool, leg, Transform3D(
-				Basis(), Vector3(side * scale * 0.44, scale * 0.5, front * scale * long * 0.6)
+				Basis(), Vector3(side * scale * 0.44 * slim, scale * 0.5, front * scale * long * 0.6)
 			), dark)
 
-	_add_paws(tool, scale, long, dark)
-	_add_belly(tool, scale, long, tall, colour)
+	_add_paws(tool, scale, long, slim, dark)
+	_add_belly(tool, scale, long, tall, slim, colour)
 	_add_face(tool, kind, scale, head_lift, head_forward, snout_long, colour)
 	if kind == DOG:
 		_add_collar(tool, scale, head_lift, head_forward)
@@ -224,21 +229,21 @@ static func fur_material() -> StandardMaterial3D:
 static var _fur: StandardMaterial3D = null
 
 ## Feet, so the legs end in something rather than stopping in the grass.
-static func _add_paws(tool: SurfaceTool, scale: float, long: float, dark: Color) -> void:
+static func _add_paws(tool: SurfaceTool, scale: float, long: float, slim: float, dark: Color) -> void:
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		for front in PackedFloat32Array([-1.0, 1.0]):
 			var paw := SphereMesh.new()
-			paw.radius = scale * 0.15
+			paw.radius = scale * 0.15 * (0.5 + 0.5 * slim)
 			paw.height = scale * 0.2
 			paw.radial_segments = 6
 			paw.rings = 3
 			_add(tool, paw, Transform3D(
-				Basis(), Vector3(side * scale * 0.44, scale * 0.09, front * scale * long * 0.6 - scale * 0.05)
+				Basis(), Vector3(side * scale * 0.44 * slim, scale * 0.09, front * scale * long * 0.6 - scale * 0.05)
 			), dark)
 
 ## A paler underside. Every animal has one, and it is most of what makes a
 ## body read as a body rather than a coloured egg.
-static func _add_belly(tool: SurfaceTool, scale: float, long: float, tall: float, colour: Color) -> void:
+static func _add_belly(tool: SurfaceTool, scale: float, long: float, tall: float, slim: float, colour: Color) -> void:
 	var belly := SphereMesh.new()
 	belly.radius = scale * 0.62
 	belly.height = scale * 0.9
@@ -247,7 +252,7 @@ static func _add_belly(tool: SurfaceTool, scale: float, long: float, tall: float
 	# Just proud of the body's underside, whatever the body's height.
 	var underside := scale * (1.05 - 0.85 * tall)
 	_add(tool, belly, Transform3D(
-		Basis().scaled(Vector3(0.8, 0.55, long * 0.62)),
+		Basis().scaled(Vector3(0.8 * slim, 0.55, long * 0.62)),
 		Vector3(0.0, underside + scale * 0.16, -scale * long * 0.08)
 	), colour.lightened(0.3))
 

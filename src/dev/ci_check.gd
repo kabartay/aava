@@ -48,6 +48,9 @@ func _initialize() -> void:
 	_check_animals_stay_on_the_ground()
 	_check_trees_are_solid()
 	_check_a_thrown_ball_comes_down_on_the_ring()
+	_check_animals_walk_round_the_playground()
+	_check_the_voices_bake_off_thread()
+	_check_the_map_bakes_off_thread()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -493,6 +496,103 @@ func _check_a_thrown_ball_comes_down_on_the_ring() -> void:
 	_expect(nearest < 0.15, "the throw passes within %.2f m of the ring" % nearest)
 	_expect(peak > ring.y + 0.4, "and comes down on it from above (apex %.1f m over the ring)" % (peak - ring.y))
 	ball.free()
+
+## A cat walked through the slide and the hedge, because nothing told the
+## animals where either was. The places now publish what must be walked round,
+## and an animal steers past it — this sends one straight at the trampoline
+## and asserts it never ends up inside anything, and still gets somewhere.
+func _check_animals_walk_round_the_playground() -> void:
+	print("animals walk round the playground")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.PLAYGROUND]
+	_expect(places.obstacle_count() > 20, "the playground publishes %d things to walk round" % places.obstacle_count())
+	var slide_mid: Vector3 = spot + Places.SLIDE_TOP.lerp(Places.SLIDE_FOOT, 0.5)
+	_expect(places.obstructed(slide_mid.x, slide_mid.z), "the middle of the slide is not somewhere to stand")
+	var clear := spot + Vector3(-3.5, 0.0, 4.0)
+	_expect(not places.obstructed(clear.x, clear.z), "the open ground between the swings and the benches is")
+	_expect(places.obstructed(spot.x, spot.z + Places.HEDGE_RADIUS), "the hedge is solid to an animal")
+	_expect(not places.obstructed(spot.x + Places.HEDGE_RADIUS, spot.z), "except at its openings")
+	var before := spot + Places.TRAMPOLINE + Vector3(0.0, 0.0, Places.TRAMPOLINE_RADIUS + 1.2)
+	var push := places.steer_around(before, Vector3.FORWARD, Vector3.FORWARD)
+	_expect(push.length() > 0.1 and push.z > 0.0, "walking at the trampoline, an animal is pushed back and aside")
+	_expect(places.steer_around(before, Vector3.BACK, Vector3.BACK).length() < 0.001, "and not by something behind it")
+
+	var animals := Animals.new(field, 20260903)
+	animals.obstacles = places
+	get_root().add_child(animals)
+	var node := MeshInstance3D.new()
+	animals.add_child(node)
+	var start := spot + Places.TRAMPOLINE + Vector3(0.0, 0.0, Places.TRAMPOLINE_RADIUS + 3.0)
+	start.y = field.height_at(start.x, start.z)
+	var goal := spot + Places.TRAMPOLINE + Vector3(0.0, 0.0, -(Places.TRAMPOLINE_RADIUS + 3.0))
+	goal.y = field.height_at(goal.x, goal.z)
+	node.position = start
+	var walker := {
+		"kind": &"cat", "node": node, "home": start, "target": goal, "tile": Vector2i.ZERO,
+		"rest": 99.0, "cooldown": 0.0, "bob": 0.0, "heading": PI, "velocity": 0.0, "speed": Animals.SPEED,
+	}
+	var ever_inside := false
+	var closest := 1e9
+	var jerkiest := 0.0
+	var last_heading := float(walker["heading"])
+	for _frame in 900:
+		animals._step(walker, 1.0 / 60.0)
+		if places.obstructed(node.position.x, node.position.z):
+			ever_inside = true
+		closest = minf(closest, Vector2(node.position.x - goal.x, node.position.z - goal.z).length())
+		jerkiest = maxf(jerkiest, absf(angle_difference(last_heading, float(walker["heading"]))))
+		last_heading = float(walker["heading"])
+	_expect(not ever_inside, "in fifteen seconds of walking at the trampoline the cat never stood in it")
+	_expect(closest < 3.5, "and got round it to within %.1f m of where it wanted to go" % closest)
+	# The about-face at the start is the sharpest moment, some fourteen degrees
+	# in its first frame; a snap would be a hundred and eighty.
+	_expect(jerkiest < deg_to_rad(20.0), "turning no more than %.0f degrees in a frame: a curve, not a snap" % rad_to_deg(jerkiest))
+	animals.queue_free()
+	places.queue_free()
+
+## The voices are synthesised on a worker thread now; they must still all
+## arrive, and be silent rather than crash before they do.
+func _check_the_voices_bake_off_thread() -> void:
+	print("the voices bake off the main thread")
+	var voices := AnimalVoices.new()
+	get_root().add_child(voices)
+	voices.speak(&"cat", Vector3.ZERO)
+	voices.bake_now()
+	var made := voices.voices()
+	for kind: StringName in [&"dog", &"squirrel", &"beaver", &"cat", &"cat_short", &"cat_purr"]:
+		_expect(made.has(kind), "the %s has a voice" % kind)
+	var purr: AudioStreamWAV = voices._sounds[&"cat_purr"]
+	_expect(purr.data.size() > AnimalVoices.RATE * 2, "the purr lasts over a second")
+	# The players are what actually make the sound; an edit once stranded
+	# their construction after a return and every animal went silent.
+	_expect(voices._players.size() == AnimalVoices.VOICES, "and there are %d players to play them" % voices._players.size())
+	voices.queue_free()
+
+## The map is baked on a worker thread; it must still arrive, and every
+## destination must be on it — on the rim, pointing, when it is off the map.
+func _check_the_map_bakes_off_thread() -> void:
+	print("the map bakes off the main thread")
+	var field := HeightField.new(20260903)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	map.show_map()
+	var camp := field.camp_centre()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	_expect(not map.is_drawn(), "the picture is not there the instant it is asked for")
+	map.wait_for_bake()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	_expect(map.is_drawn(), "and is once the bake is collected")
+	_expect(map._destinations.size() == 6, "six destinations are marked")
+	var home: PlaceGlyph = map._destinations[0]["glyph"]
+	var playground: PlaceGlyph = map._destinations[1]["glyph"]
+	_expect(not home.pointing, "standing at the camp, home is on the map itself")
+	_expect(playground.pointing, "and the playground, four hundred metres off, is on the rim pointing at itself")
+	var to_playground := Vector2(PlaceSpec.OFFSETS[&"playground"].x, PlaceSpec.OFFSETS[&"playground"].z).angle()
+	_expect(absf(angle_difference(playground.angle, to_playground)) < 0.05, "in the right direction")
+	map.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
@@ -3406,19 +3506,17 @@ func _check_the_map_shows_the_valley() -> void:
 		]
 	)
 
-	# Every destination needs a colour, since a six-year-old cannot read labels.
-	var coloured := true
-	for place in PlaceSpec.OFFSETS:
-		if not Minimap.PLACE_COLOURS.has(place):
-			coloured = false
-			printerr("  no colour on the map for %s" % place)
-	_expect(coloured, "every place has its own colour on the map")
-
-	# And no two the same, or the map says two things are the same thing.
+	# Every destination needs its own picture and colour, since a six-year-old
+	# cannot read labels; and no two the same, or the map says two things are
+	# the same thing.
+	_expect(
+		PlaceGlyph.COLOURS.size() == PlaceGlyph.Kind.size(),
+		"every kind of place has a colour on the map (%d of %d)" % [PlaceGlyph.COLOURS.size(), PlaceGlyph.Kind.size()]
+	)
 	var seen: Dictionary = {}
 	var distinct := true
-	for place in Minimap.PLACE_COLOURS:
-		var key := str(Minimap.PLACE_COLOURS[place])
+	for kind in PlaceGlyph.COLOURS:
+		var key := str(PlaceGlyph.COLOURS[kind])
 		if seen.has(key):
 			distinct = false
 		seen[key] = true

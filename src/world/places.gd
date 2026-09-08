@@ -62,6 +62,12 @@ const SWING_REACH := 3.0
 ## The slide. A child who steps onto the top is carried down it, because a slide
 ## you can only stand next to is scenery.
 const SLIDE_SPEED := 4.2
+## How fast a child gathers speed down the slide, and how far past its foot
+## they run out before stopping. A slide is not a lift: the first ride moved
+## at one speed from top to bottom and stopped dead, and read as being
+## lowered on a rope.
+const SLIDE_ACCEL := 3.2
+const SLIDE_RUN_OUT := 1.1
 ## Three metres up and nearly six along: a real slide, with a ladder to the top
 ## of it. The first one was a metre and a half of ramp and read as unfinished.
 ## A couple of paces from the nearer swing frame's post, so the slide belongs
@@ -157,6 +163,10 @@ var _balls: Array[Ball] = []
 var _has_hoop := false
 var _flower_beds := 0
 var _hedge_segments := 0
+## What an animal must walk round, grouped by place: each group is a centre,
+## a reach beyond which nothing in it matters, a list of circles (x, radius,
+## z) relative to the centre, and for the playground the hedge ring.
+var _obstacles: Array[Dictionary] = []
 var _jet: MeshInstance3D = null
 var _lamps: Array[Dictionary] = []
 ## Each ball's height last frame, to see one drop through the ring.
@@ -302,6 +312,129 @@ func seat_positions() -> Array[Vector3]:
 		out.append(pivot + Vector3(0.0, -SWING_ROPE, 0.0))
 	return out
 
+## The circles an animal must not walk into at the playground, and the hedge
+## ring round them. Coarse on purpose: a circle a little larger than each
+## thing, so an animal gives it a respectful margin rather than brushing it.
+func _note_playground_obstacles(at: Vector3) -> void:
+	var circles: Array[Vector3] = []
+	for frame_x in SWING_FRAMES:
+		circles.append(Vector3(frame_x, 2.7, 0.0))
+	for k in 6:
+		var along := SLIDE_TOP.lerp(SLIDE_FOOT, float(k) / 5.0)
+		circles.append(Vector3(along.x, 0.75, along.z))
+	var ladder_top := Vector3(SLIDE_TOP.x, 0.0, SLIDE_TOP.z - 1.3)
+	var ladder_foot := ladder_top + Vector3(0.0, 0.0, LADDER_RUN.z)
+	for k in 3:
+		var rung := ladder_top.lerp(ladder_foot, float(k) / 2.0)
+		circles.append(Vector3(rung.x, 0.7, rung.z))
+	circles.append(Vector3(TRAMPOLINE.x, TRAMPOLINE_RADIUS + 0.3, TRAMPOLINE.z))
+	circles.append(Vector3(FOUNTAIN.x, 1.7, FOUNTAIN.z))
+	for bench_x in BENCHES:
+		circles.append(Vector3(bench_x, 1.2, BENCH_Z))
+	for bin_at in BINS:
+		circles.append(Vector3(bin_at.x, 0.5, bin_at.z))
+	circles.append(Vector3(HOOP.x, 0.5, HOOP.z))
+	for lamp in LAMPS:
+		circles.append(Vector3(lamp.x, 0.45, lamp.z))
+	for bed in FLOWER_BEDS:
+		circles.append(Vector3(bed.x, 1.4, bed.z))
+	for corner in 4:
+		var angle := PI * 0.25 + PI * 0.5 * float(corner)
+		circles.append(Vector3(cos(angle) * CORNER_TREES, 0.6, sin(angle) * CORNER_TREES))
+	var group := _obstacle_group(at, circles)
+	group["ring"] = HEDGE_RADIUS
+	group["ring_half"] = HEDGE_THICKNESS * 0.5 + 0.25
+	group["gap"] = HEDGE_GAP + 0.03
+	group["reach"] = maxf(float(group["reach"]), HEDGE_RADIUS + 3.0)
+	_obstacles.append(group)
+
+static func _obstacle_group(centre: Vector3, circles: Array[Vector3]) -> Dictionary:
+	var reach := 0.0
+	for circle in circles:
+		reach = maxf(reach, Vector2(circle.x, circle.z).length() + circle.y)
+	return {"centre": centre, "reach": reach + 2.5, "circles": circles, "ring": 0.0}
+
+## Is this point inside something an animal cannot walk through? `margin`
+## widens everything by that much.
+func obstructed(x: float, z: float, margin := 0.0) -> bool:
+	for group in _obstacles:
+		var centre: Vector3 = group["centre"]
+		var dx := x - centre.x
+		var dz := z - centre.z
+		var away := sqrt(dx * dx + dz * dz)
+		if away > float(group["reach"]) + margin:
+			continue
+		for circle: Vector3 in group["circles"]:
+			if Vector2(dx - circle.x, dz - circle.z).length() < circle.y + margin:
+				return true
+		var ring := float(group["ring"])
+		if ring > 0.0 and absf(away - ring) < float(group["ring_half"]) + margin:
+			var angle := atan2(dz, dx)
+			var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
+			if to_gap >= float(group["gap"]):
+				return true
+	return false
+
+## Which way to lean to get round what is ahead: a push away from every
+## obstacle within `look_ahead`, weighted by closeness, plus a nudge along its
+## side in the direction already being travelled, so the animal flows round
+## the thing rather than stopping at it. Things behind are ignored.
+func steer_around(at: Vector3, heading: Vector3, toward: Vector3, look_ahead := 2.0) -> Vector3:
+	var push := Vector3.ZERO
+	for group in _obstacles:
+		var centre: Vector3 = group["centre"]
+		var flat := Vector2(at.x - centre.x, at.z - centre.z)
+		var away := flat.length()
+		if away > float(group["reach"]) + look_ahead:
+			continue
+		for circle: Vector3 in group["circles"]:
+			var from_circle := Vector2(flat.x - circle.x, flat.y - circle.z)
+			var gap := from_circle.length() - circle.y
+			if gap > look_ahead:
+				continue
+			var out := Vector3(from_circle.x, 0.0, from_circle.y).normalized() if from_circle.length() > 0.001 else Vector3.RIGHT
+			push += _steer_from(out, heading, toward, 1.0 - clampf(gap / look_ahead, 0.0, 1.0))
+		var ring := float(group["ring"])
+		if ring > 0.0 and away > 0.001:
+			var band := absf(away - ring) - float(group["ring_half"])
+			if band > look_ahead:
+				continue
+			var angle := atan2(flat.y, flat.x)
+			var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
+			if to_gap < float(group["gap"]):
+				continue
+			var radial := Vector3(flat.x, 0.0, flat.y).normalized()
+			push += _steer_from(radial if away > ring else -radial, heading, toward, 1.0 - clampf(band / look_ahead, 0.0, 1.0))
+	return push
+
+## The push from one obstacle whose outward normal is `out`: away from it, and
+## along it — round the side nearer to where the animal wants to go, or,
+## head-on, the side its body already leans to. Head-on was the failure: the
+## first version chose the side from the heading alone, and an animal walking
+## straight at the trampoline picked a different side every frame, went
+## nowhere, and walked into it. Nothing for what is behind.
+static func _steer_from(out: Vector3, heading: Vector3, toward: Vector3, weight: float) -> Vector3:
+	var ahead := -out.dot(heading)
+	if ahead < -0.2 or weight <= 0.0:
+		return Vector3.ZERO
+	var side := out.cross(Vector3.UP)
+	var lean := side.dot(toward)
+	if absf(lean) < 0.15:
+		lean = side.dot(heading)
+	if lean < -0.02:
+		side = -side
+	# Sharper the closer it gets: a wall a stride away must turn the body
+	# hard, one three strides away should only bend the path.
+	var urgency := weight * weight * (0.4 + 0.6 * maxf(ahead, 0.0))
+	return (out * 2.2 + side * 1.8) * urgency
+
+## How many things there are to walk round. For the checks.
+func obstacle_count() -> int:
+	var count := 0
+	for group in _obstacles:
+		count += (group["circles"] as Array).size()
+	return count
+
 ## Where the top of the slide is, in world space.
 func slide_top() -> Vector3:
 	if not _spots.has(PLAYGROUND):
@@ -325,6 +458,11 @@ func _swing_angle(swing: float) -> float:
 	return sin(swing * 4.4) * SWING_ARC * strength
 
 func _process(delta: float) -> void:
+	var stamp := PerfLog.stamp()
+	_tick(delta)
+	PerfLog.note("places", stamp)
+
+func _tick(delta: float) -> void:
 	_wind_time += delta
 	_watch_balls()
 	if _jet != null:
@@ -356,10 +494,13 @@ func _place(place: StringName, at: Vector3) -> void:
 	match place:
 		PLAYGROUND:
 			_build_playground(spot)
+			_note_playground_obstacles(spot)
 		POOL:
 			_build_pool(spot)
+			_obstacles.append(_obstacle_group(spot, [Vector3(0.0, POOL_HALF + 1.2, 0.0)]))
 		CAFE:
 			_build_cafe(spot)
+			_obstacles.append(_obstacle_group(spot, [Vector3(0.0, 3.2, 0.0)]))
 
 ## Two swing frames, a slide with a ladder, a hedge round the lot and a tree at
 ## each corner — a playground rather than a swing standing in a field.
@@ -477,8 +618,28 @@ func _build_playground(at: Vector3) -> void:
 	_add(tool, ramp, Transform3D(ramp_basis, ramp_at), paint)
 	for dx in PackedFloat32Array([-0.44, 0.44]):
 		var side_rail := BoxMesh.new()
-		side_rail.size = Vector3(0.06, 0.18, length)
-		_add(tool, side_rail, Transform3D(ramp_basis, ramp_at + ramp_basis * Vector3(dx, 0.12, 0.0)), paint)
+		side_rail.size = Vector3(0.07, 0.26, length)
+		_add(tool, side_rail, Transform3D(ramp_basis, ramp_at + ramp_basis * Vector3(dx, 0.15, 0.0)), paint.darkened(0.18))
+	# A flat lip at the foot to run out on, so the ramp does not simply end in
+	# the ground.
+	var lip := BoxMesh.new()
+	lip.size = Vector3(0.9, 0.06, 0.7)
+	_add(tool, lip, Transform3D(Basis(), foot + Vector3(0.0, 0.03, 0.35)), paint)
+	# Railings along both sides of the platform: what a child holds at the top.
+	# There was an arch across the ramp's start too, and from the platform it
+	# read as a barrier you walked through, so it went.
+	for dx in PackedFloat32Array([-0.65, 0.65]):
+		for dz in PackedFloat32Array([-0.55, 0.55]):
+			var upright := CylinderMesh.new()
+			upright.top_radius = 0.03
+			upright.bottom_radius = 0.03
+			upright.height = 0.85
+			upright.radial_segments = 5
+			upright.rings = 1
+			_add(tool, upright, Transform3D(Basis(), platform_at + Vector3(dx, 0.425, dz)), metal)
+		var handrail := BoxMesh.new()
+		handrail.size = Vector3(0.05, 0.05, 1.3)
+		_add(tool, handrail, Transform3D(Basis(), platform_at + Vector3(dx, 0.85, 0.0)), metal)
 
 	tool.generate_normals()
 	tool.set_material(_material())
@@ -616,8 +777,11 @@ func _plant_hedge(at: Vector3, solid: StaticBody3D) -> void:
 	rng.seed = 7741
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var leaf := Color(0.21, 0.44, 0.19)
-	var leaf_light := Color(0.30, 0.53, 0.25)
+	# Three greens: a dark base, the body, and the sunlit tops. One green made
+	# the hedge a wall painted green; this is what makes it read as growing.
+	var leaf_dark := Color(0.15, 0.33, 0.14)
+	var leaf := Color(0.22, 0.46, 0.20)
+	var leaf_light := Color(0.36, 0.60, 0.27)
 	var length := TAU * HEDGE_RADIUS / float(HEDGE_SEGMENTS)
 	# Blocks overlap a little, so the wall has no chinks; the collider is
 	# taller than the block and sunk a little, so no gap opens at the ground
@@ -632,8 +796,11 @@ func _plant_hedge(at: Vector3, solid: StaticBody3D) -> void:
 		var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
 		if to_gap < HEDGE_GAP:
 			continue
-		var height := HEDGE_HEIGHT + rng.randf_range(-0.06, 0.08)
-		var spot := Vector3(cos(angle) * HEDGE_RADIUS, 0.0, sin(angle) * HEDGE_RADIUS)
+		var height := HEDGE_HEIGHT + rng.randf_range(-0.12, 0.14)
+		# Each block a little in or out of the true ring and a little off the
+		# tangent, so the line is a hedge's line and not a compass's.
+		var radius := HEDGE_RADIUS + rng.randf_range(-0.12, 0.12)
+		var spot := Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
 		var world := at + spot
 		spot.y = field.height_at(world.x, world.z) - at.y - 0.05
 		# A box lying along X, turned so that X runs along the ring's tangent.
@@ -641,11 +808,45 @@ func _plant_hedge(at: Vector3, solid: StaticBody3D) -> void:
 		# at `angle` is (-sin, 0, cos), so θ is -angle - 90°. The first version
 		# had the sign wrong, and every block on a diagonal stood radially, with
 		# a gap either side of it.
-		var basis := Basis(Vector3.UP, -angle - PI * 0.5)
+		var turn := -angle - PI * 0.5
+		var basis := Basis(Vector3.UP, turn + deg_to_rad(rng.randf_range(-3.0, 3.0)))
+		var shade := leaf.lerp(leaf_light, rng.randf_range(0.0, 0.5))
+
+		# The body in two bands: darker below, where a real hedge is all
+		# stems and shadow, and the leafy green above.
+		var base_height := height * 0.42
+		var base := BoxMesh.new()
+		base.size = Vector3(length * 1.03, base_height, HEDGE_THICKNESS - 0.06)
+		_add(tool, base, Transform3D(basis, spot + Vector3(0.0, base_height * 0.5, 0.0)), leaf_dark.lerp(shade, 0.3))
 		var block := BoxMesh.new()
-		block.size = Vector3(length * 1.03, height, HEDGE_THICKNESS)
-		_add(tool, block, Transform3D(basis, spot + Vector3(0.0, height * 0.5, 0.0)), leaf.lerp(leaf_light, rng.randf()))
-		_collide(solid, shape, Transform3D(basis, spot + Vector3(0.0, (HEDGE_HEIGHT + 0.3) * 0.5 - 0.15, 0.0)))
+		block.size = Vector3(length * 1.03, height - base_height, HEDGE_THICKNESS)
+		_add(tool, block, Transform3D(basis, spot + Vector3(0.0, base_height + (height - base_height) * 0.5, 0.0)), shade)
+
+		# Lumps of foliage along the top and bulging from the sides: a clipped
+		# hedge is never quite flat, and the lumps are what make it foliage
+		# rather than a painted plank.
+		for lump in 3:
+			var along := (float(lump) - 1.0) * length * 0.33 + rng.randf_range(-0.12, 0.12)
+			var crown := SphereMesh.new()
+			crown.radius = rng.randf_range(0.36, 0.5)
+			crown.height = crown.radius * 1.3
+			crown.radial_segments = 7
+			crown.rings = 4
+			var crown_at := basis * Vector3(along, 0.0, rng.randf_range(-0.12, 0.12))
+			_add(tool, crown, Transform3D(basis, spot + crown_at + Vector3(0.0, height - crown.radius * 0.35, 0.0)),
+				shade.lerp(leaf_light, rng.randf_range(0.2, 0.9)))
+		for bulge in 2:
+			var side := -1.0 if rng.randf() < 0.5 else 1.0
+			var tuft := SphereMesh.new()
+			tuft.radius = rng.randf_range(0.22, 0.32)
+			tuft.height = tuft.radius * 1.6
+			tuft.radial_segments = 6
+			tuft.rings = 3
+			var tuft_at := basis * Vector3(rng.randf_range(-length * 0.4, length * 0.4), 0.0, side * HEDGE_THICKNESS * 0.42)
+			_add(tool, tuft, Transform3D(basis, spot + tuft_at + Vector3(0.0, rng.randf_range(0.5, height - 0.2), 0.0)),
+				shade.lerp(leaf_dark if rng.randf() < 0.5 else leaf_light, 0.4))
+
+		_collide(solid, shape, Transform3D(Basis(Vector3.UP, turn), spot + Vector3(0.0, (HEDGE_HEIGHT + 0.3) * 0.5 - 0.15, 0.0)))
 		_hedge_segments += 1
 	_finish_into(tool, at)
 

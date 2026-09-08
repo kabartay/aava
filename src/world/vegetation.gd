@@ -324,6 +324,11 @@ func _bake_on_worker(coord: Vector2i, with_grass: bool, stumps: Felled, generati
 
 ## Turn finished bakes into instances, a few a frame.
 func _assemble_finished() -> void:
+	var stamp := PerfLog.stamp()
+	_assemble_finished_now()
+	PerfLog.note("tile build", stamp)
+
+func _assemble_finished_now() -> void:
 	var ready_now: Array = []
 	_finished_mutex.lock()
 	while not _finished.is_empty() and ready_now.size() < ASSEMBLED_PER_FRAME:

@@ -86,6 +86,9 @@ func _ready() -> void:
 	add_child(mounts)
 	animals = Animals.new(field, world_seed)
 	animals.name = "Animals"
+	# The animals steer round what the places build — a cat walked straight
+	# through the slide and the hedge before they knew about either.
+	animals.obstacles = places
 	add_child(animals)
 
 	football = FootballGround.new(field)
@@ -105,7 +108,7 @@ func _ready() -> void:
 	# Well away from the camp and from the pitch: an arrow and a football should
 	# never share a field, and a range you can reach without walking is not a
 	# journey. 376 m out, pointing away from everything.
-	archery.stand_up(field.camp_centre() + Vector3(330.0, 0.0, -180.0), Vector3(0.6, 0.0, -1.0))
+	archery.stand_up(field.camp_centre() + PlaceSpec.RANGE_OFFSET, Vector3(0.6, 0.0, -1.0))
 	# The camp constant, not the spawn search: the ground under these is
 	# levelled by the height field against that same constant, so using
 	# anything else would stand them beside their own flat patch.
@@ -130,10 +133,24 @@ var _last_centre := Vector3.ZERO
 
 func follow(world_position: Vector3) -> void:
 	_last_centre = world_position
+	# Each step timed for the perf log, which names the slowest of a window:
+	# a hitch on the phone is otherwise a number with no cause attached.
+	var stamp := PerfLog.stamp()
 	terrain.follow(world_position)
+	PerfLog.note("terrain follow", stamp)
+	stamp = PerfLog.stamp()
 	vegetation.follow(world_position)
+	PerfLog.note("forest follow", stamp)
+	stamp = PerfLog.stamp()
 	tree_collision.follow(world_position)
+	PerfLog.note("trunks", stamp)
+	stamp = PerfLog.stamp()
 	pickups.follow(world_position)
 	boulders.follow(world_position)
+	PerfLog.note("pickups+boulders", stamp)
+	stamp = PerfLog.stamp()
 	animals.follow(world_position)
+	PerfLog.note("animals follow", stamp)
+	stamp = PerfLog.stamp()
 	water.follow(world_position)
+	PerfLog.note("water follow", stamp)

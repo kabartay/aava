@@ -55,6 +55,11 @@ const FOOTPRINT := {
 
 const FEATHER := 7.0
 
+## Where the archery range stands, relative to the camp. Not one of the
+## levelled places — the range finds its own flat ground — but the map needs
+## to know where it is.
+const RANGE_OFFSET := Vector3(330.0, 0.0, -180.0)
+
 ## Everything the places touch, as a box around the camp. Still worth having
 ## now they are spread out — it is most of the world away from them — but it has
 ## to be wide enough to contain the furthest, or that place quietly stops being

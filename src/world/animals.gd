@@ -29,6 +29,18 @@ const FLEE_SPEED := 4.2
 ## carrying what it wants.
 const NOTICE := 7.0
 
+## How quickly an animal comes round to face where it is going, how quickly
+## it gets up to speed, and how far ahead it looks for things to walk round.
+## Turning was instant and speed was constant, and every animal moved like a
+## toy on a string; a body swings round and gathers pace.
+const TURN_RATE := 5.0
+const ACCEL := 3.5
+const LOOK_AHEAD := 3.2
+## Seconds of standing against something before wanting somewhere else.
+const STUCK_PATIENCE := 1.5
+## Tries at finding a wander target that is not inside something.
+const WANDER_TRIES := 6
+
 ## How far below the water surface an animal may stand. A beaver lives at the
 ## river's edge, which means its wander radius reaches the riverbed itself —
 ## `field.height_at()` there is the carved channel floor, well under the
@@ -46,6 +58,10 @@ var world_seed: int
 ## Animals already befriended, by kind. A befriended animal never flees again,
 ## which is the visible, permanent reward for having looked after it.
 var friends: Dictionary = {}
+
+## What to walk round — the places, which know where the slide and the hedge
+## are. Optional: a check builds animals without places.
+var obstacles: Places = null
 
 var _meshes: Dictionary = {}
 var _material: StandardMaterial3D
@@ -109,6 +125,11 @@ func _drop_tile(coord: Vector2i) -> void:
 			_living.remove_at(i)
 
 func _process(delta: float) -> void:
+	var stamp := PerfLog.stamp()
+	_tick(delta)
+	PerfLog.note("animals", stamp)
+
+func _tick(delta: float) -> void:
 	var built := 0
 	while built < TILES_PER_FRAME and not _queue.is_empty():
 		_build_tile(_queue.pop_front())
@@ -136,6 +157,8 @@ func _build_tile(coord: Vector2i) -> void:
 		node.mesh = _meshes[kind]
 		node.material_override = _material
 		node.position = home
+		var heading := rng.randf() * TAU
+		node.rotation.y = heading
 		holder.add_child(node)
 
 		_living.append({
@@ -147,6 +170,8 @@ func _build_tile(coord: Vector2i) -> void:
 			"rest": rng.randf() * 3.0,
 			"cooldown": 0.0,
 			"bob": rng.randf() * TAU,
+			"heading": heading,
+			"velocity": 0.0,
 		})
 
 ## Where an animal's feet actually rest: the ground, unless the ground here is
@@ -189,41 +214,86 @@ func _step(animal: Dictionary, delta: float) -> void:
 
 	var to_target: Vector3 = animal["target"] - node.position
 	to_target.y = 0.0
+	var distance := to_target.length()
 	var speed: float = animal.get("speed", SPEED)
+	var moving := float(animal.get("velocity", 0.0))
+	var heading := float(animal.get("heading", node.rotation.y))
 
-	if to_target.length() < 0.4:
+	if distance < 0.4:
+		moving = move_toward(moving, 0.0, ACCEL * delta)
 		animal["rest"] = float(animal["rest"]) - delta
 		if float(animal["rest"]) <= 0.0:
-			# Wander somewhere else nearby, and settle for a while when it
-			# arrives. Constant motion reads as a machine; pauses read as an
-			# animal deciding.
-			var home: Vector3 = animal["home"]
-			var angle := randf() * TAU
-			var distance := randf() * ROAM
-			var spot := home + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
-			spot.y = _footing(spot.x, spot.z)
-			animal["target"] = spot
-			animal["rest"] = randf_range(1.5, 5.0)
-			animal["speed"] = SPEED
+			_pick_wander(animal)
 	else:
-		var direction := to_target.normalized()
-		node.position += direction * speed * delta
-		node.rotation.y = atan2(-direction.x, -direction.z)
+		var direction := to_target / distance
+		var forward := Vector3(-sin(heading), 0.0, -cos(heading))
+		if obstacles != null:
+			# Lean away from whatever is ahead, and along its side, so the
+			# path bends round the slide rather than ending in it.
+			var push := obstacles.steer_around(node.position, forward, direction, LOOK_AHEAD)
+			if push.length_squared() > 0.0:
+				direction = (direction + push).normalized()
+		var wanted := atan2(-direction.x, -direction.z)
+		heading = lerp_angle(heading, wanted, 1.0 - exp(-TURN_RATE * delta))
+		forward = Vector3(-sin(heading), 0.0, -cos(heading))
+		# Speed follows how squarely the body faces where it is going, and
+		# eases off on arrival, so a turn is a curve and a stop is a stop.
+		var aim := clampf(forward.dot(direction), 0.0, 1.0)
+		var wanted_speed := speed * (0.25 + 0.75 * aim) * clampf(distance / 1.5, 0.3, 1.0)
+		moving = move_toward(moving, wanted_speed, ACCEL * delta)
+		var next := node.position + forward * moving * delta
+		if obstacles != null and obstacles.obstructed(next.x, next.z, 0.15):
+			# Up against something despite the steering: stand and keep
+			# turning — the heading is already swinging along its side — and
+			# only after a while of that want somewhere else instead.
+			moving = 0.0
+			animal["stuck"] = float(animal.get("stuck", 0.0)) + delta
+			if float(animal["stuck"]) > STUCK_PATIENCE:
+				animal["stuck"] = 0.0
+				animal["target"] = node.position
+				animal["rest"] = 0.2
+		else:
+			node.position = next
+			animal["stuck"] = 0.0
+		node.rotation.y = heading
 
-	# A gentle bob, so a standing animal is not a statue — as an offset from
-	# the ground, worked out fresh each frame.
+	animal["heading"] = heading
+	animal["velocity"] = moving
+
+	# The gait: a slow breathing bob at rest, a quicker bounce on the move,
+	# both as an offset from the ground worked out fresh each frame.
 	#
 	# It used to be added to the animal's height with `+=`, while the ground
-	# was only read again in the branch above, which does not run while an
-	# animal is resting. Two centimetres a frame, sixty times a second, for the
-	# one and a half to five seconds an animal stands still: they climbed into
-	# the air and stayed there. Reported as animals flying, which is what it
-	# was.
-	animal["bob"] = float(animal["bob"]) + delta * 3.0
+	# was only read again while walking. Two centimetres a frame, sixty times
+	# a second, for the seconds an animal stood still: they climbed into the
+	# air and stayed there. Reported as animals flying, which is what it was.
+	animal["bob"] = float(animal["bob"]) + delta * (3.0 + moving * 6.0)
+	var trot := clampf(moving / SPEED, 0.0, 1.0)
+	var bob := float(animal["bob"])
 	node.position.y = (
 		_footing(node.position.x, node.position.z)
-		+ sin(float(animal["bob"])) * 0.02
+		+ sin(bob) * 0.02 * (1.0 - trot)
+		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * 0.02) * trot
 	)
+
+## Somewhere else nearby to wander to, and a while to settle when it arrives.
+## Constant motion reads as a machine; pauses read as an animal deciding. A
+## spot inside the slide or the hedge is not somewhere to wander to, so a few
+## are tried; if none is clear, the animal stays where it is a little longer.
+func _pick_wander(animal: Dictionary) -> void:
+	var home: Vector3 = animal["home"]
+	for _try in WANDER_TRIES:
+		var angle := randf() * TAU
+		var distance := randf() * ROAM
+		var spot := home + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
+		if obstacles != null and obstacles.obstructed(spot.x, spot.z, 0.4):
+			continue
+		spot.y = _footing(spot.x, spot.z)
+		animal["target"] = spot
+		animal["rest"] = randf_range(1.5, 5.0)
+		animal["speed"] = SPEED
+		return
+	animal["rest"] = randf_range(1.0, 2.0)
 
 ## Called every frame with where the player is and what they are carrying.
 ##

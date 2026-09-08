@@ -373,6 +373,13 @@ func facing_angle() -> float:
 func facing() -> Vector3:
 	return Vector3(-sin(_visual.rotation.y), 0.0, -cos(_visual.rotation.y))
 
+## Turn the body towards a direction while being carried, when there is no
+## walking to turn it — down the slide, for one. Eased, like walking is.
+func face(direction: Vector3) -> void:
+	if direction.length_squared() < 0.0001:
+		return
+	_visual.rotation.y = lerp_angle(_visual.rotation.y, atan2(-direction.x, -direction.z), 0.2)
+
 func is_sprinting() -> bool:
 	return Input.is_action_pressed(InputActions.SPRINT) and run_fraction() > 0.4
 

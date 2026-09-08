@@ -171,6 +171,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	birds = Birds.new()
 	birds.name = "Birds"
 	add_child(birds)
+	# The groves restored from the save spoke up before the birds existed; the
+	# handler below now waits for them, and this gives them the groves.
+	birds.set_points(structures.attract_points())
 
 	session = Session.new()
 	add_child(session)
@@ -605,21 +608,38 @@ const WOOD_PER_TREE := 4
 ## How close to the shooting line a child must stand to draw a bow.
 const SHOOTING_LINE_REACH := 6.0
 
-## How long a slide takes, and how far down it the child currently is.
+## How long the child has been on the slide (negative when not), and how far
+## along it they have come.
 var _sliding := -1.0
+var _slid := 0.0
 
 ## Put the child where the ride says they should be, or let them go.
 func _carry(delta: float, at: Vector3) -> void:
 	if _sliding >= 0.0:
-		_sliding += delta * Places.SLIDE_SPEED
+		_sliding += delta
 		var top := world.places.slide_top()
 		var foot := world.places.slide_foot()
 		var journey := top.distance_to(foot)
-		var progress := clampf(_sliding / maxf(journey, 0.01), 0.0, 1.0)
-		player.carried_to = top.lerp(foot, progress)
+		var down := foot - top
+		var along := Vector3(down.x, 0.0, down.z).normalized()
+		# Gathering speed from rest, as a body on a slide does, up to the
+		# slide's top speed; then a short run-out on the ground, slowing to a
+		# stop. The first ride moved at one speed and stopped dead at the foot.
+		var pace := minf(Places.SLIDE_SPEED, Places.SLIDE_ACCEL * _sliding)
+		if _slid > journey:
+			pace = Places.SLIDE_SPEED * (1.0 - clampf((_slid - journey) / Places.SLIDE_RUN_OUT, 0.0, 1.0))
+		_slid += pace * delta
+		if _slid <= journey:
+			player.carried_to = top.lerp(foot, _slid / maxf(journey, 0.01)) + Vector3.UP * 0.06
+		else:
+			var over := foot + along * minf(_slid - journey, Places.SLIDE_RUN_OUT)
+			over.y = world.field.height_at(over.x, over.z)
+			player.carried_to = over
+		player.face(along)
 		player.is_carried = true
-		if progress >= 1.0:
+		if _slid > journey and pace < 0.5:
 			_sliding = -1.0
+			_slid = 0.0
 			player.is_carried = false
 			sounds.play(Sounds.Sound.LAND, 1.2)
 		return
@@ -636,6 +656,7 @@ func _carry(delta: float, at: Vector3) -> void:
 	# child who climbed the ladder has already said what they want.
 	if world.places.at_slide_top(at) and _sliding < 0.0:
 		_sliding = 0.0
+		_slid = 0.0
 		sounds.play(Sounds.Sound.JUMP, 1.4)
 
 ## What the place a child is standing in is offering, as a label — or nothing.
@@ -1064,7 +1085,9 @@ func _on_matured(kind: StringName, _at: Vector3) -> void:
 	)
 
 func _on_groves_changed(centres: Array) -> void:
-	birds.set_points(structures.attract_points())
+	# Fired while a save is being restored, which is before the birds exist.
+	if birds != null:
+		birds.set_points(structures.attract_points())
 	tasks.on_grove()
 	if centres.is_empty():
 		return
