@@ -2243,6 +2243,27 @@ func _check_riding() -> void:
 	_expect(mounts.is_solid(MountKinds.HORSE), "a standing horse is solid: a child bumps into it rather than through it")
 	var horse_node: Node3D = mounts._nodes[MountKinds.HORSE]
 	_expect(horse_node.get_node("Body").get_child_count() == 6, "the horse has four legs, a head and a tail of its own")
+	# The horse assembled from parts must stand in the same space as the horse
+	# baked into one mesh. A moving part is drawn relative to its joint and
+	# its node sits at that joint; built relative to nothing instead, the
+	# offset was applied twice and the head and tail hung off the animal.
+	var baked := MountKinds.build_mesh(MountKinds.HORSE).get_aabb()
+	var assembled := AABB()
+	var started := false
+	for child in horse_node.get_node("Body").get_children() + [horse_node.get_node("Body")]:
+		var piece := child as MeshInstance3D
+		if piece == null or piece.mesh == null:
+			continue
+		var box := piece.mesh.get_aabb()
+		box.position += piece.position
+		assembled = box if not started else assembled.merge(box)
+		started = true
+	_expect(
+		assembled.position.distance_to(baked.position) < 0.2 and assembled.size.distance_to(baked.size) < 0.3,
+		"and stands in the same space as the one-piece horse (corner off by %.2f m, size by %.2f m)" % [
+			assembled.position.distance_to(baked.position), assembled.size.distance_to(baked.size)
+		]
+	)
 	_expect(mounts.mount(MountKinds.HORSE), "it can be mounted")
 	# Carried along at a canter, its legs swing; standing, they settle.
 	var start_at := spot + Vector3(2.0, 0.0, 0.0)

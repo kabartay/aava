@@ -156,9 +156,15 @@ const HORSE_TAIL_PIVOT := Vector3(0.0, 1.56, 1.224)
 ## legs — so the head can nod and the tail swing as it moves; `build_mesh`
 ## bakes them into one for a still picture.
 static func _horse(tool: SurfaceTool) -> void:
+	# Baked into one mesh, every part keeps its own place on the horse, so
+	# nothing is measured from a pivot: pivot zero. The legs are here too —
+	# they were left out when they became nodes, and the one-piece horse
+	# stood on nothing, which is what the screenshot tool drew.
 	_horse_body(tool)
-	_horse_head(tool, HORSE_HEAD_PIVOT)
-	_horse_tail(tool, HORSE_TAIL_PIVOT)
+	_horse_head(tool, Vector3.ZERO)
+	_horse_tail(tool, Vector3.ZERO)
+	for hip in HORSE_HIPS:
+		_horse_leg(tool, hip, Vector3.ZERO)
 
 ## The barrel, chest, shoulder and rump, the saddle and its reins.
 static func _horse_body(tool: SurfaceTool) -> void:
@@ -330,14 +336,20 @@ static func _horse_tail(tool: SurfaceTool, pivot: Vector3) -> void:
 	_add(tool, tail_tip, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(6.0)), Vector3(0.0, 0.82 * s, 1.24 * s) - pivot), dark)
 
 ## One part of the horse as a mesh of its own, for the parts that move.
+##
+## A moving part is drawn relative to the joint it turns about, because its
+## node sits at that joint: the two together put it back where it belongs.
+## Built with pivot zero at first, which meant the offset was applied twice —
+## the node moved it up to the shoulder and the mesh was already there — and
+## the head and tail hung half a metre off the horse.
 static func horse_part(part: String) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	match part:
 		"head":
-			_horse_head(tool, Vector3.ZERO)
+			_horse_head(tool, HORSE_HEAD_PIVOT)
 		"tail":
-			_horse_tail(tool, Vector3.ZERO)
+			_horse_tail(tool, HORSE_TAIL_PIVOT)
 		_:
 			_horse_body(tool)
 	tool.generate_normals()
@@ -357,33 +369,40 @@ const HORSE_HIPS: Array[Vector3] = [
 ## baked horse and stood stiff at a gallop, which from the saddle read as a
 ## horse on wheels.
 static func horse_leg() -> Mesh:
-	var s := 1.2
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Relative to its own hip, every leg is the same leg, so which hip is
+	# passed here does not matter as long as it is the pivot too.
+	_horse_leg(tool, HORSE_HIPS[0], HORSE_HIPS[0])
+	tool.generate_normals()
+	tool.set_material(AnimalKinds.fur_material())
+	return tool.commit()
+
+## A leg hanging from `hip`, drawn in coordinates relative to `pivot`.
+static func _horse_leg(tool: SurfaceTool, hip: Vector3, pivot: Vector3) -> void:
+	var s := 1.2
 	var dark: Color = colour(HORSE).darkened(0.3)
 	var pale := Color(0.93, 0.90, 0.84)
 	var hoof := Color(0.15, 0.12, 0.10)
+	var top := hip - pivot
 	var leg := CylinderMesh.new()
 	leg.top_radius = 0.11 * s
 	leg.bottom_radius = 0.08 * s
 	leg.height = 1.3 * s
 	leg.radial_segments = 6
-	_add(tool, leg, Transform3D(Basis(), Vector3(0.0, -0.65 * s, 0.0)), dark)
+	_add(tool, leg, Transform3D(Basis(), top + Vector3(0.0, -0.65 * s, 0.0)), dark)
 	var sock := CylinderMesh.new()
 	sock.top_radius = 0.085 * s
 	sock.bottom_radius = 0.085 * s
 	sock.height = 0.2 * s
 	sock.radial_segments = 6
-	_add(tool, sock, Transform3D(Basis(), Vector3(0.0, -1.1 * s, 0.0)), pale)
+	_add(tool, sock, Transform3D(Basis(), top + Vector3(0.0, -1.1 * s, 0.0)), pale)
 	var foot := CylinderMesh.new()
 	foot.top_radius = 0.095 * s
 	foot.bottom_radius = 0.1 * s
 	foot.height = 0.1 * s
 	foot.radial_segments = 6
-	_add(tool, foot, Transform3D(Basis(), Vector3(0.0, -1.25 * s, 0.0)), hoof)
-	tool.generate_normals()
-	tool.set_material(AnimalKinds.fur_material())
-	return tool.commit()
+	_add(tool, foot, Transform3D(Basis(), top + Vector3(0.0, -1.25 * s, 0.0)), hoof)
 
 ## A mount as a node: a body, and for the horse four legs hung from the hips
 ## that Mounts swings as it moves. The mesh alone is not enough for something
