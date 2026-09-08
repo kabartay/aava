@@ -156,6 +156,13 @@ const LAMP_RANGE := 13.0
 const LAMP_ENERGY := 1.5
 const LAMP_COLOUR := Color(1.0, 0.82, 0.55)
 const LAMP_FADE := 2.4
+## The football pitch's floodlights: four tall posts a little beyond the
+## corners, heads tilted in over the pitch, brighter and further-reaching
+## than a street lamp, so the pitch is lit for a game after dark.
+const PITCH_LAMP_CLEARANCE := 2.5
+const PITCH_LAMP_HEIGHT := 6.0
+const PITCH_LAMP_RANGE := 34.0
+const PITCH_LAMP_ENERGY := 2.4
 
 ## A clipped hedge round the lot — a green wall, the kind that fences a real
 ## playground — with an opening on the side the path arrives from and one
@@ -196,6 +203,7 @@ var _meals: Array[Dictionary] = []
 ## where to sit, where on the table the meal goes, and which way to face.
 var _cafe_solid: StaticBody3D = null
 var _cafe_walls: StaticBody3D = null
+var _pitch_solid: StaticBody3D = null
 var _cafe_seats: Array[Dictionary] = []
 ## Each ball's height last frame, to see one drop through the ring.
 var _ball_heights: Array[float] = []
@@ -219,6 +227,7 @@ func stand_up(camp: Vector3) -> void:
 	# drift off their own flat ground the first time one was moved.
 	for place in ALL:
 		_place(place, PlaceSpec.centre_of(place, camp))
+	_build_pitch_lamps()
 
 func position_of(place: StringName) -> Vector3:
 	return _spots.get(place, Vector3.ZERO)
@@ -1738,7 +1747,7 @@ func light_lamps(darkness: float, delta: float) -> void:
 		# that never changes at all reads as painted on.
 		var breathe := 1.0 + 0.025 * sin(_wind_time * 2.3 + float(i) * 2.1)
 		var light: OmniLight3D = lamp["light"]
-		light.light_energy = LAMP_ENERGY * strength * breathe
+		light.light_energy = float(lamp.get("energy", LAMP_ENERGY)) * strength * breathe
 		# Switched off outright when dark enough not to matter: an omni light
 		# at zero energy still costs the phone its share of the frame.
 		light.visible = strength > 0.01
@@ -2013,7 +2022,10 @@ func _build_lamps(at: Vector3, solid: StaticBody3D) -> void:
 ## blades of grass would cost more than the rest of the frame. Its mesh goes
 ## into the caller's tool; its light and glowing pane are nodes of their own.
 ## Shared by the playground and the café.
-func _build_lamp(tool: SurfaceTool, at: Vector3, where: Vector3, solid: StaticBody3D, threshold: float) -> void:
+func _build_lamp(
+	tool: SurfaceTool, at: Vector3, where: Vector3, solid: StaticBody3D, threshold: float,
+	height := LAMP_HEIGHT, reach := LAMP_RANGE, energy := LAMP_ENERGY
+) -> void:
 	var iron := Color(0.16, 0.18, 0.19)
 	var pane := Color(0.78, 0.80, 0.82)
 	var local := where
@@ -2031,18 +2043,18 @@ func _build_lamp(tool: SurfaceTool, at: Vector3, where: Vector3, solid: StaticBo
 	_add(tool, base, Transform3D(Basis(), local + Vector3(0.0, 0.14, 0.0)), iron)
 	var post := CylinderMesh.new()
 	post.top_radius = 0.06
-	post.bottom_radius = 0.085
-	post.height = LAMP_HEIGHT
+	post.bottom_radius = 0.085 + (height - LAMP_HEIGHT) * 0.02
+	post.height = height
 	post.radial_segments = 8
 	post.rings = 1
-	_add(tool, post, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)), iron)
+	_add(tool, post, Transform3D(Basis(), local + Vector3(0.0, height * 0.5, 0.0)), iron)
 	var post_shape := CylinderShape3D.new()
 	post_shape.radius = 0.10
-	post_shape.height = LAMP_HEIGHT
-	_collide(solid, post_shape, Transform3D(Basis(), local + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0)))
+	post_shape.height = height
+	_collide(solid, post_shape, Transform3D(Basis(), local + Vector3(0.0, height * 0.5, 0.0)))
 
 	# The lantern: a pale pane in an iron frame, with a little roof.
-	var head_at := local + Vector3(0.0, LAMP_HEIGHT + 0.17, 0.0)
+	var head_at := local + Vector3(0.0, height + 0.17, 0.0)
 	var glass := BoxMesh.new()
 	glass.size = Vector3(0.26, 0.24, 0.26)
 	_add(tool, glass, Transform3D(Basis(), head_at), pane)
@@ -2077,7 +2089,7 @@ func _build_lamp(tool: SurfaceTool, at: Vector3, where: Vector3, solid: StaticBo
 	add_child(lit_pane)
 
 	var light := OmniLight3D.new()
-	light.omni_range = LAMP_RANGE
+	light.omni_range = reach
 	light.light_color = LAMP_COLOUR
 	light.light_energy = 0.0
 	light.shadow_enabled = false
@@ -2085,7 +2097,36 @@ func _build_lamp(tool: SurfaceTool, at: Vector3, where: Vector3, solid: StaticBo
 	light.position = at + head_at + Vector3(0.0, -0.1, 0.0)
 	add_child(light)
 
-	_lamps.append({"light": light, "glass": lit_pane, "threshold": threshold, "lit": 0.0})
+	_lamps.append({"light": light, "glass": lit_pane, "threshold": threshold, "lit": 0.0, "energy": energy})
+
+## Four floodlights round the football pitch, a little beyond its corners,
+## which come on with dusk like the lamps at the playground and light the
+## pitch for a game after dark. Taller and brighter than a street lamp; not a
+## stadium, so the meadow round the pitch stays night.
+func _build_pitch_lamps() -> void:
+	var centre := Pitch.centre()
+	centre.y = field.height_at(centre.x, centre.z)
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var solid := StaticBody3D.new()
+	solid.transform = Transform3D(Basis(), centre)
+	solid.collision_layer = TerrainSpec.LAYER_PROPS
+	add_child(solid)
+	_pitch_solid = solid
+	var corner := 0
+	for sx in PackedFloat32Array([-1.0, 1.0]):
+		for sz in PackedFloat32Array([-1.0, 1.0]):
+			var where := Vector3(
+				sx * (Pitch.HALF_LENGTH + PITCH_LAMP_CLEARANCE), 0.0,
+				sz * (Pitch.HALF_WIDTH + PITCH_LAMP_CLEARANCE)
+			)
+			_build_lamp(tool, centre, where, solid, 0.10 + 0.03 * float(corner), PITCH_LAMP_HEIGHT, PITCH_LAMP_RANGE, PITCH_LAMP_ENERGY)
+			corner += 1
+	_finish_into(tool, centre)
+
+## How many floodlights the pitch has. For the checks.
+func pitch_lamp_count() -> int:
+	return 0 if _pitch_solid == null else _pitch_solid.get_child_count()
 
 ## A flower bed: a ring of turned earth with flowers standing in it. The valley
 ## has almost no flowers; this is where a few are.

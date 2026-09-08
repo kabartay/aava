@@ -2521,7 +2521,8 @@ func _check_places_worth_walking_to() -> void:
 	_expect(places.fountain_plays(), "and the fountain has a jet")
 	# The lamps: dark by day, all three lit once it is properly night, and
 	# dark again by morning.
-	_expect(places.lamp_count() == Places.LAMPS.size() + Places.CAFE_LAMPS.size(), "%d lamps stand round the pad and the café" % places.lamp_count())
+	_expect(places.lamp_count() == Places.LAMPS.size() + Places.CAFE_LAMPS.size() + 4, "%d lamps: round the pad, at the café, and the pitch's four floodlights" % places.lamp_count())
+	_expect(places.pitch_lamp_count() == 4, "a floodlight at each corner of the pitch")
 	places.light_lamps(0.0, 10.0)
 	_expect(places.lamps_lit() == 0, "unlit in daylight")
 	places.light_lamps(1.0, 10.0)
