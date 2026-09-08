@@ -37,7 +37,7 @@ Last updated: 2026-09-06.
 | Walking, running, jumping | Done | `CharacterBody3D`, coyote time, jump buffer, floor snapping. Falling is now faster than rising, so a jump reads as a jump rather than a slow float back down. |
 | Camera | Done | `SpringArm3D` with a top-level camera and exponential smoothing; excludes the player's own capsule; snaps back quickly when a wall pushes it in but still eases pulling back out. |
 | Zoom | Done | Distance only — the aim point does not move, so zooming never disorients. |
-| Minimap | Done | Three sizes, cycled by tapping: small, large, and a full view of the whole valley with every destination as a coloured dot. |
+| Minimap | Done | Three sizes, cycled by tapping: small, large, and the whole valley. Baked on a worker thread, so opening it no longer freezes the game. Every destination is a picture on every size — a place off the map sits on the rim pointing at itself — and the worn paths are drawn between them. |
 | Football pitch | Done | Levelled inside the height field itself, so the ground is flat by construction rather than by flattening afterwards. |
 | Balls and kicking | Done | `RigidBody3D` with continuous collision detection. Kick sets velocity directly. |
 | Kick power and loft | Done | Held button charges strength; a separate control sets the angle. |
@@ -106,7 +106,7 @@ Last updated: 2026-09-06.
 |---|---|---|
 | Swimming | Done | Forgiving by design: no drowning, buoyancy pushes a child back up, capped so nobody launches out of deep water. A small hysteresis band now keeps a stationary swimmer from flickering between walking and swimming physics at the exact threshold depth. |
 | Swimming pool | Done | Dug into the height field, so the hole and the water are the same shape by construction. |
-| Playground | Done | Two swing frames with two seats each, a three-metre slide with a leaning ladder, a trampoline that bounces, a basketball hoop with three balls that are thrown at it, two benches with bins, a running fountain that fills the bottle, four flower beds, three lamps that come on at dusk, and a clipped hedge round the lot. Everything is solid. Laid out in bands on a 14 m pad so it reads as a place rather than a heap. |
+| Playground | Done | Two swing frames with two seats each, a three-metre slide with a leaning ladder that gathers speed on the way down, a trampoline that bounces, a basketball hoop with three balls that are thrown at it, two benches with bins, a running fountain that fills the bottle, four flower beds, three lamps that come on one by one at dusk, and a lumpy clipped hedge round the lot. Everything is solid, to the child and to the animals, which steer round it. Laid out in bands on a 14 m pad so it reads as a place rather than a heap. |
 | Café | Done | A meal restores a large fraction of the energy bar — closes the energy loop from the other end. |
 | Levelled ground | Done | Playground, pool and café are flat by construction, like the football pitch. |
 | Spread out | Done | Destinations sit several hundred metres apart around the camp, so getting to one means crossing the valley rather than a courtyard. |
