@@ -47,6 +47,33 @@ const MOUNTAIN_START := 460.0
 ## read as hills you could walk into and the far ones as something else.
 const TREELINE := 118.0
 
+## The bands a mountainside goes through, in metres. A real range does this
+## over kilometres; this is the same order of things scaled to a valley a
+## child can walk across, because the *order* is what reads as a mountain.
+##
+##   valley floor .. MIXED_TOP     mixed wood: broadleaves with spruce in it
+##   MIXED_TOP .. CONIFER_TOP      spruce forest, and only spruce
+##   CONIFER_TOP .. TREELINE       krummholz: the last stunted, scattered firs
+##   TREELINE .. PASTURE_TOP       alpine pasture: grass, stones, no trees
+##   PASTURE_TOP .. SNOWLINE       crag: bare rock, where only the gentle
+##                                 shoulders keep any grass at all
+##   SNOWLINE upwards              snow, and glacier ice in the hollows
+const MIXED_TOP := 48.0
+const CONIFER_TOP := 92.0
+const PASTURE_TOP := 150.0
+const SNOWLINE := 138.0
+
+## How much of the trees are spruce at a height: a third down in the warm
+## valley, all of them by the time the broadleaves give out.
+static func conifer_share(height: float) -> float:
+	return lerpf(0.3, 1.0, smoothstep(12.0, MIXED_TOP, height))
+
+## How tall a tree grows at a height, as a fraction of its usual size. The
+## last trees under the treeline are stunted — krummholz — and that tapering
+## is what makes a treeline read as a treeline rather than as a mown edge.
+static func tree_vigour(height: float) -> float:
+	return lerpf(1.0, 0.45, smoothstep(CONIFER_TOP, TREELINE, height))
+
 ## How high the football pitch sits. Fixed rather than sampled from the natural
 ## ground, because a pitch has to be level and a level surface needs one number.
 const PITCH_LEVEL := 2.4
@@ -409,6 +436,13 @@ func forest_density_at(x: float, z: float) -> float:
 	var density := (_forest.get_noise_2d(x, z) + 1.0) * 0.5
 	density = smoothstep(0.42, 0.78, density)
 
+	# Thicker towards the mountains. In the valley the wood is broken up by
+	# meadow; on the lower slopes, where the ground is cooler and wetter and
+	# nobody has cleared anything, it closes up — and a forest that thickens
+	# as you climb is most of what makes the foot of a range read as the foot
+	# of a range.
+	density = lerpf(density, minf(1.0, density * 1.9 + 0.22), smoothstep(20.0, CONIFER_TOP, height))
+
 	# A clearing along the river. Rivers cut through forests in life, and here it
 	# also keeps the most walkable part of the world open for building.
 	density *= smoothstep(10.0, 34.0, distance_to_river(x, z))
@@ -416,8 +450,9 @@ func forest_density_at(x: float, z: float) -> float:
 	# Trees thin out as the ground steepens and stop where nothing could root.
 	density *= 1.0 - smoothstep(0.28, 0.62, steepness_at(x, z))
 
-	# And they thin towards the treeline instead of stopping at a hard line.
-	density *= 1.0 - smoothstep(TREELINE - 26.0, TREELINE, height)
+	# And they thin towards the treeline instead of stopping at a hard line —
+	# the krummholz band, where what is left is scattered and stunted.
+	density *= 1.0 - smoothstep(CONIFER_TOP, TREELINE, height)
 
 	return clampf(density, 0.0, 1.0)
 

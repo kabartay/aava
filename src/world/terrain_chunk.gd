@@ -271,8 +271,19 @@ static func _tint(
 	var under := 1.0 - smoothstep(-0.75, 0.1, above)
 	color = color.lerp(TerrainSpec.COLOR_SILT, clampf(under, 0.0, 1.0))
 
-	# Rock where nothing could root.
-	color = color.lerp(TerrainSpec.COLOR_ROCK, smoothstep(0.35, 0.75, steep))
+	# Above the last trees the grass goes thin and sun-bleached: alpine
+	# pasture, the band a walker crosses between the forest and the crags.
+	color = color.lerp(
+		TerrainSpec.COLOR_PASTURE,
+		smoothstep(HeightField.CONIFER_TOP, HeightField.TREELINE + 6.0, height)
+	)
+
+	# Rock where nothing could root — and, above the pasture, rock whether it
+	# is steep or not: that is what makes the band above the grass read as
+	# crag rather than as more hillside.
+	var bare := smoothstep(0.35, 0.75, steep)
+	bare = maxf(bare, smoothstep(HeightField.PASTURE_TOP - 26.0, HeightField.PASTURE_TOP, height))
+	color = color.lerp(TerrainSpec.COLOR_ROCK, clampf(bare, 0.0, 1.0))
 
 	# The playground and the café are worn to earth by feet — a yellow-brown
 	# more like a path than a meadow, fading back into grass at the edge of the
@@ -311,7 +322,7 @@ static func _tint(
 	# contrast between white shoulders and dark crags is most of what a
 	# mountain looks like.
 	var snow := (
-		smoothstep(HeightField.TREELINE - 30.0, HeightField.TREELINE + 2.0, height)
+		smoothstep(HeightField.SNOWLINE - 22.0, HeightField.SNOWLINE + 14.0, height)
 		* (1.0 - smoothstep(0.42, 0.78, steep))
 	)
 	color = color.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
@@ -321,7 +332,7 @@ static func _tint(
 	# Painted over the snow rather than instead of it, so a summit reads as
 	# white with blue ice in its hollows and shoulders.
 	var ice := (
-		smoothstep(HeightField.TREELINE + 6.0, HeightField.TREELINE + 40.0, height)
+		smoothstep(HeightField.SNOWLINE + 10.0, HeightField.SNOWLINE + 46.0, height)
 		* (1.0 - smoothstep(0.16, 0.38, steep))
 	)
 	color = color.lerp(TerrainSpec.COLOR_ICE, clampf(ice, 0.0, 1.0))

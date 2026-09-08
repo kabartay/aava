@@ -67,6 +67,7 @@ func _initialize() -> void:
 	_check_the_wind_moves_only_the_crown()
 	_check_snow_lies_where_snow_lies()
 	_check_the_far_country_is_there()
+	_check_the_mountainside_has_zones()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -1372,22 +1373,91 @@ func _check_the_wind_moves_only_the_crown() -> void:
 ## Snow lies on gentle ground high up and slides off cliffs. The steepness
 ## term used to be measured against a scale steepness never reaches, so it
 ## was one everywhere and the mountains were white to their vertical walls.
+## A mountainside goes through bands, as a real one does: mixed wood, spruce
+## forest, stunted trees, alpine pasture, crag, snow, ice. The valley is a
+## few hundred metres tall rather than a few thousand, so the bands are
+## scaled — but the order of them is what makes a hillside read as a
+## mountainside, and the order is what this checks.
+func _check_the_mountainside_has_zones() -> void:
+	print("the mountainside has zones")
+	# The bands are in order and none of them is empty.
+	_expect(
+		HeightField.MIXED_TOP < HeightField.CONIFER_TOP
+		and HeightField.CONIFER_TOP < HeightField.TREELINE
+		and HeightField.TREELINE < HeightField.SNOWLINE
+		and HeightField.SNOWLINE < HeightField.PASTURE_TOP,
+		"the bands climb in order: mixed wood, spruce, treeline, snow"
+	)
+
+	# Trees: mixed low down, all spruce by the middle slopes, stunted at the
+	# treeline.
+	_expect(HeightField.conifer_share(6.0) < 0.4, "a third of the valley's trees are spruce (%.0f%%)" % (HeightField.conifer_share(6.0) * 100.0))
+	_expect(HeightField.conifer_share(HeightField.MIXED_TOP + 4.0) > 0.95, "and above the mixed wood they all are")
+	_expect(is_equal_approx(HeightField.tree_vigour(20.0), 1.0), "trees in the valley grow to their full size")
+	_expect(HeightField.tree_vigour(HeightField.TREELINE) < 0.6, "and the last ones under the treeline are stunted (%.0f%%)" % (HeightField.tree_vigour(HeightField.TREELINE) * 100.0))
+
+	# The forest thickens towards the mountains, and stops at the treeline.
+	var field := HeightField.new(20260903)
+	var low := _average_density(field, 6.0, 24.0)
+	var slope := _average_density(field, 40.0, 80.0)
+	_expect(slope > low, "the wood is thicker on the lower slopes than in the valley (%.2f against %.2f)" % [slope, low])
+	var above := 0.0
+	for z in range(-500, 501, 13):
+		for x in range(-500, 501, 13):
+			if field.height_at(float(x), float(z)) <= HeightField.TREELINE:
+				continue
+			above = maxf(above, field.forest_density_at(float(x), float(z)))
+	_expect(is_zero_approx(above), "and no tree grows above the treeline")
+
+	# The ground: pasture above the last trees, crag above that, snow above
+	# that. Measured on gentle ground, where each band is at its clearest.
+	var pasture := TerrainChunk._tint(field, 4000.0, 4000.0, HeightField.TREELINE + 2.0, 0.12, false, false, false)
+	var crag := TerrainChunk._tint(field, 4000.0, 4000.0, HeightField.PASTURE_TOP - 4.0, 0.12, false, false, false)
+	_expect(
+		_closer_to(pasture, TerrainSpec.COLOR_PASTURE, TerrainSpec.COLOR_ROCK),
+		"just above the treeline the ground is pasture, not rock"
+	)
+	_expect(
+		_closer_to(crag, TerrainSpec.COLOR_ROCK, TerrainSpec.COLOR_PASTURE)
+		or _snow_in(field, HeightField.PASTURE_TOP - 4.0, 0.12) > 0.5,
+		"higher still it is crag or snow, not pasture"
+	)
+	_expect(_snow_in(field, HeightField.TREELINE + 4.0, 0.12) < 0.2, "and no snow lies on the pasture")
+	_expect(_snow_in(field, HeightField.SNOWLINE + 16.0, 0.12) > 0.8, "while the tops are white")
+
+## The forest's density averaged over a band of heights, found by walking the
+## valley until enough ground in that band has been sampled.
+func _average_density(field: HeightField, low: float, high: float) -> float:
+	var total := 0.0
+	var found := 0
+	for z in range(-500, 501, 11):
+		for x in range(-500, 501, 11):
+			var height := field.height_at(float(x), float(z))
+			if height < low or height > high:
+				continue
+			total += field.forest_density_at(float(x), float(z))
+			found += 1
+	return total / maxf(float(found), 1.0)
+
 func _check_snow_lies_where_snow_lies() -> void:
 	print("snow lies where snow lies")
 	var field := HeightField.new(20260903)
-	var high := HeightField.TREELINE + 30.0
+	var high := HeightField.SNOWLINE + 30.0
 	var gentle := _snow_in(field, high, 0.1)
 	var cliff := _snow_in(field, high, 0.9)
 	var valley := _snow_in(field, 20.0, 0.1)
 	# High and gentle is white — snow, and above it the blue of glacier ice,
 	# which is a shade darker than snow and still nothing like rock.
 	_expect(gentle > 0.7, "a high shoulder is white with snow and ice (%.2f)" % gentle)
-	_expect(_snow_in(field, HeightField.TREELINE + 8.0, 0.1) > 0.85, "just above the treeline it is snow, before the ice starts")
+	_expect(_snow_in(field, HeightField.SNOWLINE + 14.0, 0.1) > 0.85, "just above the snowline it is snow, before the ice starts")
 	_expect(cliff < 0.15, "a high cliff face is bare rock (%.2f)" % cliff)
 	_expect(valley < 0.02, "and the valley floor never is (%.2f)" % valley)
 	# The treeline is where snow starts, not somewhere in the middle of the
 	# forest: trees stop at TREELINE and snow must not be under them.
-	_expect(_snow_in(field, HeightField.TREELINE - 40.0, 0.1) < 0.05, "no snow lies below the treeline")
+	# And nothing white down where the trees and the pasture are: snow starts
+	# at the snowline, a good way above the last tree.
+	_expect(_snow_in(field, HeightField.TREELINE - 40.0, 0.1) < 0.05, "no snow lies in the forest")
+	_expect(_snow_in(field, HeightField.TREELINE + 6.0, 0.1) < 0.15, "nor on the alpine pasture above it")
 
 ## How white the ground comes out at a height and steepness, as a fraction.
 ##

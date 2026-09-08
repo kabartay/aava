@@ -134,14 +134,22 @@ func _colour(height: float, x: float, z: float) -> Color:
 	colour = colour.lerp(
 		TerrainSpec.COLOR_FOREST_FAR, clampf(field.forest_density_at(x, z), 0.0, 1.0) * 0.8
 	)
-	colour = colour.lerp(TerrainSpec.COLOR_ROCK, smoothstep(0.35, 0.75, steep))
+	colour = colour.lerp(
+		TerrainSpec.COLOR_PASTURE,
+		smoothstep(HeightField.CONIFER_TOP, HeightField.TREELINE + 6.0, height)
+	)
+	var bare := maxf(
+		smoothstep(0.35, 0.75, steep),
+		smoothstep(HeightField.PASTURE_TOP - 26.0, HeightField.PASTURE_TOP, height)
+	)
+	colour = colour.lerp(TerrainSpec.COLOR_ROCK, clampf(bare, 0.0, 1.0))
 	var snow := (
-		smoothstep(HeightField.TREELINE - 30.0, HeightField.TREELINE + 2.0, height)
+		smoothstep(HeightField.SNOWLINE - 22.0, HeightField.SNOWLINE + 14.0, height)
 		* (1.0 - smoothstep(0.42, 0.78, steep))
 	)
 	colour = colour.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
 	var ice := (
-		smoothstep(HeightField.TREELINE + 6.0, HeightField.TREELINE + 40.0, height)
+		smoothstep(HeightField.SNOWLINE + 10.0, HeightField.SNOWLINE + 46.0, height)
 		* (1.0 - smoothstep(0.16, 0.38, steep))
 	)
 	return colour.lerp(TerrainSpec.COLOR_ICE, clampf(ice, 0.0, 1.0))

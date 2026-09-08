@@ -70,6 +70,10 @@ const COLOR_ROCK := Color(0.44, 0.43, 0.44)
 ## hillside under trees is darker and bluer than the grass beside it, and
 ## that darkening is the whole of what a distant wood looks like.
 const COLOR_FOREST_FAR := Color(0.21, 0.34, 0.24)
+## Alpine pasture, above the last tree: thin, sun-bleached grass, yellower
+## and greyer than the meadow down in the valley, with the rock beginning to
+## show through it.
+const COLOR_PASTURE := Color(0.55, 0.58, 0.33)
 const COLOR_SNOW := Color(0.92, 0.94, 0.97)
 
 ## Glacier ice, for the high ground gentle enough for it to gather on. Bluer

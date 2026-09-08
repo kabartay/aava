@@ -177,13 +177,18 @@ static func generate_trees(
 		if felled != null and felled.is_felled(world_x, world_z):
 			continue
 
-		# Conifers dominate high and cool, broadleaves low and warm, so the
-		# treeline changes character rather than just thinning out.
-		var conifer_bias := smoothstep(24.0, 68.0, local.y)
+		# The wood changes character as it climbs rather than merely thinning:
+		# mixed at the bottom, all spruce by the middle slopes, and stunted
+		# where it gives out. Both numbers come from the height field, so the
+		# planting and anything else that asks about the mountainside agree.
+		var conifer_bias := HeightField.conifer_share(local.y)
+		var vigour := HeightField.tree_vigour(local.y)
 		out.append({
 			"position": Vector3(world_x, local.y, world_z),
 			"transform": Transform3D(
-				Basis(Vector3.UP, spin * TAU).scaled(Vector3(scale, scale * stretch, scale)),
+				Basis(Vector3.UP, spin * TAU).scaled(
+					Vector3(scale * vigour, scale * stretch * vigour, scale * vigour)
+				),
 				local
 			),
 			"conifer": species < conifer_bias,
