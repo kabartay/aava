@@ -89,6 +89,10 @@ var jump_boost := 1.0
 ## How high the child's body is lifted while riding, so they sit on the mount
 ## rather than standing inside it. Eased, so mounting looks like climbing on.
 var _ride_lift := 0.0
+## How far the body is dropped into the water while swimming, and how far it
+## is tipped forward.
+var _swim_sink := 0.0
+var _swim_lean := 0.0
 
 ## What the player is riding, or an empty name when on foot. Set by the game.
 ##
@@ -339,7 +343,8 @@ func _physics_process(delta: float) -> void:
 
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
 	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
-	_visual.position.y = _ride_lift
+	_settle_in_water(delta)
+	_visual.position.y = _ride_lift - _swim_sink - _swim_bob()
 
 	# The world streams around wherever the player is, but only when they have
 	# actually gone somewhere worth regenerating for.
@@ -379,6 +384,42 @@ func is_charging() -> bool:
 
 ## Which way the body is actually facing, on the ground plane. Used by the kick
 ## so that striking a ball you are standing on top of still sends it forwards.
+## How the body sits in the water: dropped to the chest and tipped forward,
+## bobbing a little, so that swimming looks like swimming.
+##
+## Buoyancy already held the body at the right height for its *collider* —
+## which meant a child stood in the water up to the knees with the whole of
+## them above the surface, and from the phone it was not clear they were
+## swimming at all. The collider is left alone; what moves is what is drawn.
+const SWIM_SINK := 0.52
+const SWIM_LEAN := deg_to_rad(22.0)
+const SWIM_BOB := 0.05
+const SWIM_SETTLE := 4.0
+
+func _settle_in_water(delta: float) -> void:
+	var wanted := SWIM_SINK if is_swimming else 0.0
+	_swim_sink = lerpf(_swim_sink, wanted, 1.0 - exp(-SWIM_SETTLE * delta))
+	_swim_lean = lerpf(_swim_lean, SWIM_LEAN if is_swimming else 0.0, 1.0 - exp(-SWIM_SETTLE * delta))
+	_visual.rotation.x = _swim_lean
+
+## Riding the surface, which is what tells a child the water is water. An
+## offset worked out fresh each frame, never added into `_swim_sink`: added
+## to the state it would be smoothed, re-added and smoothed again, and the
+## body sank by a hand's width a second. The animals' flying-into-the-air
+## bug was this same mistake — see LESSONS.md.
+func _swim_bob() -> float:
+	if _swim_sink < 0.01:
+		return 0.0
+	return sin(float(Time.get_ticks_msec()) * 0.0022) * SWIM_BOB * (_swim_sink / SWIM_SINK)
+
+## How deep the drawn body is sitting, and how far it is tipped. For the
+## checks — the collider does not move, so nothing else can see this.
+func swim_sink() -> float:
+	return _swim_sink
+
+func swim_lean() -> float:
+	return _swim_lean
+
 ## The direction the body is turned, as an angle. Read by a mount so it faces
 ## the same way its rider does.
 func facing_angle() -> float:

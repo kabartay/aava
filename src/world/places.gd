@@ -71,6 +71,16 @@ const POOL_TICKET := 5
 ## for it to offer a ticket.
 const TURNSTILE_OPEN := 7.0
 const TURNSTILE_REACH := 2.6
+## The loungers: laid along the poolside rather than across it, in the three
+## metres between the water's rim and the fence. Across it they were two
+## metres long in a three-metre gap and stuck through the railings.
+const POOL_LOUNGER_SIZE := Vector3(1.9, 0.55, 0.72)
+const POOL_LOUNGERS: Array[Vector3] = [
+	Vector3(-5.0, 0.0, -(POOL_HALF_Z + 1.5)), Vector3(5.0, 0.0, -(POOL_HALF_Z + 1.5)),
+]
+## How much clear ground every piece of poolside furniture leaves between
+## itself and the fence.
+const POOLSIDE_CLEARANCE := 0.6
 const POOL_LAMPS: Array[Vector3] = [
 	Vector3(-POOL_FENCE_X - 0.8, 0.0, -POOL_FENCE_Z - 0.8), Vector3(POOL_FENCE_X + 0.8, 0.0, POOL_FENCE_Z + 0.8),
 ]
@@ -996,18 +1006,26 @@ func _build_pool(at: Vector3) -> void:
 	var block_shape := BoxShape3D.new()
 	block_shape.size = block.size
 	_collide(solid, block_shape, Transform3D(Basis(), Vector3(0.0, 0.25, -POOL_HALF_Z - 0.55)))
-	# Two loungers along the far side, for the look of a place people lie about.
-	for x in PackedFloat32Array([-4.0, 4.0]):
-		var lounger := BoxMesh.new()
-		lounger.size = Vector3(0.7, 0.08, 1.9)
-		_add(tool, lounger, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-8.0)), Vector3(x, 0.4, -POOL_HALF_Z - 2.2)), Color(0.30, 0.52, 0.86))
-		for dz in PackedFloat32Array([-0.8, 0.8]):
+	# Two loungers along the far poolside, for the look of a place people lie
+	# about: laid along it, head towards the water, with a raised back.
+	for local in POOL_LOUNGERS:
+		var seat := BoxMesh.new()
+		seat.size = Vector3(POOL_LOUNGER_SIZE.x * 0.66, 0.08, POOL_LOUNGER_SIZE.z)
+		_add(tool, seat, Transform3D(Basis(), local + Vector3(POOL_LOUNGER_SIZE.x * 0.17, 0.4, 0.0)), Color(0.30, 0.52, 0.86))
+		# The back, tipped up at the end nearer the fence.
+		var back := BoxMesh.new()
+		back.size = Vector3(POOL_LOUNGER_SIZE.x * 0.34, 0.08, POOL_LOUNGER_SIZE.z)
+		_add(tool, back, Transform3D(
+			Basis(Vector3.FORWARD, deg_to_rad(34.0)),
+			local + Vector3(-POOL_LOUNGER_SIZE.x * 0.36, 0.52, 0.0)
+		), Color(0.30, 0.52, 0.86))
+		for dx in PackedFloat32Array([-0.55, 0.75]):
 			var leg := BoxMesh.new()
-			leg.size = Vector3(0.7, 0.36, 0.05)
-			_add(tool, leg, Transform3D(Basis(), Vector3(x, 0.18, -POOL_HALF_Z - 2.2 + dz)), iron)
+			leg.size = Vector3(0.06, 0.36, POOL_LOUNGER_SIZE.z)
+			_add(tool, leg, Transform3D(Basis(), local + Vector3(dx, 0.18, 0.0)), iron)
 		var lounger_shape := BoxShape3D.new()
-		lounger_shape.size = Vector3(0.8, 0.6, 2.0)
-		_collide(solid, lounger_shape, Transform3D(Basis(), Vector3(x, 0.3, -POOL_HALF_Z - 2.2)))
+		lounger_shape.size = POOL_LOUNGER_SIZE
+		_collide(solid, lounger_shape, Transform3D(Basis(), local + Vector3(0.0, POOL_LOUNGER_SIZE.y * 0.5, 0.0)))
 
 	# The fence: posts every two metres with two rails, a gap on the side
 	# facing the pitch for the turnstile. Solid, or the fence is a suggestion.

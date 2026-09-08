@@ -59,6 +59,7 @@ func _initialize() -> void:
 	_check_the_cafe_serves()
 	_check_the_pool_takes_a_ticket()
 	_check_getting_off_a_mount_is_safe()
+	_check_swimming_looks_like_swimming()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -845,6 +846,23 @@ func _check_the_pool_takes_a_ticket() -> void:
 		"which stands with the ground round it, not below it"
 	)
 	_expect(places.pool_solid_count() >= 11, "%d solid pieces: fence, booth, block, loungers, lamps" % places.pool_solid_count())
+	# Nothing at the poolside may touch the fence or hang over the water: the
+	# loungers were laid across a three-metre gap, two metres long, and stuck
+	# out through the railings.
+	var roomy := true
+	var dry := true
+	for lounger in Places.POOL_LOUNGERS:
+		var half := Places.POOL_LOUNGER_SIZE * 0.5
+		var to_fence_x := Places.POOL_FENCE_X - (absf(lounger.x) + half.x)
+		var to_fence_z := Places.POOL_FENCE_Z - (absf(lounger.z) + half.z)
+		if to_fence_x < Places.POOLSIDE_CLEARANCE or to_fence_z < Places.POOLSIDE_CLEARANCE:
+			roomy = false
+			printerr("  a lounger comes within %.2f m of the fence" % minf(to_fence_x, to_fence_z))
+		if absf(lounger.z) - half.z < Places.POOL_HALF_Z + 0.2:
+			dry = false
+			printerr("  a lounger overhangs the water")
+	_expect(roomy, "the loungers stand clear of the fence")
+	_expect(dry, "and beside the water rather than over it")
 	var gate := spot + Vector3(Places.POOL_FENCE_X, 0.0, 0.0)
 	_expect(places.at_turnstile(gate + Vector3(1.5, 0.0, 0.0)), "a child a stride outside the gate is at the turnstile")
 	_expect(not places.at_turnstile(gate + Vector3(8.0, 0.0, 0.0)), "one eight metres off is not")
@@ -1087,6 +1105,33 @@ func _check_getting_off_a_mount_is_safe() -> void:
 	_expect(not mounts.can_ride_over(MountKinds.HORSE, pool), "a horse cannot be ridden into the pool")
 	_expect(mounts.can_ride_over(MountKinds.HORSE, pool + Vector3(Places.POOL_FENCE_X + 6.0, 0.0, 0.0)), "but can be ridden past it")
 	mounts.queue_free()
+
+## A child in deep water must look like one. Buoyancy holds the collider at
+## the right height, which left the whole of the body above the surface: from
+## the phone it was not clear they were in the water at all. The drawn body
+## is dropped to the chest and tipped forward while swimming, and comes back
+## up when they walk out.
+func _check_swimming_looks_like_swimming() -> void:
+	print("swimming looks like swimming")
+	var player := Player.new()
+	get_root().add_child(player)
+	_expect(is_zero_approx(player.swim_sink()), "on dry land the body is drawn where it stands")
+
+	player.is_swimming = true
+	for _frame in 60:
+		player._settle_in_water(1.0 / 60.0)
+	_expect(
+		player.swim_sink() > Player.SWIM_SINK * 0.8 and player.swim_sink() < Player.SWIM_SINK * 1.2,
+		"swimming, it sits %.2f m lower — about a third of its %.2f m height" % [player.swim_sink(), Player.HEIGHT]
+	)
+	_expect(player.swim_sink() < Player.HEIGHT * 0.5, "but not so low that the head goes under")
+	_expect(player.swim_lean() > deg_to_rad(15.0), "and is tipped forward %.0f degrees" % rad_to_deg(player.swim_lean()))
+
+	player.is_swimming = false
+	for _frame in 90:
+		player._settle_in_water(1.0 / 60.0)
+	_expect(player.swim_sink() < 0.02 and player.swim_lean() < 0.02, "and stands up again on dry land")
+	player.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
