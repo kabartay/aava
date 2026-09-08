@@ -51,12 +51,14 @@ func _initialize() -> void:
 	_check_the_aim_shows_where_the_ball_goes()
 	_check_animals_walk_round_the_playground()
 	_check_animals_walk_on_their_legs()
+	_check_nothing_hangs_in_the_air()
 	_check_the_voices_bake_off_thread()
 	_check_the_map_bakes_off_thread()
 	_check_boats_float_on_the_pond()
 	_check_nothing_is_built_on_the_playground()
 	_check_the_cafe_serves()
 	_check_the_pool_takes_a_ticket()
+	_check_getting_off_a_mount_is_safe()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -822,12 +824,26 @@ func _check_the_pool_takes_a_ticket() -> void:
 	places.stand_up(field.camp_centre())
 	var spot: Vector3 = places._spots[Places.POOL]
 	var pitch := Pitch.centre()
-	var gap := absf(pitch.x - spot.x) - Pitch.HALF_LENGTH - Places.POOL_HALF_X
-	_expect(gap > 8.0 and gap < 14.0, "the pool lies %.0f m from the pitch's end, parallel to it" % gap)
-	_expect(absf(pitch.z - spot.z) < 0.01, "on the same line")
-	_expect(is_equal_approx(Places.POOL_HALF_X * 2.0, Pitch.HALF_LENGTH * 2.0 * 0.7) and is_equal_approx(Places.POOL_HALF_Z * 2.0, Pitch.HALF_WIDTH * 2.0 * 0.7 + 0.0) or (Places.POOL_HALF_X == 14.0 and Places.POOL_HALF_Z == 9.0), "and is seven tenths of the pitch each way")
+	# Off the pitch's long side, not beyond a goal, and three times the ten
+	# metres it first stood at.
+	var gap := absf(pitch.z - spot.z) - Pitch.HALF_WIDTH - Places.POOL_HALF_Z
+	_expect(gap > 26.0 and gap < 34.0, "the pool lies %.0f m off the pitch's touchline" % gap)
+	_expect(absf(pitch.x - spot.x) < Pitch.HALF_LENGTH + 6.0, "alongside it rather than behind a goal")
+	_expect(Places.POOL_HALF_X > Places.POOL_HALF_Z, "with its long side along the pitch's own")
+	_expect(Places.POOL_HALF_X == 14.0 and Places.POOL_HALF_Z == 9.0, "and is seven tenths of the pitch each way")
 	_expect(places.water_depth_at(spot.x + 10.0, spot.z) > Player.SWIM_DEPTH, "deep enough to swim in ten metres along it")
 	_expect(is_zero_approx(places.water_depth_at(spot.x + Places.POOL_HALF_X + 1.0, spot.z)), "and dry just past its rim")
+	# The brim, not the floor: everything the pool is built from hangs off
+	# this, and taken from the floor the fence and the water sat in the hole.
+	var floor_height := field.height_at(spot.x, spot.z)
+	_expect(
+		is_equal_approx(spot.y, floor_height + PlaceSpec.POOL_DEPTH),
+		"the pool's own level is its brim %.1f m above the floor of it" % (spot.y - floor_height)
+	)
+	_expect(
+		spot.y > field.height_at(spot.x + Places.POOL_FENCE_X + 2.0, spot.z) - 0.6,
+		"which stands with the ground round it, not below it"
+	)
 	_expect(places.pool_solid_count() >= 11, "%d solid pieces: fence, booth, block, loungers, lamps" % places.pool_solid_count())
 	var gate := spot + Vector3(Places.POOL_FENCE_X, 0.0, 0.0)
 	_expect(places.at_turnstile(gate + Vector3(1.5, 0.0, 0.0)), "a child a stride outside the gate is at the turnstile")
@@ -843,6 +859,234 @@ func _check_the_pool_takes_a_ticket() -> void:
 	_expect(Places.POOL_TICKET == 5, "a ticket costs five coins")
 	_expect(Text.of("say_ticket").contains("%d") and Text.of("say_welcome_pool") != "", "and the price and the welcome have words")
 	places.queue_free()
+
+## Nothing a child looks at may hang in the air.
+##
+## Two bugs of the same kind shipped within an hour of each other: the
+## horse's head and tail, drawn relative to a joint and then moved to that
+## joint again, floated half a metre off it; and its tail's two halves were
+## placed at two chosen points that did not meet, so the end of it trailed
+## behind unattached. Neither was visible to any check — the meshes were
+## built, the counts were right, and only an eye on the phone could see it.
+##
+## So this looks at the geometry itself. Every mesh that makes up an animal
+## or a mount must be one connected lump of vertices, and every part hung as
+## a node of its own must touch the body it hangs from.
+func _check_nothing_hangs_in_the_air() -> void:
+	print("nothing hangs in the air")
+
+	# One connected lump: vertices are dropped into a coarse grid and the
+	# cells joined to their neighbours, which is enough to tell a tail that
+	# meets its dock from one that floats a hand's width behind it.
+	var pieces: Dictionary = {
+		"the horse's body": MountKinds.horse_part("body"),
+		"its head": MountKinds.horse_part("head"),
+		"its tail": MountKinds.horse_part("tail"),
+		"its leg": MountKinds.horse_leg(),
+		"the whole horse in one mesh": MountKinds.build_mesh(MountKinds.HORSE),
+		"the bicycle": MountKinds.build_mesh(MountKinds.BICYCLE),
+		"a boat": MountKinds.build_mesh(MountKinds.boat_id(0)),
+	}
+	for kind in AnimalKinds.ALL:
+		pieces["the %s" % kind] = AnimalKinds.body_mesh(kind)
+		pieces["the %s's leg" % kind] = AnimalKinds.leg_mesh(kind, false)
+	for name in pieces:
+		var lumps := _count_lumps(pieces[name])
+		_expect(lumps == 1, "%s is one lump, not %d" % [name, lumps])
+	# And the counting can see a gap when there is one, or every line above
+	# is a check that cannot fail.
+	_expect(_count_lumps(_a_mesh_in_two_pieces(0.25)) == 2, "and a quarter of a metre of air is seen as a gap")
+	_expect(_count_lumps(_a_mesh_in_two_pieces(0.6)) == 2, "as is half a metre of it")
+
+	# And every moving part must touch the body it hangs from, or it is a
+	# head floating beside a horse.
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	mounts.place(MountKinds.HORSE, Vector3.ZERO)
+	_expect(_parts_touch_the_body(mounts._nodes[MountKinds.HORSE], "horse"), "every part of the horse touches it")
+	mounts.queue_free()
+	for kind in AnimalKinds.ALL:
+		var node := AnimalKinds.build_node(kind)
+		_expect(_parts_touch_the_body(node, kind), "every leg of the %s touches it" % kind)
+		node.free()
+
+	# The tail's own chain: each piece starts where the last one ended, and
+	# the root of it sits inside the rump rather than behind it.
+	var joints := MountKinds.horse_tail_joints()
+	_expect(joints.size() >= 4, "the tail is a chain of %d joints" % (joints.size() - 1))
+	var root: Vector3 = MountKinds.HORSE_TAIL_PIVOT + joints[0]
+	_expect(
+		root.distance_to(MountKinds.HORSE_RUMP_CENTRE) < MountKinds.HORSE_RUMP_RADIUS,
+		"and grows out of the rump, %.2f m inside its surface" % (MountKinds.HORSE_RUMP_RADIUS - root.distance_to(MountKinds.HORSE_RUMP_CENTRE))
+	)
+	var falls := true
+	for i in range(1, joints.size()):
+		if joints[i].z <= joints[i - 1].z:
+			falls = false
+	_expect(falls, "and every joint of it lies further back than the last")
+
+## How many separate lumps of geometry a mesh is made of.
+##
+## The surface of every triangle is sampled at half the grid step and the
+## cells joined to their twenty-six neighbours; a mesh whose parts touch or
+## overlap comes back as one. Sampling the surface rather than the vertices
+## is the whole trick: a plank two metres long has eight corners and nothing
+## in between, so a vertex-only version reported a boat as fourteen pieces.
+##
+## Calibrated: at a 0.15 m grid every mesh in the game is one lump, and two
+## balls with a quarter of a metre of air between them are two — which is
+## finer than any gap that has actually shipped.
+const LUMP_CELL := 0.15
+
+var _lump_parent: Dictionary = {}
+
+func _count_lumps(mesh: Mesh, cell_size := LUMP_CELL) -> int:
+	_lump_parent.clear()
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var step := cell_size * 0.5
+	var corner := 0
+	while corner + 2 < vertices.size():
+		var a := vertices[corner]
+		var b := vertices[corner + 1]
+		var c := vertices[corner + 2]
+		corner += 3
+		var longest := maxf(a.distance_to(b), maxf(b.distance_to(c), c.distance_to(a)))
+		var n := maxi(1, ceili(longest / step))
+		for i in n + 1:
+			for j in n + 1 - i:
+				var at := a + (b - a) * (float(i) / float(n)) + (c - a) * (float(j) / float(n))
+				var cell := Vector3i(
+					floori(at.x / cell_size), floori(at.y / cell_size), floori(at.z / cell_size)
+				)
+				if not _lump_parent.has(cell):
+					_lump_parent[cell] = cell
+	for cell: Vector3i in _lump_parent.keys():
+		for dx: int in [-1, 0, 1]:
+			for dy: int in [-1, 0, 1]:
+				for dz: int in [-1, 0, 1]:
+					var beside := cell + Vector3i(dx, dy, dz)
+					if not _lump_parent.has(beside):
+						continue
+					var mine := _lump_root(cell)
+					var theirs := _lump_root(beside)
+					if mine != theirs:
+						_lump_parent[mine] = theirs
+	var roots: Dictionary = {}
+	for cell: Vector3i in _lump_parent.keys():
+		roots[_lump_root(cell)] = true
+	return roots.size()
+
+## The group a cell belongs to, flattening the chain as it goes.
+func _lump_root(cell: Vector3i) -> Vector3i:
+	var root: Vector3i = cell
+	while _lump_parent[root] != root:
+		root = _lump_parent[root]
+	var walk: Vector3i = cell
+	while _lump_parent[walk] != root:
+		var next: Vector3i = _lump_parent[walk]
+		_lump_parent[walk] = root
+		walk = next
+	return root
+
+## Two balls with air between them, to prove the counting above can actually
+## see a gap. A check that always answers "one" would have passed every
+## broken horse this exists to catch.
+func _a_mesh_in_two_pieces(gap: float) -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in 2:
+		var ball := SphereMesh.new()
+		ball.radius = 0.12
+		ball.height = 0.24
+		ball.radial_segments = 8
+		ball.rings = 4
+		var arrays := ball.get_mesh_arrays()
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		for k in indices.size():
+			tool.add_vertex(vertices[indices[k]] + Vector3(0.0, 0.0, float(i) * (0.24 + gap)))
+	tool.generate_normals()
+	return tool.commit()
+
+## Whether every child mesh of a body overlaps that body's own box. A part
+## drawn relative to its joint and then placed at that joint again ends up
+## twice as far out as it should be, which this catches.
+func _parts_touch_the_body(node: Node3D, what: String) -> bool:
+	var body := node.get_node_or_null("Body") as MeshInstance3D
+	if body == null or body.mesh == null:
+		printerr("  the %s has no body" % what)
+		return false
+	var trunk := body.mesh.get_aabb().grow(0.05)
+	var attached := true
+	for child in body.get_children():
+		var piece := child as MeshInstance3D
+		if piece == null or piece.mesh == null:
+			continue
+		var box := piece.mesh.get_aabb()
+		box.position += piece.position
+		if not trunk.intersects(box):
+			attached = false
+			printerr("  the %s's %s hangs in the air at %s" % [what, piece.name, str(piece.position)])
+	return attached
+
+## Carry a ridden mount along at `speed` for a second and report the widest
+## swing any leg reached, and where all four legs were at that moment.
+func _watch_the_gait(mounts: Mounts, from: Vector3, speed: float) -> Dictionary:
+	var most := 0.0
+	var at_most: Array = [0.0, 0.0, 0.0, 0.0]
+	# Half a second to get up to the pace first: the gait blends from trot to
+	# gallop as the pace rises, and measuring through that blend once caught
+	# the legs mid-change and called it neither.
+	for warm in 30:
+		mounts.carry(from + Vector3(0.0, 0.0, -speed * float(warm + 1) / 60.0), 0.0)
+		mounts._process(1.0 / 60.0)
+	for frame in 60:
+		mounts.carry(from + Vector3(0.0, 0.0, -speed * float(frame + 31) / 60.0), 0.0)
+		mounts._process(1.0 / 60.0)
+		var legs := mounts.leg_swings()
+		var widest := 0.0
+		for angle in legs:
+			widest = maxf(widest, absf(angle))
+		if widest > most:
+			most = widest
+			at_most = [legs[0], legs[1], legs[2], legs[3]]
+	return {"most": most, "at_most": at_most}
+
+## Getting off must not throw the child into the air.
+##
+## A mount was put down on the exact spot the child stood and made solid in
+## the same frame, so its body had the child inside it: the physics server
+## pushed them up and out, and from the phone that read as the horse getting
+## stuck and the child floating free of it. It is put down beside them now
+## and becomes solid once they have stepped clear.
+func _check_getting_off_a_mount_is_safe() -> void:
+	print("getting off a mount is safe")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var spot := field.find_spawn_point()
+	mounts.place(MountKinds.HORSE, spot + Vector3(2.0, 0.0, 0.0))
+	_expect(mounts.mount(MountKinds.HORSE), "the horse can be got on")
+	var here := spot + Vector3(6.0, 0.0, 4.0)
+	mounts.dismount(here, 0.0)
+	var left_at := mounts.position_of(MountKinds.HORSE)
+	var aside := Vector2(left_at.x - here.x, left_at.z - here.z).length()
+	_expect(aside > 1.2, "it is left %.1f m aside, not under the child" % aside)
+	_expect(not mounts.is_solid(MountKinds.HORSE), "and is not solid while the child is still beside it")
+	mounts.watch(here)
+	_expect(not mounts.is_solid(MountKinds.HORSE), "nor after a frame of standing there")
+	mounts.watch(here + Vector3(0.0, 0.0, -6.0))
+	_expect(mounts.is_solid(MountKinds.HORSE), "and is solid again once they have walked clear of it")
+
+	# And a horse cannot be ridden into the pool, which is a hole with walls
+	# rather than a river to ford.
+	var camp := field.camp_centre()
+	var pool := PlaceSpec.centre_of(&"pool", camp)
+	_expect(not mounts.can_ride_over(MountKinds.HORSE, pool), "a horse cannot be ridden into the pool")
+	_expect(mounts.can_ride_over(MountKinds.HORSE, pool + Vector3(Places.POOL_FENCE_X + 6.0, 0.0, 0.0)), "but can be ridden past it")
+	mounts.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
@@ -991,12 +1235,9 @@ func _check_no_place_is_in_a_pit() -> void:
 		var centre := PlaceSpec.centre_of(place, camp)
 		var levelled := field.height_at(centre.x, centre.z)
 		var natural := field._raw_height(centre.x, centre.z)
-		# The pool is dug on purpose; its rim, not its floor, is the level. And
-		# its rim is levelled to the pitch's height beside it, not its own
-		# ground's, so the two levellings agree where they overlap.
+		# The pool is dug on purpose; its rim, not its floor, is the level.
 		if place == &"pool":
 			levelled += PlaceSpec.POOL_DEPTH
-			natural = HeightField.PITCH_LEVEL
 		_expect(
 			absf(levelled - natural) < 0.5,
 			"the %s stands at %.1f m, on ground that is naturally %.1f m" % [place, levelled, natural]
@@ -2265,19 +2506,25 @@ func _check_riding() -> void:
 		]
 	)
 	_expect(mounts.mount(MountKinds.HORSE), "it can be mounted")
-	# Carried along at a canter, its legs swing; standing, they settle.
+	# Carried along, its legs swing, and how they swing depends on the pace:
+	# diagonal pairs at a trot, front legs together at a gallop. Watched over
+	# a whole second rather than sampled on one frame, which is where a phase
+	# near zero once read as legs that do not move.
 	var start_at := spot + Vector3(2.0, 0.0, 0.0)
-	for frame in 30:
-		mounts.carry(start_at + Vector3(0.0, 0.0, -8.0 * float(frame + 1) / 60.0), 0.0)
-		mounts._process(1.0 / 60.0)
-	var swings := mounts.leg_swings()
-	var moved_legs := 0.0
-	for angle in swings:
-		moved_legs = maxf(moved_legs, absf(angle))
-	_expect(moved_legs > 0.05, "at a canter its legs swing (%.0f degrees)" % rad_to_deg(moved_legs))
-	_expect(swings.size() == 4 and signf(swings[0]) == signf(swings[3]) and signf(swings[0]) == -signf(swings[1]), "in diagonal pairs, like a trot")
-	for frame in 120:
-		mounts.carry(start_at + Vector3(0.0, 0.0, -4.0), 0.0)
+	var trot := _watch_the_gait(mounts, start_at, 3.0)
+	_expect(float(trot["most"]) > 0.1, "at a trot its legs swing (%.0f degrees)" % rad_to_deg(float(trot["most"])))
+	var trot_legs: Array = trot["at_most"]
+	_expect(
+		signf(trot_legs[0]) == signf(trot_legs[3]) and signf(trot_legs[0]) == -signf(trot_legs[1]),
+		"in diagonal pairs, as a trot does"
+	)
+	var gallop := _watch_the_gait(mounts, start_at, 9.0)
+	_expect(float(gallop["most"]) > 0.2, "at a gallop they reach further (%.0f degrees)" % rad_to_deg(float(gallop["most"])))
+	var gallop_legs: Array = gallop["at_most"]
+	_expect(signf(gallop_legs[0]) == signf(gallop_legs[1]), "and the front pair reaches together, as a gallop does")
+	# Standing, they settle.
+	for frame in 180:
+		mounts.carry(start_at, 0.0)
 		mounts._process(1.0 / 60.0)
 	var rested := 0.0
 	for angle in mounts.leg_swings():
@@ -2288,21 +2535,24 @@ func _check_riding() -> void:
 	_expect(not mounts.mount(MountKinds.HORSE), "it cannot be mounted twice")
 	_expect(mounts.nearest(spot) == &"", "nothing else is offered while riding")
 
-	# Dismounting leaves it where the child left it, which is where they will
-	# look for it.
+	# Dismounting leaves it beside where the child left it, which is where
+	# they will look for it — beside, not underneath: see
+	# `_check_getting_off_a_mount_is_safe`.
 	var elsewhere := spot + Vector3(30.0, 0.0, -18.0)
-	_expect(mounts.dismount(elsewhere) == MountKinds.HORSE, "it can be dismounted")
+	_expect(mounts.dismount(elsewhere, 0.0) == MountKinds.HORSE, "it can be dismounted")
 	_expect(mounts.riding == &"", "and riding stops")
-	_expect(mounts.is_solid(MountKinds.HORSE), "and it is solid again where it stands")
 	var left_at := mounts.position_of(MountKinds.HORSE)
+	var aside := Vector2(left_at.x - elsewhere.x, left_at.z - elsewhere.z).length()
 	_expect(
-		absf(left_at.x - elsewhere.x) < 0.01 and absf(left_at.z - elsewhere.z) < 0.01,
-		"the horse is left where the child got off, not where it started"
+		aside < Mounts.STEP_ASIDE + 0.01,
+		"the horse is left a stride from where the child got off (%.1f m), not where it started" % aside
 	)
 	_expect(
-		is_equal_approx(left_at.y, field.height_at(elsewhere.x, elsewhere.z)),
+		is_equal_approx(left_at.y, field.height_at(left_at.x, left_at.z)),
 		"and it stands on the ground rather than in the air"
 	)
+	mounts.watch(elsewhere + Vector3(0.0, 0.0, -8.0))
+	_expect(mounts.is_solid(MountKinds.HORSE), "and is solid again once the child is clear of it")
 	_expect(mounts.dismount(elsewhere) == &"", "dismounting twice does nothing")
 
 	# The property that matters most: a bicycle must refuse ground it cannot
@@ -2844,12 +3094,21 @@ func _check_paths_lead_somewhere() -> void:
 	var field := HeightField.new(20260903)
 	var camp := field.camp_centre()
 
+	# A route to the pool stops at its gate, which has to be the gate the
+	# turnstile is actually in — a number in two files that agreed only by
+	# luck would put the path at the far side of the fence.
+	var pool_arrival: Vector3 = Paths.ARRIVES_AT[&"pool"]
+	_expect(
+		absf(pool_arrival.x - (Places.POOL_FENCE_X + 1.5)) < 0.6 and is_zero_approx(pool_arrival.z),
+		"the path to the pool ends %.1f m out, at the fence's gate %.1f m out" % [pool_arrival.x, Places.POOL_FENCE_X]
+	)
+
 	# Every route must actually arrive at a destination — on the dry ground
 	# beside it, since one destination is a swimming pool and the bottom of a
 	# swimming pool is not somewhere to paint a trodden path.
 	for route in Paths.ROUTES:
 		for end: StringName in [route["from"], route["to"]]:
-			var at: Vector3 = camp if end == &"" else PlaceSpec.centre_of(end, camp)
+			var at: Vector3 = camp if end == &"" else PlaceSpec.centre_of(end, camp) + Paths.ARRIVES_AT.get(end, Vector3.ZERO)
 			var arrives := false
 			for step in 24:
 				var reach := float(step)
@@ -2877,8 +3136,10 @@ func _check_paths_lead_somewhere() -> void:
 	var worn := 0
 	var dry_samples := 0
 	for route in Paths.ROUTES:
-		var a: Vector3 = camp if route["from"] == &"" else PlaceSpec.centre_of(route["from"], camp)
-		var b: Vector3 = camp if route["to"] == &"" else PlaceSpec.centre_of(route["to"], camp)
+		# Each route runs to where it actually arrives, which for the pool is
+		# its gate rather than the bottom of the water.
+		var a: Vector3 = camp if route["from"] == &"" else PlaceSpec.centre_of(route["from"], camp) + Paths.ARRIVES_AT.get(route["from"], Vector3.ZERO)
+		var b: Vector3 = camp if route["to"] == &"" else PlaceSpec.centre_of(route["to"], camp) + Paths.ARRIVES_AT.get(route["to"], Vector3.ZERO)
 		for step in 19:
 			var at := a.lerp(b, float(step + 1) / 20.0)
 			var ground := field.height_at(at.x, at.z)

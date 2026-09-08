@@ -556,6 +556,14 @@ func _tick(delta: float) -> void:
 func _place(place: StringName, at: Vector3) -> void:
 	var spot := at
 	spot.y = field.height_at(at.x, at.z)
+	if place == POOL:
+		# The pool's own spot is the brim it is filled to, not the floor of
+		# the hole. `height_at` in the middle of a pool answers with the
+		# bottom, and everything built from that — the water sheet, the tiled
+		# rim, the fence, the booth — was put down there: from the bank there
+		# was no fence and no water, only a dry hole. Adding back what was
+		# excavated puts the brim back where a child stands.
+		spot.y += PlaceSpec.excavation(at.x, at.z, _camp)
 	_spots[place] = spot
 	match place:
 		PLAYGROUND:

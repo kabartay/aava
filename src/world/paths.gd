@@ -67,6 +67,16 @@ const ROUTES: Array[Dictionary] = [
 ## is the fast one.
 const BOUNDS_HALF := 480.0
 
+## Where a route stops short of a place's middle. The pool's middle is the
+## bottom of a swimming pool: a path painted to it ran down the shelf and
+## under the water, and arrived nowhere a child walks. Routes end at its
+## gate instead, a stride outside the fence on the side the turnstile is —
+## Places.POOL_FENCE_X plus a step, which a check ties to the fence itself so
+## the two cannot drift apart.
+const ARRIVES_AT := {
+	&"pool": Vector3(18.5, 0.0, 0.0),
+}
+
 ## Every route as four flat numbers: ax, az, bx, bz.
 ##
 ## `influence` is called several million times during a world build, and the
@@ -81,8 +91,8 @@ const BOUNDS_HALF := 480.0
 const SEGMENTS: Array[float] = [
 	0.0, 18.0, -360.0, 268.0,
 	0.0, 18.0, -370.0, -282.0,
-	0.0, 18.0, -90.0, 34.0,
-	-360.0, 268.0, -90.0, 34.0,
+	0.0, 18.0, -3.5, 86.0,
+	-360.0, 268.0, -3.5, 86.0,
 	0.0, 18.0, 330.0, -162.0,
 ]
 
@@ -205,7 +215,7 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 static func _end_of(place: StringName, camp: Vector3) -> Vector3:
 	if place == &"":
 		return camp
-	return PlaceSpec.centre_of(place, camp)
+	return PlaceSpec.centre_of(place, camp) + ARRIVES_AT.get(place, Vector3.ZERO)
 
 ## Perpendicular distance from a point to a line segment, in the ground plane.
 static func _distance_to_segment(

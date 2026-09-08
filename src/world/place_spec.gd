@@ -33,10 +33,12 @@ const OFFSETS := {
 	# Moved from (-300, -260) when the café grew to a building: the old site
 	# sloped, and a sixteen-metre disc levelled into it left a nine-metre bank.
 	&"cafe": Vector3(-370.0, 0.0, -300.0),
-	# Beside the football pitch, ten metres past its western goal and parallel
-	# to it, on the side away from the river — the east side lies too low, and
-	# a pool dug there would have been below the river's own waterline.
-	&"pool": Vector3(-90.0, 0.0, 16.0),
+	# Beside the football pitch and parallel to it, off its long side rather
+	# than beyond a goal — behind the goal it read as being *in* the way of
+	# the game. Thirty metres clear of the touchline, three times the ten it
+	# stood at, on the river side of the pitch, on ground found by scanning
+	# for the flattest patch that is dry and well clear of the water.
+	&"pool": Vector3(-22.0, 0.0, 68.0),
 }
 
 ## How much flat ground each place needs, and how far out the levelling fades.

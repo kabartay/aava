@@ -405,6 +405,7 @@ func _process(delta: float) -> void:
 	if riding != &"":
 		world.mounts.carry(player.global_position, player.facing_angle())
 	_watch_the_turnstile()
+	world.mounts.watch(player.global_position)
 	var offered := world.mounts.nearest(player.global_position)
 	hud.set_mount_in_reach(
 		offered != &"", riding != &"",
@@ -413,7 +414,7 @@ func _process(delta: float) -> void:
 	if riding != &"" and not world.mounts.can_ride_over(riding, player.global_position):
 		# Ridden somewhere this mount cannot go — put the child down rather than
 		# stranding them on a bicycle halfway up a cliff.
-		world.mounts.dismount(player.global_position)
+		world.mounts.dismount(player.global_position, player.facing_angle())
 		player.riding = &""
 		camera_rig.set_eye_lift(0.0)
 		sounds.play(Sounds.Sound.REFUSE)
@@ -884,7 +885,7 @@ func _on_arrow_hit(_index: int, ring: int, points: int) -> void:
 
 func _on_ride() -> void:
 	if player.riding != &"":
-		var got_off := world.mounts.dismount(player.global_position)
+		var got_off := world.mounts.dismount(player.global_position, player.facing_angle())
 		player.riding = &""
 		camera_rig.set_eye_lift(0.0)
 		if got_off != &"":

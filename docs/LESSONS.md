@@ -133,6 +133,32 @@ excluded, collapsing the camera into the character's head.
 nothing.** Setting `linear_velocity` is both reliable and the truthful model for
 a kick, which replaces motion rather than adding to it.
 
+**`get_process_delta_time()` is not the frame's delta in a headless check.**
+The ridden horse worked out its own speed by dividing how far it had been
+carried by that, which in the game is a sixtieth of a second and in a
+`SceneTree` script is the editor's idle rate — 0.14 s. So a horse carried
+three metres a second measured as a third of one, its gait check passed a
+horse that barely moved its legs, and the real gait was only ever seen on the
+phone. Anything that needs a delta is given one by whoever is stepping it.
+
+**A part that pivots is drawn relative to its pivot — once.** Splitting the
+horse so its head could nod put the head and tail half a metre off it: each
+was drawn at its place on the horse *and* hung from a node at that same
+place, so the offset was applied twice. The other half of the same split lost
+the legs entirely from the one-piece mesh, which is what the screenshot tool
+draws. Both were invisible to every check — the meshes existed, the counts
+were right — so there is now a check that reads the geometry: every mesh of
+an animal or a mount must be one connected lump of vertices, and every part
+hung as a node must overlap the body it hangs from. It caught the missing
+legs on its first run and the tail's third of a metre of air on its second.
+
+**Two ends of one thing, placed independently, do not meet.** The horse's
+tail was two cylinders at two chosen points, and between the dock and the
+switch there was a third of a metre of nothing. Anything jointed — a tail, a
+neck, a chain — is built as a chain whose every piece starts where the last
+one ended, with a ball at the joint to hide the seam, and the joints are read
+from one function that both the drawing and the check use.
+
 **Know where a body's origin is before comparing heights.** The trampoline
 asked whether a child stood on its mat by comparing the player's position
 with the mat's top plus the capsule's half-height — the origin was assumed to

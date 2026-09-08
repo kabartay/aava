@@ -127,6 +127,12 @@ func mount(kind: StringName) -> bool:
 		return false
 	riding = kind
 	_set_solid(kind, false)
+	_waiting_to_be_solid.erase(kind)
+	# Its pace starts at nothing rather than at whatever it was last ridden
+	# at, or a horse got on again breaks straight into a gallop on the spot.
+	_pace = 0.0
+	_carried_to = _positions[kind]
+	_paced_from = _positions[kind]
 	# The mount stays visible and is carried along under the child. Hiding it
 	# was the first version, on the reasoning that the player "becomes" the
 	# horse — but the child's own body is still drawn, so what a rider actually
@@ -145,20 +151,24 @@ func carry(at: Vector3, facing: float) -> void:
 	var node: Node3D = _nodes[riding]
 	var spot := at
 	spot.y = _rest_height(riding, at)
-	# How fast the mount is actually moving, for its gait: from how far it
-	# was carried since last frame, smoothed so one odd frame does not kick.
-	var delta := get_process_delta_time()
-	if delta > 0.0:
-		var moved := Vector2(spot.x - _positions[riding].x, spot.z - _positions[riding].z).length() / delta
-		_pace = lerpf(_pace, minf(moved, 14.0), 1.0 - exp(-8.0 * delta))
 	node.global_position = spot
 	node.rotation.y = facing
 	_positions[riding] = spot
+	# How fast it is going is worked out in _process, where there is a delta
+	# worth dividing by. It was worked out here from get_process_delta_time(),
+	# which in a headless check is the editor's idle rate — 0.14 s — so a
+	# horse carried three metres a second was measured at a third of one, and
+	# the gait check passed a horse that barely moved its legs.
+	_carried_to = spot
 
 ## How fast the ridden mount is going, smoothed, and where in its stride it is.
 var _pace := 0.0
 var _stride := 0.0
 var _idle := 0.0
+## Where `carry` last put the ridden mount, and where it was the frame
+## before: the two and the frame's own delta are what its speed is.
+var _carried_to := Vector3.ZERO
+var _paced_from := Vector3.ZERO
 
 ## Stride length in metres per full cycle, and how far a leg swings at full
 ## pace. A trot: the diagonal pairs move together.
@@ -173,6 +183,12 @@ func _process(delta: float) -> void:
 	var body := (_nodes[riding] as Node3D).get_node_or_null("Body") as Node3D
 	if body == null:
 		return
+	# The pace, from how far it was carried since the last frame. Smoothed, so
+	# one odd frame does not kick the legs.
+	if delta > 0.0:
+		var moved := Vector2(_carried_to.x - _paced_from.x, _carried_to.z - _paced_from.z).length() / delta
+		_pace = lerpf(_pace, minf(moved, 14.0), 1.0 - exp(-8.0 * delta))
+		_paced_from = _carried_to
 	# A stationary horse settles its legs and stands; a moving one strides,
 	# faster the faster it goes, and its body rises and falls with each beat.
 	var effort := clampf(_pace / MountKinds.speed(MountKinds.HORSE), 0.0, 1.3)
@@ -226,22 +242,52 @@ func leg_swings() -> Array[float]:
 		out.append(0.0 if leg == null else leg.rotation.x)
 	return out
 
-## Get off. The mount is left standing where the player left it, which is how a
-## child expects to find it again.
-func dismount(at: Vector3) -> StringName:
+## Get off. The mount is left standing beside where the player got off, which
+## is how a child expects to find it again — beside, not underneath: put down
+## on the spot and made solid in the same frame, its body had the child
+## inside it, and the physics server pushed them up into the air with the
+## horse stuck under their feet. It becomes solid again once the child has
+## stepped clear; see `watch`.
+func dismount(at: Vector3, facing := 0.0) -> StringName:
 	if riding == &"":
 		return &""
 	var kind := riding
 	riding = &""
 	var node: Node3D = _nodes[kind]
 	if is_instance_valid(node):
-		var spot := at
-		spot.y = _rest_height(kind, at)
+		# A stride to the rider's right: forward is (-sin, 0, -cos), so right
+		# is (cos, 0, -sin).
+		var spot := at + Vector3(cos(facing), 0.0, -sin(facing)) * STEP_ASIDE
+		spot.y = _rest_height(kind, spot)
 		node.global_position = spot
+		node.rotation.y = facing
 		_positions[kind] = spot
-	_set_solid(kind, true)
+	_waiting_to_be_solid[kind] = true
 	dismounted.emit(kind)
 	return kind
+
+## How far aside a dismounted mount is put, and how far the child must be
+## from it before it becomes something to bump into again.
+const STEP_ASIDE := 1.8
+const CLEAR_OF_IT := 2.4
+
+## Mounts that have been got off and are not solid yet, by kind.
+var _waiting_to_be_solid: Dictionary = {}
+
+## Called every frame with where the child is. A mount just got off becomes
+## solid again once they are clear of it.
+func watch(player_position: Vector3) -> void:
+	if _waiting_to_be_solid.is_empty():
+		return
+	for kind in _waiting_to_be_solid.keys():
+		if not exists(kind):
+			_waiting_to_be_solid.erase(kind)
+			continue
+		var flat: Vector3 = _positions[kind] - player_position
+		flat.y = 0.0
+		if flat.length() > CLEAR_OF_IT:
+			_set_solid(kind, true)
+			_waiting_to_be_solid.erase(kind)
 
 ## Whether a standing mount stops the child. Off while it is ridden, or the
 ## collider carried under the child would shove them along.
@@ -266,6 +312,11 @@ func is_solid(kind: StringName) -> bool:
 func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	if MountKinds.floats(kind):
 		return field.height_at(at.x, at.z) < HeightField.WATER_LEVEL - MountKinds.BOAT_DRAFT
+	# Not into the swimming pool. A horse fords a river, but the pool is a
+	# hole with walls: one ridden into it stuck in the excavation while its
+	# rider floated free of it.
+	if PlaceSpec.excavation(at.x, at.z, field.camp_centre()) > 0.4:
+		return false
 	if MountKinds.fords_water(kind):
 		return field.steepness_at(at.x, at.z) <= MountKinds.max_slope(kind)
 	if at.y < HeightField.WATER_LEVEL + 0.4:

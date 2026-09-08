@@ -148,6 +148,27 @@ static func build_mesh(kind: StringName) -> Mesh:
 const HORSE_HEAD_PIVOT := Vector3(0.0, 1.872, -0.744)
 const HORSE_TAIL_PIVOT := Vector3(0.0, 1.56, 1.224)
 
+## Where the rump is and how big, so the tail's root can be checked against
+## the body it grows out of rather than against a number written twice.
+const HORSE_RUMP_CENTRE := Vector3(0.0, 1.632, 0.864)
+const HORSE_RUMP_RADIUS := 0.528
+
+## The tail, as a chain of segments read end to end: how far each is tipped
+## back from straight up, how long it is, and how thick at its start.
+##
+## It was two cylinders placed at two chosen points, and the points did not
+## meet: there was a third of a metre of air between the dock and the switch,
+## and the end of the horse's tail hung behind it unattached. A chain cannot
+## do that — each piece starts where the last one ended.
+const HORSE_TAIL_CHAIN: Array[float] = [
+	# tilt from vertical (degrees), length, radius at the start
+	62.0, 0.34, 0.15,
+	88.0, 0.30, 0.13,
+	112.0, 0.30, 0.11,
+	134.0, 0.30, 0.09,
+]
+const HORSE_TAIL_STRIDE := 3
+
 ## A horse, a fifth bigger than the first one and with what makes a horse a
 ## horse: a fuller chest and rump, a blaze on the face, eyes, pointed ears, a
 ## mane in locks down the neck, a tail in two pieces, socks and hooves — and
@@ -322,18 +343,63 @@ static func _horse_head(tool: SurfaceTool, pivot: Vector3) -> void:
 static func _horse_tail(tool: SurfaceTool, pivot: Vector3) -> void:
 	var s := 1.2
 	var dark: Color = colour(HORSE).darkened(0.3)
-	var tail := CylinderMesh.new()
-	tail.top_radius = 0.06 * s
-	tail.bottom_radius = 0.14 * s
-	tail.height = 0.55 * s
-	tail.radial_segments = 6
-	_add(tool, tail, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(22.0)), Vector3(0.0, 1.28 * s, 1.06 * s) - pivot), dark)
-	var tail_tip := CylinderMesh.new()
-	tail_tip.top_radius = 0.03 * s
-	tail_tip.bottom_radius = 0.09 * s
-	tail_tip.height = 0.5 * s
-	tail_tip.radial_segments = 6
-	_add(tool, tail_tip, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(6.0)), Vector3(0.0, 0.82 * s, 1.24 * s) - pivot), dark)
+	var joints := horse_tail_joints()
+	var i := 0
+	var piece := 0
+	while i < HORSE_TAIL_CHAIN.size():
+		var length := HORSE_TAIL_CHAIN[i + 1] * s
+		var thick := HORSE_TAIL_CHAIN[i + 2] * s
+		var thin := (HORSE_TAIL_CHAIN[i + HORSE_TAIL_STRIDE + 2] * s
+			if i + HORSE_TAIL_STRIDE < HORSE_TAIL_CHAIN.size() else thick * 0.7)
+		var from := joints[piece] + HORSE_TAIL_PIVOT - pivot
+		var to := joints[piece + 1] + HORSE_TAIL_PIVOT - pivot
+		var run := to - from
+		var hair := CylinderMesh.new()
+		hair.top_radius = thin
+		hair.bottom_radius = thick
+		hair.height = length
+		hair.radial_segments = 7
+		hair.rings = 1
+		# A cylinder stands along its own Y; laid along this piece of the tail.
+		_add(tool, hair, Transform3D(
+			Basis.looking_at(run.normalized(), Vector3.RIGHT) * Basis(Vector3.RIGHT, PI * 0.5),
+			from + run * 0.5
+		), dark)
+		# A ball at the joint, so no seam opens where two pieces meet.
+		var joint := SphereMesh.new()
+		joint.radius = thin * 1.1
+		joint.height = thin * 2.2
+		joint.radial_segments = 6
+		joint.rings = 3
+		_add(tool, joint, Transform3D(Basis(), to), dark)
+		i += HORSE_TAIL_STRIDE
+		piece += 1
+	# The switch of long hair at the end.
+	var tip := joints[joints.size() - 1] + HORSE_TAIL_PIVOT - pivot
+	var switch := SphereMesh.new()
+	switch.radius = 0.1 * s
+	switch.height = 0.34 * s
+	switch.radial_segments = 6
+	switch.rings = 4
+	_add(tool, switch, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-46.0)), tip + Vector3(0.0, -0.08 * s, 0.02 * s)), dark)
+
+## Every joint of the tail, from its root outwards, in the tail's own frame —
+## the root is the origin. Read by the drawing above and by the checks, so the
+## shape cannot be asserted against numbers that only the check believes.
+static func horse_tail_joints() -> PackedVector3Array:
+	var s := 1.2
+	var out := PackedVector3Array([Vector3.ZERO])
+	var at := Vector3.ZERO
+	var i := 0
+	while i < HORSE_TAIL_CHAIN.size():
+		var tilt := deg_to_rad(HORSE_TAIL_CHAIN[i])
+		var length := HORSE_TAIL_CHAIN[i + 1] * s
+		# Rotating +Y about X by a positive angle tips it towards +Z, which is
+		# behind the horse: 90 degrees is a tail held straight out.
+		at += Vector3(0.0, cos(tilt), sin(tilt)) * length
+		out.append(at)
+		i += HORSE_TAIL_STRIDE
+	return out
 
 ## One part of the horse as a mesh of its own, for the parts that move.
 ##
