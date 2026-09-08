@@ -112,6 +112,11 @@ func _init(world_seed: int) -> void:
 	for place in PlaceSpec.OFFSETS:
 		var centre := PlaceSpec.centre_of(place, camp_centre())
 		_place_levels[place] = _raw_height(centre.x, centre.z)
+	# The pool stands ten metres from the pitch, and its levelling reaches
+	# under the pitch's end. Two levellings to two different heights met there
+	# and the pitch's west end sank a metre; levelled to the same height, they
+	# agree wherever they overlap.
+	_place_levels[&"pool"] = PITCH_LEVEL
 
 ## Where the river's centre line sits at a given depth into the world.
 ## Two sine waves of different periods read as a meander rather than a snake.

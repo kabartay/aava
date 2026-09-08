@@ -21,7 +21,7 @@ extends Control
 enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
-	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW,
+	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -97,6 +97,8 @@ func _draw() -> void:
 			_throw(box)
 		Kind.ROW:
 			_row(box)
+		Kind.TICKET:
+			_ticket(box)
 
 ## A cross. The build button turns into this while the palette is open, which
 ## is the same button saying "shut this" — it used to say it in words, and the
@@ -354,6 +356,24 @@ func _row(box: Rect2) -> void:
 	for i in 3:
 		var x := centre.x + (float(i) - 1.0) * unit * 0.26
 		draw_arc(Vector2(x, centre.y + unit * 0.34), unit * 0.13, PI, TAU, 8, tint, w)
+
+## A ticket: a coin going into a turnstile — the coin on the left, the
+## turnstile's post and three arms on the right.
+func _ticket(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var coin_at := centre + Vector2(-unit * 0.22, -unit * 0.02)
+	draw_circle(coin_at, unit * 0.17, tint)
+	draw_arc(coin_at, unit * 0.1, 0.0, TAU, 16, HOLE, maxf(1.5, unit * 0.035))
+	# The post, and three arms coming off its top.
+	var post_x := centre.x + unit * 0.2
+	draw_line(Vector2(post_x, centre.y - unit * 0.1), Vector2(post_x, centre.y + unit * 0.36), tint, maxf(2.0, unit * 0.07))
+	var hub := Vector2(post_x, centre.y - unit * 0.1)
+	for k in 3:
+		var angle := -PI * 0.5 + (float(k) - 1.0) * PI * 0.62
+		draw_line(hub, hub + Vector2(cos(angle), sin(angle)) * unit * 0.26, tint, maxf(2.0, unit * 0.06))
+	# An arrow from the coin to the slot.
+	draw_line(coin_at + Vector2(unit * 0.2, 0.0), Vector2(post_x - unit * 0.08, hub.y + unit * 0.02), tint, maxf(1.5, unit * 0.04))
 
 ## A swing: two ropes from a bar and a seat between them, already leaning.
 func _swing(box: Rect2) -> void:

@@ -404,6 +404,7 @@ func _process(delta: float) -> void:
 	# parented to it.
 	if riding != &"":
 		world.mounts.carry(player.global_position, player.facing_angle())
+	_watch_the_turnstile()
 	var offered := world.mounts.nearest(player.global_position)
 	hud.set_mount_in_reach(
 		offered != &"", riding != &"",
@@ -565,6 +566,7 @@ func _handlers() -> Dictionary:
 		&"shoot_release": _on_shoot_release,
 		&"visit": _on_place_used,
 		&"dam": _on_dam_stick,
+		&"ticket": _on_ticket,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -1085,6 +1087,37 @@ func _show_where_it_goes(ball: Ball) -> void:
 	kick_preview.show_path(Ball.predict(
 		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, ground
 	))
+
+## The pool's turnstile: a child outside is offered a ticket and told the
+## price once; a child inside is simply let out.
+var _ticket_told := false
+
+func _watch_the_turnstile() -> void:
+	var at := player.global_position
+	var near := world.places.at_turnstile(at)
+	var inside := world.places.inside_pool_fence(at)
+	if near and inside and not world.places.turnstile_open():
+		world.places.open_turnstile()
+	var offer := near and not inside and not world.places.turnstile_open()
+	hud.set_ticket_offer(offer)
+	if offer and not _ticket_told:
+		_ticket_told = true
+		hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
+	elif not near:
+		_ticket_told = false
+
+## Pay for the pool. Coins come from the animals, so a swim is earned.
+func _on_ticket() -> void:
+	if world.places.turnstile_open():
+		return
+	if wallet.coins < Places.POOL_TICKET:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.format("say_no_coins", [Places.POOL_TICKET]), 2.2)
+		return
+	wallet.spend(Places.POOL_TICKET)
+	world.places.open_turnstile()
+	sounds.play(Sounds.Sound.PICKUP, 1.1)
+	hud.announce(Text.of("say_welcome_pool"), 2.4)
 
 ## A basketball within range of the ring is thrown, not kicked.
 func _can_throw(ball: Ball) -> bool:

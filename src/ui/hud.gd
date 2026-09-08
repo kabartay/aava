@@ -39,6 +39,8 @@ signal ride_pressed()
 signal shoot_started()
 signal shoot_released()
 signal place_used()
+## The turnstile at the pool: pay and go in.
+signal ticket_pressed()
 signal dam_stick()
 signal fire_fed()
 signal slept()
@@ -88,6 +90,7 @@ var _chop_button: Button
 var _ride_button: Button
 var _shoot_button: Button
 var _visit_button: Button
+var _ticket_button: Button
 var _dam_button: Button
 var _fire_button: Button
 var _sleep_button: Button
@@ -268,6 +271,11 @@ func _init() -> void:
 	_visit_button.visible = false
 	_visit_button.pressed.connect(func() -> void: place_used.emit())
 	add_child(_visit_button)
+
+	_ticket_button = _icon_button(ActionIcon.Kind.TICKET)
+	_ticket_button.visible = false
+	_ticket_button.pressed.connect(func() -> void: ticket_pressed.emit())
+	add_child(_ticket_button)
 
 	# Only shown at a dam site, with a stick in the bag.
 	_dam_button = _icon_button(ActionIcon.Kind.GIVE_STICK)
@@ -616,6 +624,12 @@ func set_place_offer(place: StringName) -> void:
 			)
 	if _visit_button.visible != wanted:
 		_visit_button.visible = wanted
+		_layout()
+
+## Whether the pool's turnstile is close enough to buy a ticket at.
+func set_ticket_offer(wanted: bool) -> void:
+	if _ticket_button.visible != wanted:
+		_ticket_button.visible = wanted
 		_layout()
 
 ## Whether the shooting line is close enough to draw a bow.
@@ -1083,7 +1097,7 @@ func _layout() -> void:
 	# ordinary house pieces built side by side. Two buttons on one spot means
 	# one is invisible and unpressable.
 	var context_x := _jump_button.position.x
-	for button: Button in [_visit_button, _dam_button, _fire_button, _sleep_button]:
+	for button: Button in [_visit_button, _ticket_button, _dam_button, _fire_button, _sleep_button]:
 		if not button.visible:
 			continue
 		context_x -= button.size.x + 16.0

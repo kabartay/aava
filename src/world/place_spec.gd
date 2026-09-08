@@ -33,7 +33,10 @@ const OFFSETS := {
 	# Moved from (-300, -260) when the café grew to a building: the old site
 	# sloped, and a sixteen-metre disc levelled into it left a nine-metre bank.
 	&"cafe": Vector3(-370.0, 0.0, -300.0),
-	&"pool": Vector3(60.0, 0.0, 380.0),
+	# Beside the football pitch, ten metres past its western goal and parallel
+	# to it, on the side away from the river — the east side lies too low, and
+	# a pool dug there would have been below the river's own waterline.
+	&"pool": Vector3(-90.0, 0.0, 16.0),
 }
 
 ## How much flat ground each place needs, and how far out the levelling fades.
@@ -43,7 +46,7 @@ const OFFSETS := {
 const RADIUS := {
 	&"playground": 20.4,
 	&"cafe": 16.0,
-	&"pool": 13.0,
+	&"pool": 22.0,
 }
 ## Half the width of the structure that actually stands at each place. The
 ## levelled radius has to comfortably exceed this, because the outer part of
@@ -52,7 +55,7 @@ const RADIUS := {
 const FOOTPRINT := {
 	&"playground": 14.4,
 	&"cafe": 9.0,
-	&"pool": 7.0,
+	&"pool": 13.0,
 }
 
 const FEATHER := 7.0
@@ -175,7 +178,12 @@ static func nearest_free(x: float, z: float, camp: Vector3) -> Vector3:
 ## rim on flat ground is a white square painted on the grass, which is exactly
 ## what the first version looked like.
 const POOL_DEPTH := 1.9
-const POOL_HALF := 6.0
+## The pool is a rectangle now, seven tenths of the pitch each way, its long
+## side along the pitch's: 28 m by 18 m. POOL_HALF keeps the short half for
+## the callers that only want a size.
+const POOL_HALF_X := 14.0
+const POOL_HALF_Z := 9.0
+const POOL_HALF := POOL_HALF_Z
 
 ## How much the ground is cut away at a point, in metres. Zero everywhere but
 ## inside the pool.
@@ -187,9 +195,12 @@ static func excavation(x: float, z: float, camp: Vector3) -> float:
 	if absf(x - camp.x) > BOUNDS_HALF or absf(z - camp.z) > BOUNDS_HALF:
 		return 0.0
 	var centre: Vector3 = camp + OFFSETS[&"pool"]
-	var inside := maxf(absf(x - centre.x), absf(z - centre.z))
-	if inside > POOL_HALF:
+	# The long side is squashed onto the short one, so one number says how far
+	# in a point is on a rectangle: the shelf is a little longer along the
+	# long side, which reads as a beach end.
+	var inside := maxf(absf(x - centre.x) * (POOL_HALF_Z / POOL_HALF_X), absf(z - centre.z))
+	if inside > POOL_HALF_Z:
 		return 0.0
 	# Shelving at the edge, so a child steps in rather than falling in. Matches
 	# the depth Places reports for swimming.
-	return POOL_DEPTH * (1.0 - smoothstep(POOL_HALF - 1.6, POOL_HALF, inside))
+	return POOL_DEPTH * (1.0 - smoothstep(POOL_HALF_Z - 1.6, POOL_HALF_Z, inside))

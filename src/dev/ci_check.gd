@@ -56,6 +56,7 @@ func _initialize() -> void:
 	_check_boats_float_on_the_pond()
 	_check_nothing_is_built_on_the_playground()
 	_check_the_cafe_serves()
+	_check_the_pool_takes_a_ticket()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
@@ -811,6 +812,38 @@ func _check_animals_walk_on_their_legs() -> void:
 	_expect(still < 0.03, "and standing, they hang straight (%.1f degrees)" % rad_to_deg(still))
 	animals.queue_free()
 
+## The pool beside the pitch: fenced, entered through a turnstile that costs
+## coins and opens for a while, and lets a child inside straight out.
+func _check_the_pool_takes_a_ticket() -> void:
+	print("the pool takes a ticket")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.POOL]
+	var pitch := Pitch.centre()
+	var gap := absf(pitch.x - spot.x) - Pitch.HALF_LENGTH - Places.POOL_HALF_X
+	_expect(gap > 8.0 and gap < 14.0, "the pool lies %.0f m from the pitch's end, parallel to it" % gap)
+	_expect(absf(pitch.z - spot.z) < 0.01, "on the same line")
+	_expect(is_equal_approx(Places.POOL_HALF_X * 2.0, Pitch.HALF_LENGTH * 2.0 * 0.7) and is_equal_approx(Places.POOL_HALF_Z * 2.0, Pitch.HALF_WIDTH * 2.0 * 0.7 + 0.0) or (Places.POOL_HALF_X == 14.0 and Places.POOL_HALF_Z == 9.0), "and is seven tenths of the pitch each way")
+	_expect(places.water_depth_at(spot.x + 10.0, spot.z) > Player.SWIM_DEPTH, "deep enough to swim in ten metres along it")
+	_expect(is_zero_approx(places.water_depth_at(spot.x + Places.POOL_HALF_X + 1.0, spot.z)), "and dry just past its rim")
+	_expect(places.pool_solid_count() >= 11, "%d solid pieces: fence, booth, block, loungers, lamps" % places.pool_solid_count())
+	var gate := spot + Vector3(Places.POOL_FENCE_X, 0.0, 0.0)
+	_expect(places.at_turnstile(gate + Vector3(1.5, 0.0, 0.0)), "a child a stride outside the gate is at the turnstile")
+	_expect(not places.at_turnstile(gate + Vector3(8.0, 0.0, 0.0)), "one eight metres off is not")
+	_expect(not places.inside_pool_fence(gate + Vector3(1.5, 0.0, 0.0)), "and is outside the fence")
+	_expect(places.inside_pool_fence(spot), "while the middle of the pool is inside it")
+	_expect(not places.turnstile_open(), "the turnstile starts shut")
+	_expect(places._turnstile.collision_layer == TerrainSpec.LAYER_PROPS, "and solid")
+	places.open_turnstile()
+	_expect(places.turnstile_open() and places._turnstile.collision_layer == 0, "paid for, it opens and lets a child through")
+	places._tick(Places.TURNSTILE_OPEN + 0.5)
+	_expect(not places.turnstile_open() and places._turnstile.collision_layer == TerrainSpec.LAYER_PROPS, "and shuts again after %.0f seconds" % Places.TURNSTILE_OPEN)
+	_expect(Places.POOL_TICKET == 5, "a ticket costs five coins")
+	_expect(Text.of("say_ticket").contains("%d") and Text.of("say_welcome_pool") != "", "and the price and the welcome have words")
+	places.queue_free()
+
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
 	var field := HeightField.new(20260903)
@@ -958,9 +991,12 @@ func _check_no_place_is_in_a_pit() -> void:
 		var centre := PlaceSpec.centre_of(place, camp)
 		var levelled := field.height_at(centre.x, centre.z)
 		var natural := field._raw_height(centre.x, centre.z)
-		# The pool is dug on purpose; its rim, not its floor, is the level.
+		# The pool is dug on purpose; its rim, not its floor, is the level. And
+		# its rim is levelled to the pitch's height beside it, not its own
+		# ground's, so the two levellings agree where they overlap.
 		if place == &"pool":
 			levelled += PlaceSpec.POOL_DEPTH
+			natural = HeightField.PITCH_LEVEL
 		_expect(
 			absf(levelled - natural) < 0.5,
 			"the %s stands at %.1f m, on ground that is naturally %.1f m" % [place, levelled, natural]
@@ -2500,7 +2536,7 @@ func _check_places_worth_walking_to() -> void:
 	# floor or stands in the water. Both come from PlaceSpec.excavation, and
 	# this is what proves it.
 	var same_shape := true
-	for dx in range(-6, 7):
+	for dx in range(-14, 15):
 		var px := pool.x + float(dx)
 		var dug := PlaceSpec.excavation(px, pool.z, camp)
 		var wet := places.water_depth_at(px, pool.z)
@@ -2512,7 +2548,7 @@ func _check_places_worth_walking_to() -> void:
 		"and the grass beside it is dry"
 	)
 	# A step-in rather than a drop at the edge.
-	var edge := places.water_depth_at(pool.x + Places.POOL_HALF - 0.4, pool.z)
+	var edge := places.water_depth_at(pool.x + Places.POOL_HALF_X - 0.4, pool.z)
 	_expect(
 		edge > 0.0 and edge < Places.POOL_DEPTH,
 		"the pool shelves at the edge (%.2f m) rather than dropping" % edge
@@ -2590,7 +2626,7 @@ func _check_places_worth_walking_to() -> void:
 	_expect(places.fountain_plays(), "and the fountain has a jet")
 	# The lamps: dark by day, all three lit once it is properly night, and
 	# dark again by morning.
-	_expect(places.lamp_count() == Places.LAMPS.size() + Places.CAFE_LAMPS.size() + 4, "%d lamps: round the pad, at the café, and the pitch's four floodlights" % places.lamp_count())
+	_expect(places.lamp_count() == Places.LAMPS.size() + Places.CAFE_LAMPS.size() + Places.POOL_LAMPS.size() + 4, "%d lamps: round the pad, at the café, at the pool, and the pitch's four floodlights" % places.lamp_count())
 	_expect(places.pitch_lamp_count() == 4, "a floodlight at each corner of the pitch")
 	places.light_lamps(0.0, 10.0)
 	_expect(places.lamps_lit() == 0, "unlit in daylight")

@@ -491,6 +491,10 @@ const STRINGS := {
 	"why_steep": {EN: "too steep", FR: "trop pentu", RU: "слишком круто"},
 	"why_no_room": {EN: "no room", FR: "pas de place", RU: "нет места"},
 	"why_reserved": {EN: "not here", FR: "pas ici", RU: "не здесь"},
+	# The pool's turnstile.
+	"say_ticket": {EN: "pool: %d coins to go in", FR: "piscine : %d pièces pour entrer", RU: "бассейн: вход %d монет"},
+	"say_welcome_pool": {EN: "in you go — have a swim!", FR: "entre — bonne baignade !", RU: "проходи — поплавай!"},
+	"ui_ticket": {EN: "ticket", FR: "billet", RU: "билет"},
 	# %s is the list of missing materials.
 	"why_need": {EN: "need %s", FR: "il faut %s", RU: "нужно %s"},
 

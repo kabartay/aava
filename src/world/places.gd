@@ -57,6 +57,23 @@ const MEAL_RESTORE := 0.55
 ## and cannot depend on this file. Mirrored here so callers have one name.
 const POOL_DEPTH := PlaceSpec.POOL_DEPTH
 const POOL_HALF := PlaceSpec.POOL_HALF
+const POOL_HALF_X := PlaceSpec.POOL_HALF_X
+const POOL_HALF_Z := PlaceSpec.POOL_HALF_Z
+## The fence round the pool, how far out from the water, and the way in: a
+## turnstile on the side facing the pitch, a ticket booth beside it, and what
+## a ticket costs. Coins come from looking after the animals, so a swim is
+## something a child earns.
+const POOL_FENCE_X := POOL_HALF_X + 3.0
+const POOL_FENCE_Z := POOL_HALF_Z + 3.0
+const POOL_GATE_HALF := 0.8
+const POOL_TICKET := 5
+## How long the turnstile stays open once paid, and how near a child must be
+## for it to offer a ticket.
+const TURNSTILE_OPEN := 7.0
+const TURNSTILE_REACH := 2.6
+const POOL_LAMPS: Array[Vector3] = [
+	Vector3(-POOL_FENCE_X - 0.8, 0.0, -POOL_FENCE_Z - 0.8), Vector3(POOL_FENCE_X + 0.8, 0.0, POOL_FENCE_Z + 0.8),
+]
 
 ## How high the swing carries a child, how long one push lasts, and how far the
 ## seat swings at the top of its arc.
@@ -204,6 +221,12 @@ var _meals: Array[Dictionary] = []
 var _cafe_solid: StaticBody3D = null
 var _cafe_walls: StaticBody3D = null
 var _pitch_solid: StaticBody3D = null
+## The pool's furniture, its turnstile — solid until paid, and for a while
+## after — and its arms, which turn while it is open.
+var _pool_solid: StaticBody3D = null
+var _turnstile: StaticBody3D = null
+var _turnstile_arms: Node3D = null
+var _turnstile_open := 0.0
 var _cafe_seats: Array[Dictionary] = []
 ## Each ball's height last frame, to see one drop through the ring.
 var _ball_heights: Array[float] = []
@@ -511,6 +534,7 @@ func _tick(delta: float) -> void:
 		# of a fountain.
 		_jet.scale = Vector3(1.0, 1.0 + 0.10 * sin(_wind_time * 7.3), 1.0)
 	_tick_meals(delta)
+	_tick_turnstile(delta)
 	for i in _seats.size():
 		var seat: Dictionary = _seats[i]
 		var node: Node3D = seat["node"]
@@ -539,7 +563,7 @@ func _place(place: StringName, at: Vector3) -> void:
 			_note_playground_obstacles(spot)
 		POOL:
 			_build_pool(spot)
-			_obstacles.append(_obstacle_group(spot, [Vector3(0.0, POOL_HALF + 1.2, 0.0)]))
+			_obstacles.append(_obstacle_group(spot, [Vector3(0.0, POOL_FENCE_X + 1.5, 0.0)]))
 		CAFE:
 			_build_cafe(spot)
 			_note_cafe_obstacles(spot)
@@ -925,49 +949,268 @@ func _scatter(mesh: Mesh, transforms: Array[Transform3D], at: Vector3) -> void:
 func _build_pool(at: Vector3) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var solid := StaticBody3D.new()
+	solid.transform = Transform3D(Basis(), at)
+	solid.collision_layer = TerrainSpec.LAYER_PROPS
+	add_child(solid)
+	_pool_solid = solid
 
 	var tile := Color(0.88, 0.92, 0.94)
+	var timber := Color(0.54, 0.38, 0.24)
+	var iron := Color(0.20, 0.21, 0.23)
+	var paint := Color(0.94, 0.58, 0.26)
 
 	# No walls and no floor: the height field has already dug the hollow, and a
-	# box of walls inside it would fight the terrain for the same pixels.
+	# box of walls inside it would fight the terrain for the same pixels. A
+	# tiled rim round the water, and a lane line down the middle under it.
 	for i in 4:
 		var along := i % 2 == 0
 		var sign_of := 1.0 if i < 2 else -1.0
 		var rim := BoxMesh.new()
 		if along:
-			rim.size = Vector3(POOL_HALF * 2.0 + 0.7, 0.14, 0.7)
+			rim.size = Vector3(POOL_HALF_X * 2.0 + 0.7, 0.14, 0.7)
 		else:
-			rim.size = Vector3(0.7, 0.14, POOL_HALF * 2.0 + 0.7)
+			rim.size = Vector3(0.7, 0.14, POOL_HALF_Z * 2.0 + 0.7)
 		var rim_at := Vector3(
-			0.0 if along else sign_of * (POOL_HALF + 0.2),
+			0.0 if along else sign_of * (POOL_HALF_X + 0.2),
 			0.07,
-			sign_of * (POOL_HALF + 0.2) if along else 0.0
+			sign_of * (POOL_HALF_Z + 0.2) if along else 0.0
 		)
 		_add(tool, rim, Transform3D(Basis(), rim_at), tile)
+	# Steps down into the shallow end, and a block to jump from at the deep.
+	for step in 3:
+		var tread := BoxMesh.new()
+		tread.size = Vector3(1.6, 0.16, 0.6)
+		_add(tool, tread, Transform3D(Basis(), Vector3(-POOL_HALF_X + 0.8, -0.1 - float(step) * 0.28, POOL_HALF_Z - 0.6 - float(step) * 0.6)), tile)
+	var block := BoxMesh.new()
+	block.size = Vector3(0.7, 0.5, 0.7)
+	_add(tool, block, Transform3D(Basis(), Vector3(0.0, 0.25, -POOL_HALF_Z - 0.55)), paint)
+	var block_shape := BoxShape3D.new()
+	block_shape.size = block.size
+	_collide(solid, block_shape, Transform3D(Basis(), Vector3(0.0, 0.25, -POOL_HALF_Z - 0.55)))
+	# Two loungers along the far side, for the look of a place people lie about.
+	for x in PackedFloat32Array([-4.0, 4.0]):
+		var lounger := BoxMesh.new()
+		lounger.size = Vector3(0.7, 0.08, 1.9)
+		_add(tool, lounger, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-8.0)), Vector3(x, 0.4, -POOL_HALF_Z - 2.2)), Color(0.30, 0.52, 0.86))
+		for dz in PackedFloat32Array([-0.8, 0.8]):
+			var leg := BoxMesh.new()
+			leg.size = Vector3(0.7, 0.36, 0.05)
+			_add(tool, leg, Transform3D(Basis(), Vector3(x, 0.18, -POOL_HALF_Z - 2.2 + dz)), iron)
+		var lounger_shape := BoxShape3D.new()
+		lounger_shape.size = Vector3(0.8, 0.6, 2.0)
+		_collide(solid, lounger_shape, Transform3D(Basis(), Vector3(x, 0.3, -POOL_HALF_Z - 2.2)))
 
-	tool.generate_normals()
-	tool.set_material(_material())
+	# The fence: posts every two metres with two rails, a gap on the side
+	# facing the pitch for the turnstile. Solid, or the fence is a suggestion.
+	var rail_shape_x := BoxShape3D.new()
+	rail_shape_x.size = Vector3(POOL_FENCE_X * 2.0, 1.3, 0.14)
+	for sz in PackedFloat32Array([-1.0, 1.0]):
+		_collide(solid, rail_shape_x, Transform3D(Basis(), Vector3(0.0, 0.65, sz * POOL_FENCE_Z)))
+	var west := BoxShape3D.new()
+	west.size = Vector3(0.14, 1.3, POOL_FENCE_Z * 2.0)
+	_collide(solid, west, Transform3D(Basis(), Vector3(-POOL_FENCE_X, 0.65, 0.0)))
+	var east_half := POOL_FENCE_Z - POOL_GATE_HALF
+	var east := BoxShape3D.new()
+	east.size = Vector3(0.14, 1.3, east_half)
+	for sz in PackedFloat32Array([-1.0, 1.0]):
+		_collide(solid, east, Transform3D(Basis(), Vector3(POOL_FENCE_X, 0.65, sz * (POOL_GATE_HALF + east_half * 0.5))))
+	var perimeter := 2.0 * (POOL_FENCE_X + POOL_FENCE_Z) * 2.0
+	var posts := int(perimeter / 2.0)
+	for k in posts:
+		var along := float(k) / float(posts) * perimeter
+		var corner := _along_rectangle(along, POOL_FENCE_X, POOL_FENCE_Z)
+		# No post in the gateway.
+		if absf(corner.x - POOL_FENCE_X) < 0.01 and absf(corner.z) < POOL_GATE_HALF + 0.3:
+			continue
+		var post := CylinderMesh.new()
+		post.top_radius = 0.05
+		post.bottom_radius = 0.06
+		post.height = 1.3
+		post.radial_segments = 6
+		post.rings = 1
+		_add(tool, post, Transform3D(Basis(), corner + Vector3(0.0, 0.65, 0.0)), iron)
+	for y in PackedFloat32Array([0.55, 1.15]):
+		var long_rail := BoxMesh.new()
+		long_rail.size = Vector3(POOL_FENCE_X * 2.0, 0.05, 0.05)
+		for sz in PackedFloat32Array([-1.0, 1.0]):
+			_add(tool, long_rail, Transform3D(Basis(), Vector3(0.0, y, sz * POOL_FENCE_Z)), tile)
+		var short_rail := BoxMesh.new()
+		short_rail.size = Vector3(0.05, 0.05, POOL_FENCE_Z * 2.0)
+		_add(tool, short_rail, Transform3D(Basis(), Vector3(-POOL_FENCE_X, y, 0.0)), tile)
+		var gate_rail := BoxMesh.new()
+		gate_rail.size = Vector3(0.05, 0.05, east_half)
+		for sz in PackedFloat32Array([-1.0, 1.0]):
+			_add(tool, gate_rail, Transform3D(Basis(), Vector3(POOL_FENCE_X, y, sz * (POOL_GATE_HALF + east_half * 0.5))), tile)
+	# A lifebuoy on the fence by the deep end.
+	var buoy := TorusMesh.new()
+	buoy.inner_radius = 0.18
+	buoy.outer_radius = 0.32
+	buoy.rings = 8
+	buoy.ring_segments = 14
+	_add(tool, buoy, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(2.0, 0.9, -POOL_FENCE_Z - 0.08)), Color(0.90, 0.28, 0.24))
 
-	var pool := MeshInstance3D.new()
-	pool.mesh = tool.commit()
-	pool.transform = Transform3D(Basis(), at)
-	add_child(pool)
+	# The way in: gate posts, the turnstile itself (its own body, so it can
+	# open), and a ticket booth beside it with a coin on the sign.
+	for sz in PackedFloat32Array([-1.0, 1.0]):
+		var gate_post := BoxMesh.new()
+		gate_post.size = Vector3(0.14, 1.5, 0.14)
+		_add(tool, gate_post, Transform3D(Basis(), Vector3(POOL_FENCE_X, 0.75, sz * POOL_GATE_HALF)), iron)
+	var hub := CylinderMesh.new()
+	hub.top_radius = 0.07
+	hub.bottom_radius = 0.08
+	hub.height = 1.0
+	hub.radial_segments = 8
+	hub.rings = 1
+	_add(tool, hub, Transform3D(Basis(), Vector3(POOL_FENCE_X, 0.5, 0.0)), iron)
+	_build_ticket_booth(tool, Vector3(POOL_FENCE_X + 0.9, 0.0, -POOL_GATE_HALF - 1.4), solid)
+	for i in POOL_LAMPS.size():
+		_build_lamp(tool, at, POOL_LAMPS[i], solid, 0.13 + 0.05 * float(i))
+	_finish_into(tool, at)
+
+	# The arms of the turnstile turn while it is open, so they are a node.
+	_turnstile_arms = Node3D.new()
+	_turnstile_arms.position = at + Vector3(POOL_FENCE_X, 0.95, 0.0)
+	add_child(_turnstile_arms)
+	var arms_tool := SurfaceTool.new()
+	arms_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in 3:
+		var angle := TAU * float(k) / 3.0
+		var arm := CylinderMesh.new()
+		arm.top_radius = 0.03
+		arm.bottom_radius = 0.03
+		arm.height = 0.7
+		arm.radial_segments = 6
+		arm.rings = 1
+		# Arms out from the hub, tipped a little down, spaced round it.
+		var lay := Basis(Vector3.UP, angle) * Basis(Vector3.FORWARD, deg_to_rad(80.0))
+		_add(arms_tool, arm, Transform3D(lay, lay * Vector3(0.0, 0.35, 0.0)), Color(0.86, 0.88, 0.90))
+	arms_tool.generate_normals()
+	arms_tool.set_material(_material())
+	var arms_mesh := MeshInstance3D.new()
+	arms_mesh.mesh = arms_tool.commit()
+	_turnstile_arms.add_child(arms_mesh)
+	_turnstile = StaticBody3D.new()
+	_turnstile.collision_layer = TerrainSpec.LAYER_PROPS
+	var bar := CollisionShape3D.new()
+	var bar_shape := BoxShape3D.new()
+	bar_shape.size = Vector3(0.5, 1.3, POOL_GATE_HALF * 2.0)
+	bar.shape = bar_shape
+	bar.position = Vector3(0.0, 0.65, 0.0)
+	_turnstile.add_child(bar)
+	_turnstile.position = at + Vector3(POOL_FENCE_X, 0.0, 0.0)
+	add_child(_turnstile)
 
 	# The water in the pool: a flat pane at the brim, the same blue as the
 	# river so the two read as the same substance.
 	var pane := PlaneMesh.new()
-	pane.size = Vector2(POOL_HALF * 2.0 - 0.1, POOL_HALF * 2.0 - 0.1)
+	pane.size = Vector2(POOL_HALF_X * 2.0 - 0.1, POOL_HALF_Z * 2.0 - 0.1)
 	var surface := StandardMaterial3D.new()
 	surface.albedo_color = Color(0.36, 0.62, 0.78, 0.72)
 	surface.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	surface.roughness = 0.16
 	surface.metallic = 0.25
-
 	var water := MeshInstance3D.new()
 	water.mesh = pane
 	water.material_override = surface
 	water.transform = Transform3D(Basis(), at + Vector3(0.0, -0.04, 0.0))
 	add_child(water)
+
+## A point `along` metres round a rectangle of the given half-sizes, starting
+## at the east side's middle and going clockwise seen from above.
+static func _along_rectangle(along: float, half_x: float, half_z: float) -> Vector3:
+	var edges: Array[float] = [half_z, half_x * 2.0, half_z * 2.0, half_x * 2.0, half_z]
+	var left := along
+	if left < edges[0]:
+		return Vector3(half_x, 0.0, left)
+	left -= edges[0]
+	if left < edges[1]:
+		return Vector3(half_x - left, 0.0, half_z)
+	left -= edges[1]
+	if left < edges[2]:
+		return Vector3(-half_x, 0.0, half_z - left)
+	left -= edges[2]
+	if left < edges[3]:
+		return Vector3(-half_x + left, 0.0, -half_z)
+	left -= edges[3]
+	return Vector3(half_x, 0.0, -half_z + left)
+
+## The ticket booth: a little hut with a window, and a sign with a coin and
+## as many pips as a ticket costs — a price a child who cannot read can read.
+func _build_ticket_booth(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void:
+	var wall := Color(0.92, 0.88, 0.78)
+	var timber := Color(0.54, 0.38, 0.24)
+	var hut := BoxMesh.new()
+	hut.size = Vector3(1.5, 2.3, 1.5)
+	_add(tool, hut, Transform3D(Basis(), local + Vector3(0.0, 1.15, 0.0)), wall)
+	var roof := CylinderMesh.new()
+	roof.top_radius = 0.0
+	roof.bottom_radius = 1.25
+	roof.height = 0.55
+	roof.radial_segments = 4
+	roof.rings = 1
+	_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.25), local + Vector3(0.0, 2.55, 0.0)), Color(0.62, 0.30, 0.24))
+	var window := BoxMesh.new()
+	window.size = Vector3(0.06, 0.7, 0.9)
+	_add(tool, window, Transform3D(Basis(), local + Vector3(-0.76, 1.4, 0.0)), Color(0.70, 0.84, 0.92))
+	var counter := BoxMesh.new()
+	counter.size = Vector3(0.3, 0.06, 1.0)
+	_add(tool, counter, Transform3D(Basis(), local + Vector3(-0.85, 1.02, 0.0)), timber)
+	var sign := BoxMesh.new()
+	sign.size = Vector3(0.06, 0.5, 1.2)
+	_add(tool, sign, Transform3D(Basis(), local + Vector3(-0.78, 2.0, 0.0)), Color(0.96, 0.94, 0.90))
+	var coin := CylinderMesh.new()
+	coin.top_radius = 0.14
+	coin.bottom_radius = 0.14
+	coin.height = 0.03
+	coin.radial_segments = 12
+	coin.rings = 1
+	_add(tool, coin, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), local + Vector3(-0.82, 2.0, 0.38)), Color(0.96, 0.80, 0.24))
+	for i in POOL_TICKET:
+		var pip := SphereMesh.new()
+		pip.radius = 0.045
+		pip.height = 0.09
+		pip.radial_segments = 6
+		pip.rings = 3
+		_add(tool, pip, Transform3D(Basis(), local + Vector3(-0.82, 2.0, 0.1 - float(i) * 0.14)), Color(0.14, 0.16, 0.15))
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(1.6, 2.4, 1.6)
+	_collide(solid, shape, Transform3D(Basis(), local + Vector3(0.0, 1.2, 0.0)))
+
+## Is a child at the turnstile, close enough to buy a ticket or to be let out?
+func at_turnstile(at: Vector3) -> bool:
+	if _turnstile == null:
+		return false
+	return Vector2(at.x - _turnstile.position.x, at.z - _turnstile.position.z).length() < TURNSTILE_REACH
+
+## Is a child inside the pool's fence?
+func inside_pool_fence(at: Vector3) -> bool:
+	if not _spots.has(POOL):
+		return false
+	var spot: Vector3 = _spots[POOL]
+	return absf(at.x - spot.x) < POOL_FENCE_X - 0.3 and absf(at.z - spot.z) < POOL_FENCE_Z - 0.3
+
+## Let the turnstile turn for a while: paid for, or a child leaving.
+func open_turnstile() -> void:
+	_turnstile_open = TURNSTILE_OPEN
+	if _turnstile != null:
+		_turnstile.collision_layer = 0
+
+func turnstile_open() -> bool:
+	return _turnstile_open > 0.0
+
+func _tick_turnstile(delta: float) -> void:
+	if _turnstile_open <= 0.0:
+		return
+	_turnstile_open -= delta
+	if _turnstile_arms != null:
+		_turnstile_arms.rotation.y += delta * 2.4
+	if _turnstile_open <= 0.0 and _turnstile != null:
+		_turnstile.collision_layer = TerrainSpec.LAYER_PROPS
+
+## How many solid pieces the pool has round it. For the checks.
+func pool_solid_count() -> int:
+	return 0 if _pool_solid == null else _pool_solid.get_child_count()
 
 ## The café, which a child can walk into. Twice the width and depth of the
 ## hut it replaced and a fifth taller: four walls with a door in the front

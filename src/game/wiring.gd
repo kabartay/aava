@@ -17,6 +17,7 @@ extends RefCounted
 const HANDLERS := [
 	&"place", &"kick_start", &"kick_release", &"jump", &"remove",
 	&"language", &"reset", &"care", &"shop", &"buy", &"drink", &"whistle", &"chop", &"ride", &"shoot_start", &"shoot_release", &"visit", &"dam",
+	&"ticket",
 ]
 
 static func connect_hud(
@@ -57,6 +58,7 @@ static func connect_hud(
 	hud.shoot_released.connect(handlers.get(&"shoot_release", Callable()))
 	hud.place_used.connect(handlers.get(&"visit", Callable()))
 	hud.dam_stick.connect(handlers.get(&"dam", Callable()))
+	hud.ticket_pressed.connect(handlers.get(&"ticket", Callable()))
 
 	# The map is attached here rather than by the caller, because the
 	# screenshot tool built its own interface and silently had no map — exactly
