@@ -1310,6 +1310,13 @@ func _closer_to(colour: Color, wanted: Color, other: Color) -> bool:
 ## checks it.
 func _check_every_wet_place_shows_water() -> void:
 	print("every wet place shows water")
+	# A shadow on a transparent, shiny plane is a dark shape on the
+	# reflection: the child's own shadow landed in the sun's glare on the
+	# water and read as a black diamond following them about.
+	_expect(
+		_code_only(FileAccess.get_file_as_string("res://src/world/water.gd")).contains("shadows_disabled"),
+		"the water takes no shadows"
+	)
 	var field := HeightField.new(20260903)
 	var stray := 0
 	var worst := Vector3.ZERO

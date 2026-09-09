@@ -32,7 +32,15 @@ const SNAP := 64.0
 
 const SHADER := """
 shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_schlick_ggx;
+// shadows_disabled: the water takes no shadows at all.
+//
+// A shadow cast onto a transparent, specular plane is a dark shape sitting
+// *on* the reflection rather than in the water — and the child's own shadow,
+// landing in the middle of the sun's glare, read as a black diamond
+// following them about. Water in life takes almost no visible shadow from
+// something floating in it; what it does is reflect and refract, which this
+// shader does either way.
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_schlick_ggx, shadows_disabled;
 
 uniform vec3 shallow_color : source_color = vec3(0.42, 0.74, 0.70);
 uniform vec3 deep_color : source_color = vec3(0.06, 0.26, 0.40);
