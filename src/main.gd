@@ -454,6 +454,16 @@ func _process(delta: float) -> void:
 	var dam_site := world.dams.site_near(at)
 	hud.set_dam_offer(not is_nan(dam_site) and inventory.count(&"stick") > 0)
 
+	# Drawing a bow: the bow itself at the child's side, and the arrow's own
+	# arc hanging in the air, so there is something to aim *with*. Where a
+	# shot went was otherwise a guess — the aim follows the camera's pitch,
+	# which is right and is invisible.
+	if player.is_charging() and hud.is_shooting():
+		player.hold_the_bow(true, player.kick_charge)
+		_show_where_the_arrow_goes()
+	else:
+		player.hold_the_bow(false, 0.0)
+
 	hud.set_on_shooting_line(
 		player.global_position.distance_to(world.archery.shooting_line()) < SHOOTING_LINE_REACH
 	)
@@ -1125,6 +1135,20 @@ func _on_ticket() -> void:
 	world.places.open_turnstile()
 	sounds.play(Sounds.Sound.PICKUP, 1.1)
 	hud.announce(Text.of("say_welcome_pool"), 2.4)
+
+## The arc an arrow would fly on, drawn as dots while the string is held.
+## The same arithmetic the shot itself uses, so the dots do not lie.
+func _show_where_the_arrow_goes() -> void:
+	var from := player.global_position + Vector3.UP * 1.2
+	var velocity := Archery.launch_velocity(
+		player.facing(), player.facing(), player.kick_charge, camera_rig.aim_height()
+	)
+	var ground := func(x: float, z: float) -> float:
+		return world.field.height_at(x, z)
+	# Three and a half seconds at a tenth of a second a dot: about as many
+	# dots as the preview can show, and far enough to see where a shot lands
+	# at the range's own distances.
+	kick_preview.show_path(Archery.predict(from, velocity, 3.5, 0.09, ground))
 
 ## A basketball within range of the ring is thrown, not kicked.
 func _can_throw(ball: Ball) -> bool:

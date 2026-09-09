@@ -39,6 +39,11 @@ const OFFSETS := {
 	# stood at, on the river side of the pitch, on ground found by scanning
 	# for the flattest patch that is dry and well clear of the water.
 	&"pool": Vector3(-22.0, 0.0, 68.0),
+	# The archery range. It used to take the ground as it found it, which put
+	# the shooting line on a slope with trees a few paces from the butts: an
+	# arrow met a trunk before it met a target. Levelled like the rest, with
+	# room enough round it that the hill starts beyond the furthest butt.
+	&"range": RANGE_OFFSET,
 }
 
 ## How much flat ground each place needs, and how far out the levelling fades.
@@ -49,6 +54,14 @@ const RADIUS := {
 	&"playground": 20.4,
 	&"cafe": 16.0,
 	&"pool": 22.0,
+	# The furthest butt stands eighteen metres out, so this covers the whole
+	# range and a good margin past it — which is also the radius that keeps
+	# the trees off, since nothing grows on a place's own ground. It must
+	# also clear the *corners* of the square footprint below, which reach
+	# footprint × √2 from the middle: 26 against a footprint of 20 left the
+	# corners outside the level ground, which is where the first version's
+	# three and a half metres of slope came from.
+	&"range": 30.0,
 }
 ## Half the width of the structure that actually stands at each place. The
 ## levelled radius has to comfortably exceed this, because the outer part of
@@ -58,14 +71,20 @@ const FOOTPRINT := {
 	&"playground": 14.4,
 	&"cafe": 9.0,
 	&"pool": 13.0,
+	&"range": 18.0,
 }
 
 const FEATHER := 7.0
 
-## Where the archery range stands, relative to the camp. Not one of the
-## levelled places — the range finds its own flat ground — but the map needs
-## to know where it is.
-const RANGE_OFFSET := Vector3(330.0, 0.0, -180.0)
+## Where the archery range stands, relative to the camp.
+##
+## Moved from (330, -180) when the range was levelled: the old site sat on a
+## slope steep enough that flattening a disc into it left an eleven-metre
+## bank at the edge. This one was found by scanning the hillside around it
+## for the flattest shelf that is still high up — six metres of fall round
+## its rim, and the hill goes on climbing nineteen metres beyond it, so the
+## range is a shelf on a hillside rather than a step cut through one.
+const RANGE_OFFSET := Vector3(290.0, 0.0, -100.0)
 
 ## Everything the places touch, as a box around the camp. Still worth having
 ## now they are spread out — it is most of the world away from them — but it has

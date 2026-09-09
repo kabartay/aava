@@ -60,6 +60,8 @@ func _initialize() -> void:
 	_check_the_pool_takes_a_ticket()
 	_check_getting_off_a_mount_is_safe()
 	_check_a_horse_swims()
+	_check_the_range_is_clear()
+	_check_the_bow_can_be_aimed()
 	_check_swimming_looks_like_swimming()
 	_check_animals_are_solid()
 	_check_a_dog_asks_for_a_stick()
@@ -1692,6 +1694,116 @@ func _check_a_horse_swims() -> void:
 	rider._physics_process(1.0 / 60.0)
 	_expect(rider.is_swimming, "and starts swimming the moment they get off")
 	rider.queue_free()
+
+## The archery range needs level ground and no trees on it: it stood on a
+## hillside with the wood a few paces from the butts, and an arrow met a
+## trunk before it met a target.
+func _check_the_range_is_clear() -> void:
+	print("the archery range is clear")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var centre := PlaceSpec.centre_of(&"range", camp)
+
+	# Flat where it matters: across the footprint the shooting line and the
+	# butts stand on.
+	var lowest := 1e9
+	var highest := -1e9
+	var footprint: float = PlaceSpec.FOOTPRINT[&"range"]
+	for dz in range(-4, 5):
+		for dx in range(-4, 5):
+			var here := field.height_at(
+				centre.x + float(dx) * footprint / 4.0, centre.z + float(dz) * footprint / 4.0
+			)
+			lowest = minf(lowest, here)
+			highest = maxf(highest, here)
+	_expect(highest - lowest < 0.12, "the ground under the range is flat to %.3f m" % (highest - lowest))
+
+	# And nothing grows on it, out to well past the furthest butt.
+	var wooded := 0.0
+	for turn in 24:
+		var angle := TAU * float(turn) / 24.0
+		for reach in range(1, 11):
+			var at := centre + Vector3(cos(angle), 0.0, sin(angle)) * float(reach)
+			wooded = maxf(wooded, field.forest_density_at(at.x, at.z))
+	_expect(is_zero_approx(wooded), "no tree grows within ten metres of it")
+	var further := 0.0
+	for turn in 24:
+		var angle := TAU * float(turn) / 24.0
+		var at := centre + Vector3(cos(angle), 0.0, sin(angle)) * 18.0
+		further = maxf(further, field.forest_density_at(at.x, at.z))
+	_expect(is_zero_approx(further), "nor as far out as the furthest butt")
+
+	# Nor can a child plant one there.
+	_expect(PlaceSpec.reserved(centre.x, centre.z, camp), "and nothing can be built on it")
+	_expect(PlaceSpec.reserved(centre.x + 10.0, centre.z, camp), "including ten metres out")
+	_expect(not PlaceSpec.reserved(centre.x + 40.0, centre.z, camp), "while the meadow beyond it is a child's own")
+
+	# The hill is still there — the range is a level shelf on it, not a hole
+	# cut through it.
+	var uphill := 0.0
+	for turn in 16:
+		var angle := TAU * float(turn) / 16.0
+		var at := centre + Vector3(cos(angle), 0.0, sin(angle)) * 60.0
+		uphill = maxf(uphill, field.height_at(at.x, at.z) - centre.y)
+	_expect(uphill > 4.0, "and the ground still climbs %.0f m beyond it" % uphill)
+
+## A child must be able to see what they are aiming at.
+##
+## The aim follows the camera's pitch, which is the right control and an
+## invisible one: from the phone, "I am shooting but I cannot see how to
+## aim". So the bow appears at the child's side and draws as the string is
+## pulled, and the arrow's own arc hangs in the air in front of them —
+## computed from the shot's own arithmetic, so what is drawn is what flies.
+func _check_the_bow_can_be_aimed() -> void:
+	print("the bow can be aimed")
+	var field := HeightField.new(20260903)
+
+	# The arc is the flight: the same launch the shot uses, integrated the
+	# way the arrows are.
+	var flat := Archery.launch_velocity(Vector3.FORWARD, Vector3.FORWARD, 1.0, 0.0)
+	var lofted := Archery.launch_velocity(Vector3.FORWARD, Vector3.FORWARD, 1.0, 0.8)
+	_expect(is_equal_approx(flat.length(), lofted.length()), "aiming higher does not change the speed, only the angle")
+	_expect(lofted.y > flat.y, "and a higher aim leaves the bow higher")
+	_expect(flat.length() > Archery.SPEED_MIN, "a full draw is faster than an empty one (%.0f m/s)" % flat.length())
+	var weak := Archery.launch_velocity(Vector3.FORWARD, Vector3.FORWARD, 0.0, 0.0)
+	_expect(weak.length() < flat.length(), "and a tap is slower than a hold")
+
+	var ground := func(_x: float, _z: float) -> float:
+		return 0.0
+	# Eight seconds, not three: a full draw leaves at forty-four metres a
+	# second and a lofted one is still forty metres up at three. The arc the
+	# game draws is cut short on purpose — it is an aim, not a survey — but
+	# what is asserted here is the flight, so it has to run to the end of it.
+	var arc := Archery.predict(Vector3(0.0, 1.2, 0.0), lofted, 8.0, 0.06, ground)
+	_expect(arc.size() > 8, "the arc has %d dots in it" % arc.size())
+	var peak := 0.0
+	for point in arc:
+		peak = maxf(peak, point.y)
+	_expect(peak > 1.2, "it rises to %.1f m" % peak)
+	_expect(is_zero_approx(arc[arc.size() - 1].y), "and ends on the ground")
+	var flat_arc := Archery.predict(Vector3(0.0, 1.2, 0.0), flat, 8.0, 0.06, ground)
+	# Forward is -Z, so "further" is a smaller z. Compared as distances, which
+	# cannot be read backwards the way the raw coordinates were.
+	var lofted_reach := absf(arc[arc.size() - 1].z)
+	var flat_reach := absf(flat_arc[flat_arc.size() - 1].z)
+	_expect(
+		lofted_reach > flat_reach,
+		"a lofted shot lands further away than a flat one (%.0f m against %.0f)" % [lofted_reach, flat_reach]
+	)
+
+	# The bow: hidden until the string is drawn, and drawn as far as it is
+	# pulled.
+	var child := Player.new()
+	get_root().add_child(child)
+	_expect(not child.bow_shown(), "no bow while walking about")
+	child.hold_the_bow(true, 0.5)
+	_expect(child.bow_shown(), "a bow appears when the string is nocked")
+	_expect(absf(child.bow_draw() - 0.5) < 0.01, "drawn as far as the string is pulled")
+	child.hold_the_bow(true, 1.0)
+	_expect(is_equal_approx(child.bow_draw(), 1.0), "and to full draw when it is held")
+	child.hold_the_bow(false, 0.0)
+	_expect(not child.bow_shown(), "and put away when the arrow is loosed")
+	child.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

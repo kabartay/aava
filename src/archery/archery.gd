@@ -50,6 +50,9 @@ func _init(height_field: HeightField) -> void:
 ## Put the range somewhere flat. Called once, near the camp.
 func stand_up(at: Vector3, facing: Vector3) -> void:
 	_origin = at
+	# The ground here is levelled by the height field, like the playground's
+	# and the café's — see PlaceSpec — so this reads a flat surface rather
+	# than the hillside that used to be here.
 	_origin.y = field.height_at(at.x, at.z)
 
 	_facing = facing
@@ -87,22 +90,55 @@ func arrows_in_flight() -> int:
 
 ## Loose an arrow. `charge` is 0 to 1 from the drawn bow, and `aim_height` lifts
 ## the shot the same way the football kick does.
-func loose(from: Vector3, direction: Vector3, charge: float, aim_height: float) -> void:
+## The velocity an arrow leaves at. Pure, so the aim can be drawn before the
+## string is let go and be right about it: the same arithmetic, in one place.
+##
+## The arrow leaves along the line the child is looking down, plus whatever
+## extra lift they asked for. An earlier version flattened the aim and then
+## added a fixed upward nudge, which sent every shot sailing 1.2 m over the
+## gold at nine metres: aiming at the middle guaranteed a miss. Where the
+## player looks is where it goes, and the drop over these distances is small
+## enough that a child can correct for it by eye — provided they can see it,
+## which is what the arc drawn from this is for.
+static func launch_velocity(direction: Vector3, facing: Vector3, charge: float, aim_height: float) -> Vector3:
 	var speed := lerpf(SPEED_MIN, SPEED_MAX, clampf(charge, 0.0, 1.0))
-
 	var launch := direction
 	if launch.length_squared() < 0.001:
-		launch = _facing
+		launch = facing
 	launch = launch.normalized()
-
-	# The arrow leaves along the line the child is looking down, plus whatever
-	# extra lift they asked for. An earlier version flattened the aim and then
-	# added a fixed upward nudge, which sent every shot sailing 1.2 m over the
-	# gold at nine metres: aiming at the middle guaranteed a miss. Where the
-	# player looks is where it goes, and the drop over these distances is small
-	# enough that a child can correct for it by eye.
 	if not is_zero_approx(aim_height):
 		launch = (launch + Vector3.UP * clampf(aim_height, -0.9, 0.9)).normalized()
+	return launch * speed
+
+## Where an arrow launched from `at` will fly, a point every `step` seconds,
+## stopping where it meets the ground. The same integration `_process` does
+## below — gravity, no drag — so the drawn arc is the flight, not a guess.
+static func predict(at: Vector3, velocity: Vector3, seconds: float, step: float, ground: Callable) -> PackedVector3Array:
+	var points := PackedVector3Array()
+	var here := at
+	var moving := velocity
+	var fine := 1.0 / 120.0
+	var t := 0.0
+	var since := step
+	while t < seconds:
+		moving.y -= GRAVITY * fine
+		here += moving * fine
+		t += fine
+		since += fine
+		if since < step:
+			continue
+		since = 0.0
+		var floor_here := float(ground.call(here.x, here.z))
+		if here.y <= floor_here:
+			points.append(Vector3(here.x, floor_here, here.z))
+			break
+		points.append(here)
+	return points
+
+func loose(from: Vector3, direction: Vector3, charge: float, aim_height: float) -> void:
+	var launch_speed := launch_velocity(direction, _facing, charge, aim_height)
+	var speed := launch_speed.length()
+	var launch := launch_speed.normalized()
 
 	var node := _build_arrow()
 	node.position = from

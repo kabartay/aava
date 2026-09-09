@@ -36,7 +36,9 @@ const SINK := 0.09
 ## naturally wear a route back to. The archery butts are given by offset because
 ## Archery places them itself; that one duplication is the price of this file
 ## depending on nothing, which is what keeps the height field free of cycles.
-const BUTTS_OFFSET := Vector3(330.0, 0.0, -180.0)
+## The same offset PlaceSpec keeps, so the path and the range cannot end up
+## in different places — it was written out twice and moved once.
+const BUTTS_OFFSET := PlaceSpec.RANGE_OFFSET
 
 const ROUTES: Array[Dictionary] = [
 	{"from": &"", "to": &"playground"},
@@ -93,7 +95,7 @@ const SEGMENTS: Array[float] = [
 	0.0, 18.0, -370.0, -282.0,
 	0.0, 18.0, -3.5, 86.0,
 	-360.0, 268.0, -3.5, 86.0,
-	0.0, 18.0, 330.0, -162.0,
+	0.0, 18.0, 290.0, -82.0,
 ]
 
 ## Whether any route comes near this box at all, so a caller working over a

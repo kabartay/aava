@@ -99,6 +99,12 @@ var _ride_lift := 0.0
 ## is tipped forward.
 var _swim_sink := 0.0
 var _swim_lean := 0.0
+## The bow, and how far the string is drawn back: nothing while it hangs at
+## the child's side, one at full draw.
+var _bow: Node3D
+var _bow_string: Node3D
+var _bow_arrow: Node3D
+var _draw_shown := 0.0
 
 ## What the player is riding, or an empty name when on foot. Set by the game.
 ##
@@ -162,6 +168,13 @@ func _build_visual() -> Node3D:
 	cloth.roughness = 0.9
 	body.material_override = cloth
 	root.add_child(body)
+
+	# The bow, held out at the child's left side and drawn as the string is
+	# pulled. Hidden until they nock an arrow: a bow carried everywhere would
+	# be in the way of every other thing they do.
+	_bow = _build_bow()
+	_bow.visible = false
+	root.add_child(_bow)
 
 	var head := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
@@ -434,6 +447,87 @@ func swim_sink() -> float:
 
 func swim_lean() -> float:
 	return _swim_lean
+
+## A bow: a curved stave held out at the side, a string, and an arrow on it.
+## Simple on purpose — at the size it is drawn, what has to read is the shape
+## of the thing and the fact that the string moves.
+func _build_bow() -> Node3D:
+	var bow := Node3D.new()
+	bow.name = "Bow"
+	# Out to the left and forward a little, at the height of the hands.
+	bow.position = Vector3(-0.34, HEIGHT * 0.60, -0.18)
+	var timber := StandardMaterial3D.new()
+	timber.albedo_color = Color(0.48, 0.32, 0.18)
+	timber.roughness = 0.9
+	var pale := StandardMaterial3D.new()
+	pale.albedo_color = Color(0.92, 0.90, 0.84)
+	pale.roughness = 0.7
+
+	# The stave, in five short segments bent into an arc, because a bow that
+	# is a straight stick is a stick.
+	for i in 5:
+		var t := float(i) / 4.0
+		var angle := lerpf(-0.62, 0.62, t)
+		var limb := MeshInstance3D.new()
+		var wood := CylinderMesh.new()
+		wood.top_radius = 0.022
+		wood.bottom_radius = 0.022
+		wood.height = 0.2
+		wood.radial_segments = 5
+		limb.mesh = wood
+		limb.material_override = timber
+		limb.transform = Transform3D(
+			Basis(Vector3.FORWARD, angle * 0.5),
+			Vector3(sin(angle) * 0.1, cos(angle) * 0.36, 0.0) - Vector3(0.0, 0.36, 0.0) + Vector3(0.0, 0.36, 0.0)
+		)
+		limb.position = Vector3(-absf(sin(angle)) * 0.06, lerpf(-0.38, 0.38, t), 0.0)
+		bow.add_child(limb)
+
+	_bow_string = Node3D.new()
+	var string := MeshInstance3D.new()
+	var cord := CylinderMesh.new()
+	cord.top_radius = 0.006
+	cord.bottom_radius = 0.006
+	cord.height = 0.78
+	cord.radial_segments = 4
+	string.mesh = cord
+	string.material_override = pale
+	_bow_string.add_child(string)
+	bow.add_child(_bow_string)
+
+	_bow_arrow = MeshInstance3D.new()
+	var shaft := CylinderMesh.new()
+	shaft.top_radius = 0.012
+	shaft.bottom_radius = 0.012
+	shaft.height = 0.62
+	shaft.radial_segments = 4
+	_bow_arrow.mesh = shaft
+	_bow_arrow.material_override = timber
+	# Lying along the line of sight, which is -Z.
+	_bow_arrow.transform = Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.0, 0.0, -0.1))
+	bow.add_child(_bow_arrow)
+	return bow
+
+## Show the bow, drawn as far as the string is pulled. Called by the game
+## while the shoot button is held; `drawn` is 0 to 1.
+func hold_the_bow(shown: bool, drawn: float) -> void:
+	if _bow == null:
+		return
+	_bow.visible = shown
+	_draw_shown = clampf(drawn, 0.0, 1.0)
+	if not shown:
+		return
+	# The string and the arrow come back towards the child as it is drawn.
+	var back := _draw_shown * 0.28
+	_bow_string.position.z = back
+	_bow_arrow.position.z = -0.1 + back
+
+## How far the drawn bow is shown pulled. For the checks.
+func bow_draw() -> float:
+	return _draw_shown
+
+func bow_shown() -> bool:
+	return _bow != null and _bow.visible
 
 ## The direction the body is turned, as an angle. Read by a mount so it faces
 ## the same way its rider does.

@@ -19,7 +19,7 @@ a control a child has to be told about is a control he forgets.
 | Fill the bottle | walk into the shallows | same |
 | Swim | walk into the water | same |
 | Swing, eat | **swing** / **eat** at the playground or café | same |
-| Shoot | hold **shoot** at the range, release to loose | hold `E` |
+| Shoot | hold **shoot** at the range, release to loose; the bow draws and a dotted arc shows where the arrow will go | hold `E` |
 | Ride / get off | **ride** when a horse or bicycle is close | same |
 | Cross deep water | ride the horse in: it swims, and you stay in the saddle | same |
 | Row | **row** beside a boat at the big pond; it stops at the far shore | same |

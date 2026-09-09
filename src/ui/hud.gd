@@ -635,6 +635,13 @@ func set_ticket_offer(wanted: bool) -> void:
 		_ticket_button.visible = wanted
 		_layout()
 
+## Whether the bow is on offer right now — that is, whether the child is
+## standing at the shooting line. Read by the game, which shows the bow in
+## their hands only there: the same button draws a bow at the range and
+## kicks a ball on the pitch.
+func is_shooting() -> bool:
+	return _shoot_button.visible
+
 ## Whether the shooting line is close enough to draw a bow.
 func set_on_shooting_line(within: bool) -> void:
 	if _shoot_button.visible != within:
