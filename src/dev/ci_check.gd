@@ -952,6 +952,13 @@ func _check_nothing_hangs_in_the_air() -> void:
 		if joints[i].z <= joints[i - 1].z:
 			falls = false
 	_expect(falls, "and every joint of it lies further back than the last")
+	# And it hangs: a horse's tail leaves the dock about level and is falling
+	# within a hand's width, rather than curling up over the rump like a dog's.
+	_expect(joints[1].y < joints[0].y + 0.08, "it leaves the dock about level, not cocked upwards")
+	_expect(
+		joints[joints.size() - 1].y < joints[0].y - 0.5,
+		"and hangs %.2f m below where it starts" % (joints[0].y - joints[joints.size() - 1].y)
+	)
 
 ## How many separate lumps of geometry a mesh is made of.
 ##
