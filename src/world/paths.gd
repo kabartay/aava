@@ -95,7 +95,7 @@ const SEGMENTS: Array[float] = [
 	0.0, 18.0, -370.0, -282.0,
 	0.0, 18.0, -3.5, 86.0,
 	-360.0, 268.0, -3.5, 86.0,
-	0.0, 18.0, 290.0, -82.0,
+	0.0, 18.0, 440.0, 58.0,
 ]
 
 ## Whether any route comes near this box at all, so a caller working over a

@@ -99,6 +99,7 @@ var _ride_lift := 0.0
 ## is tipped forward.
 var _swim_sink := 0.0
 var _swim_lean := 0.0
+var _ride_lean := 0.0
 ## The bow, and how far the string is drawn back: nothing while it hangs at
 ## the child's side, one at full draw.
 var _bow: Node3D
@@ -439,6 +440,27 @@ func _swim_bob() -> float:
 	if _swim_sink < 0.01:
 		return 0.0
 	return sin(float(Time.get_ticks_msec()) * 0.0022) * SWIM_BOB * (_swim_sink / SWIM_SINK)
+
+## Lean with the slope while riding: down the hill going down, back going
+## up, the way a rider does. The body alone leans — the collider stays
+## upright, since a capsule tipped over catches on everything.
+const RIDE_LEAN_LIMIT := deg_to_rad(22.0)
+
+func lean_with_the_ground(riding_now: bool, field: HeightField, delta: float) -> void:
+	var wanted := 0.0
+	if riding_now:
+		var ahead := facing() * 2.0
+		var front := field.height_at(global_position.x + ahead.x, global_position.z + ahead.z)
+		var back := field.height_at(global_position.x - ahead.x, global_position.z - ahead.z)
+		# Rising ground ahead tips the rider back, falling ground tips them
+		# forward; the rise over four metres is the slope.
+		wanted = clampf(atan2(back - front, 4.0), -RIDE_LEAN_LIMIT, RIDE_LEAN_LIMIT)
+	_ride_lean = lerpf(_ride_lean, wanted, 1.0 - exp(-5.0 * delta))
+	_visual.rotation.x = _swim_lean + _ride_lean
+
+## How far the rider is leaning with the slope. For the checks.
+func ride_lean() -> float:
+	return _ride_lean
 
 ## How deep the drawn body is sitting, and how far it is tipped. For the
 ## checks — the collider does not move, so nothing else can see this.

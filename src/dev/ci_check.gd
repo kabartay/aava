@@ -1747,6 +1747,52 @@ func _check_the_range_is_clear() -> void:
 		uphill = maxf(uphill, field.height_at(at.x, at.z) - centre.y)
 	_expect(uphill > 4.0, "and the ground still climbs %.0f m beyond it" % uphill)
 
+	# The edge of it must be a slope a child walks up, not a bank they
+	# scramble. Six metres of drop feathered over seven is a wall; the range
+	# has a fade of its own for that reason.
+	# Measured across the fade itself — from just inside the level ground to
+	# just past where it meets the hill — and not further: beyond that is the
+	# mountain, and a mountain is supposed to be steep.
+	var steepest := 0.0
+	var from: float = PlaceSpec.RADIUS[&"range"] - 2.0
+	var span: float = PlaceSpec.RADIUS[&"range"] + PlaceSpec.feather_of(&"range") + 2.0
+	for turn in 24:
+		var angle := TAU * float(turn) / 24.0
+		var out := Vector3(cos(angle), 0.0, sin(angle))
+		var step := 2.0
+		var walked := from
+		var last := field.height_at(centre.x + out.x * walked, centre.z + out.z * walked)
+		walked += step
+		while walked <= span:
+			var here := field.height_at(centre.x + out.x * walked, centre.z + out.z * walked)
+			steepest = maxf(steepest, absf(here - last) / step)
+			last = here
+			walked += step
+	_expect(
+		steepest < 0.5,
+		"the ground round it rises no more than %.0f cm a stride — a walk, not a scramble" % (steepest * 200.0)
+	)
+
+	# Every place, with its own fade, must fit inside the box that decides
+	# whether levelling applies at all. The range sat 440 m out against a box
+	# of 460 and the far side of its fade fell outside it: the levelling
+	# stopped mid-slope and left a three-metre step in the hillside.
+	var furthest := 0.0
+	var offender := &""
+	for place in PlaceSpec.OFFSETS:
+		var offset: Vector3 = PlaceSpec.OFFSETS[place]
+		var reach: float = PlaceSpec.RADIUS[place] + PlaceSpec.feather_of(place)
+		var corner := maxf(absf(offset.x), absf(offset.z)) + reach
+		if corner > furthest:
+			furthest = corner
+			offender = place
+	_expect(
+		furthest < PlaceSpec.BOUNDS_HALF,
+		"every place fits inside the levelling box (%s reaches %.0f m of %.0f)" % [
+			offender, furthest, PlaceSpec.BOUNDS_HALF
+		]
+	)
+
 ## A child must be able to see what they are aiming at.
 ##
 ## The aim follows the camera's pitch, which is the right control and an

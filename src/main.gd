@@ -404,8 +404,23 @@ func _process(delta: float) -> void:
 	# than floating off it.
 	if riding != &"" and world.mounts.afloat(riding, player.global_position):
 		player.held_at_height = Mounts.saddle_afloat()
+	elif riding != &"":
+		# A rider follows the ground the horse is walking on. Left to
+		# ordinary physics, going downhill the child carried on in a straight
+		# line while the horse followed the slope down, and hung in the air
+		# over it — the same shape of bug as the swimming one. Only while
+		# they are near the ground, so a jump or a fall is still a fall.
+		var under := world.field.height_at(player.global_position.x, player.global_position.z)
+		if player.global_position.y - under < 1.2:
+			player.held_at_height = under
+		else:
+			player.held_at_height = Player.NOT_HELD
 	else:
 		player.held_at_height = Player.NOT_HELD
+	player.lean_with_the_ground(
+		riding != &"" and not world.mounts.afloat(riding, player.global_position),
+		world.field, delta
+	)
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.
 	if riding != &"":

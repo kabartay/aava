@@ -160,6 +160,7 @@ func mount(kind: StringName) -> bool:
 	if riding != &"" or not exists(kind):
 		return false
 	riding = kind
+	_settling = &""
 	_set_solid(kind, false)
 	_waiting_to_be_solid.erase(kind)
 	# Its pace starts at nothing rather than at whatever it was last ridden
@@ -211,6 +212,7 @@ const LEG_SWING := deg_to_rad(32.0)
 
 func _process(delta: float) -> void:
 	if riding == &"":
+		_settle_the_last_one(delta)
 		return
 	if not exists(riding) or MountKinds.kind_of(riding) != MountKinds.HORSE:
 		return
@@ -287,6 +289,10 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 		return &""
 	var kind := riding
 	riding = &""
+	# Its legs are wherever the last stride left them. A horse got off at a
+	# gallop stood with its hind legs cocked out behind it for ever, because
+	# nothing moved them once nobody was riding it.
+	_settling = kind
 	var node: Node3D = _nodes[kind]
 	if is_instance_valid(node):
 		# A stride to the rider's right: forward is (-sin, 0, -cos), so right
@@ -322,6 +328,58 @@ func watch(player_position: Vector3) -> void:
 		if flat.length() > CLEAR_OF_IT:
 			_set_solid(kind, true)
 			_waiting_to_be_solid.erase(kind)
+
+## Bring a mount that has just been got off back to standing: legs straight,
+## body level, head and tail still. Eased rather than snapped, so a horse
+## that stops reads as one settling rather than one switching off.
+var _settling := &""
+
+func _settle_the_last_one(delta: float) -> void:
+	if _settling == &"" or not exists(_settling):
+		_settling = &""
+		return
+	var body := (_nodes[_settling] as Node3D).get_node_or_null("Body") as Node3D
+	if body == null:
+		_settling = &""
+		return
+	var weight := 1.0 - exp(-6.0 * delta)
+	var still := true
+	for i in MountKinds.HORSE_HIPS.size():
+		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
+		if leg == null:
+			continue
+		leg.rotation.x = lerp_angle(leg.rotation.x, 0.0, weight)
+		if absf(leg.rotation.x) > 0.005:
+			still = false
+	body.position.y = lerpf(body.position.y, 0.0, weight)
+	body.rotation.x = lerpf(body.rotation.x, 0.0, weight)
+	var head := body.get_node_or_null("Head") as Node3D
+	if head != null:
+		head.rotation.x = lerp_angle(head.rotation.x, 0.0, weight)
+	var tail := body.get_node_or_null("Tail") as Node3D
+	if tail != null:
+		tail.rotation.y = lerp_angle(tail.rotation.y, 0.0, weight)
+		tail.rotation.x = lerp_angle(tail.rotation.x, 0.0, weight)
+	if still and absf(body.position.y) < 0.005:
+		_settling = &""
+
+## How far a standing mount's legs are from straight, in radians. For the
+## checks.
+func legs_at_rest() -> float:
+	if _settling == &"" and riding == &"":
+		return 0.0
+	var kind := _settling if _settling != &"" else riding
+	if not exists(kind):
+		return 0.0
+	var body := (_nodes[kind] as Node3D).get_node_or_null("Body") as Node3D
+	if body == null:
+		return 0.0
+	var worst := 0.0
+	for i in MountKinds.HORSE_HIPS.size():
+		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
+		if leg != null:
+			worst = maxf(worst, absf(leg.rotation.x))
+	return worst
 
 ## Whether a standing mount stops the child. Off while it is ridden, or the
 ## collider carried under the child would shove them along.

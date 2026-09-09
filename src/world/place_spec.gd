@@ -61,7 +61,7 @@ const RADIUS := {
 	# footprint × √2 from the middle: 26 against a footprint of 20 left the
 	# corners outside the level ground, which is where the first version's
 	# three and a half metres of slope came from.
-	&"range": 30.0,
+	&"range": 26.0,
 }
 ## Half the width of the structure that actually stands at each place. The
 ## levelled radius has to comfortably exceed this, because the outer part of
@@ -71,26 +71,46 @@ const FOOTPRINT := {
 	&"playground": 14.4,
 	&"cafe": 9.0,
 	&"pool": 13.0,
-	&"range": 18.0,
+	&"range": 16.0,
 }
 
+## How far the levelling fades back into the natural ground. Seven metres
+## suits a place on the valley floor, where there is barely a metre to make
+## up; the archery range is a shelf cut into a hillside with six metres to
+## lose at its rim, and seven metres of it is a bank a child scrambles up
+## rather than a slope they walk. The longer the drop, the longer the ramp.
 const FEATHER := 7.0
+const FEATHER_OF := {
+	&"range": 20.0,
+}
+
+## The fade for one place: its own if it has one, the common seven otherwise.
+static func feather_of(place: StringName) -> float:
+	return float(FEATHER_OF.get(place, FEATHER))
 
 ## Where the archery range stands, relative to the camp.
 ##
-## Moved from (330, -180) when the range was levelled: the old site sat on a
+## Moved twice while the range was being levelled. The original site sat on a
 ## slope steep enough that flattening a disc into it left an eleven-metre
-## bank at the edge. This one was found by scanning the hillside around it
-## for the flattest shelf that is still high up — six metres of fall round
-## its rim, and the hill goes on climbing nineteen metres beyond it, so the
-## range is a shelf on a hillside rather than a step cut through one.
-const RANGE_OFFSET := Vector3(290.0, 0.0, -100.0)
+## bank; the second still had six metres to lose round its rim, which over
+## any fade is a bank rather than a slope. This one was found by scanning the
+## whole eastern hillside for a shelf with barely three metres of fall round
+## a forty-six-metre rim, high above the valley and with the hill still
+## climbing fourteen metres beyond it — a shelf on a hillside, and one a
+## child walks onto rather than scrambles up.
+const RANGE_OFFSET := Vector3(440.0, 0.0, 40.0)
 
 ## Everything the places touch, as a box around the camp. Still worth having
 ## now they are spread out — it is most of the world away from them — but it has
 ## to be wide enough to contain the furthest, or that place quietly stops being
 ## levelled and its buildings stand on a slope.
-const BOUNDS_HALF := 460.0
+## 520, not 460: the archery range sits 440 m out and reaches 46 m further,
+## so at 460 the far side of its own fade fell outside this box and the
+## levelling switched off mid-slope — a three-metre step in the hillside
+## exactly where the ground should have eased back into it. The comment above
+## warned of it and the number was still wrong; a check now works this out
+## from the places themselves rather than trusting either.
+const BOUNDS_HALF := 520.0
 
 ## How much of the levelling applies at a point, from 1 at the centre to 0
 ## outside the feathered edge. Zero for every point far from all three, which is
@@ -105,7 +125,7 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 	for place in OFFSETS:
 		var centre: Vector3 = camp + OFFSETS[place]
 		var radius: float = RADIUS[place]
-		var reach := radius + FEATHER
+		var reach := radius + feather_of(place)
 		# Compared as squares, so the square root is only taken for points that
 		# are actually near a place.
 		var dx := x - centre.x
@@ -118,7 +138,7 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 		if squared > reach * reach:
 			continue
 		var distance := sqrt(squared)
-		strongest = maxf(strongest, 1.0 - smoothstep(radius, radius + FEATHER, distance))
+		strongest = maxf(strongest, 1.0 - smoothstep(radius, radius + feather_of(place), distance))
 	return strongest
 
 ## The levelling for one named place alone, from 1 at its centre to 0 outside
@@ -129,7 +149,8 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 static func influence_of(place: StringName, x: float, z: float, camp: Vector3) -> float:
 	var centre: Vector3 = camp + OFFSETS[place]
 	var radius: float = RADIUS[place]
-	var reach := radius + FEATHER
+	var feather := feather_of(place)
+	var reach := radius + feather
 	var dx := x - centre.x
 	var dz := z - centre.z
 	if absf(dx) > reach or absf(dz) > reach:
@@ -137,14 +158,14 @@ static func influence_of(place: StringName, x: float, z: float, camp: Vector3) -
 	var squared := dx * dx + dz * dz
 	if squared > reach * reach:
 		return 0.0
-	return 1.0 - smoothstep(radius, radius + FEATHER, sqrt(squared))
+	return 1.0 - smoothstep(radius, radius + feather, sqrt(squared))
 
 ## Whether any place reaches into this box at all — asked once per terrain
 ## chunk, so the tint can skip every vertex of the chunks that hold no place.
 static func touches_box(x0: float, z0: float, x1: float, z1: float, camp: Vector3) -> bool:
 	for place in OFFSETS:
 		var centre: Vector3 = camp + OFFSETS[place]
-		var reach: float = RADIUS[place] + FEATHER
+		var reach: float = RADIUS[place] + feather_of(place)
 		if x1 < centre.x - reach or x0 > centre.x + reach:
 			continue
 		if z1 < centre.z - reach or z0 > centre.z + reach:
