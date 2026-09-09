@@ -64,6 +64,7 @@ recur.
 | A round trip was tested against every local address, not just one | Passed on a laptop, failed in CI behind a Docker bridge | Test only `local_addresses()[0]`, the one it was ever documented for |
 | Height compared from the wrong origin | The trampoline never bounced anyone; its check shared the assumption and passed | Feet-to-mat comparison; check includes a case the wrong model fails |
 | Wrong sign turning boxes onto a ring's tangent | Diagonal hedge blocks stood radially, gaps either side | θ = −a − 90° for `Basis(UP, θ)`; screenshot review |
+| Grazing turned the head joint the wrong way | Every horse in the valley stood with its head thrown back over its withers, and the check read the same angle the code wrote and passed | Check where the nose lands, through the node's transform, not the angle |
 
 
 ## Godot 4.7
@@ -200,6 +201,18 @@ pushed. Anchor build-output patterns as `/build/`.
 game.** The screenshot tool has twice shown something the player would never
 see: once with build mode inert, once with an empty map. Shared wiring is the
 fix, and every control added there forces both call sites to agree.
+
+**An angle of the right size can still be the wrong way round.** Grazing was
+one line: turn the horse's head joint by fifty-two degrees. The check asked
+whether the angle was more than thirty and got fifty-two, so it passed — while
+on the phone every horse stood with its head thrown back over its own withers
+staring at the sky, because the head is drawn out along -Z and a positive turn
+about +X lifts that end rather than dropping it. The check never had a chance:
+it was reading back the same number the code had just written, and that number
+was not the thing that was wrong. Where the nose ended up was. It now comes
+through the node's own transform, and has to be below the withers and out in
+front of the animal — which a head thrown back fails at any angle. Whenever a
+rotation is what makes something read as itself, check where the far end lands.
 
 **Measure before believing a screenshot.** Balls appeared 56 m from where they
 were; footballs looked like blackberries; a valley looked flat and was. In each

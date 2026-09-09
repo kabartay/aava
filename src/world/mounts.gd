@@ -442,11 +442,27 @@ func _settle_the_last_one(delta: float) -> void:
 	if still and absf(body.position.y) < 0.005:
 		_settling = &""
 
-## How long a horse keeps its head down, and how long it lifts it to look
-## around: a grazing animal is mostly nose-down with the occasional glance up,
-## and the difference between those two is the whole of what grazing looks
-## like from across a meadow.
-const GRAZE_DOWN := deg_to_rad(52.0)
+## How far the nose drops to graze, how long it stays down, and how long the
+## horse lifts it to look around: a grazing animal is mostly nose-down with the
+## occasional glance up, and the difference between those two is the whole of
+## what grazing looks like from across a meadow.
+##
+## A drop, not a rotation: the head is drawn out along -Z, so turning the joint
+## by a positive angle about +X throws the nose UP and back over the withers,
+## which is what the first version did — a horse rearing its head at the sky
+## rather than one eating grass. The angle goes in negative, and a check
+## measures where the nose actually ends up rather than what the angle says.
+##
+## Sixty degrees is as far as it goes, and the limit is the horse rather than
+## the number. The neck is about half the length a real horse of this height
+## has, and the joint it turns on is the shoulder, so the further the nose
+## drops the closer it comes to the chest: at fifty-two the muzzle hung level
+## with the chest and read as an animal sniffing the air, and at seventy-four
+## it folded into the chest and the neck disappeared. Sixty puts the nose a
+## metre down and still clear in front of the body, which is what a check
+## holds it to — derived from the body's own box, so a later, longer-necked
+## horse can graze lower without anybody retuning a number by eye.
+const GRAZE_DOWN := deg_to_rad(60.0)
 const GRAZE_LOOKS_UP_EVERY := 9.0
 const GRAZE_LOOKS_UP_FOR := 2.6
 
@@ -476,21 +492,49 @@ func _graze(delta: float) -> void:
 		var looking_up := cycle < GRAZE_LOOKS_UP_FOR
 		var head := body.get_node_or_null("Head") as Node3D
 		if head != null:
-			var wanted := 0.0 if looking_up else GRAZE_DOWN
+			var wanted := 0.0 if looking_up else -GRAZE_DOWN
 			head.rotation.x = lerp_angle(head.rotation.x, wanted, 1.0 - exp(-2.5 * delta))
 		var tail := body.get_node_or_null("Tail") as Node3D
 		if tail != null:
 			tail.rotation.y = sin((_grazing_time + offset) * 1.3) * 0.14
 
-## Whether a horse has its head down grazing right now. For the checks.
+## How far a horse's nose is dropped from level, in radians: positive when it
+## is down where the grass is. For the checks.
 func head_angle(kind: StringName) -> float:
-	if not exists(kind):
+	var head := _head_of(kind)
+	return 0.0 if head == null else -head.rotation.x
+
+## Where the horse's nose is, in world space. This is what tells a head put
+## down to graze from one thrown back over the withers — the angle alone
+## cannot, which is how the first version of grazing shipped.
+func nose_at(kind: StringName) -> Vector3:
+	var head := _head_of(kind)
+	if head == null or head.mesh == null:
+		return Vector3.ZERO
+	# The muzzle is the far end of the head's own box, out along -Z.
+	var box := head.mesh.get_aabb()
+	var muzzle := Vector3(box.get_center().x, box.get_center().y, box.position.z)
+	return head.global_transform * muzzle
+
+## How far the muzzle is out in front of the horse itself, along the way it is
+## facing. This is the other half of telling grazing from rearing: turning the
+## joint down brings the nose closer to the chest as well as lower, but it
+## stays in front of the animal — a head thrown back over the withers does not.
+func nose_ahead(kind: StringName) -> float:
+	var head := _head_of(kind)
+	if head == null:
 		return 0.0
+	var node: Node3D = _nodes[kind]
+	var forward := Vector3.FORWARD.rotated(Vector3.UP, node.rotation.y)
+	return (nose_at(kind) - node.global_position).dot(forward)
+
+func _head_of(kind: StringName) -> MeshInstance3D:
+	if not exists(kind):
+		return null
 	var body := (_nodes[kind] as Node3D).get_node_or_null("Body") as Node3D
 	if body == null:
-		return 0.0
-	var head := body.get_node_or_null("Head") as Node3D
-	return 0.0 if head == null else head.rotation.x
+		return null
+	return body.get_node_or_null("Head") as MeshInstance3D
 
 ## How far a standing mount's legs are from straight, in radians. For the
 ## checks.

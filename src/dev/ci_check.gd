@@ -1910,10 +1910,42 @@ func _check_the_horses_are_spread_and_grazing() -> void:
 		coats[MountKinds.colour(MountKinds.horse_id(i))] = true
 	_expect(coats.size() == World.HORSES, "each horse has its own coat (%d of them)" % coats.size())
 
-	# Grazing: head down most of the time, up now and then.
+	# Grazing: head down, up now and then. Measured at the nose rather than at
+	# the joint — the first version had the angle right and the sign wrong, and
+	# every horse in the valley stood with its head thrown back over its own
+	# withers, staring at the sky. An angle cannot tell those two apart; where
+	# the nose ends up can.
 	var grazing := MountKinds.horse_id(1)
+	var standing_nose := mounts.nose_at(grazing)
+	_expect(standing_nose.y > 0.0, "a horse has a nose to put down")
 	for _frame in 240:
 		mounts._process(1.0 / 60.0)
+	var grazing_nose := mounts.nose_at(grazing)
+	_expect(
+		grazing_nose.y < standing_nose.y - 0.4,
+		"grazing drops the nose %.2f m, rather than throwing the head back" % (standing_nose.y - grazing_nose.y)
+	)
+	var withers := mounts.position_of(grazing).y + MountKinds.HORSE_HEAD_PIVOT.y
+	_expect(grazing_nose.y < withers, "the nose ends up below the withers, where grass grows")
+	# In front of the body, not folded into it. The horse's own collision box
+	# is where the chest ends, so that is what the muzzle has to clear: turning
+	# the joint far enough to put the nose on the grass buries the head in the
+	# chest instead, because the neck is short and pivots at the shoulder.
+	var body_half: float = (MountKinds.body_box(grazing)[0] as Vector3).z * 0.5
+	_expect(
+		mounts.nose_ahead(grazing) > body_half,
+		"and %.2f m out in front of the horse, clear of a chest that ends at %.2f m" % [
+			mounts.nose_ahead(grazing), body_half
+		]
+	)
+	# And low enough to read as eating rather than as sniffing the air. It
+	# cannot reach the grass itself: this horse's neck is about half the length
+	# a real one of its height has, so the muzzle bottoms out short of the
+	# ground however far the joint turns.
+	_expect(
+		grazing_nose.y - mounts.position_of(grazing).y < 1.1,
+		"and %.2f m above the grass, which reads as eating" % (grazing_nose.y - mounts.position_of(grazing).y)
+	)
 	_expect(mounts.head_angle(grazing) > deg_to_rad(30.0), "a horse nobody is riding has its head down")
 	var lifted := false
 	for _frame in int(Mounts.GRAZE_LOOKS_UP_EVERY * 60.0) + 120:
