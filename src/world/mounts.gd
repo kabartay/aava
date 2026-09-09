@@ -86,10 +86,15 @@ func afloat(kind: StringName, at: Vector3) -> bool:
 		return false
 	return HeightField.WATER_LEVEL - field.height_at(at.x, at.z) > MountKinds.HORSE_SWIMS_AT
 
-## Where a rider sits while their mount swims: the saddle's own height above
-## a horse floating at its draught.
+## Where a rider *stands* while their mount swims — which is where the horse
+## itself is, not where its saddle is.
+##
+## A rider's body is drawn `MountKinds.eye_lift` above their own position:
+## on land they stand on the ground the horse stands on and the drawing puts
+## them in the saddle. Held at the saddle's own height instead, that lift was
+## added a second time and the child floated a body's length above the horse.
 static func saddle_afloat() -> float:
-	return HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT + MountKinds.HORSE_SADDLE_Y
+	return HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT
 
 ## Launch `count` boats round the shore of a pond, each where the water is
 ## about `depth` deep — wading depth, so a child walks out to one — and each

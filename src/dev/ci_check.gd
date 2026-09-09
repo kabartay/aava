@@ -1648,14 +1648,25 @@ func _check_a_horse_swims() -> void:
 	)
 	_expect(mounts.afloat(MountKinds.HORSE, deep), "and the game knows it is swimming")
 
-	# The rider sits in the saddle: where the saddle actually is on the
-	# floating horse, not at a height chosen separately from it.
-	var saddle := Mounts.saddle_afloat()
+	# The rider sits in the saddle. What is held is where they *stand*, and
+	# their body is drawn a mount's eye-lift above that: held at the saddle's
+	# own height instead, the lift was counted twice and the child hovered a
+	# body's length over the horse.
+	var stands_at := Mounts.saddle_afloat()
+	var body_at := stands_at + MountKinds.eye_lift(MountKinds.HORSE)
 	var saddle_on_the_horse := floating.y + MountKinds.HORSE_SADDLE_Y
-	_expect(saddle > HeightField.WATER_LEVEL, "the rider sits above the water, not in it")
+	_expect(is_equal_approx(stands_at, floating.y), "a rider is held where the horse itself is")
 	_expect(
-		absf(saddle - saddle_on_the_horse) < 0.01,
-		"exactly where the saddle is (%.2f m against %.2f)" % [saddle, saddle_on_the_horse]
+		absf(body_at - saddle_on_the_horse) < 0.25,
+		"so their body is drawn in the saddle (%.2f m against the saddle's %.2f)" % [body_at, saddle_on_the_horse]
+	)
+	_expect(body_at > HeightField.WATER_LEVEL, "and above the water rather than in it")
+	# The same relation as on dry land, where nothing was ever wrong.
+	var bank_probe := deep + Vector3(60.0, 0.0, 0.0)
+	var on_land := field.height_at(bank_probe.x, bank_probe.z) + MountKinds.eye_lift(MountKinds.HORSE)
+	_expect(
+		absf((on_land - field.height_at(bank_probe.x, bank_probe.z)) - (body_at - stands_at)) < 0.01,
+		"held exactly as a rider on land is"
 	)
 
 	# On dry land and in the shallows it walks as before.
@@ -1674,7 +1685,7 @@ func _check_a_horse_swims() -> void:
 	var rider := Player.new()
 	get_root().add_child(rider)
 	rider.water_depth = 3.0
-	rider.held_at_height = saddle
+	rider.held_at_height = stands_at
 	rider._physics_process(1.0 / 60.0)
 	_expect(not rider.is_swimming, "a rider on a swimming horse is not swimming themselves")
 	rider.held_at_height = Player.NOT_HELD
