@@ -400,6 +400,12 @@ func _process(delta: float) -> void:
 	# parented to a moving node inherits its rotation and fights its own
 	# gravity, which is a bigger problem than the one it would solve.
 	var riding := player.riding
+	# A horse in deep water swims, and its rider stays in the saddle rather
+	# than floating off it.
+	if riding != &"" and world.mounts.afloat(riding, player.global_position):
+		player.held_at_height = Mounts.saddle_afloat()
+	else:
+		player.held_at_height = Player.NOT_HELD
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.
 	if riding != &"":

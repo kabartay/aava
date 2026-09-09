@@ -48,6 +48,18 @@ const BOAT_COLOURS: Array[Color] = [
 const BOAT_DRAFT := 0.3
 const BOAT_SEAT := 0.25
 
+## Water deeper than this and a horse swims rather than wades: about where it
+## would be off its feet.
+const HORSE_SWIMS_AT := 1.1
+## How deep a swimming horse floats: most of the barrel under, the withers
+## and head clear.
+const HORSE_DRAUGHT := 1.35
+## How high the saddle sits above the horse's own feet. Taken from where the
+## saddle is actually drawn (1.87 in the body's units, scaled by 1.2), so
+## that where a rider sits is worked out from the horse rather than guessed
+## at with a second number that can drift away from the first.
+const HORSE_SADDLE_Y := 1.87 * 1.2
+
 ## The box a standing mount takes up, as (size, centre height): what a child
 ## bumps into instead of walking through it. Only while it stands — a mount
 ## being ridden is carried under the child and must not push them.

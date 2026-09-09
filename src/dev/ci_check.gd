@@ -59,6 +59,7 @@ func _initialize() -> void:
 	_check_the_cafe_serves()
 	_check_the_pool_takes_a_ticket()
 	_check_getting_off_a_mount_is_safe()
+	_check_a_horse_swims()
 	_check_swimming_looks_like_swimming()
 	_check_animals_are_solid()
 	_check_a_dog_asks_for_a_stick()
@@ -1613,6 +1614,74 @@ func _check_every_buildable_thing_has_a_picture() -> void:
 	_expect(pictured, "every button in the palette is a picture")
 	hud.queue_free()
 
+## A horse crossing deep water swims, and carries its rider.
+##
+## It walked the bottom while the child floated at the surface, so the two
+## came apart with a gap of open water between them — reported from the phone
+## as "the horse went along the bottom and I stayed up here".
+func _check_a_horse_swims() -> void:
+	print("a horse swims")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+
+	# Somewhere the river is genuinely deep.
+	var deep := Vector3.ZERO
+	var deepest := 0.0
+	for z in range(-200, 201, 10):
+		var x := field.river_centre_x(float(z))
+		var under := HeightField.WATER_LEVEL - field.height_at(x, float(z))
+		if under > deepest:
+			deepest = under
+			deep = Vector3(x, 0.0, float(z))
+	_expect(deepest > MountKinds.HORSE_SWIMS_AT, "the river is %.1f m deep somewhere, deep enough to swim" % deepest)
+
+	mounts.place(MountKinds.HORSE, deep)
+	var floating := mounts.position_of(MountKinds.HORSE)
+	_expect(
+		floating.y > field.height_at(deep.x, deep.z) + 0.5,
+		"a horse in deep water floats rather than standing on the bed (%.2f m up from it)" % (floating.y - field.height_at(deep.x, deep.z))
+	)
+	_expect(
+		absf(floating.y - (HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT)) < 0.01,
+		"at its own draught below the surface"
+	)
+	_expect(mounts.afloat(MountKinds.HORSE, deep), "and the game knows it is swimming")
+
+	# The rider sits in the saddle: where the saddle actually is on the
+	# floating horse, not at a height chosen separately from it.
+	var saddle := Mounts.saddle_afloat()
+	var saddle_on_the_horse := floating.y + MountKinds.HORSE_SADDLE_Y
+	_expect(saddle > HeightField.WATER_LEVEL, "the rider sits above the water, not in it")
+	_expect(
+		absf(saddle - saddle_on_the_horse) < 0.01,
+		"exactly where the saddle is (%.2f m against %.2f)" % [saddle, saddle_on_the_horse]
+	)
+
+	# On dry land and in the shallows it walks as before.
+	var bank := deep + Vector3(60.0, 0.0, 0.0)
+	mounts.place(MountKinds.HORSE, bank)
+	_expect(
+		absf(mounts.position_of(MountKinds.HORSE).y - field.height_at(bank.x, bank.z)) < 0.01,
+		"on dry ground it stands on the ground"
+	)
+	_expect(not mounts.afloat(MountKinds.HORSE, bank), "and is not swimming there")
+	_expect(not Mounts.swims(MountKinds.BICYCLE), "a bicycle never swims")
+	_expect(not Mounts.swims(MountKinds.boat_id(0)), "and a boat is afloat to begin with")
+	mounts.queue_free()
+
+	# The player is held at the saddle rather than swimming under it.
+	var rider := Player.new()
+	get_root().add_child(rider)
+	rider.water_depth = 3.0
+	rider.held_at_height = saddle
+	rider._physics_process(1.0 / 60.0)
+	_expect(not rider.is_swimming, "a rider on a swimming horse is not swimming themselves")
+	rider.held_at_height = Player.NOT_HELD
+	rider._physics_process(1.0 / 60.0)
+	_expect(rider.is_swimming, "and starts swimming the moment they get off")
+	rider.queue_free()
+
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
 	var field := HeightField.new(20260903)
@@ -3072,8 +3141,14 @@ func _check_riding() -> void:
 		aside < Mounts.STEP_ASIDE + 0.01,
 		"the horse is left a stride from where the child got off (%.1f m), not where it started" % aside
 	)
+	# On the ground — unless it was left in deep water, where it floats.
+	var resting := (
+		HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT
+		if mounts.afloat(MountKinds.HORSE, left_at)
+		else field.height_at(left_at.x, left_at.z)
+	)
 	_expect(
-		is_equal_approx(left_at.y, field.height_at(left_at.x, left_at.z)),
+		is_equal_approx(left_at.y, resting),
 		"and it stands on the ground rather than in the air"
 	)
 	mounts.watch(elsewhere + Vector3(0.0, 0.0, -8.0))

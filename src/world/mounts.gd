@@ -66,7 +66,30 @@ func _rest_height(kind: StringName, at: Vector3) -> float:
 	var ground := field.height_at(at.x, at.z)
 	if MountKinds.floats(kind):
 		return maxf(ground, HeightField.WATER_LEVEL)
+	# A horse in water over its head swims: it floats with most of its barrel
+	# under and its withers clear, rather than walking along the bottom. It
+	# used to walk the bottom while its rider floated at the surface, and the
+	# two came apart with a gap of open water between them.
+	if swims(kind) and HeightField.WATER_LEVEL - ground > MountKinds.HORSE_SWIMS_AT:
+		return HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT
 	return ground
+
+## Whether this mount swims when the water is deep: a horse does, a bicycle
+## does not go in at all, and a boat is already on the surface.
+static func swims(kind: StringName) -> bool:
+	return MountKinds.fords_water(kind) and not MountKinds.floats(kind)
+
+## Is this mount swimming where it stands right now? Read by the game, which
+## has to hold the rider in the saddle rather than let them float free.
+func afloat(kind: StringName, at: Vector3) -> bool:
+	if not swims(kind):
+		return false
+	return HeightField.WATER_LEVEL - field.height_at(at.x, at.z) > MountKinds.HORSE_SWIMS_AT
+
+## Where a rider sits while their mount swims: the saddle's own height above
+## a horse floating at its draught.
+static func saddle_afloat() -> float:
+	return HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT + MountKinds.HORSE_SADDLE_Y
 
 ## Launch `count` boats round the shore of a pond, each where the water is
 ## about `depth` deep — wading depth, so a child walks out to one — and each
