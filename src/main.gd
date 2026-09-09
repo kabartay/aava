@@ -702,9 +702,19 @@ func _carry(delta: float, at: Vector3) -> void:
 		return
 
 	if world.places.swinging():
-		player.carried_to = world.places.swing_rider_at()
-		player.is_carried = true
-		return
+		# Pushing the stick gets off. The swing now keeps going for half a
+		# minute, and a ride you cannot leave is a trap rather than a swing.
+		var wants_off := Input.get_vector(
+			InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+			InputActions.MOVE_FORWARD, InputActions.MOVE_BACK
+		).length() > 0.5
+		if wants_off:
+			world.places.step_off_swing()
+			player.is_carried = false
+		else:
+			player.carried_to = world.places.swing_rider_at()
+			player.is_carried = true
+			return
 
 	if player.is_carried:
 		player.is_carried = false
@@ -864,7 +874,10 @@ func _on_place_used() -> void:
 	match here:
 		Places.PLAYGROUND:
 			if world.places.push_swing(player.global_position):
-				sounds.play(Sounds.Sound.JUMP, 1.2)
+				# Higher-pitched the harder it is already going, so pumping
+				# sounds like it is doing something.
+				var effort := world.places.swing_arc() / Places.SWING_ARC
+				sounds.play(Sounds.Sound.JUMP, 1.0 + 0.5 * effort)
 		Places.CAFE:
 			_eat()
 

@@ -211,6 +211,10 @@ const STRIDE_METRES := 2.6
 const LEG_SWING := deg_to_rad(32.0)
 
 func _process(delta: float) -> void:
+	# Every horse nobody is riding grazes, whether or not one of them is being
+	# ridden: four horses frozen mid-mouthful while you ride the fifth is worse
+	# than none of them grazing at all.
+	_graze(delta)
 	if riding == &"":
 		_settle_the_last_one(delta)
 		return
@@ -306,6 +310,78 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 	dismounted.emit(kind)
 	return kind
 
+## Turn `count` horses out across the valley: one near the camp, so the first
+## afternoon has one to find, and the rest spread evenly round it at a
+## distance, each on dry, gentle, unreserved ground.
+##
+## Spread by bearing rather than at random: five horses scattered at random
+## cluster, and a child who walks half an hour in one direction should find
+## one there rather than four behind them.
+func turn_out_horses(count: int, camp: Vector3, near: Vector3) -> void:
+	for i in count:
+		var spot: Vector3
+		if i == 0:
+			# The near one is put a few paces off, but it has to stand on the
+			# same kind of ground as the rest: the fixed offset it used to get
+			# put it in the shallows of the river on this seed, and nobody
+			# noticed because nothing checked.
+			spot = _nearby_grazing_spot(camp, near)
+		else:
+			var bearing := TAU * float(i - 1) / float(maxi(count - 1, 1)) + 0.6
+			spot = _grazing_spot(camp, bearing, 140.0 + 60.0 * float(i % 3))
+		place(MountKinds.horse_id(i), spot, randf() * TAU)
+
+## Somewhere within sight of where a child wakes up that a horse would stand.
+## Tries a few paces off first, then rings further out.
+func _nearby_grazing_spot(camp: Vector3, near: Vector3) -> Vector3:
+	var offered := near + Vector3(7.0, 0.0, -5.0)
+	if _stands_here(camp, offered):
+		return offered
+	for ring in 3:
+		var out := 9.0 + 5.0 * float(ring)
+		for step in 12:
+			var bearing := TAU * float(step) / 12.0
+			var at := near + Vector3(cos(bearing), 0.0, sin(bearing)) * out
+			if _stands_here(camp, at):
+				return at
+	return offered
+
+## Somewhere along a bearing from the camp that a horse would stand: dry,
+## gentle, out of the places, and not in the middle of a wood. Walks outwards
+## from the wanted distance until it finds one.
+func _grazing_spot(camp: Vector3, bearing: float, wanted: float) -> Vector3:
+	var out := Vector3(cos(bearing), 0.0, sin(bearing))
+	var walked := wanted
+	var fallback := camp + out * wanted
+	while walked < wanted + 220.0:
+		var at := camp + out * walked
+		if _stands_here(camp, at):
+			return at
+		walked += 12.0
+	return fallback
+
+## Would a horse stand here? Dry and well clear of the river, gentle enough to
+## graze on, below the trees, out of the fenced places and not in a thicket.
+func _stands_here(camp: Vector3, at: Vector3) -> bool:
+	var ground := field.height_at(at.x, at.z)
+	if ground < HeightField.WATER_LEVEL + 1.2 or ground > HeightField.TREELINE - 30.0:
+		return false
+	if field.steepness_at(at.x, at.z) > 0.3:
+		return false
+	if PlaceSpec.reserved(at.x, at.z, camp):
+		return false
+	if field.forest_density_at(at.x, at.z) > 0.35:
+		return false
+	return absf(at.x - field.river_centre_x(at.z)) > 24.0
+
+## How many horses are turned out. For the checks.
+func horse_count() -> int:
+	var count := 0
+	for kind in _nodes:
+		if MountKinds.kind_of(kind) == MountKinds.HORSE and is_instance_valid(_nodes[kind]):
+			count += 1
+	return count
+
 ## How far aside a dismounted mount is put, and how far the child must be
 ## from it before it becomes something to bump into again.
 const STEP_ASIDE := 1.8
@@ -362,6 +438,56 @@ func _settle_the_last_one(delta: float) -> void:
 		tail.rotation.x = lerp_angle(tail.rotation.x, 0.0, weight)
 	if still and absf(body.position.y) < 0.005:
 		_settling = &""
+
+## How long a horse keeps its head down, and how long it lifts it to look
+## around: a grazing animal is mostly nose-down with the occasional glance up,
+## and the difference between those two is the whole of what grazing looks
+## like from across a meadow.
+const GRAZE_DOWN := deg_to_rad(52.0)
+const GRAZE_LOOKS_UP_EVERY := 9.0
+const GRAZE_LOOKS_UP_FOR := 2.6
+
+var _grazing_time := 0.0
+
+## Every horse nobody is riding grazes: head down, up now and then, tail
+## swinging. Cheap — a rotation each on a handful of nodes.
+func _graze(delta: float) -> void:
+	_grazing_time += delta
+	for kind in _nodes:
+		if MountKinds.kind_of(kind) != MountKinds.HORSE or kind == riding:
+			continue
+		# The one just got off is being eased back to standing; it can put its
+		# head down once it has.
+		if kind == _settling:
+			continue
+		var node = _nodes[kind]
+		if not is_instance_valid(node):
+			continue
+		var body := (node as Node3D).get_node_or_null("Body") as Node3D
+		if body == null:
+			continue
+		# Each on its own clock, so a field of horses does not lift its heads
+		# in unison.
+		var offset := float(MountKinds.which(kind)) * 3.1
+		var cycle := fmod(_grazing_time + offset, GRAZE_LOOKS_UP_EVERY)
+		var looking_up := cycle < GRAZE_LOOKS_UP_FOR
+		var head := body.get_node_or_null("Head") as Node3D
+		if head != null:
+			var wanted := 0.0 if looking_up else GRAZE_DOWN
+			head.rotation.x = lerp_angle(head.rotation.x, wanted, 1.0 - exp(-2.5 * delta))
+		var tail := body.get_node_or_null("Tail") as Node3D
+		if tail != null:
+			tail.rotation.y = sin((_grazing_time + offset) * 1.3) * 0.14
+
+## Whether a horse has its head down grazing right now. For the checks.
+func head_angle(kind: StringName) -> float:
+	if not exists(kind):
+		return 0.0
+	var body := (_nodes[kind] as Node3D).get_node_or_null("Body") as Node3D
+	if body == null:
+		return 0.0
+	var head := body.get_node_or_null("Head") as Node3D
+	return 0.0 if head == null else head.rotation.x
 
 ## How far a standing mount's legs are from straight, in radians. For the
 ## checks.
@@ -425,8 +551,12 @@ func to_data() -> Dictionary:
 func from_data(data: Dictionary) -> void:
 	for key in data:
 		var entry = data[key]
-		if entry is Array and entry.size() >= 3:
-			place(
-				StringName(key),
-				Vector3(float(entry[0]), float(entry[1]), float(entry[2]))
-			)
+		if not (entry is Array and entry.size() >= 3):
+			continue
+		var id := StringName(key)
+		# Saves written before there was a herd name their one horse "horse".
+		# It becomes the first of the herd rather than a sixth animal with no
+		# number, which nothing else would ever look for.
+		if id == MountKinds.HORSE:
+			id = MountKinds.horse_id(0)
+		place(id, Vector3(float(entry[0]), float(entry[1]), float(entry[2])))

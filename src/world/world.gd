@@ -17,6 +17,9 @@ var vegetation: Vegetation
 var tree_collision: TreeCollision
 var animal_collision: AnimalCollision
 var distant_land: DistantLand
+
+## How many horses are turned out in the valley.
+const HORSES := 5
 var pickups: Pickups
 var boulders: Boulders
 var animals: Animals
@@ -113,9 +116,11 @@ func _ready() -> void:
 	add_child(water)
 
 	var spawn := field.find_spawn_point()
-	# The horse waits near the spawn: close enough to be found on the first
-	# afternoon, not so close it is the first thing a child trips over.
-	mounts.place(MountKinds.HORSE, spawn + Vector3(7.0, 0.0, -5.0))
+	# Five horses turned out across the valley. One waits near the spawn —
+	# close enough to be found on the first afternoon, not so close it is the
+	# first thing a child trips over — and the other four graze out on the
+	# meadows, spread by bearing so that walking in any direction finds one.
+	mounts.turn_out_horses(HORSES, field.camp_centre(), spawn)
 	# Five boats round the shore of the big pond, the first in Lakes.PONDS:
 	# something to row across it in, and to find on the far side.
 	mounts.launch_boats(0, 5)

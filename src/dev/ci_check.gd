@@ -60,6 +60,8 @@ func _initialize() -> void:
 	_check_the_pool_takes_a_ticket()
 	_check_getting_off_a_mount_is_safe()
 	_check_a_horse_swims()
+	_check_the_horses_are_spread_and_grazing()
+	_check_the_swing_is_pumped()
 	_check_the_range_is_clear()
 	_check_the_bow_can_be_aimed()
 	_check_swimming_looks_like_swimming()
@@ -1851,6 +1853,150 @@ func _check_the_bow_can_be_aimed() -> void:
 	_expect(not child.bow_shown(), "and put away when the arrow is loosed")
 	child.queue_free()
 
+## Five horses, spread across the valley and grazing.
+##
+## There was one, by the camp. A valley with a single horse in it is a valley
+## with a vehicle parked in it; a handful grazing on the meadows is a place
+## horses live.
+func _check_the_horses_are_spread_and_grazing() -> void:
+	print("the horses are spread and grazing")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var camp := field.camp_centre()
+	var spawn := field.find_spawn_point()
+	mounts.turn_out_horses(World.HORSES, camp, spawn)
+	_expect(mounts.horse_count() == World.HORSES, "%d horses are turned out" % mounts.horse_count())
+
+	# One near the spawn, for the first afternoon.
+	var nearest := 1e9
+	var spots: Array[Vector3] = []
+	for i in World.HORSES:
+		var at := mounts.position_of(MountKinds.horse_id(i))
+		spots.append(at)
+		nearest = minf(nearest, Vector2(at.x - spawn.x, at.z - spawn.z).length())
+	_expect(nearest < 20.0, "one is within %.0f m of where a child wakes up" % nearest)
+
+	# And the rest are properly spread, not heaped.
+	var closest_pair := 1e9
+	var furthest := 0.0
+	for i in spots.size():
+		for j in range(i + 1, spots.size()):
+			closest_pair = minf(closest_pair, spots[i].distance_to(spots[j]))
+		furthest = maxf(furthest, Vector2(spots[i].x - camp.x, spots[i].z - camp.z).length())
+	_expect(closest_pair > 60.0, "no two are within %.0f m of each other" % closest_pair)
+	_expect(furthest > 120.0, "and the furthest grazes %.0f m out" % furthest)
+
+	# Each stands somewhere a horse would: dry, gentle, out of the places.
+	var standing := true
+	for i in World.HORSES:
+		var at := spots[i]
+		var ground := field.height_at(at.x, at.z)
+		if ground < HeightField.WATER_LEVEL + 0.5:
+			standing = false
+			printerr("  horse %d stands in water" % i)
+		if PlaceSpec.reserved(at.x, at.z, camp):
+			standing = false
+			printerr("  horse %d stands on somebody's ground" % i)
+		if not is_equal_approx(at.y, ground):
+			standing = false
+			printerr("  horse %d floats %.2f m above the ground" % [i, at.y - ground])
+	_expect(standing, "every horse stands on dry, open ground")
+
+	# And no two are the same colour: five identical horses read as one horse
+	# drawn five times.
+	var coats := {}
+	for i in World.HORSES:
+		coats[MountKinds.colour(MountKinds.horse_id(i))] = true
+	_expect(coats.size() == World.HORSES, "each horse has its own coat (%d of them)" % coats.size())
+
+	# Grazing: head down most of the time, up now and then.
+	var grazing := MountKinds.horse_id(1)
+	for _frame in 240:
+		mounts._process(1.0 / 60.0)
+	_expect(mounts.head_angle(grazing) > deg_to_rad(30.0), "a horse nobody is riding has its head down")
+	var lifted := false
+	for _frame in int(Mounts.GRAZE_LOOKS_UP_EVERY * 60.0) + 120:
+		mounts._process(1.0 / 60.0)
+		if mounts.head_angle(grazing) < deg_to_rad(12.0):
+			lifted = true
+	_expect(lifted, "and lifts it to look around every so often")
+
+	# A ridden horse holds its head up, whatever the herd is doing.
+	_expect(mounts.mount(grazing), "one can still be caught and ridden")
+	for _frame in 120:
+		mounts.carry(spots[1], 0.0)
+		mounts._process(1.0 / 60.0)
+	_expect(mounts.head_angle(grazing) < deg_to_rad(12.0), "and stops grazing once it is")
+	mounts.queue_free()
+
+## A swing is pumped: push again and it goes higher, up to a limit.
+##
+## It used to wind a timer: every push gave the same arc, and the ride was over
+## in three seconds. Reported from the phone as "one click swings once and
+## that is all".
+func _check_the_swing_is_pumped() -> void:
+	print("the swing is pumped")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+	var seat := places.seat_positions()[0]
+
+	# The project's gravity, which is what the seat's pace is worked out from.
+	_expect(
+		is_equal_approx(Places.SWING_GRAVITY, float(ProjectSettings.get_setting("physics/3d/default_gravity"))),
+		"a swing falls under the same gravity as everything else"
+	)
+	var period := TAU / Places.swing_rate()
+	_expect(period > 1.5 and period < 4.0, "a swing of this rope takes %.1f s to go and come back" % period)
+
+	# Each push adds to the arc, and they stack.
+	_expect(places.push_swing(seat), "a swing can be pushed by a child standing at it")
+	var first := places.swing_arc()
+	_expect(first > 0.0, "one push gets it moving")
+	places.push_swing(seat)
+	var second := places.swing_arc()
+	_expect(second > first + 0.1, "a second push takes it higher (%.2f then %.2f rad)" % [first, second])
+	places.push_swing(seat)
+	var third := places.swing_arc()
+	_expect(third > second, "and a third higher still (%.2f rad)" % third)
+
+	# But not for ever: nobody goes over the bar.
+	for _push in 20:
+		places.push_swing(seat)
+	_expect(places.swing_arc() <= Places.SWING_ARC + 0.001, "however many times it is pushed, the arc stops at %.2f rad" % places.swing_arc())
+	_expect(Places.SWING_ARC < deg_to_rad(75.0), "which is short of level with the bar")
+
+	# The seat really moves through that arc, and the child moves with it.
+	var lowest := 1e9
+	var highest := -1e9
+	var swept := 0.0
+	for _frame in int(TAU / Places.swing_rate() * 60.0) + 4:
+		places._process(1.0 / 60.0)
+		var rider := places.swing_rider_at()
+		lowest = minf(lowest, rider.y)
+		highest = maxf(highest, rider.y)
+		swept = maxf(swept, Vector2(rider.x - seat.x, rider.z - seat.z).length())
+	_expect(highest - lowest > 0.5, "a child on it rises and falls %.2f m" % (highest - lowest))
+	_expect(swept > 1.5, "and swings %.1f m out from under the beam" % swept)
+
+	# A full swing lasts, and pushing an already-swinging seat does not hop to
+	# the one next door.
+	var kept := 0.0
+	while places.swinging() and kept < 300.0:
+		places._process(1.0 / 60.0)
+		kept += 1.0 / 60.0
+	_expect(kept > 40.0, "a swing pumped to the top runs for %.0f s before it is done" % kept)
+
+	# And a child can get off before then.
+	places.push_swing(seat)
+	_expect(places.swinging(), "pushed again, it swings")
+	places.step_off_swing()
+	_expect(not places.swinging(), "and a child who steps off is walking, not riding")
+	places.queue_free()
+
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
 	var field := HeightField.new(20260903)
@@ -3351,12 +3497,22 @@ func _check_riding() -> void:
 	var restored := Mounts.new(field)
 	get_root().add_child(restored)
 	restored.from_data(mounts.to_data())
-	_expect(restored.exists(MountKinds.HORSE), "the horse survives a save")
-	var recalled := restored.position_of(MountKinds.HORSE)
+	# There is a herd now, so a save written before there was one — where the
+	# only horse is called "horse", with no number — must come back as the
+	# first horse of the herd rather than as a nameless sixth animal that
+	# nothing would ever look for again.
+	var came_back := MountKinds.horse_id(0)
+	_expect(restored.exists(came_back), "the horse survives a save")
+	var recalled := restored.position_of(came_back)
 	_expect(
 		absf(recalled.x - left_at.x) < 0.01 and absf(recalled.z - left_at.z) < 0.01,
 		"and is still where it was left"
 	)
+	var herd := Mounts.new(field)
+	get_root().add_child(herd)
+	herd.from_data({"horse:3": [12.0, 0.0, 34.0]})
+	_expect(herd.exists(MountKinds.horse_id(3)), "and a save with the whole herd in it comes back as the herd")
+	herd.queue_free()
 
 	for kind in MountKinds.ALL:
 		for code: StringName in [Text.EN, Text.FR, Text.RU]:
@@ -4017,11 +4173,12 @@ func _check_paths_lead_somewhere() -> void:
 
 	places.push_swing(places.seat_positions()[0])
 	var swung := 0.0
-	while places.swinging() and swung < 30.0:
+	while places.swinging() and swung < 300.0:
 		places._process(1.0 / 60.0)
 		swung += 1.0 / 60.0
-	_expect(not places.swinging(), "the swing stops on its own after %.1f s" % swung)
-	_expect(swung < 10.0, "and it does not go on for ever")
+	_expect(not places.swinging(), "the swing stops on its own after %.0f s" % swung)
+	_expect(swung > 20.0, "and one push is worth a proper ride, not a couple of passes")
+	_expect(swung < 120.0, "but it does not go on for ever")
 
 	# The slide runs downhill, or a child would slide upwards.
 	_expect(

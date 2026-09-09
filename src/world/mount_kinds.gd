@@ -28,9 +28,13 @@ static func kind_of(id: StringName) -> StringName:
 	var colon := text.find(":")
 	return id if colon < 0 else StringName(text.substr(0, colon))
 
-## The id of the n-th boat.
+## The id of the n-th boat, and of the n-th horse. There is a herd now
+## rather than one animal, so a horse is named the way a boat is.
 static func boat_id(index: int) -> StringName:
 	return StringName("%s:%d" % [BOAT, index])
+
+static func horse_id(index: int) -> StringName:
+	return StringName("%s:%d" % [HORSE, index])
 
 ## Which boat an id is, or -1 for anything that is not one.
 static func boat_index(id: StringName) -> int:
@@ -43,6 +47,13 @@ static func boat_index(id: StringName) -> int:
 const BOAT_COLOURS: Array[Color] = [
 	Color(0.84, 0.26, 0.22), Color(0.22, 0.44, 0.80), Color(0.30, 0.62, 0.32),
 	Color(0.95, 0.78, 0.22), Color(0.92, 0.92, 0.88),
+]
+
+## A coat per horse: bay, chestnut, black, grey, dun. Five horses all the
+## same colour are one horse standing in five places.
+const HORSE_COATS: Array[Color] = [
+	Color(0.42, 0.29, 0.20), Color(0.55, 0.31, 0.16), Color(0.20, 0.18, 0.17),
+	Color(0.68, 0.66, 0.63), Color(0.72, 0.60, 0.38),
 ]
 ## How deep the hull sits, and how high above the water a child sits in it.
 const BOAT_DRAFT := 0.3
@@ -131,10 +142,22 @@ static func eye_lift(kind: StringName) -> float:
 	return float(INFO[kind_of(kind)]["eye"])
 
 static func colour(kind: StringName) -> Color:
-	var index := boat_index(kind)
-	if index >= 0:
-		return BOAT_COLOURS[index % BOAT_COLOURS.size()]
+	var boat := boat_index(kind)
+	if boat >= 0:
+		return BOAT_COLOURS[boat % BOAT_COLOURS.size()]
+	var horse := which(kind)
+	if kind_of(kind) == HORSE and horse >= 0:
+		return HORSE_COATS[horse % HORSE_COATS.size()]
 	return INFO[kind_of(kind)]["colour"]
+
+## Which one of its kind an id names — "horse:2" is the third horse — or -1
+## for an id with no number on it.
+static func which(id: StringName) -> int:
+	var text := String(id)
+	var colon := text.find(":")
+	if colon < 0:
+		return -1
+	return text.substr(colon + 1).to_int()
 
 static func label(kind: StringName) -> String:
 	return Text.of("mount_%s" % kind_of(kind))
@@ -146,7 +169,7 @@ static func build_mesh(kind: StringName) -> Mesh:
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	match kind_of(kind):
 		HORSE:
-			_horse(tool)
+			_horse(tool, colour(kind))
 		BOAT:
 			_boat(tool, colour(kind))
 		_:
@@ -194,21 +217,20 @@ const HORSE_TAIL_STRIDE := 3
 ## should look like one that is ridden. Built in parts — body, head, tail,
 ## legs — so the head can nod and the tail swing as it moves; `build_mesh`
 ## bakes them into one for a still picture.
-static func _horse(tool: SurfaceTool) -> void:
+static func _horse(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 	# Baked into one mesh, every part keeps its own place on the horse, so
 	# nothing is measured from a pivot: pivot zero. The legs are here too —
 	# they were left out when they became nodes, and the one-piece horse
 	# stood on nothing, which is what the screenshot tool drew.
-	_horse_body(tool)
-	_horse_head(tool, Vector3.ZERO)
-	_horse_tail(tool, Vector3.ZERO)
+	_horse_body(tool, hide)
+	_horse_head(tool, Vector3.ZERO, hide)
+	_horse_tail(tool, Vector3.ZERO, hide)
 	for hip in HORSE_HIPS:
-		_horse_leg(tool, hip, Vector3.ZERO)
+		_horse_leg(tool, hip, Vector3.ZERO, hide)
 
 ## The barrel, chest, shoulder and rump, the saddle and its reins.
-static func _horse_body(tool: SurfaceTool) -> void:
+static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 	var s := 1.2
-	var hide: Color = colour(HORSE)
 	var leather := Color(0.36, 0.22, 0.12)
 	var blanket := Color(0.80, 0.22, 0.20)
 	var hoof := Color(0.15, 0.12, 0.10)
@@ -301,9 +323,8 @@ static func _horse_body(tool: SurfaceTool) -> void:
 
 ## The neck and head, with the mane, the bridle and the face, relative to
 ## the shoulder they pivot about.
-static func _horse_head(tool: SurfaceTool, pivot: Vector3) -> void:
+static func _horse_head(tool: SurfaceTool, pivot: Vector3, hide := colour(HORSE)) -> void:
 	var s := 1.2
-	var hide: Color = colour(HORSE)
 	var dark := hide.darkened(0.3)
 	var pale := Color(0.93, 0.90, 0.84)
 	var hoof := Color(0.15, 0.12, 0.10)
@@ -390,9 +411,9 @@ static func _horse_head(tool: SurfaceTool, pivot: Vector3) -> void:
 	_add(tool, forelock, Transform3D(Basis(), Vector3(0.0, 2.34 * s, -1.18 * s) - pivot), dark)
 
 ## The tail in two pieces, relative to where it joins the rump.
-static func _horse_tail(tool: SurfaceTool, pivot: Vector3) -> void:
+static func _horse_tail(tool: SurfaceTool, pivot: Vector3, hide := colour(HORSE)) -> void:
 	var s := 1.2
-	var dark: Color = colour(HORSE).darkened(0.3)
+	var dark := hide.darkened(0.3)
 	var joints := horse_tail_joints()
 	var i := 0
 	var piece := 0
@@ -473,16 +494,16 @@ static func horse_tail_joints() -> PackedVector3Array:
 ## Built with pivot zero at first, which meant the offset was applied twice —
 ## the node moved it up to the shoulder and the mesh was already there — and
 ## the head and tail hung half a metre off the horse.
-static func horse_part(part: String) -> Mesh:
+static func horse_part(part: String, hide := colour(HORSE)) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	match part:
 		"head":
-			_horse_head(tool, HORSE_HEAD_PIVOT)
+			_horse_head(tool, HORSE_HEAD_PIVOT, hide)
 		"tail":
-			_horse_tail(tool, HORSE_TAIL_PIVOT)
+			_horse_tail(tool, HORSE_TAIL_PIVOT, hide)
 		_:
-			_horse_body(tool)
+			_horse_body(tool, hide)
 	tool.generate_normals()
 	tool.set_material(AnimalKinds.fur_material())
 	return tool.commit()
@@ -499,12 +520,12 @@ const HORSE_HIPS: Array[Vector3] = [
 ## about X swings the leg forward and back. The legs used to be part of the
 ## baked horse and stood stiff at a gallop, which from the saddle read as a
 ## horse on wheels.
-static func horse_leg() -> Mesh:
+static func horse_leg(hide := colour(HORSE)) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# Relative to its own hip, every leg is the same leg, so which hip is
 	# passed here does not matter as long as it is the pivot too.
-	_horse_leg(tool, HORSE_HIPS[0], HORSE_HIPS[0])
+	_horse_leg(tool, HORSE_HIPS[0], HORSE_HIPS[0], hide)
 	tool.generate_normals()
 	tool.set_material(AnimalKinds.fur_material())
 	return tool.commit()
@@ -515,9 +536,8 @@ static func horse_leg() -> Mesh:
 ## cannon bone, a pastern and a hoof. A horse's leg is thick at the top and
 ## thin at the bottom by a factor of two, and that taper — with a joint
 ## showing where it changes — is most of what tells a leg from a table leg.
-static func _horse_leg(tool: SurfaceTool, hip: Vector3, pivot: Vector3) -> void:
+static func _horse_leg(tool: SurfaceTool, hip: Vector3, pivot: Vector3, hide := colour(HORSE)) -> void:
 	var s := 1.2
-	var hide: Color = colour(HORSE)
 	var dark := hide.darkened(0.3)
 	var pale := Color(0.93, 0.90, 0.84)
 	var hoof := Color(0.15, 0.12, 0.10)
@@ -583,18 +603,19 @@ static func build_node(kind: StringName) -> Node3D:
 	if kind_of(kind) == HORSE:
 		# The body alone here; the head and tail are their own nodes, so that
 		# one can nod and the other swing.
-		body.mesh = horse_part("body")
+		var hide := colour(kind)
+		body.mesh = horse_part("body", hide)
 		var head := MeshInstance3D.new()
 		head.name = "Head"
-		head.mesh = horse_part("head")
+		head.mesh = horse_part("head", hide)
 		head.position = HORSE_HEAD_PIVOT
 		body.add_child(head)
 		var tail := MeshInstance3D.new()
 		tail.name = "Tail"
-		tail.mesh = horse_part("tail")
+		tail.mesh = horse_part("tail", hide)
 		tail.position = HORSE_TAIL_PIVOT
 		body.add_child(tail)
-		var leg_mesh := horse_leg()
+		var leg_mesh := horse_leg(hide)
 		for i in HORSE_HIPS.size():
 			var leg := MeshInstance3D.new()
 			leg.name = "Leg%d" % i

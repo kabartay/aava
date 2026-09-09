@@ -85,11 +85,27 @@ const POOL_LAMPS: Array[Vector3] = [
 	Vector3(-POOL_FENCE_X - 0.8, 0.0, -POOL_FENCE_Z - 0.8), Vector3(POOL_FENCE_X + 0.8, 0.0, POOL_FENCE_Z + 0.8),
 ]
 
-## How high the swing carries a child, how long one push lasts, and how far the
-## seat swings at the top of its arc.
-const SWING_LIFT := 1.6
-const SWING_TIME := 3.2
-const SWING_ARC := 0.85
+## The swing, as a swing rather than as a wind-up toy.
+##
+## A push used to set a timer running: the arc it gave was the same however
+## many times you pushed, and three seconds later the whole ride was over.
+## From the phone that read as one shove and then nothing — which is what it
+## was. A swing works the other way round: each push adds to what is already
+## there, and what is there keeps going.
+##
+## So the seat is a pendulum now. It swings at its own pace — the pace a rope
+## this long swings at, sqrt(g / length) — a push adds SWING_PUSH to the arc up
+## to SWING_ARC, and the arc falls away over SWING_SETTLE rather than over a
+## few seconds. Three pushes take a child from nothing to as high as the swing
+## goes, and a fourth cannot send them over the bar.
+const SWING_ARC := 0.95
+const SWING_PUSH := 0.32
+const SWING_SETTLE := 22.0
+## Below this arc the seat is only stirring, and the child is put down.
+const SWING_STOPS_AT := 0.06
+## The gravity a swing falls under: the project's own, which is heavier than
+## the world's. A check holds these two together.
+const SWING_GRAVITY := 24.0
 
 ## Two frames side by side, two seats on each, so two children — or a child and
 ## a visitor from another phone — can swing together rather than take turns.
@@ -358,13 +374,33 @@ func push_swing(near: Vector3) -> bool:
 			best = i
 	if best < 0:
 		return false
-	_seats[best]["swing"] = SWING_TIME
+	# Pushing while riding pushes the seat under you, never a neighbouring one:
+	# leaning across to the next swing mid-arc is not a thing a child does.
+	if _rider >= 0 and swinging():
+		best = _rider
+	var seat: Dictionary = _seats[best]
+	var arc := float(seat["arc"])
+	if arc <= 0.0:
+		# Starting from rest: the first push is a kick off the ground, so the
+		# swing begins at the bottom of its arc and rises from there.
+		seat["phase"] = 0.0
+	seat["arc"] = minf(arc + SWING_PUSH, SWING_ARC)
 	_rider = best
 	return true
 
+## How wide the seat a child is on is swinging, in radians, or zero. Read by
+## the game to tell a first push from a fourth, and by the checks.
+func swing_arc() -> float:
+	return 0.0 if _rider < 0 else float(_seats[_rider]["arc"])
+
+## Get off. The seat keeps swinging — a child who jumps off does not stop it —
+## but it is nobody's ride any more.
+func step_off_swing() -> void:
+	_rider = -1
+
 ## Is the local child on a moving swing?
 func swinging() -> bool:
-	return _rider >= 0 and float(_seats[_rider]["swing"]) > 0.0
+	return _rider >= 0 and float(_seats[_rider]["arc"]) > 0.0
 
 ## Where a child on the swing should be right now, or an empty vector when they
 ## are not on one. Returned rather than applied, because the player owns its own
@@ -375,7 +411,8 @@ func swing_rider_at() -> Vector3:
 		return Vector3.ZERO
 	var seat: Dictionary = _seats[_rider]
 	var pivot: Vector3 = seat["pivot"]
-	return pivot + Vector3(0.0, -SWING_ROPE, 0.0).rotated(Vector3.RIGHT, _swing_angle(float(seat["swing"])))
+	var hang := Vector3(0.0, -SWING_ROPE, 0.0)
+	return pivot + hang.rotated(Vector3.RIGHT, _swing_angle(float(seat["arc"]), float(seat["phase"])))
 
 ## Where each seat hangs at rest, in world space. For the checks, and for
 ## anything that wants to send a child to a swing.
@@ -527,9 +564,15 @@ func at_slide_top(at: Vector3) -> bool:
 		return false
 	return at.distance_to(slide_top()) < SLIDE_GRAB
 
-func _swing_angle(swing: float) -> float:
-	var strength := swing / SWING_TIME
-	return sin(swing * 4.4) * SWING_ARC * strength
+## How fast the seat swings, in radians of phase per second: a pendulum on a
+## rope this long. Nothing to tune — it falls out of the rope and the gravity.
+static func swing_rate() -> float:
+	return sqrt(SWING_GRAVITY / SWING_ROPE)
+
+## Where the seat hangs, from how wide it is swinging and how far through the
+## swing it is.
+func _swing_angle(arc: float, phase: float) -> float:
+	return sin(phase) * arc
 
 func _process(delta: float) -> void:
 	var stamp := PerfLog.stamp()
@@ -550,18 +593,24 @@ func _tick(delta: float) -> void:
 		var node: Node3D = seat["node"]
 		if not is_instance_valid(node):
 			continue
-		var left := float(seat["swing"])
-		if left <= 0.0:
+		var arc := float(seat["arc"])
+		if arc <= 0.0:
 			# Stirring in the wind, each seat on its own phase so the four do not
 			# swing in step like a metronome.
 			node.rotation.x = sin(_wind_time * IDLE_SWAY_SPEED + float(i) * 1.7) * IDLE_SWAY
 			continue
-		left = maxf(0.0, left - delta)
-		seat["swing"] = left
-		# Decaying arc, so the swing slows to a stop instead of stopping dead.
-		node.rotation.x = _swing_angle(left)
-		if left <= 0.0 and _rider == i:
-			_rider = -1
+		# The seat keeps its own pace, and the arc falls away slowly: a swing
+		# left alone is still swinging half a minute later, which is what a
+		# swing does.
+		var phase := fmod(float(seat["phase"]) + swing_rate() * delta, TAU)
+		arc *= exp(-delta / SWING_SETTLE)
+		if arc < SWING_STOPS_AT:
+			arc = 0.0
+			if _rider == i:
+				_rider = -1
+		seat["phase"] = phase
+		seat["arc"] = arc
+		node.rotation.x = _swing_angle(arc, phase)
 
 func _place(place: StringName, at: Vector3) -> void:
 	var spot := at
@@ -848,7 +897,7 @@ func _build_playground(at: Vector3) -> void:
 			var seat_node := MeshInstance3D.new()
 			seat_node.mesh = seat_tool.commit()
 			pivot.add_child(seat_node)
-			_seats.append({"pivot": pivot_at, "node": seat_node, "swing": 0.0})
+			_seats.append({"pivot": pivot_at, "node": seat_node, "arc": 0.0, "phase": 0.0})
 
 	_plant_hedge(at, solid)
 
