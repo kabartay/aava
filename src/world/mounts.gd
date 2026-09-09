@@ -329,7 +329,10 @@ func turn_out_horses(count: int, camp: Vector3, near: Vector3) -> void:
 		else:
 			var bearing := TAU * float(i - 1) / float(maxi(count - 1, 1)) + 0.6
 			spot = _grazing_spot(camp, bearing, 140.0 + 60.0 * float(i % 3))
-		place(MountKinds.horse_id(i), spot, randf() * TAU)
+		# Facing worked out from where it stands rather than drawn at random:
+		# two children on two phones share a valley, and a horse cannot be
+		# facing two ways at once.
+		place(MountKinds.horse_id(i), spot, fmod(spot.x * 0.37 + spot.z * 0.11, TAU))
 
 ## Somewhere within sight of where a child wakes up that a horse would stand.
 ## Tries a few paces off first, then rings further out.
