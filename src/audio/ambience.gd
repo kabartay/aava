@@ -39,6 +39,19 @@ const WIND_LOUD_HEIGHT := 90.0
 ## How far from water it can still be heard.
 const WATER_REACH := 34.0
 
+## How loud each voice is at its loudest, in decibels.
+##
+## The river was the loudest thing in the valley: standing on the bank it
+## drowned the wind, the birds and the game itself. A river heard from a few
+## paces away is a presence, not a noise — these were all mixed by ear on a
+## laptop and every one of them came out too loud on a phone held at arm's
+## length, the water most of all.
+const WIND_DB := -36.0
+const LEAVES_DB := -34.0
+const WATER_DB := -35.0
+const BIRDS_DB := -40.0
+const SWIMMING_DB := -28.0
+
 var _wind: AudioStreamPlayer
 var _leaves: AudioStreamPlayer
 var _water: AudioStreamPlayer
@@ -121,8 +134,10 @@ func follow(
 	var to_water := to_river
 	if places != null:
 		to_water = minf(to_water, Lakes.distance_to_water(at.x, at.z))
+	# Full only well inside the water; from the bank it is already easing off,
+	# so walking up to a river is a sound growing rather than a wall arriving.
 	_water_level = lerpf(
-		_water_level, 1.0 - smoothstep(4.0, WATER_REACH, to_water), weight
+		_water_level, 0.9 * (1.0 - smoothstep(1.0, WATER_REACH, to_water)), weight
 	)
 
 	# In the water: the water itself, close and moving, and everything else
@@ -144,12 +159,12 @@ func follow(
 	# Quiet. All of these were mixed by ear on a laptop and were far too loud
 	# on a tablet held at arm's length — the wind in particular drowned the
 	# game.
-	_apply(_wind, _wind_level * hushed, -36.0)
-	_apply(_leaves, _leaf_level * hushed, -34.0)
+	_apply(_wind, _wind_level * hushed, WIND_DB)
+	_apply(_leaves, _leaf_level * hushed, LEAVES_DB)
 	# The water heard from the bank gives way to the water you are in.
-	_apply(_water, _water_level * (1.0 - _swim_level * 0.5), -28.0)
-	_apply(_birds, _bird_level * hushed, -40.0)
-	_apply(_swimming, _swim_level, -22.0)
+	_apply(_water, _water_level * (1.0 - _swim_level * 0.5), WATER_DB)
+	_apply(_birds, _bird_level * hushed, BIRDS_DB)
+	_apply(_swimming, _swim_level, SWIMMING_DB)
 
 ## How loud each voice is right now, for the checks: nothing else can hear
 ## the mix.

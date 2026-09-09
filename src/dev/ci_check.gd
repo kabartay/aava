@@ -1277,6 +1277,19 @@ func _check_water_sounds_and_looks_like_water() -> void:
 	_expect(float(dry["hush"]) > 0.98, "on the bank the valley is heard in full")
 	_expect(float(wet["hush"]) < 0.4, "in the water it is hushed to %.0f%% behind the water" % (float(wet["hush"]) * 100.0))
 	_expect(float(wet["leaves"]) > 0.0 and leaves_dry > 0.0, "and the leaves are still there, in the wood, either way")
+
+	# Loudness. The river was the loudest thing in the valley and drowned
+	# everything on the bank, which is what "the water is too loud when you
+	# are close" meant.
+	_expect(Ambience.WATER_DB < Ambience.WIND_DB + 2.0, "the river is no louder than the wind (%.0f dB against %.0f)" % [Ambience.WATER_DB, Ambience.WIND_DB])
+	_expect(Ambience.WATER_DB <= -32.0, "and quiet enough to stand beside")
+	_expect(Ambience.SWIMMING_DB > Ambience.WATER_DB, "the water you are in is the louder of the two, as it should be")
+	# On the bank itself it is already easing off rather than at full.
+	var bank := Vector3(field.river_centre_x(30.0) + HeightField.RIVER_HALF_WIDTH, 2.0, 30.0)
+	for _frame in 300:
+		ambience.follow(bank, field, places, 0.0, 1.0 / 60.0, 0.0)
+	var beside: Dictionary = ambience.levels()
+	_expect(float(beside["water"]) < 0.8, "and from the bank it is %.0f%% of full, not all of it" % (float(beside["water"]) * 100.0))
 	ambience.queue_free()
 	places.queue_free()
 
