@@ -2577,6 +2577,21 @@ func _check_the_motorcycle_is_heard() -> void:
 	_expect(sound._engine.volume_db > idle_db, "and in loudness with it")
 	sound.engine(-1.0)
 	_expect(not sound.engine_is_running(), "and stops when the rider gets off")
+
+	# Louder than the wood it is driven into. An engine that the leaves drown
+	# is an engine a child cannot hear themselves riding.
+	sound.engine(0.6)
+	var engine_db := sound._engine.volume_db
+	_expect(
+		engine_db > Ambience.LEAVES_DB and engine_db > Ambience.WIND_DB,
+		"an engine at %.0f dB is heard over leaves at %.0f" % [engine_db, Ambience.LEAVES_DB]
+	)
+	# And its waveform fills the range, or the numbers above mean nothing: two
+	# voices at the same volume setting are only as loud as their samples are.
+	_expect(
+		sound.engine_peak() > 0.7,
+		"and its sound uses %.0f%% of the range, like the other voices" % (sound.engine_peak() * 100.0)
+	)
 	sound.queue_free()
 
 	# What it costs: everything within earshot goes, whatever it was doing.

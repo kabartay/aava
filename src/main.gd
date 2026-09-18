@@ -414,7 +414,15 @@ func _process(delta: float) -> void:
 		# line while the horse followed the slope down, and hung in the air
 		# over it — the same shape of bug as the swimming one. Only while
 		# they are near the ground, so a jump or a fall is still a fall.
-		var under := world.field.height_at(player.global_position.x, player.global_position.z)
+		# The ground under the whole machine, not under one point of it.
+		#
+		# A rider is held to the height of the ground beneath them, which is
+		# right on a horse at a walk and shakes them to pieces on a motorcycle:
+		# at sixteen metres a second every stone the terrain has is a bump
+		# delivered straight to the body. Anything with a wheelbase rides the
+		# average of the ground under its ends, so that is what is measured —
+		# and the bumps between them average out, while a real slope does not.
+		var under := _ground_under_the_mount(riding, player.global_position, player.facing_angle())
 		if player.global_position.y - under < 1.2:
 			player.held_at_height = under
 		else:
@@ -1068,6 +1076,20 @@ func _on_care() -> void:
 
 func _on_shop() -> void:
 	hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
+
+## The ground a mount is standing on: the mean of the height at each end of it,
+## along the way it is pointing. A horse two and a half metres long rides out
+## the stones between its front and back feet, and so should its rider.
+func _ground_under_the_mount(kind: StringName, at: Vector3, facing: float) -> float:
+	var reach: float = (MountKinds.body_box(kind)[0] as Vector3).z * 0.5
+	var along := Vector3(-sin(facing), 0.0, -cos(facing)) * reach
+	var front := at + along
+	var back := at - along
+	return (
+		world.field.height_at(front.x, front.z)
+		+ world.field.height_at(back.x, back.z)
+		+ world.field.height_at(at.x, at.z) * 2.0
+	) * 0.25
 
 func _outside_the_shop(offset: Vector3) -> Vector3:
 	var spot := world.places.position_of(Places.SHOP)

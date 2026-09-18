@@ -92,9 +92,9 @@ func _init() -> void:
 ## How loud the engine is under the rider, and how far its pitch rises between
 ## idling and full pelt. Loud: the whole point of the machine is that it is
 ## heard before it is seen, and every animal within thirty metres leaves.
-const ENGINE_DB := -20.0
-const ENGINE_PITCH := 0.7
-const ENGINE_PITCH_RANGE := 0.9
+const ENGINE_DB := -13.0
+const ENGINE_PITCH := 0.62
+const ENGINE_PITCH_RANGE := 1.5
 
 var _engine: AudioStreamPlayer
 
@@ -113,37 +113,65 @@ func engine(effort: float) -> void:
 func engine_is_running() -> bool:
 	return _engine.playing
 
-## A single-cylinder engine: a low beat with a rasp on top.
+## The loudest sample in the engine's waveform, as a fraction of full scale.
+## Two voices set to the same volume are only as loud as their samples are, and
+## the engine's first version peaked at a fifth — quieter than a wood.
+func engine_peak() -> float:
+	var stream := _engine.stream as AudioStreamWAV
+	var loudest := 0
+	var data := stream.data
+	var i := 0
+	while i < data.size():
+		var sample := data[i] | (data[i + 1] << 8)
+		if sample >= 32768:
+			sample -= 65536
+		loudest = maxi(loudest, absi(sample))
+		i += 2
+	return float(loudest) / 32768.0
+
+## A racing engine: a hard, bright wail rather than a thump.
 ##
-## Two things make it read as an engine rather than as a hum. The first is that
-## it is a *beat* — a firing pulse that repeats a few dozen times a second,
-## with a gap between the pulses — rather than a continuous tone. The second is
-## the rasp: harmonics well above the fundamental, which is what an exhaust
-## actually sounds like and what carries across a valley.
+## The first version was a single cylinder — two dozen separate bangs a second
+## with a rasp on top — which is a tractor. A racing machine fires several
+## times as often and the ear stops hearing separate bangs at all: what is left
+## is a tone with a great deal of edge on it, and the edge is the sound.
+##
+## So: a high firing rate, a very short pulse (a sharp edge is harmonics, and
+## harmonics are what carries across a valley), the odd harmonics leaned on the
+## way a four-stroke leans on them, and a thin whine of gear and cam above it
+## all. The pitch is swept by the game as the machine pulls away, over a range
+## wide enough that idling and full pelt are plainly different engines.
 func _make_engine() -> AudioStreamWAV:
 	var seconds := 1.0
 	var samples := int(RATE * seconds)
 	var data := PackedByteArray()
 	data.resize(samples * 2)
-	# Twenty-two firings a second at rest: slow enough to hear as separate
-	# beats, which is what says single cylinder rather than turbine.
-	var firings := 22.0
+	# Fifty-four firings a second at rest. Above about thirty the ear hears a
+	# pitch rather than a beat, which is exactly the line between a tractor
+	# and a racing engine.
+	var firings := 54.0
 	for i in samples:
 		var t := float(i) / float(RATE)
-		# Where we are between one firing and the next, 0 to 1.
 		var phase := fmod(t * firings, 1.0)
-		# The pulse: a sharp rise and a longer fall, the shape of a bang.
-		var pulse := exp(-phase * 7.0) - exp(-phase * 34.0)
-		# The rasp riding on it.
-		var rasp := (
-			sin(TAU * 96.0 * t) * 0.5
-			+ sin(TAU * 192.0 * t + 0.6) * 0.28
-			+ sin(TAU * 312.0 * t + 1.2) * 0.16
-		)
-		var value := pulse * (0.62 + 0.38 * rasp)
-		# A little noise, so it is machinery rather than a synthesiser.
-		value += (randf() * 2.0 - 1.0) * 0.06 * maxf(pulse, 0.0)
-		var sample := int(clampf(value * 0.55, -1.0, 1.0) * 32000.0)
+		# A short, hard pulse: fast attack, fast decay. The shorter it is, the
+		# more harmonics it carries and the more it screams.
+		var pulse := exp(-phase * 16.0) - exp(-phase * 70.0)
+		# The wail: harmonics of the firing rate, the odd ones louder, which is
+		# the character a four-stroke has.
+		var wail := 0.0
+		for harmonic: int in [1, 2, 3, 4, 6, 8, 12]:
+			var weight := 1.0 / float(harmonic)
+			if harmonic % 2 == 1:
+				weight *= 1.5
+			wail += sin(TAU * firings * float(harmonic) * t) * weight
+		wail /= 3.4
+		# Gear whine, well above everything else and quiet, which is what makes
+		# a racing engine sound expensive.
+		var whine := sin(TAU * firings * 9.0 * t + sin(t * 3.0)) * 0.12
+		# Induction roar: noise, gated by the pulse, so it breathes with it.
+		var roar := (randf() * 2.0 - 1.0) * 0.18 * maxf(pulse, 0.0)
+		var value := pulse * 0.55 + wail * 0.42 + whine + roar
+		var sample := int(clampf(value * 1.25, -1.0, 1.0) * 32000.0)
 		data[i * 2] = sample & 0xFF
 		data[i * 2 + 1] = (sample >> 8) & 0xFF
 	return _wrap(data)
