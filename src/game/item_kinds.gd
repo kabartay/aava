@@ -12,8 +12,15 @@ const STONE := &"stone"
 const REED := &"reed"
 const SEED := &"seed"
 const CONE := &"cone"
+## Bought rather than found, and the only thing in the bag that is eaten. It is
+## in this list so the bag can draw it and name it like everything else; the
+## scattering skips it, because chocolate does not grow under trees.
+const CHOCOLATE := &"chocolate"
 
-const ALL: Array[StringName] = [STICK, STONE, REED, SEED, CONE]
+const ALL: Array[StringName] = [STICK, STONE, REED, SEED, CONE, CHOCOLATE]
+
+## What is found lying about the valley. Chocolate is not.
+const SCATTERED: Array[StringName] = [STICK, STONE, REED, SEED, CONE]
 
 ## Icons are single characters rather than images. A six-year-old reads a shape
 ## faster than a word, and this way the interface needs no art at all.
@@ -23,6 +30,7 @@ const INFO := {
 	REED: {"label": "reed", "icon": "/", "color": Color(0.72, 0.68, 0.32)},
 	SEED: {"label": "seed", "icon": "*", "color": Color(0.86, 0.74, 0.36)},
 	CONE: {"label": "cone", "icon": "A", "color": Color(0.52, 0.34, 0.20)},
+	CHOCOLATE: {"label": "chocolate", "icon": "=", "color": Color(0.36, 0.22, 0.14)},
 }
 
 ## The name shown to the player, in whatever language is set. The English in

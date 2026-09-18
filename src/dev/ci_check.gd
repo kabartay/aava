@@ -2233,6 +2233,23 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 				aisle_clear = false
 	_expect(aisle_clear, "the aisle from the door to the counter is clear")
 
+	# A roof comes off while a child is under it. The camera sits above and
+	# behind them, so indoors it is up among the rafters looking down, and what
+	# it was looking at was tiles — in the café first, and then in the shop.
+	var shop_middle := places.position_of(Places.SHOP) + Vector3(0.0, 0.5, Places.SHOP_MID_Z)
+	var cafe_middle := places.position_of(Places.CAFE) + Vector3(0.0, 0.5, Places.CAFE_MID_Z)
+	places.roofs_follow(shop_middle + Vector3(0.0, 0.0, 200.0))
+	_expect(places.roof_is_on(Places.SHOP), "the shop has a roof on it from outside")
+	_expect(places.roof_is_on(Places.CAFE), "and so has the café")
+	places.roofs_follow(shop_middle)
+	_expect(not places.roof_is_on(Places.SHOP), "standing in the shop, its roof is out of the way")
+	_expect(places.roof_is_on(Places.CAFE), "and the café's, four hundred metres off, is not")
+	places.roofs_follow(cafe_middle)
+	_expect(not places.roof_is_on(Places.CAFE), "standing in the café, the café's roof comes off")
+	_expect(places.roof_is_on(Places.SHOP), "and the shop's goes back on")
+	places.roofs_follow(shop_middle + Vector3(Places.SHOP_WIDTH, 0.0, 0.0))
+	_expect(places.roof_is_on(Places.SHOP), "a pace outside the wall, the roof is back")
+
 	# Nothing grows through the floor of a building.
 	var inside_shop := places.position_of(Places.SHOP) + Vector3(0.0, 0.0, Places.SHOP_MID_Z)
 	_expect(
@@ -3872,6 +3889,21 @@ func _check_riding() -> void:
 		"but the horse climbs what the bicycle cannot"
 	)
 	_expect(MountKinds.fords_water(MountKinds.HORSE), "the horse fords the river")
+
+	# Anything with wheels is longer than it is wide, because its wheels turn
+	# about the axle and the axle lies across it. Both machines were built with
+	# their wheels turned a quarter turn — standing across the frame like
+	# roundabouts — and the box they occupy is what says so: two metres wide and
+	# half a metre long is not a bicycle.
+	for wheeled: StringName in [MountKinds.BICYCLE, MountKinds.MOTORCYCLE]:
+		var box := MountKinds.build_mesh(wheeled).get_aabb().size
+		_expect(
+			box.z > box.x * 2.0,
+			"a %s is %.2f m long and %.2f m wide, so its wheels are on the right way round" % [
+				wheeled, box.z, box.x
+			]
+		)
+		_expect(box.y > 0.9 and box.y < 2.0, "and %.2f m tall, which is a machine a child gets on" % box.y)
 	_expect(not MountKinds.fords_water(MountKinds.BICYCLE), "the bicycle does not")
 	for kind in MountKinds.ALL:
 		if MountKinds.floats(kind):

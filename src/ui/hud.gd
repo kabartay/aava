@@ -32,6 +32,7 @@ signal reset_requested()
 signal care_pressed()
 signal shop_toggled()
 signal shop_buy(item: StringName)
+signal snack_pressed()
 signal drink_pressed()
 signal whistle_pressed()
 signal chop_pressed()
@@ -93,6 +94,7 @@ var _visit_button: Button
 var _ticket_button: Button
 var _dam_button: Button
 var _fire_button: Button
+var _snack_button: Button
 var _sleep_button: Button
 var together: TogetherPanel
 var _talk_button: Button
@@ -284,6 +286,11 @@ func _init() -> void:
 	add_child(_dam_button)
 
 	# Shown at a campfire, with wood in the bag.
+	_snack_button = _icon_button(ActionIcon.Kind.SNACK)
+	_snack_button.visible = false
+	_snack_button.pressed.connect(func() -> void: snack_pressed.emit())
+	add_child(_snack_button)
+
 	_fire_button = _icon_button(ActionIcon.Kind.FEED_FIRE)
 	_fire_button.visible = false
 	_fire_button.pressed.connect(func() -> void: fire_fed.emit())
@@ -630,6 +637,12 @@ func set_place_offer(place: StringName) -> void:
 			face.show_kind(which)
 	if _visit_button.visible != wanted:
 		_visit_button.visible = wanted
+		_layout()
+
+## Whether there is chocolate in the bag to eat.
+func set_snack_offer(wanted: bool) -> void:
+	if _snack_button.visible != wanted:
+		_snack_button.visible = wanted
 		_layout()
 
 ## Whether the pool's turnstile is close enough to buy a ticket at.

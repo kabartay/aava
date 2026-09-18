@@ -473,6 +473,12 @@ func _process(delta: float) -> void:
 		not bed.is_empty() and bed.get("kind", &"") == HouseParts.BED
 	)
 
+	# A roof comes off while you are under it, or the camera looks at tiles.
+	world.places.roofs_follow(at)
+
+	# Chocolate can be eaten anywhere, which is the point of carrying it.
+	hud.set_snack_offer(inventory.count(ItemKinds.CHOCOLATE) > 0)
+
 	# A fire takes a log from a child standing at it with wood.
 	hud.set_fire_offer(
 		inventory.count(&"wood") > 0 and world.hearths.has_fire_near(at)
@@ -612,6 +618,7 @@ func _handlers() -> Dictionary:
 		&"visit": _on_place_used,
 		&"dam": _on_dam_stick,
 		&"ticket": _on_ticket,
+		&"snack": _on_snack,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -1046,6 +1053,17 @@ func _on_shop() -> void:
 	hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
 
 func _on_buy(item: StringName) -> void:
+	# A bar of chocolate is used up rather than owned, so it goes through the
+	# purse rather than the ledger: buy as many as you like, one at a time.
+	if ShopStock.is_consumable(item):
+		if not wallet.spend(ShopStock.price(item)):
+			sounds.play(Sounds.Sound.REFUSE)
+			hud.announce(Text.format("say_no_coins", [ShopStock.price(item)]), 2.2)
+			return
+		inventory.add(item, 1)
+		sounds.play(Sounds.Sound.PICKUP, 1.2)
+		hud.set_shop_open(true, wallet.coins, wallet.owned)
+		return
 	if wallet.buy(item, ShopStock.price(item)):
 		if item == ShopStock.BOTTLE:
 			vitals.grant_bottle()
@@ -1173,6 +1191,21 @@ func _watch_the_turnstile() -> void:
 		hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
 	elif not near:
 		_ticket_told = false
+
+## Eat a bar of chocolate. The one thing in the bag that is used up by using
+## it, and the only way to get energy back without walking to the café.
+func _on_snack() -> void:
+	if inventory.count(ItemKinds.CHOCOLATE) <= 0:
+		return
+	if not inventory.spend({ItemKinds.CHOCOLATE: 1}):
+		return
+	vitals.energy = minf(
+		Vitals.MAX_ENERGY,
+		vitals.energy + Vitals.MAX_ENERGY * ShopStock.CHOCOLATE_RESTORE
+	)
+	_refresh_vitals()
+	sounds.play(Sounds.Sound.PICKUP, 1.35)
+	hud.announce(Text.of("say_chocolate"), 1.8)
 
 ## Pay for the pool. Coins come from the animals, so a swim is earned.
 func _on_ticket() -> void:

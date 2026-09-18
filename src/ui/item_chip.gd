@@ -34,8 +34,23 @@ func _draw() -> void:
 			_seed(box)
 		ItemKinds.CONE:
 			_cone(box)
+		ItemKinds.CHOCOLATE:
+			_chocolate(box)
 		_:
 			draw_circle(box.get_center(), minf(box.size.x, box.size.y) * 0.32, tint)
+
+## A bar of chocolate: a block scored into squares.
+func _chocolate(box: Rect2) -> void:
+	var centre := box.get_center()
+	var unit := minf(box.size.x, box.size.y)
+	var wide := unit * 0.3
+	var tall := unit * 0.2
+	draw_rect(Rect2(centre - Vector2(wide, tall), Vector2(wide * 2.0, tall * 2.0)), tint)
+	var line := Color(0.0, 0.0, 0.0, 0.45)
+	draw_line(Vector2(centre.x - wide, centre.y), Vector2(centre.x + wide, centre.y), line, maxf(1.0, unit * 0.04))
+	for column in 2:
+		var x := centre.x - wide + wide * 2.0 * (float(column) + 1.0) / 3.0
+		draw_line(Vector2(x, centre.y - tall), Vector2(x, centre.y + tall), line, maxf(1.0, unit * 0.04))
 
 ## A length of wood, lying at an angle with a stub of a branch on it.
 func _stick(box: Rect2) -> void:

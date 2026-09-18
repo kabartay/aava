@@ -48,8 +48,31 @@ func _draw() -> void:
 			_saddle(box)
 		ShopStock.SHEARS:
 			_shears(box)
+		ShopStock.CHOCOLATE:
+			_chocolate(box)
 		ShopStock.WHISTLE:
 			_whistle(box)
+
+## A bar of chocolate, scored into squares with the foil turned back.
+func _chocolate(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var cocoa := ShopStock.colour(ShopStock.CHOCOLATE)
+	var wide := unit * 0.3
+	var tall := unit * 0.22
+	draw_rect(Rect2(centre - Vector2(wide, tall), Vector2(wide * 1.6, tall * 2.0)), cocoa)
+	var score := Color(0.0, 0.0, 0.0, 0.4)
+	draw_line(Vector2(centre.x - wide, centre.y), Vector2(centre.x + wide * 0.6, centre.y), score, maxf(1.5, unit * 0.04))
+	for column in 2:
+		var x := centre.x - wide + wide * 1.6 * (float(column) + 1.0) / 3.0
+		draw_line(Vector2(x, centre.y - tall), Vector2(x, centre.y + tall), score, maxf(1.5, unit * 0.04))
+	var foil := PackedVector2Array([
+		centre + Vector2(wide * 0.6, -tall),
+		centre + Vector2(wide * 1.15, -tall * 1.3),
+		centre + Vector2(wide * 1.15, tall * 1.3),
+		centre + Vector2(wide * 0.6, tall),
+	])
+	draw_colored_polygon(foil, Color(0.86, 0.87, 0.90))
 
 ## Shears: two blades crossed, with the bow handles behind them. Open rather
 ## than closed, because closed they are a knife.

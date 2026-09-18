@@ -317,6 +317,10 @@ var _pitch_solid: StaticBody3D = null
 ## stops at the way it stops at the café's.
 var _shop_solid: StaticBody3D = null
 var _shop_walls: StaticBody3D = null
+## The roofs, kept apart from the buildings under them so they can be taken
+## away while a child is inside.
+var _shop_roof: MeshInstance3D = null
+var _cafe_roof: MeshInstance3D = null
 ## The pool's furniture, its turnstile — solid until paid, and for a while
 ## after — and its arms, which turn while it is open.
 var _pool_solid: StaticBody3D = null
@@ -764,16 +768,25 @@ func _build_shop(at: Vector3) -> void:
 	# Over the door: a lintel, so the doorway is a doorway rather than a gap
 	# running to the roof.
 	_wall(tool, walls, Vector3(SHOP_DOOR_HALF * 2.0 + 0.3, h - 2.4, thick), Vector3(0.0, (2.4 + h) * 0.5, front), plaster)
+	# Everything above head height goes into a mesh of its own, because a roof
+	# is the one part of a building that has to get out of the way: standing
+	# inside, the camera is above the child and looking down, and the roof was
+	# between the two. It is hidden while somebody is in here.
+	var lid := SurfaceTool.new()
+	lid.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var ceiling := BoxMesh.new()
 	ceiling.size = Vector3(w, 0.12, d)
-	_add(tool, ceiling, Transform3D(Basis(), Vector3(0.0, h, mid)), plaster.darkened(0.1))
+	_add(lid, ceiling, Transform3D(Basis(), Vector3(0.0, h, mid)), plaster.darkened(0.1))
+	# The ceiling stops the camera, or looking down at the counter lifts it
+	# through the roof — the same collider the café has.
+	_collide(walls, _box_shape(Vector3(w, 0.12, d)), Transform3D(Basis(), Vector3(0.0, h, mid)))
 	# A gabled roof running front to back, so what faces a child walking up is
 	# a gable end with a window in it rather than a long eave. The café's roof
 	# runs the other way; that alone tells the two buildings apart at distance.
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		var slope := BoxMesh.new()
 		slope.size = Vector3(w * 0.62, 0.16, d + 1.6)
-		_add(tool, slope, Transform3D(
+		_add(lid, slope, Transform3D(
 			Basis(Vector3.FORWARD, side * deg_to_rad(34.0)),
 			Vector3(side * w * 0.23, h + 0.7, mid)
 		), roof)
@@ -783,12 +796,12 @@ func _build_shop(at: Vector3) -> void:
 			var band := BoxMesh.new()
 			var width := w * (1.0 - float(course) * 0.19)
 			band.size = Vector3(width, 0.28, 0.18)
-			_add(tool, band, Transform3D(
+			_add(lid, band, Transform3D(
 				Basis(), Vector3(0.0, h + 0.16 + float(course) * 0.28, mid + end * (d * 0.5 + 0.02))
 			), plaster if course % 2 == 0 else plaster.darkened(0.06))
 	var ridge := BoxMesh.new()
 	ridge.size = Vector3(0.24, 0.24, d + 1.7)
-	_add(tool, ridge, Transform3D(Basis(), Vector3(0.0, h + 1.46, mid)), roof.darkened(0.2))
+	_add(lid, ridge, Transform3D(Basis(), Vector3(0.0, h + 1.46, mid)), roof.darkened(0.2))
 
 	# A deep porch across the front: posts, a floor and a shallow roof. This is
 	# what makes it read as a shop you walk up to rather than a shed with a
@@ -957,6 +970,7 @@ func _build_shop(at: Vector3) -> void:
 	add_child(walls)
 	_shop_solid = solid
 	_shop_walls = walls
+	_shop_roof = _roof_mesh(lid, at)
 
 	for lamp_at in SHOP_LAMPS:
 		_build_lamp(tool, at + lamp_at, at, solid, 0.5, 3.6, 9.0, 2.2)
@@ -1109,6 +1123,52 @@ static func _add_as_drawn(tool: SurfaceTool, mesh: Mesh, where: Transform3D) -> 
 	for index in indices as PackedInt32Array:
 		tool.set_color(colours[index] if index < colours.size() else Color.WHITE)
 		tool.add_vertex(where * vertices[index])
+
+## Commit a building's roof into its own node, standing where the building
+## does. Separate from the walls so it can be hidden; on the same material, so
+## it costs one more draw call and no more.
+func _roof_mesh(lid: SurfaceTool, at: Vector3) -> MeshInstance3D:
+	lid.generate_normals()
+	lid.set_material(_material())
+	var node := MeshInstance3D.new()
+	node.mesh = lid.commit()
+	node.position = at
+	add_child(node)
+	return node
+
+## Take the roof off whichever building the child is standing in, and put every
+## other one back. Called every frame by the game.
+##
+## A roof is the one part of a building that has to get out of the way. The
+## camera sits above and behind the child, so indoors it is up among the
+## rafters looking down — and what it was looking at was tiles.
+func roofs_follow(player_position: Vector3) -> void:
+	var inside_cafe := _within(player_position, CAFE, CAFE_WIDTH, CAFE_DEPTH, CAFE_MID_Z)
+	var inside_shop := _within(player_position, SHOP, SHOP_WIDTH, SHOP_DEPTH, SHOP_MID_Z)
+	if _cafe_roof != null and _cafe_roof.visible == inside_cafe:
+		_cafe_roof.visible = not inside_cafe
+	if _shop_roof != null and _shop_roof.visible == inside_shop:
+		_shop_roof.visible = not inside_shop
+
+## Is this point inside the walls of a given building?
+func _within(
+	at: Vector3, place: StringName, wide: float, deep: float, mid: float
+) -> bool:
+	if not _spots.has(place):
+		return false
+	var spot: Vector3 = _spots[place]
+	if at.y < spot.y - 1.0 or at.y > spot.y + 6.0:
+		return false
+	return (
+		absf(at.x - spot.x) < wide * 0.5
+		and absf(at.z - (spot.z + mid)) < deep * 0.5
+	)
+
+## Whether a building's roof is on. For the checks.
+func roof_is_on(place: StringName) -> bool:
+	if place == SHOP:
+		return _shop_roof != null and _shop_roof.visible
+	return _cafe_roof != null and _cafe_roof.visible
 
 ## A box shape of a given size, because three lines of it read as noise.
 static func _box_shape(size: Vector3) -> BoxShape3D:
@@ -1852,9 +1912,14 @@ func _build_cafe(at: Vector3) -> void:
 	var floor_slab := BoxMesh.new()
 	floor_slab.size = Vector3(w - thick, 0.06, d - thick)
 	_add(tool, floor_slab, Transform3D(Basis(), Vector3(0.0, 0.03, mid)), boards)
+	# The lid — ceiling, roof, ridge and chimney — in a mesh of its own, so it
+	# can be taken away while a child is inside. Standing in the café the
+	# camera is above them looking down, and what it was looking at was tiles.
+	var lid_tool := SurfaceTool.new()
+	lid_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var ceiling := BoxMesh.new()
 	ceiling.size = Vector3(w, 0.08, d)
-	_add(tool, ceiling, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)), inner_wall)
+	_add(lid_tool, ceiling, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)), inner_wall)
 	# The ceiling stops the camera too, or looking down at the table lifts
 	# it through the roof.
 	var lid := BoxShape3D.new()
@@ -1862,13 +1927,13 @@ func _build_cafe(at: Vector3) -> void:
 	_collide(walls, lid, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)))
 	var roof := PrismMesh.new()
 	roof.size = Vector3(d + 0.9, 2.0, w + 0.9)
-	_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0.0, h + 1.0, mid)), tiles)
+	_add(lid_tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0.0, h + 1.0, mid)), tiles)
 	var ridge := BoxMesh.new()
 	ridge.size = Vector3(w + 1.0, 0.14, 0.24)
-	_add(tool, ridge, Transform3D(Basis(), Vector3(0.0, h + 2.0, mid)), tiles.darkened(0.25))
+	_add(lid_tool, ridge, Transform3D(Basis(), Vector3(0.0, h + 2.0, mid)), tiles.darkened(0.25))
 	var chimney := BoxMesh.new()
 	chimney.size = Vector3(0.5, 1.1, 0.5)
-	_add(tool, chimney, Transform3D(Basis(), Vector3(3.4, h + 2.0, mid + 1.6)), Color(0.55, 0.42, 0.36))
+	_add(lid_tool, chimney, Transform3D(Basis(), Vector3(3.4, h + 2.0, mid + 1.6)), Color(0.55, 0.42, 0.36))
 
 	# The awning over the door, and the sign above it.
 	for i in 7:
@@ -1963,6 +2028,7 @@ func _build_cafe(at: Vector3) -> void:
 		_build_lamp(tool, at, lamp_at, solid, 0.16)
 	_build_bin(at, Vector3(-6.6, 0.0, front - 1.6), solid)
 	_finish_into(tool, at)
+	_cafe_roof = _roof_mesh(lid_tool, at)
 
 ## One wall: drawn and solid.
 func _wall(tool: SurfaceTool, solid: StaticBody3D, size: Vector3, centre: Vector3, colour: Color) -> void:

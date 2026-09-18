@@ -72,7 +72,7 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 	# resource needs no tree, so there is no reason to wait for one.
 	var shader := Shader.new()
 	shader.code = SHADER
-	for kind in ItemKinds.ALL:
+	for kind in ItemKinds.SCATTERED:
 		_meshes[kind] = ItemKinds.build_mesh(kind)
 		var material := ShaderMaterial.new()
 		material.shader = shader

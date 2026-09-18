@@ -40,6 +40,8 @@ const STRINGS := {
 	"item_reed": {EN: "reed", FR: "roseau", RU: "тростник"},
 	"item_seed": {EN: "seed", FR: "graine", RU: "семечко"},
 	"item_cone": {EN: "cone", FR: "pomme de pin", RU: "шишка"},
+	"item_chocolate": {EN: "chocolate", FR: "chocolat", RU: "шоколадка"},
+	"item_chocolate_object": {EN: "chocolate", FR: "du chocolat", RU: "шоколадку"},
 	# The same items as the object of a verb — "wants a stick" — which in
 	# Russian is a different form of the word. English and French do not
 	# decline, so those repeat the name; the key exists so that every
@@ -365,6 +367,11 @@ const STRINGS := {
 	"ui_eat": {
 		EN: "eat", FR: "manger", RU: "поесть",
 	},
+	"say_chocolate": {
+		EN: "that is better",
+		FR: "ça va mieux",
+		RU: "так-то лучше",
+	},
 	"say_ate": {
 		EN: "that was good", FR: "c'était bon", RU: "вкусно",
 	},
@@ -477,6 +484,12 @@ const STRINGS := {
 		EN: "your friends come when you call",
 		FR: "tes amis viennent quand tu appelles",
 		RU: "друзья приходят на зов",
+	},
+	"shop_chocolate": {EN: "chocolate", FR: "chocolat", RU: "шоколадка"},
+	"shop_chocolate_what": {
+		EN: "a penny a bar, eat it anywhere",
+		FR: "une pièce, à manger n'importe où",
+		RU: "монета за плитку, съешь где угодно",
 	},
 	"shop_shears": {EN: "shears", FR: "tondeuse", RU: "ножницы"},
 	"shop_shears_what": {

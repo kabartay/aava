@@ -22,6 +22,7 @@ enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
 	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET, SHOP,
+	SNACK,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -101,6 +102,32 @@ func _draw() -> void:
 			_ticket(box)
 		Kind.SHOP:
 			_shop(box)
+		Kind.SNACK:
+			_snack(box)
+
+## A bar of chocolate, half unwrapped: the squares showing at one end and the
+## foil turned back at the other.
+func _snack(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var wide := unit * 0.34
+	var tall := unit * 0.2
+	draw_rect(Rect2(centre - Vector2(wide, tall), Vector2(wide * 1.5, tall * 2.0)), tint)
+	# The squares.
+	for line in 2:
+		var y := centre.y - tall + tall * (float(line) + 1.0) * 0.67
+		draw_line(Vector2(centre.x - wide, y), Vector2(centre.x + wide * 0.5, y), HOLE, maxf(1.5, unit * 0.03))
+	for column in 2:
+		var x := centre.x - wide + wide * 1.5 * (float(column) + 1.0) / 3.0
+		draw_line(Vector2(x, centre.y - tall), Vector2(x, centre.y + tall), HOLE, maxf(1.5, unit * 0.03))
+	# The foil, turned back.
+	var foil := PackedVector2Array([
+		centre + Vector2(wide * 0.5, -tall),
+		centre + Vector2(wide * 1.1, -tall * 1.35),
+		centre + Vector2(wide * 1.1, tall * 1.35),
+		centre + Vector2(wide * 0.5, tall),
+	])
+	draw_colored_polygon(foil, Color(tint.r, tint.g, tint.b, 0.5))
 
 ## A shopping basket with a coin over it: the button that opens the shop, shown
 ## while a child is standing at its counter. A basket alone could be a bin; the

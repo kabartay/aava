@@ -897,33 +897,42 @@ static func _wheel(
 	tool: SurfaceTool, at: Vector3, tyre_radius: float, tyre_width: float,
 	spokes: int, rubber: Color, metal: Color
 ) -> void:
+	# A torus and a cylinder both stand about +Y. A machine here faces -Z, so
+	# its wheels turn about X: the axle lies across the frame, and the wheel's
+	# own plane is the one the frame is drawn in. Turning them about X instead
+	# — which is what the first version did, copying the note on the old
+	# bicycle — stands each wheel across the machine like a roundabout, and
+	# from the saddle the bicycle reads as two discs bolted on sideways.
+	var upright := Basis(Vector3.FORWARD, deg_to_rad(90.0))
 	var tyre := TorusMesh.new()
 	tyre.inner_radius = tyre_radius - tyre_width
 	tyre.outer_radius = tyre_radius
 	tyre.rings = 16
 	tyre.ring_segments = 8
-	_add(tool, tyre, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(90.0)), at), rubber)
+	_add(tool, tyre, Transform3D(upright, at), rubber)
 	# The rim just inside the tyre, a shade brighter, so the two read apart.
 	var rim := TorusMesh.new()
 	rim.inner_radius = tyre_radius - tyre_width - 0.03
 	rim.outer_radius = tyre_radius - tyre_width + 0.01
 	rim.rings = 16
 	rim.ring_segments = 5
-	_add(tool, rim, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(90.0)), at), metal)
+	_add(tool, rim, Transform3D(upright, at), metal)
 	var hub := CylinderMesh.new()
 	hub.top_radius = tyre_width * 0.75
 	hub.bottom_radius = tyre_width * 0.75
 	hub.height = tyre_width * 1.6
 	hub.radial_segments = 8
-	_add(tool, hub, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(90.0)), at), metal)
+	_add(tool, hub, Transform3D(upright, at), metal)
 	for spoke in spokes:
+		# Spokes lie in the wheel's plane, which is the one containing Y and Z,
+		# so they are turned about X.
 		var angle := PI * float(spoke) / float(spokes)
 		var bar := CylinderMesh.new()
 		bar.top_radius = 0.012
 		bar.bottom_radius = 0.012
 		bar.height = (tyre_radius - tyre_width) * 2.0
 		bar.radial_segments = 4
-		_add(tool, bar, Transform3D(Basis(Vector3.FORWARD, angle), at), metal)
+		_add(tool, bar, Transform3D(Basis(Vector3.RIGHT, angle), at), metal)
 
 ## A bicycle, facing -Z.
 ##

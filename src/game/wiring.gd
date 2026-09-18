@@ -17,7 +17,7 @@ extends RefCounted
 const HANDLERS := [
 	&"place", &"kick_start", &"kick_release", &"jump", &"remove",
 	&"language", &"reset", &"care", &"shop", &"buy", &"drink", &"whistle", &"chop", &"ride", &"shoot_start", &"shoot_release", &"visit", &"dam",
-	&"ticket",
+	&"ticket", &"snack",
 ]
 
 static func connect_hud(
@@ -49,6 +49,7 @@ static func connect_hud(
 	hud.reset_requested.connect(handlers.get(&"reset", Callable()))
 	hud.care_pressed.connect(handlers.get(&"care", Callable()))
 	hud.shop_toggled.connect(handlers.get(&"shop", Callable()))
+	hud.snack_pressed.connect(handlers.get(&"snack", Callable()))
 	hud.shop_buy.connect(handlers.get(&"buy", Callable()))
 	hud.drink_pressed.connect(handlers.get(&"drink", Callable()))
 	hud.whistle_pressed.connect(handlers.get(&"whistle", Callable()))
