@@ -132,6 +132,7 @@ func _init(field: HeightField) -> void:
 	_add_destination(PlaceGlyph.Kind.POOL, PlaceSpec.centre_of(&"pool", camp))
 	_add_destination(PlaceGlyph.Kind.PITCH, Pitch.centre())
 	_add_destination(PlaceGlyph.Kind.RANGE, camp + PlaceSpec.RANGE_OFFSET)
+	_add_destination(PlaceGlyph.Kind.SHOP, PlaceSpec.centre_of(&"shop", camp))
 
 	# The player is always at the centre of his own map, so this is a fixed
 	# marker rather than something that has to be positioned each frame. An

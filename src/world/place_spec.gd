@@ -44,6 +44,14 @@ const OFFSETS := {
 	# arrow met a trunk before it met a target. Levelled like the rest, with
 	# room enough round it that the hill starts beyond the furthest butt.
 	&"range": RANGE_OFFSET,
+	# The shop. It had no place at all: the panel existed, nothing in the game
+	# opened it, and a child could not spend a coin they had earned. It stands
+	# in the one quarter of the valley nothing else uses, at about the distance
+	# the playground stands at — far enough that going shopping is an errand
+	# rather than something you fall over, and nowhere near the café, the
+	# playground or the pool. The ground here was chosen the way the range's
+	# was: the flattest, driest, most open patch in that quarter.
+	&"shop": Vector3(340.0, 0.0, 302.0),
 }
 
 ## How much flat ground each place needs, and how far out the levelling fades.
@@ -62,6 +70,7 @@ const RADIUS := {
 	# corners outside the level ground, which is where the first version's
 	# three and a half metres of slope came from.
 	&"range": 26.0,
+	&"shop": 15.0,
 }
 ## Half the width of the structure that actually stands at each place. The
 ## levelled radius has to comfortably exceed this, because the outer part of
@@ -72,6 +81,7 @@ const FOOTPRINT := {
 	&"cafe": 9.0,
 	&"pool": 13.0,
 	&"range": 16.0,
+	&"shop": 8.5,
 }
 
 ## How far the levelling fades back into the natural ground. Seven metres

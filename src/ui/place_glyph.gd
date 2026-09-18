@@ -13,7 +13,7 @@ extends Control
 ## map's edge pointing at itself, so the answer to "which way" is on the
 ## small map too, where a child actually looks.
 
-enum Kind {HOME, PLAYGROUND, CAFE, POOL, PITCH, RANGE}
+enum Kind {HOME, PLAYGROUND, CAFE, POOL, PITCH, RANGE, SHOP}
 
 const SIZE := 28.0
 const INK := Color(0.10, 0.08, 0.06)
@@ -26,6 +26,7 @@ const COLOURS := {
 	Kind.POOL: Color(0.42, 0.74, 0.94),
 	Kind.PITCH: Color(0.46, 0.82, 0.44),
 	Kind.RANGE: Color(0.80, 0.64, 0.90),
+	Kind.SHOP: Color(1.0, 0.86, 0.36),
 }
 
 var kind: Kind = Kind.HOME
@@ -114,3 +115,12 @@ func _draw() -> void:
 			draw_arc(centre, unit * 0.62, 0.0, TAU, 20, INK, maxf(1.5, unit * 0.14))
 			draw_arc(centre, unit * 0.34, 0.0, TAU, 14, INK, maxf(1.5, unit * 0.14))
 			draw_circle(centre, unit * 0.12, INK)
+		Kind.SHOP:
+			# An awning over a counter: the front of a shop, which is what you
+			# look for when you are trying to find one.
+			var wide := unit * 0.62
+			draw_line(centre + Vector2(-wide, -unit * 0.18), centre + Vector2(wide, -unit * 0.18), INK, maxf(1.5, unit * 0.16))
+			for scallop in 3:
+				var x := -wide + wide * (float(scallop) + 0.5) * 2.0 / 3.0
+				draw_arc(centre + Vector2(x, -unit * 0.1), unit * 0.2, 0.0, PI, 8, INK, maxf(1.5, unit * 0.1))
+			draw_line(centre + Vector2(-wide * 0.7, unit * 0.2), centre + Vector2(wide * 0.7, unit * 0.2), INK, maxf(1.5, unit * 0.14))

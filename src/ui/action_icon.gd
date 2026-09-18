@@ -21,7 +21,7 @@ extends Control
 enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
-	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET,
+	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET, SHOP,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -99,6 +99,29 @@ func _draw() -> void:
 			_row(box)
 		Kind.TICKET:
 			_ticket(box)
+		Kind.SHOP:
+			_shop(box)
+
+## A shopping basket with a coin over it: the button that opens the shop, shown
+## while a child is standing at its counter. A basket alone could be a bin; the
+## coin says what the basket is for.
+func _shop(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var thick := maxf(2.0, unit * 0.06)
+	# The basket: a tapered body, its rim, and the handle over it.
+	var rim_y := centre.y - unit * 0.02
+	var foot_y := centre.y + unit * 0.3
+	var half := unit * 0.3
+	draw_line(Vector2(centre.x - half, rim_y), Vector2(centre.x + half, rim_y), tint, thick)
+	draw_line(Vector2(centre.x - half, rim_y), Vector2(centre.x - half * 0.66, foot_y), tint, thick)
+	draw_line(Vector2(centre.x + half, rim_y), Vector2(centre.x + half * 0.66, foot_y), tint, thick)
+	draw_line(Vector2(centre.x - half * 0.66, foot_y), Vector2(centre.x + half * 0.66, foot_y), tint, thick)
+	draw_arc(Vector2(centre.x, rim_y), unit * 0.17, PI, TAU, 14, tint, thick)
+	# The coin, dropping in.
+	var coin_at := Vector2(centre.x + unit * 0.22, centre.y - unit * 0.3)
+	draw_circle(coin_at, unit * 0.13, tint)
+	draw_arc(coin_at, unit * 0.06, 0.0, TAU, 12, HOLE, maxf(1.5, unit * 0.03))
 
 ## A cross. The build button turns into this while the palette is open, which
 ## is the same button saying "shut this" — it used to say it in words, and the

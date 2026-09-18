@@ -441,6 +441,7 @@ const STRINGS := {
 		EN: "%s had a drink", FR: "%s a bu", RU: "%s пьёт",
 	},
 	"ui_shop": {EN: "shop", FR: "boutique", RU: "магазин"},
+	"place_shop": {EN: "the shop", FR: "la boutique", RU: "магазин"},
 	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
 	"ui_owned": {EN: "yours", FR: "à toi", RU: "твоё"},
 	"say_bought": {EN: "%s is yours", FR: "%s est à toi", RU: "%s теперь твой"},

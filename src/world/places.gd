@@ -23,7 +23,9 @@ const PLAYGROUND := &"playground"
 const POOL := &"pool"
 const CAFE := &"cafe"
 
-const ALL: Array[StringName] = [PLAYGROUND, POOL, CAFE]
+const SHOP := &"shop"
+
+const ALL: Array[StringName] = [PLAYGROUND, POOL, CAFE, SHOP]
 
 ## How close a child must be for a place to offer itself. The café is bigger
 ## than the others' reach: a child at a terrace table is at the café, and the
@@ -62,6 +64,28 @@ const CAFE_TERRACE: Array[Vector3] = [
 const CAFE_LAMPS: Array[Vector3] = [
 	Vector3(-6.4, 0.0, CAFE_TERRACE_Z + 1.6), Vector3(6.4, 0.0, CAFE_TERRACE_Z + 1.6),
 ]
+## The shop: one room with a counter, shelves of what is for sale, and a sign
+## over the door. Small on purpose — it is a village shop, not a supermarket —
+## and built like the café, with walls a child cannot walk through and a door
+## they walk in by.
+##
+## It faces -Z like the café, so the two read as the same kind of building.
+const SHOP_WIDTH := 8.4
+const SHOP_DEPTH := 6.4
+const SHOP_HEIGHT := 3.4
+const SHOP_MID_Z := 0.8
+const SHOP_DOOR_HALF := 0.85
+## Where the counter runs, and where the goods stand on the shelves behind it.
+const SHOP_COUNTER_Z := SHOP_MID_Z + 1.2
+## The hitching rail outside, because nothing is ridden through a doorway.
+const SHOP_RAIL_X := -5.6
+const SHOP_RAIL_Z := -2.2
+## The two lamps that light the front at dusk, like the café's and the
+## playground's.
+const SHOP_LAMPS: Array[Vector3] = [
+	Vector3(-4.6, 0.0, -4.4), Vector3(4.6, 0.0, -4.4),
+]
+
 ## How far from a seat a child may be and still be sat down at it.
 const CAFE_SEAT_REACH := 6.0
 
@@ -278,6 +302,10 @@ var _meals: Array[Dictionary] = []
 var _cafe_solid: StaticBody3D = null
 var _cafe_walls: StaticBody3D = null
 var _pitch_solid: StaticBody3D = null
+## The shop's own collision: its furniture, and its walls, which the camera
+## stops at the way it stops at the café's.
+var _shop_solid: StaticBody3D = null
+var _shop_walls: StaticBody3D = null
 ## The pool's furniture, its turnstile — solid until paid, and for a while
 ## after — and its arms, which turn while it is open.
 var _pool_solid: StaticBody3D = null
@@ -665,6 +693,158 @@ func _place(place: StringName, at: Vector3) -> void:
 		CAFE:
 			_build_cafe(spot)
 			_note_cafe_obstacles(spot)
+		SHOP:
+			_build_shop(spot)
+			_obstacles.append(_obstacle_group(spot, [
+				Vector3(0.0, SHOP_WIDTH * 0.5 + 0.6, SHOP_MID_Z),
+				Vector3(SHOP_RAIL_X, 0.4, SHOP_RAIL_Z),
+			]))
+
+## The shop: a room with a counter, shelves with the stock standing on them, a
+## sign over the door and a hitching rail outside for the horse.
+##
+## Every wall is solid and the door is a hole in one, so a child walks in the
+## way they walk into the café. What is on the shelves is drawn from the shop's
+## own list, in each item's own colour, so the shelves cannot say one thing
+## while the counter sells another.
+func _build_shop(at: Vector3) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var solid := StaticBody3D.new()
+	solid.collision_layer = TerrainSpec.LAYER_PROPS
+	var walls := StaticBody3D.new()
+	walls.collision_layer = TerrainSpec.LAYER_PROPS | TerrainSpec.LAYER_WALLS
+
+	var timber := Color(0.70, 0.52, 0.34)
+	var plaster := Color(0.94, 0.90, 0.80)
+	var roof := Color(0.42, 0.30, 0.24)
+	var counter := Color(0.58, 0.40, 0.26)
+
+	var w := SHOP_WIDTH
+	var d := SHOP_DEPTH
+	var h := SHOP_HEIGHT
+	var mid := SHOP_MID_Z
+	var front := mid - d * 0.5
+	var back := mid + d * 0.5
+	var thick := 0.2
+
+	# The floor, then three whole walls and a front wall with a doorway in it.
+	var floor_slab := BoxMesh.new()
+	floor_slab.size = Vector3(w, 0.12, d)
+	_add(tool, floor_slab, Transform3D(Basis(), Vector3(0.0, 0.06, mid)), timber.lightened(0.2))
+	_wall(tool, walls, Vector3(w, h, thick), Vector3(0.0, h * 0.5, back), plaster)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_wall(tool, walls, Vector3(thick, h, d), Vector3(side * w * 0.5, h * 0.5, mid), plaster)
+		var segment_w := w * 0.5 - SHOP_DOOR_HALF
+		_wall(
+			tool, walls, Vector3(segment_w, h, thick),
+			Vector3(side * (SHOP_DOOR_HALF + segment_w * 0.5), h * 0.5, front), plaster
+		)
+	# Over the door: a lintel, so the doorway is a doorway rather than a gap
+	# running to the roof.
+	_wall(tool, walls, Vector3(SHOP_DOOR_HALF * 2.0 + 0.3, h - 2.4, thick), Vector3(0.0, (2.4 + h) * 0.5, front), plaster)
+	var ceiling := BoxMesh.new()
+	ceiling.size = Vector3(w, 0.12, d)
+	_add(tool, ceiling, Transform3D(Basis(), Vector3(0.0, h, mid)), plaster.darkened(0.1))
+	# A pitched roof, a little wider than the walls so it reads as a roof.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var slope := BoxMesh.new()
+		slope.size = Vector3(w * 0.62, 0.14, d + 0.9)
+		_add(tool, slope, Transform3D(
+			Basis(Vector3.FORWARD, side * deg_to_rad(28.0)),
+			Vector3(side * w * 0.24, h + 0.62, mid)
+		), roof)
+
+	# The counter across the back of the room, and the shelves behind it with
+	# the stock standing on them.
+	var top := BoxMesh.new()
+	top.size = Vector3(w - 1.6, 0.14, 0.8)
+	_collide(solid, BoxShape3D.new(), Transform3D(Basis(), Vector3(0.0, 0.5, SHOP_COUNTER_Z)))
+	(solid.get_child(solid.get_child_count() - 1).shape as BoxShape3D).size = Vector3(w - 1.6, 1.0, 0.8)
+	_add(tool, top, Transform3D(Basis(), Vector3(0.0, 1.0, SHOP_COUNTER_Z)), counter)
+	var front_panel := BoxMesh.new()
+	front_panel.size = Vector3(w - 1.6, 0.94, 0.12)
+	_add(tool, front_panel, Transform3D(Basis(), Vector3(0.0, 0.47, SHOP_COUNTER_Z - 0.34)), counter.darkened(0.15))
+	for level in 2:
+		var shelf := BoxMesh.new()
+		shelf.size = Vector3(w - 2.0, 0.08, 0.34)
+		_add(tool, shelf, Transform3D(Basis(), Vector3(0.0, 1.5 + float(level) * 0.72, back - 0.34)), timber)
+	# What is for sale, standing on the shelves in its own colour.
+	var goods := ShopStock.ALL
+	for i in goods.size():
+		var box := BoxMesh.new()
+		box.size = Vector3(0.34, 0.34, 0.26)
+		var across := w - 2.6
+		var x := -across * 0.5 + across * (float(i) + 0.5) / float(goods.size())
+		var level := 0 if i % 2 == 0 else 1
+		_add(tool, box, Transform3D(
+			Basis(), Vector3(x, 1.54 + float(level) * 0.72 + 0.17, back - 0.34)
+		), ShopStock.colour(goods[i]))
+
+	# Outside: a sign over the door, an awning, a barrel, and a rail to tie a
+	# horse to — nothing is ridden through a doorway.
+	var sign := BoxMesh.new()
+	sign.size = Vector3(3.0, 0.7, 0.12)
+	_add(tool, sign, Transform3D(Basis(), Vector3(0.0, 2.85, front - 0.14)), timber.darkened(0.2))
+	var coin := CylinderMesh.new()
+	coin.top_radius = 0.22
+	coin.bottom_radius = 0.22
+	coin.height = 0.06
+	coin.radial_segments = 12
+	_add(tool, coin, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.0, 2.85, front - 0.22)), Color(1.0, 0.86, 0.36))
+	var awning := BoxMesh.new()
+	awning.size = Vector3(w * 0.7, 0.1, 1.2)
+	_add(tool, awning, Transform3D(
+		Basis(Vector3.RIGHT, deg_to_rad(-12.0)), Vector3(0.0, 2.45, front - 0.7)
+	), Color(0.86, 0.36, 0.30))
+	var barrel := CylinderMesh.new()
+	barrel.top_radius = 0.34
+	barrel.bottom_radius = 0.34
+	barrel.height = 0.9
+	barrel.radial_segments = 10
+	_add(tool, barrel, Transform3D(Basis(), Vector3(w * 0.5 - 0.9, 0.45, front - 0.8)), timber.darkened(0.1))
+	_collide(solid, _box_shape(Vector3(0.68, 0.9, 0.68)), Transform3D(Basis(), Vector3(w * 0.5 - 0.9, 0.45, front - 0.8)))
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var post := CylinderMesh.new()
+		post.top_radius = 0.07
+		post.bottom_radius = 0.08
+		post.height = 1.2
+		post.radial_segments = 6
+		_add(tool, post, Transform3D(Basis(), Vector3(SHOP_RAIL_X + side * 1.4, 0.6, SHOP_RAIL_Z)), timber)
+	var rail := BoxMesh.new()
+	rail.size = Vector3(2.9, 0.1, 0.1)
+	_add(tool, rail, Transform3D(Basis(), Vector3(SHOP_RAIL_X, 1.1, SHOP_RAIL_Z)), timber)
+	_collide(solid, _box_shape(Vector3(2.9, 1.2, 0.2)), Transform3D(Basis(), Vector3(SHOP_RAIL_X, 0.6, SHOP_RAIL_Z)))
+
+	tool.generate_normals()
+	tool.set_material(_material())
+	var mesh := MeshInstance3D.new()
+	mesh.mesh = tool.commit()
+	mesh.position = at
+	add_child(mesh)
+	solid.position = at
+	walls.position = at
+	add_child(solid)
+	add_child(walls)
+	_shop_solid = solid
+	_shop_walls = walls
+
+	for lamp_at in SHOP_LAMPS:
+		_build_lamp(tool, at + lamp_at, at, solid, 0.5, 3.6, 9.0, 2.2)
+
+## A box shape of a given size, because three lines of it read as noise.
+static func _box_shape(size: Vector3) -> BoxShape3D:
+	var shape := BoxShape3D.new()
+	shape.size = size
+	return shape
+
+## How many solid pieces the shop has, and how many of its walls the camera
+## stops at. For the checks.
+func shop_solid_count() -> int:
+	return 0 if _shop_solid == null else _shop_solid.get_child_count()
+
+func shop_wall_count() -> int:
+	return 0 if _shop_walls == null else _shop_walls.get_child_count()
 
 ## Two swing frames, a slide with a ladder, a hedge round the lot and a tree at
 ## each corner — a playground rather than a swing standing in a field.

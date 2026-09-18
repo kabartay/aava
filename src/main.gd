@@ -732,7 +732,7 @@ func _carry(delta: float, at: Vector3) -> void:
 ## What the place a child is standing in is offering, as a label — or nothing.
 func _offer_at(place: StringName) -> StringName:
 	match place:
-		Places.PLAYGROUND, Places.CAFE:
+		Places.PLAYGROUND, Places.CAFE, Places.SHOP:
 			return place
 		_:
 			# The pool needs no button: a child walks in and swims. Offering
@@ -883,6 +883,11 @@ func _on_place_used() -> void:
 				sounds.play(Sounds.Sound.JUMP, 1.0 + 0.5 * effort)
 		Places.CAFE:
 			_eat()
+		Places.SHOP:
+			# The shop opens where the shop is. The panel existed from the day
+			# it was written and nothing in the game ever opened it: a child
+			# could earn coins and never spend one.
+			hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
 
 ## A meal at the café: coins for energy. This closes the energy loop from the
 ## other end — animals earn coins, the café turns coins back into a full bar.

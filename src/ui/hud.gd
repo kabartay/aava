@@ -622,9 +622,12 @@ func set_place_offer(place: StringName) -> void:
 	if wanted:
 		var face := _face_of(_visit_button)
 		if face != null:
-			face.show_kind(
-				ActionIcon.Kind.EAT if place == Places.CAFE else ActionIcon.Kind.SWING
-			)
+			var which := ActionIcon.Kind.SWING
+			if place == Places.CAFE:
+				which = ActionIcon.Kind.EAT
+			elif place == Places.SHOP:
+				which = ActionIcon.Kind.SHOP
+			face.show_kind(which)
 	if _visit_button.visible != wanted:
 		_visit_button.visible = wanted
 		_layout()

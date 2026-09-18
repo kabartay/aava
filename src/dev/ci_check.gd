@@ -64,6 +64,7 @@ func _initialize() -> void:
 	_check_the_swing_is_pumped()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
+	_check_the_shop_is_somewhere_you_walk_to()
 	_check_the_range_is_clear()
 	_check_the_bow_can_be_aimed()
 	_check_swimming_looks_like_swimming()
@@ -610,7 +611,7 @@ func _check_the_map_bakes_off_thread() -> void:
 	map.wait_for_bake()
 	map.track(camp, 0.0, [] as Array[Vector3])
 	_expect(map.is_drawn(), "and is once the bake is collected")
-	_expect(map._destinations.size() == 6, "six destinations are marked")
+	_expect(map._destinations.size() == 7, "%d destinations are marked, the shop among them" % map._destinations.size())
 	var home: PlaceGlyph = map._destinations[0]["glyph"]
 	var playground: PlaceGlyph = map._destinations[1]["glyph"]
 	_expect(not home.pointing, "standing at the camp, home is on the map itself")
@@ -2133,6 +2134,75 @@ func _check_the_terrace_is_off_the_doorstep() -> void:
 		for table in Places.CAFE_TERRACE:
 			to_table = minf(to_table, Vector2(lamp.x - table.x, lamp.z - table.z).length())
 		_expect(to_table < 5.0, "a lamp stands %.1f m from a table it lights" % to_table)
+
+## The shop is a building a child can walk to, and the button that opens it is
+## the one they press standing in it.
+##
+## It had no door of its own at all. The panel was written, the prices were
+## checked, the close button worked — and nothing in the whole game ever opened
+## it. A child could earn coins for a week and never spend one. Nothing caught
+## it because every check asked about the contents of the shop and none asked
+## whether a child could get in.
+func _check_the_shop_is_somewhere_you_walk_to() -> void:
+	print("the shop is somewhere you walk to")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+
+	_expect(places.exists(Places.SHOP), "the shop is a place in the valley")
+	var spot := places.position_of(Places.SHOP)
+
+	# Its own quarter of the map: an errand, not something to fall over, and
+	# not crowding the café, the playground or the pool.
+	var from_camp := Vector2(spot.x - camp.x, spot.z - camp.z).length()
+	_expect(from_camp > 300.0, "%.0f m from the camp, which makes going shopping an errand" % from_camp)
+	for other: StringName in [Places.PLAYGROUND, Places.CAFE, Places.POOL]:
+		var apart := Vector2(
+			spot.x - places.position_of(other).x, spot.z - places.position_of(other).z
+		).length()
+		_expect(apart > 200.0, "%.0f m from %s" % [apart, other])
+	# At about the distance the other far places stand at, as asked for.
+	var playground_out := Vector2(
+		places.position_of(Places.PLAYGROUND).x - camp.x,
+		places.position_of(Places.PLAYGROUND).z - camp.z
+	).length()
+	_expect(
+		from_camp > playground_out * 0.8 and from_camp < playground_out * 1.4,
+		"a comparable walk to the playground's %.0f m" % playground_out
+	)
+
+	# Level ground under it, like every other place, and a building on it.
+	var fall := 0.0
+	var lowest := 1e9
+	var highest := -1e9
+	for step in 12:
+		var a := TAU * float(step) / 12.0
+		var at := spot + Vector3(cos(a), 0.0, sin(a)) * float(PlaceSpec.FOOTPRINT[&"shop"])
+		lowest = minf(lowest, field.height_at(at.x, at.z))
+		highest = maxf(highest, field.height_at(at.x, at.z))
+	fall = highest - lowest
+	_expect(fall < 0.05, "its ground is flat to %.3f m across the whole footprint" % fall)
+	_expect(places.shop_solid_count() > 0, "the shop has %d solid pieces inside and out" % places.shop_solid_count())
+	_expect(places.shop_wall_count() >= 4, "and %d walls, which the camera stops at" % places.shop_wall_count())
+	_expect(
+		(places._shop_walls.collision_layer & TerrainSpec.LAYER_WALLS) != 0,
+		"the walls are on the layer the camera arm watches"
+	)
+
+	# Standing at the counter offers the shop, and standing anywhere else does
+	# not. This is the assertion that was missing.
+	_expect(places.nearest(spot) == Places.SHOP, "a child standing in it is offered the shop")
+	_expect(
+		places.nearest(spot + Vector3(40.0, 0.0, 0.0)) != Places.SHOP,
+		"and one forty metres away is not"
+	)
+
+	# Nothing is ridden in through the doorway; there is a rail outside to tie
+	# a horse to instead.
+	_expect(Places.SHOP_RAIL_X != 0.0 or Places.SHOP_RAIL_Z != 0.0, "there is a hitching rail outside")
+	places.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
@@ -3959,7 +4029,11 @@ func _check_places_worth_walking_to() -> void:
 	_expect(places.fountain_plays(), "and the fountain has a jet")
 	# The lamps: dark by day, all three lit once it is properly night, and
 	# dark again by morning.
-	_expect(places.lamp_count() == Places.LAMPS.size() + Places.CAFE_LAMPS.size() + Places.POOL_LAMPS.size() + 4, "%d lamps: round the pad, at the café, at the pool, and the pitch's four floodlights" % places.lamp_count())
+	var lamps_wanted := (
+		Places.LAMPS.size() + Places.CAFE_LAMPS.size() + Places.POOL_LAMPS.size()
+		+ Places.SHOP_LAMPS.size() + 4
+	)
+	_expect(places.lamp_count() == lamps_wanted, "%d lamps: round the pad, at the café, at the pool, at the shop, and the pitch's four floodlights" % places.lamp_count())
 	_expect(places.pitch_lamp_count() == 4, "a floodlight at each corner of the pitch")
 	places.light_lamps(0.0, 10.0)
 	_expect(places.lamps_lit() == 0, "unlit in daylight")
@@ -4926,6 +5000,7 @@ func _check_it_will_run_on_a_tablet() -> void:
 	for face: String in [
 		"JUMP", "KICK", "BUILD", "CLOSE", "DRINK", "WHISTLE", "CHOP", "RIDE",
 		"GET_OFF", "SHOOT", "SWING", "EAT", "GIVE_STICK", "FEED_FIRE", "SLEEP", "TALK",
+		"TICKET", "SHOP",
 	]:
 		if not icon_source.contains("Kind.%s:" % face):
 			drawn = false
