@@ -1258,12 +1258,19 @@ func _layout() -> void:
 		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
 
-	# The shelf is given at most half the screen, so the heading and the way out
-	# are always on it however much the shop comes to stock.
+	# The shelf takes what is left of the screen after everything that has to be
+	# on it: the heading above, and the name, the line about it, the buying
+	# button and the way out below. Measured in rows of pictures rather than in
+	# pictures — nine things in three columns is three rows, not nine — because
+	# the first version asked for nine rows' worth of room, ran off the bottom
+	# of the screen, and hid its own last row behind the way out.
 	if _shop_shelf != null:
+		var rows := ceili(float(ShopStock.ALL.size()) / float(SHOP_COLUMNS))
+		var tile_height := BUTTON * 1.62 + 10.0
+		var shelf_room := safe.size.y - BUTTON * 3.6
 		_shop_shelf.custom_minimum_size = Vector2(
 			float(SHOP_COLUMNS) * (BUTTON * 1.5 + 10.0),
-			minf(safe.size.y * 0.5, float(ShopStock.ALL.size()) * BUTTON * 0.62)
+			minf(float(rows) * tile_height + 6.0, maxf(shelf_room, BUTTON * 2.0))
 		)
 	_shop.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _shop.size.x * 0.5,
