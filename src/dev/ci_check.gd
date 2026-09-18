@@ -2198,6 +2198,35 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	fall = highest - lowest
 	_expect(fall < 0.05, "its ground is flat to %.3f m across the whole footprint" % fall)
 	_expect(places.shop_solid_count() > 0, "the shop has %d solid pieces inside and out" % places.shop_solid_count())
+
+	# Big enough to walk round the stock in, and stocked with the stock: what
+	# a child is saving up for stands on the floor of the shop, in its own
+	# colours, rather than being a coloured box on a shelf.
+	_expect(
+		Places.SHOP_WIDTH * Places.SHOP_DEPTH > 180.0,
+		"its floor is %.0f square metres" % (Places.SHOP_WIDTH * Places.SHOP_DEPTH)
+	)
+	_expect(
+		Places.SHOP_BICYCLES >= 2 and Places.SHOP_MOTORCYCLES >= 1,
+		"%d bicycles and %d motorcycles stand in it" % [Places.SHOP_BICYCLES, Places.SHOP_MOTORCYCLES]
+	)
+	_expect(Places.SHOP_STAND_Z.size() >= 2, "and the small goods are out on stands")
+
+	# Everything the shop sells has a name, a price, a picture for the panel and
+	# a shape for the shelf. A thing you can buy and cannot see is a thing a
+	# child never buys.
+	var stocked := true
+	for item in ShopStock.ALL:
+		if ShopStock.price(item) <= 0:
+			stocked = false
+			printerr("  %s costs nothing" % item)
+		for code: StringName in [Text.EN, Text.FR, Text.RU]:
+			Text.set_language(code)
+			if ShopStock.label(item).begins_with("?") or ShopStock.description(item).begins_with("?"):
+				stocked = false
+				printerr("  %s has no words in %s" % [item, code])
+	Text.set_language(Text.EN)
+	_expect(stocked, "every one of the %d things for sale is priced and named" % ShopStock.ALL.size())
 	_expect(places.shop_wall_count() >= 4, "and %d walls, which the camera stops at" % places.shop_wall_count())
 	_expect(
 		(places._shop_walls.collision_layer & TerrainSpec.LAYER_WALLS) != 0,

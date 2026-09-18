@@ -70,20 +70,31 @@ const CAFE_LAMPS: Array[Vector3] = [
 ## they walk in by.
 ##
 ## It faces -Z like the café, so the two read as the same kind of building.
-const SHOP_WIDTH := 8.4
-const SHOP_DEPTH := 6.4
-const SHOP_HEIGHT := 3.4
-const SHOP_MID_Z := 0.8
-const SHOP_DOOR_HALF := 0.85
+## Twice the floor it started with: a room a child walks around in, with the
+## machines standing on the floor and the small goods out on stands, rather
+## than a hut with a counter across it.
+const SHOP_WIDTH := 16.8
+const SHOP_DEPTH := 12.8
+const SHOP_HEIGHT := 4.4
+const SHOP_MID_Z := 1.6
+const SHOP_DOOR_HALF := 1.3
 ## Where the counter runs, and where the goods stand on the shelves behind it.
-const SHOP_COUNTER_Z := SHOP_MID_Z + 1.2
+const SHOP_COUNTER_Z := SHOP_MID_Z + 4.2
+## What stands on the floor for sale, and where. Five bicycles along one wall
+## and two motorcycles along the other: a shop with the thing you are saving up
+## for standing in it is worth the walk, and a shop with a coloured box on a
+## shelf is not.
+const SHOP_BICYCLES := 5
+const SHOP_MOTORCYCLES := 2
+## The two stands down the middle, where the small goods are laid out.
+const SHOP_STAND_Z: Array[float] = [-2.2, 1.4]
 ## The hitching rail outside, because nothing is ridden through a doorway.
-const SHOP_RAIL_X := -5.6
-const SHOP_RAIL_Z := -2.2
+const SHOP_RAIL_X := -10.4
+const SHOP_RAIL_Z := -4.4
 ## The two lamps that light the front at dusk, like the café's and the
 ## playground's.
 const SHOP_LAMPS: Array[Vector3] = [
-	Vector3(-4.6, 0.0, -4.4), Vector3(4.6, 0.0, -4.4),
+	Vector3(-8.4, 0.0, -8.6), Vector3(8.4, 0.0, -8.6),
 ]
 
 ## How far from a seat a child may be and still be sat down at it.
@@ -718,10 +729,17 @@ func _build_shop(at: Vector3) -> void:
 	var walls := StaticBody3D.new()
 	walls.collision_layer = TerrainSpec.LAYER_PROPS | TerrainSpec.LAYER_WALLS
 
-	var timber := Color(0.70, 0.52, 0.34)
-	var plaster := Color(0.94, 0.90, 0.80)
-	var roof := Color(0.42, 0.30, 0.24)
+	# A different palette from the café's cream and red, and a different shape:
+	# the café is a long low building with an awning, so a shop built the same
+	# way was the café with other furniture in it. This one is a tall gabled
+	# barn — green boards, a dark shingled roof, a deep porch across the whole
+	# front and a gable end facing the road.
+	var timber := Color(0.36, 0.44, 0.34)
+	var plaster := Color(0.88, 0.86, 0.76)
+	var roof := Color(0.32, 0.26, 0.28)
 	var counter := Color(0.58, 0.40, 0.26)
+	var glass := Color(0.62, 0.78, 0.86)
+	var stone := Color(0.66, 0.64, 0.60)
 
 	var w := SHOP_WIDTH
 	var d := SHOP_DEPTH
@@ -749,14 +767,69 @@ func _build_shop(at: Vector3) -> void:
 	var ceiling := BoxMesh.new()
 	ceiling.size = Vector3(w, 0.12, d)
 	_add(tool, ceiling, Transform3D(Basis(), Vector3(0.0, h, mid)), plaster.darkened(0.1))
-	# A pitched roof, a little wider than the walls so it reads as a roof.
+	# A gabled roof running front to back, so what faces a child walking up is
+	# a gable end with a window in it rather than a long eave. The café's roof
+	# runs the other way; that alone tells the two buildings apart at distance.
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		var slope := BoxMesh.new()
-		slope.size = Vector3(w * 0.62, 0.14, d + 0.9)
+		slope.size = Vector3(w * 0.62, 0.16, d + 1.6)
 		_add(tool, slope, Transform3D(
-			Basis(Vector3.FORWARD, side * deg_to_rad(28.0)),
-			Vector3(side * w * 0.24, h + 0.62, mid)
+			Basis(Vector3.FORWARD, side * deg_to_rad(34.0)),
+			Vector3(side * w * 0.23, h + 0.7, mid)
 		), roof)
+	# The gables themselves, filling the triangle under the ridge at each end.
+	for end in PackedFloat32Array([-1.0, 1.0]):
+		for course in 5:
+			var band := BoxMesh.new()
+			var width := w * (1.0 - float(course) * 0.19)
+			band.size = Vector3(width, 0.28, 0.18)
+			_add(tool, band, Transform3D(
+				Basis(), Vector3(0.0, h + 0.16 + float(course) * 0.28, mid + end * (d * 0.5 + 0.02))
+			), plaster if course % 2 == 0 else plaster.darkened(0.06))
+	var ridge := BoxMesh.new()
+	ridge.size = Vector3(0.24, 0.24, d + 1.7)
+	_add(tool, ridge, Transform3D(Basis(), Vector3(0.0, h + 1.46, mid)), roof.darkened(0.2))
+
+	# A deep porch across the front: posts, a floor and a shallow roof. This is
+	# what makes it read as a shop you walk up to rather than a shed with a
+	# door in it.
+	var porch_z := front - 2.4
+	var deck := BoxMesh.new()
+	deck.size = Vector3(w + 0.6, 0.18, 2.6)
+	_add(tool, deck, Transform3D(Basis(), Vector3(0.0, 0.09, front - 1.3)), timber.lightened(0.25))
+	for post_at in PackedFloat32Array([-w * 0.45, -w * 0.15, w * 0.15, w * 0.45]):
+		var post := CylinderMesh.new()
+		post.top_radius = 0.1
+		post.bottom_radius = 0.12
+		post.height = 2.9
+		post.radial_segments = 6
+		_add(tool, post, Transform3D(Basis(), Vector3(post_at, 1.45, porch_z)), timber.darkened(0.15))
+		_collide(solid, _box_shape(Vector3(0.24, 2.9, 0.24)), Transform3D(Basis(), Vector3(post_at, 1.45, porch_z)))
+	var porch_roof := BoxMesh.new()
+	porch_roof.size = Vector3(w + 0.8, 0.16, 2.8)
+	_add(tool, porch_roof, Transform3D(
+		Basis(Vector3.RIGHT, deg_to_rad(-8.0)), Vector3(0.0, 3.0, front - 1.3)
+	), roof)
+	# Steps up to it.
+	for tread in 2:
+		var step := BoxMesh.new()
+		step.size = Vector3(3.6, 0.1, 0.5)
+		_add(tool, step, Transform3D(
+			Basis(), Vector3(0.0, 0.05 + float(tread) * 0.06, porch_z - 0.7 + float(tread) * 0.5)
+		), stone)
+
+	# Display windows either side of the door, which is the other half of what
+	# makes a shop a shop: you can see in before you go in.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var pane := BoxMesh.new()
+		pane.size = Vector3(w * 0.28, 1.5, 0.08)
+		_add(tool, pane, Transform3D(
+			Basis(), Vector3(side * w * 0.28, 1.9, front - 0.06)
+		), glass)
+		var frame_top := BoxMesh.new()
+		frame_top.size = Vector3(w * 0.3, 0.14, 0.14)
+		_add(tool, frame_top, Transform3D(Basis(), Vector3(side * w * 0.28, 2.72, front - 0.06)), timber)
+		_add(tool, frame_top, Transform3D(Basis(), Vector3(side * w * 0.28, 1.08, front - 0.06)), timber)
 
 	# The counter across the back of the room, and the shelves behind it with
 	# the stock standing on them.
@@ -768,21 +841,55 @@ func _build_shop(at: Vector3) -> void:
 	var front_panel := BoxMesh.new()
 	front_panel.size = Vector3(w - 1.6, 0.94, 0.12)
 	_add(tool, front_panel, Transform3D(Basis(), Vector3(0.0, 0.47, SHOP_COUNTER_Z - 0.34)), counter.darkened(0.15))
-	for level in 2:
+	for level in 3:
 		var shelf := BoxMesh.new()
-		shelf.size = Vector3(w - 2.0, 0.08, 0.34)
-		_add(tool, shelf, Transform3D(Basis(), Vector3(0.0, 1.5 + float(level) * 0.72, back - 0.34)), timber)
-	# What is for sale, standing on the shelves in its own colour.
-	var goods := ShopStock.ALL
-	for i in goods.size():
-		var box := BoxMesh.new()
-		box.size = Vector3(0.34, 0.34, 0.26)
-		var across := w - 2.6
-		var x := -across * 0.5 + across * (float(i) + 0.5) / float(goods.size())
-		var level := 0 if i % 2 == 0 else 1
-		_add(tool, box, Transform3D(
-			Basis(), Vector3(x, 1.54 + float(level) * 0.72 + 0.17, back - 0.34)
-		), ShopStock.colour(goods[i]))
+		shelf.size = Vector3(w - 2.0, 0.08, 0.4)
+		_add(tool, shelf, Transform3D(Basis(), Vector3(0.0, 1.5 + float(level) * 0.8, back - 0.36)), timber)
+
+	# The machines, standing on the floor where a child can walk round them.
+	# Their own meshes, not coloured boxes: what you are saving up for should be
+	# in the shop, visibly, or the shop is a menu with walls.
+	for i in SHOP_BICYCLES:
+		var along := -w * 0.5 + 1.6 + float(i) * ((w - 3.2) / float(maxi(SHOP_BICYCLES - 1, 1)))
+		_add_as_drawn(
+			tool, MountKinds.build_mesh(MountKinds.BICYCLE),
+			Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), Vector3(along, 0.12, mid - d * 0.5 + 1.5))
+		)
+	for i in SHOP_MOTORCYCLES:
+		var along := -3.4 + float(i) * 6.8
+		_add_as_drawn(
+			tool, MountKinds.build_mesh(MountKinds.MOTORCYCLE),
+			Transform3D(Basis(Vector3.UP, deg_to_rad(-90.0)), Vector3(along, 0.12, mid + 1.0))
+		)
+
+	# Two stands down the middle with the small goods laid out on them, and the
+	# same goods again on the shelves behind the counter.
+	var small: Array[StringName] = []
+	for item in ShopStock.ALL:
+		if item != ShopStock.BICYCLE and item != ShopStock.MOTORCYCLE:
+			small.append(item)
+	for stand in SHOP_STAND_Z.size():
+		var top_at: float = SHOP_STAND_Z[stand]
+		var table := BoxMesh.new()
+		table.size = Vector3(w * 0.42, 0.12, 1.1)
+		_add(tool, table, Transform3D(Basis(), Vector3(0.0, 0.95, top_at)), timber)
+		_collide(solid, _box_shape(Vector3(w * 0.42, 0.95, 1.1)), Transform3D(Basis(), Vector3(0.0, 0.48, top_at)))
+		for leg in 4:
+			var post := BoxMesh.new()
+			post.size = Vector3(0.12, 0.9, 0.12)
+			_add(tool, post, Transform3D(Basis(), Vector3(
+				(-1.0 if leg % 2 == 0 else 1.0) * (w * 0.2),
+				0.45,
+				top_at + (-0.45 if leg < 2 else 0.45)
+			)), timber.darkened(0.2))
+		for i in small.size():
+			var across := w * 0.36
+			var x := -across * 0.5 + across * (float(i) + 0.5) / float(small.size())
+			_add_goods(tool, small[i], Vector3(x, 1.01, top_at))
+	for i in small.size():
+		var across := w - 3.0
+		var x := -across * 0.5 + across * (float(i) + 0.5) / float(small.size())
+		_add_goods(tool, small[i], Vector3(x, 1.58 + float(i % 3) * 0.8, back - 0.36))
 
 	# Outside: a sign over the door, an awning, a barrel, and a rail to tie a
 	# horse to — nothing is ridden through a doorway.
@@ -819,6 +926,11 @@ func _build_shop(at: Vector3) -> void:
 	_add(tool, rail, Transform3D(Basis(), Vector3(SHOP_RAIL_X, 1.1, SHOP_RAIL_Z)), timber)
 	_collide(solid, _box_shape(Vector3(2.9, 1.2, 0.2)), Transform3D(Basis(), Vector3(SHOP_RAIL_X, 0.6, SHOP_RAIL_Z)))
 
+	# Somebody behind the counter. They do nothing — the shop opens from the
+	# button the way every other place does — but a shop with nobody in it is a
+	# warehouse, and a child expects to be sold to by a person.
+	_build_shopkeeper(tool, Vector3(1.2, 0.0, SHOP_COUNTER_Z + 0.9))
+
 	tool.generate_normals()
 	tool.set_material(_material())
 	var mesh := MeshInstance3D.new()
@@ -834,6 +946,155 @@ func _build_shop(at: Vector3) -> void:
 
 	for lamp_at in SHOP_LAMPS:
 		_build_lamp(tool, at + lamp_at, at, solid, 0.5, 3.6, 9.0, 2.2)
+
+## The shopkeeper: an apron, a shirt, a head and a cap, standing behind the
+## counter. Built from the same primitives as everything else here and at the
+## same scale as a child, so the two read as the same kind of creature.
+static func _build_shopkeeper(tool: SurfaceTool, at: Vector3) -> void:
+	var apron := Color(0.78, 0.74, 0.62)
+	var shirt := Color(0.34, 0.46, 0.58)
+	var skin := Color(0.92, 0.76, 0.62)
+	var cap := Color(0.42, 0.34, 0.28)
+
+	var body := CapsuleMesh.new()
+	body.radius = 0.24
+	body.height = 0.9
+	body.radial_segments = 10
+	body.rings = 4
+	_add(tool, body, Transform3D(Basis(), at + Vector3(0.0, 0.92, 0.0)), shirt)
+	# The apron over the front of it, which is what says shopkeeper rather than
+	# child.
+	var pinafore := BoxMesh.new()
+	pinafore.size = Vector3(0.42, 0.62, 0.1)
+	_add(tool, pinafore, Transform3D(Basis(), at + Vector3(0.0, 0.78, -0.2)), apron)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var arm := CapsuleMesh.new()
+		arm.radius = 0.075
+		arm.height = 0.5
+		arm.radial_segments = 6
+		arm.rings = 3
+		_add(tool, arm, Transform3D(
+			Basis(Vector3.FORWARD, side * deg_to_rad(14.0)),
+			at + Vector3(side * 0.3, 1.0, -0.04)
+		), shirt)
+	var head := SphereMesh.new()
+	head.radius = 0.19
+	head.height = 0.36
+	head.radial_segments = 10
+	head.rings = 6
+	_add(tool, head, Transform3D(Basis(), at + Vector3(0.0, 1.56, 0.0)), skin)
+	var brim := CylinderMesh.new()
+	brim.top_radius = 0.24
+	brim.bottom_radius = 0.24
+	brim.height = 0.04
+	brim.radial_segments = 10
+	_add(tool, brim, Transform3D(Basis(), at + Vector3(0.0, 1.7, 0.0)), cap)
+	var crown := CylinderMesh.new()
+	crown.top_radius = 0.16
+	crown.bottom_radius = 0.18
+	crown.height = 0.16
+	crown.radial_segments = 10
+	_add(tool, crown, Transform3D(Basis(), at + Vector3(0.0, 1.78, 0.0)), cap)
+	# A leg apiece, so they are standing rather than floating.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var leg := CylinderMesh.new()
+		leg.top_radius = 0.09
+		leg.bottom_radius = 0.075
+		leg.height = 0.52
+		leg.radial_segments = 6
+		_add(tool, leg, Transform3D(Basis(), at + Vector3(side * 0.12, 0.26, 0.0)), Color(0.32, 0.30, 0.34))
+
+## One item of stock, drawn as itself rather than as a coloured box: a bottle
+## is a bottle, an axe is an axe. Small — these sit on a stand at waist height
+## and are read from a pace away.
+static func _add_goods(tool: SurfaceTool, item: StringName, at: Vector3) -> void:
+	var tint := ShopStock.colour(item)
+	match item:
+		ShopStock.BOTTLE:
+			var body := CylinderMesh.new()
+			body.top_radius = 0.09
+			body.bottom_radius = 0.11
+			body.height = 0.34
+			body.radial_segments = 8
+			_add(tool, body, Transform3D(Basis(), at + Vector3(0.0, 0.17, 0.0)), tint)
+			var neck := CylinderMesh.new()
+			neck.top_radius = 0.045
+			neck.bottom_radius = 0.05
+			neck.height = 0.12
+			neck.radial_segments = 6
+			_add(tool, neck, Transform3D(Basis(), at + Vector3(0.0, 0.4, 0.0)), tint.darkened(0.2))
+		ShopStock.AXE:
+			var haft := CylinderMesh.new()
+			haft.top_radius = 0.03
+			haft.bottom_radius = 0.035
+			haft.height = 0.52
+			haft.radial_segments = 6
+			_add(tool, haft, Transform3D(
+				Basis(Vector3.RIGHT, deg_to_rad(70.0)), at + Vector3(0.0, 0.1, 0.0)
+			), Color(0.52, 0.37, 0.22))
+			var head := BoxMesh.new()
+			head.size = Vector3(0.2, 0.16, 0.06)
+			_add(tool, head, Transform3D(Basis(), at + Vector3(0.0, 0.14, -0.22)), Color(0.72, 0.75, 0.80))
+		ShopStock.LANTERN:
+			var cage := BoxMesh.new()
+			cage.size = Vector3(0.18, 0.24, 0.18)
+			_add(tool, cage, Transform3D(Basis(), at + Vector3(0.0, 0.14, 0.0)), tint)
+			var handle := TorusMesh.new()
+			handle.inner_radius = 0.05
+			handle.outer_radius = 0.08
+			handle.rings = 8
+			handle.ring_segments = 5
+			_add(tool, handle, Transform3D(
+				Basis(Vector3.RIGHT, deg_to_rad(90.0)), at + Vector3(0.0, 0.3, 0.0)
+			), Color(0.72, 0.75, 0.80))
+		ShopStock.SADDLE:
+			var seat := SphereMesh.new()
+			seat.radius = 0.16
+			seat.height = 0.2
+			seat.radial_segments = 8
+			seat.rings = 5
+			_add(tool, seat, Transform3D(
+				Basis().scaled(Vector3(0.8, 1.0, 1.3)), at + Vector3(0.0, 0.12, 0.0)
+			), tint)
+			var cantle := BoxMesh.new()
+			cantle.size = Vector3(0.22, 0.12, 0.06)
+			_add(tool, cantle, Transform3D(Basis(), at + Vector3(0.0, 0.2, 0.16)), tint.darkened(0.2))
+		ShopStock.WHISTLE:
+			var tube := CylinderMesh.new()
+			tube.top_radius = 0.05
+			tube.bottom_radius = 0.05
+			tube.height = 0.24
+			tube.radial_segments = 8
+			_add(tool, tube, Transform3D(
+				Basis(Vector3.FORWARD, deg_to_rad(90.0)), at + Vector3(0.0, 0.06, 0.0)
+			), tint)
+		_:
+			var lump := SphereMesh.new()
+			lump.radius = 0.12
+			lump.height = 0.22
+			lump.radial_segments = 8
+			lump.rings = 5
+			_add(tool, lump, Transform3D(Basis(), at + Vector3(0.0, 0.11, 0.0)), tint)
+
+## Append a finished mesh keeping the colours it was built with — for the
+## bicycles and motorcycles standing in the shop, which are the same meshes a
+## child rides and must look it.
+static func _add_as_drawn(tool: SurfaceTool, mesh: Mesh, where: Transform3D) -> void:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	# A mesh committed by SurfaceTool without index() has no index array at
+	# all — the vertices are already in triangle order, and reading ARRAY_INDEX
+	# gives null rather than an empty list.
+	var indices = arrays[Mesh.ARRAY_INDEX]
+	if indices == null:
+		for i in vertices.size():
+			tool.set_color(colours[i] if i < colours.size() else Color.WHITE)
+			tool.add_vertex(where * vertices[i])
+		return
+	for index in indices as PackedInt32Array:
+		tool.set_color(colours[index] if index < colours.size() else Color.WHITE)
+		tool.add_vertex(where * vertices[index])
 
 ## A box shape of a given size, because three lines of it read as noise.
 static func _box_shape(size: Vector3) -> BoxShape3D:

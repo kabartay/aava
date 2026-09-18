@@ -42,8 +42,71 @@ func _draw() -> void:
 			_lantern(box)
 		ShopStock.BICYCLE:
 			_bicycle(box)
+		ShopStock.MOTORCYCLE:
+			_motorcycle(box)
+		ShopStock.SADDLE:
+			_saddle(box)
 		ShopStock.WHISTLE:
 			_whistle(box)
+
+## A saddle, seen from the side: the seat curving up at the cantle, the skirt
+## below it, and the girth hanging under. A child who has seen a horse knows it
+## at once.
+func _saddle(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var leather := ShopStock.colour(ShopStock.SADDLE)
+	var seat := PackedVector2Array([
+		centre + Vector2(-unit * 0.34, -unit * 0.02),
+		centre + Vector2(-unit * 0.26, -unit * 0.22),
+		centre + Vector2(unit * 0.14, -unit * 0.26),
+		centre + Vector2(unit * 0.34, -unit * 0.04),
+		centre + Vector2(unit * 0.2, unit * 0.12),
+		centre + Vector2(-unit * 0.2, unit * 0.12),
+	])
+	draw_colored_polygon(seat, leather)
+	# The skirt, a shade darker so the two read apart.
+	var skirt := PackedVector2Array([
+		centre + Vector2(-unit * 0.2, unit * 0.1),
+		centre + Vector2(unit * 0.2, unit * 0.1),
+		centre + Vector2(unit * 0.12, unit * 0.3),
+		centre + Vector2(-unit * 0.12, unit * 0.3),
+	])
+	draw_colored_polygon(skirt, leather.darkened(0.25))
+	# The stirrup on its leather.
+	draw_line(
+		centre + Vector2(unit * 0.02, unit * 0.1),
+		centre + Vector2(unit * 0.02, unit * 0.34), DARK, maxf(2.0, unit * 0.05)
+	)
+	draw_arc(centre + Vector2(unit * 0.02, unit * 0.4), unit * 0.08, 0.0, TAU, 12, METAL, maxf(2.0, unit * 0.05))
+
+## A motorcycle: the bicycle's two wheels, fattened, with a body between them
+## and a plume off the back. The plume is the point — it is what tells a child
+## this is the loud one before they have ever ridden it.
+func _motorcycle(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var wheel := unit * 0.2
+	var axle := unit * 0.3
+	var thick := maxf(2.5, unit * 0.09)
+	for side: float in [-1.0, 1.0]:
+		draw_arc(centre + Vector2(side * axle, unit * 0.22), wheel, 0.0, TAU, 18, DARK, thick)
+	# The body: tank and seat as one slab, with the bars rising at the front.
+	var body := PackedVector2Array([
+		centre + Vector2(-axle - unit * 0.06, unit * 0.06),
+		centre + Vector2(-axle * 0.2, -unit * 0.12),
+		centre + Vector2(axle * 0.55, -unit * 0.1),
+		centre + Vector2(axle + unit * 0.02, unit * 0.06),
+	])
+	draw_colored_polygon(body, ShopStock.colour(ShopStock.MOTORCYCLE))
+	draw_line(
+		centre + Vector2(-axle * 0.1, -unit * 0.12),
+		centre + Vector2(-axle * 0.5, -unit * 0.3), DARK, thick * 0.8
+	)
+	# The plume out of the pipe.
+	for puff in 3:
+		var at := centre + Vector2(axle + unit * (0.14 + 0.1 * float(puff)), unit * (0.02 - 0.06 * float(puff)))
+		draw_circle(at, unit * (0.05 + 0.02 * float(puff)), Color(0.78, 0.78, 0.80, 0.5 - 0.12 * float(puff)))
 
 ## A bottle reads by its neck and its waterline — the two things that say
 ## "this holds a drink" rather than "this is a box".

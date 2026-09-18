@@ -391,6 +391,9 @@ const STRINGS := {
 	"mount_bicycle": {
 		EN: "bicycle", FR: "vélo", RU: "велосипед",
 	},
+	"mount_motorcycle": {
+		EN: "motorcycle", FR: "moto", RU: "мотоцикл",
+	},
 	"mount_boat": {
 		EN: "boat", FR: "barque", RU: "лодка",
 	},
@@ -398,6 +401,7 @@ const STRINGS := {
 	# case after "на".
 	"mount_horse_on": {EN: "horse", FR: "cheval", RU: "на коне"},
 	"mount_bicycle_on": {EN: "bicycle", FR: "vélo", RU: "на велосипеде"},
+	"mount_motorcycle_on": {EN: "motorcycle", FR: "moto", RU: "на мотоцикле"},
 	"mount_boat_on": {EN: "boat", FR: "barque", RU: "на лодке"},
 	"ui_ride": {
 		EN: "ride", FR: "monter", RU: "сесть",
@@ -473,6 +477,18 @@ const STRINGS := {
 		EN: "your friends come when you call",
 		FR: "tes amis viennent quand tu appelles",
 		RU: "друзья приходят на зов",
+	},
+	"shop_saddle": {EN: "saddle", FR: "selle", RU: "седло"},
+	"shop_saddle_what": {
+		EN: "your horse takes hills it would slide off",
+		FR: "ton cheval grimpe où il glissait",
+		RU: "конь берёт склоны, с которых съезжал",
+	},
+	"shop_motorcycle": {EN: "motorcycle", FR: "moto", RU: "мотоцикл"},
+	"shop_motorcycle_what": {
+		EN: "fastest of all, but the animals run from the noise",
+		FR: "le plus rapide, mais le bruit fait fuir les animaux",
+		RU: "самый быстрый, но звери разбегаются от шума",
 	},
 	"shop_bicycle": {EN: "bicycle", FR: "vélo", RU: "велосипед"},
 	"shop_bicycle_what": {

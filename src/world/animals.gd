@@ -29,6 +29,15 @@ const FLEE_SPEED := 4.2
 ## carrying what it wants.
 const NOTICE := 7.0
 
+## How far a motorcycle empties the meadow, and how hard everything runs from
+## it. Far further than NOTICE: the point of the noise is that you hear it long
+## before you see it, and the animals go before you arrive.
+const RACKET_RANGE := 30.0
+const RACKET_FLIGHT := 1.4
+
+## Set by the game: something loud is being ridden nearby.
+var racket := false
+
 ## How quickly an animal comes round to face where it is going, how quickly
 ## it gets up to speed, and how far ahead it looks for things to walk round.
 ## Turning was instant and speed was constant, and every animal moved like a
@@ -413,6 +422,18 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 		offset.y = 0.0
 		var distance := offset.length()
 		var called := _whistle > 0.0 and distance <= WHISTLE_RANGE
+		# An engine sends everything away — the tame ones, the shy ones and the
+		# ones that were coming to be fed. This is what a motorcycle costs.
+		if racket and distance <= RACKET_RANGE:
+			var bolt := node.position + offset.normalized() * -1.0 * ROAM
+			var den: Vector3 = animal["home"]
+			if bolt.distance_to(den) > ROAM * 2.2:
+				bolt = den
+			bolt.y = _footing(bolt.x, bolt.z)
+			animal["target"] = bolt
+			animal["speed"] = FLEE_SPEED * RACKET_FLIGHT
+			animal["rest"] = 0.6
+			continue
 		if distance > NOTICE and not called:
 			continue
 

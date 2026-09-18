@@ -252,6 +252,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	lantern.owned = wallet.has(ShopStock.LANTERN)
 	if wallet.has(ShopStock.BICYCLE) and not world.mounts.exists(MountKinds.BICYCLE):
 		world.mounts.place(MountKinds.BICYCLE, world.field.find_spawn_point() + Vector3(-4.0, 0.0, 3.0))
+	if wallet.has(ShopStock.MOTORCYCLE) and not world.mounts.exists(MountKinds.MOTORCYCLE):
+		world.mounts.place(
+			MountKinds.MOTORCYCLE, world.field.find_spawn_point() + Vector3(-6.5, 0.0, 3.0)
+		)
 
 	world.archery.hit_target.connect(_on_arrow_hit)
 	world.archery.missed.connect(func() -> void:
@@ -424,8 +428,12 @@ func _process(delta: float) -> void:
 		world.field, delta
 	)
 	# The world takes its cue from what is being ridden: a tree is as wide as
-	# the horse walking into it.
+	# the horse walking into it, and an engine going past empties the meadow.
 	world.riding = riding
+	world.mounts.saddled = wallet.has(ShopStock.SADDLE)
+	world.animals.racket = (
+		MountKinds.kind_of(riding) == MountKinds.MOTORCYCLE and player.is_moving
+	)
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.
 	if riding != &"":
@@ -1044,6 +1052,11 @@ func _on_buy(item: StringName) -> void:
 			_refresh_vitals()
 		if item == ShopStock.LANTERN:
 			lantern.owned = true
+		if item == ShopStock.MOTORCYCLE:
+			world.mounts.place(
+				MountKinds.MOTORCYCLE,
+				world.field.find_spawn_point() + Vector3(-6.5, 0.0, 3.0)
+			)
 		if item == ShopStock.BICYCLE:
 			# At the camp, not underfoot: a bicycle that appears wherever you
 			# happen to stand feels like a cheat rather than something you own.

@@ -22,6 +22,17 @@ const REACH := 3.2
 var field: HeightField
 var riding := &""
 
+## Whether the child owns a saddle. Set by the game from the purse, because a
+## horse does not know what is in a shop and Mounts must not depend on one.
+##
+## A saddled horse takes ground a bareback one slides off: the steep shoulders
+## between the valley floor and the shelves above it. It is the only thing in
+## the shop that makes the map bigger rather than the journey shorter.
+var saddled := false
+
+## How much steeper a slope a saddle lets a horse take.
+const SADDLE_GRIP := 0.22
+
 var _nodes: Dictionary = {}
 var _positions: Dictionary = {}
 
@@ -637,10 +648,19 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	if PlaceSpec.inside_the_pool_fence(at.x, at.z, camp):
 		return false
 	if MountKinds.fords_water(kind):
-		return field.steepness_at(at.x, at.z) <= MountKinds.max_slope(kind)
+		return field.steepness_at(at.x, at.z) <= _grip(kind)
 	if at.y < field.water_level_at(at.x, at.z) + 0.4:
 		return false
-	return field.steepness_at(at.x, at.z) <= MountKinds.max_slope(kind)
+	return field.steepness_at(at.x, at.z) <= _grip(kind)
+
+## The steepest ground this mount will take here and now — its own limit, plus
+## the saddle if there is one under the rider. Only a horse is helped: a girth
+## does nothing for a bicycle.
+func _grip(kind: StringName) -> float:
+	var limit := MountKinds.max_slope(kind)
+	if saddled and MountKinds.kind_of(kind) == MountKinds.HORSE:
+		limit += SADDLE_GRIP
+	return limit
 
 func to_data() -> Dictionary:
 	var out: Dictionary = {}

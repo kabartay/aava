@@ -14,11 +14,16 @@ extends RefCounted
 
 const HORSE := &"horse"
 const BICYCLE := &"bicycle"
+## The fastest thing in the valley, and the only one nothing else likes: an
+## engine going past is an engine going past, and every animal within earshot
+## leaves. That is the whole trade — you get there first and there is nothing
+## there when you arrive.
+const MOTORCYCLE := &"motorcycle"
 ## A boat: the one mount that goes where the others cannot at all — across
 ## the pond — and nowhere else. Five of them wait at the big pond's shore.
 const BOAT := &"boat"
 
-const ALL: Array[StringName] = [HORSE, BICYCLE, BOAT]
+const ALL: Array[StringName] = [HORSE, BICYCLE, MOTORCYCLE, BOAT]
 
 ## There is one horse and one bicycle, but several boats, so a mount is named
 ## by an id — "horse", or "boat:2" — and everything that wants to know what
@@ -80,6 +85,8 @@ static func body_box(kind: StringName) -> Array:
 			return [Vector3(0.9, 2.1, 2.9), 1.15]
 		BOAT:
 			return [Vector3(1.4, 0.55, 3.5), 0.05]
+		MOTORCYCLE:
+			return [Vector3(0.72, 1.35, 2.3), 0.68]
 		_:
 			return [Vector3(0.5, 1.0, 1.9), 0.55]
 
@@ -115,6 +122,19 @@ const INFO := {
 		"floats": false,
 		"eye": 0.45,
 		"colour": Color(0.90, 0.28, 0.24),
+	},
+	MOTORCYCLE: {
+		# Half again as fast as the bicycle on the flat, and no better off it:
+		# a machine with an engine still has two narrow wheels. It turns worse
+		# than anything else here, because at that speed it has to — a
+		# motorcycle that pivots on the spot is a bicycle that goes fast.
+		"speed": 16.5,
+		"turn": 1.5,
+		"max_slope": 0.34,
+		"fords": false,
+		"floats": false,
+		"eye": 0.62,
+		"colour": Color(0.16, 0.20, 0.30),
 	},
 	BOAT: {
 		# Slower than a horse and much faster than swimming, which is the
@@ -180,6 +200,8 @@ static func build_mesh(kind: StringName) -> Mesh:
 			_horse(tool, colour(kind))
 		BOAT:
 			_boat(tool, colour(kind))
+		MOTORCYCLE:
+			_motorcycle(tool)
 		_:
 			_bicycle(tool)
 	tool.generate_normals()
@@ -631,6 +653,99 @@ static func build_node(kind: StringName) -> Node3D:
 			leg.position = HORSE_HIPS[i]
 			body.add_child(leg)
 	return root
+
+## A motorcycle, facing -Z like everything else that is ridden.
+##
+## Built from the bicycle outwards, because that is what tells the two apart at
+## a glance: same silhouette, everything heavier. Fat tyres instead of thin
+## hoops, an engine block where the pedals were, a fuel tank along the top
+## tube, a long seat, a headlamp, and a pipe down the side. Nothing here is
+## mechanical — it is a shape a six-year-old can name from across a field.
+static func _motorcycle(tool: SurfaceTool) -> void:
+	var paint: Color = colour(MOTORCYCLE)
+	var rubber := Color(0.14, 0.14, 0.16)
+	var steel := Color(0.72, 0.74, 0.78)
+	var chrome := Color(0.86, 0.88, 0.92)
+
+	# Wheels: wider and squatter than a bicycle's, which is most of what says
+	# "engine" before anything else is drawn.
+	for front in PackedFloat32Array([-1.0, 1.0]):
+		var wheel := TorusMesh.new()
+		wheel.inner_radius = 0.20
+		wheel.outer_radius = 0.42
+		wheel.rings = 14
+		wheel.ring_segments = 8
+		_add(tool, wheel, Transform3D(
+			Basis(Vector3.RIGHT, deg_to_rad(90.0)), Vector3(0.0, 0.42, front * 0.78)
+		), rubber)
+		var hub := CylinderMesh.new()
+		hub.top_radius = 0.1
+		hub.bottom_radius = 0.1
+		hub.height = 0.16
+		hub.radial_segments = 8
+		_add(tool, hub, Transform3D(
+			Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(0.0, 0.42, front * 0.78)
+		), steel)
+
+	# The engine: a block low between the wheels, with cooling fins.
+	var block := BoxMesh.new()
+	block.size = Vector3(0.36, 0.42, 0.5)
+	_add(tool, block, Transform3D(Basis(), Vector3(0.0, 0.5, 0.0)), steel.darkened(0.3))
+	for fin in 3:
+		var rib := BoxMesh.new()
+		rib.size = Vector3(0.44, 0.04, 0.42)
+		_add(tool, rib, Transform3D(Basis(), Vector3(0.0, 0.42 + float(fin) * 0.1, 0.0)), steel)
+
+	# The tank along the top, and the seat behind it.
+	var tank := SphereMesh.new()
+	tank.radius = 0.24
+	tank.height = 0.38
+	tank.radial_segments = 10
+	tank.rings = 6
+	_add(tool, tank, Transform3D(
+		Basis().scaled(Vector3(0.82, 1.0, 1.55)), Vector3(0.0, 0.86, -0.18)
+	), paint)
+	var seat := BoxMesh.new()
+	seat.size = Vector3(0.3, 0.13, 0.62)
+	_add(tool, seat, Transform3D(Basis(), Vector3(0.0, 0.9, 0.34)), Color(0.12, 0.12, 0.14))
+	# A mudguard over the back wheel, so the tail is not just a tyre.
+	var guard := BoxMesh.new()
+	guard.size = Vector3(0.3, 0.06, 0.5)
+	_add(tool, guard, Transform3D(Basis(), Vector3(0.0, 0.84, 0.74)), paint)
+
+	# Forks, handlebars and a headlamp.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var fork := CylinderMesh.new()
+		fork.top_radius = 0.045
+		fork.bottom_radius = 0.045
+		fork.height = 0.78
+		fork.radial_segments = 6
+		_add(tool, fork, Transform3D(
+			Basis(Vector3.RIGHT, deg_to_rad(18.0)), Vector3(side * 0.13, 0.74, -0.68)
+		), chrome)
+	var bars := CylinderMesh.new()
+	bars.top_radius = 0.035
+	bars.bottom_radius = 0.035
+	bars.height = 0.66
+	bars.radial_segments = 6
+	_add(tool, bars, Transform3D(
+		Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(0.0, 1.06, -0.56)
+	), chrome)
+	var lamp := SphereMesh.new()
+	lamp.radius = 0.11
+	lamp.height = 0.2
+	lamp.radial_segments = 8
+	lamp.rings = 5
+	_add(tool, lamp, Transform3D(Basis(), Vector3(0.0, 0.96, -0.74)), Color(0.96, 0.94, 0.72))
+	# The pipe: the one part that says out loud what is wrong with it.
+	var pipe := CylinderMesh.new()
+	pipe.top_radius = 0.06
+	pipe.bottom_radius = 0.075
+	pipe.height = 0.9
+	pipe.radial_segments = 6
+	_add(tool, pipe, Transform3D(
+		Basis(Vector3.RIGHT, deg_to_rad(80.0)), Vector3(0.22, 0.4, 0.3)
+	), chrome)
 
 ## A rowing boat, facing -Z like everything else that is ridden: a hull with a
 ## pointed bow and a flat stern, a pale wooden inside with two thwarts to sit

@@ -70,7 +70,10 @@ const RADIUS := {
 	# corners outside the level ground, which is where the first version's
 	# three and a half metres of slope came from.
 	&"range": 26.0,
-	&"shop": 15.0,
+	# The shop is a seventeen-metre building now, so its flat ground has to
+	# clear the corners of that footprint — footprint × √2 — the way the
+	# archery range's does.
+	&"shop": 21.0,
 }
 ## Half the width of the structure that actually stands at each place. The
 ## levelled radius has to comfortably exceed this, because the outer part of
@@ -81,7 +84,7 @@ const FOOTPRINT := {
 	&"cafe": 9.0,
 	&"pool": 13.0,
 	&"range": 16.0,
-	&"shop": 8.5,
+	&"shop": 12.0,
 }
 
 ## How far the levelling fades back into the natural ground. Seven metres
