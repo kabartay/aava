@@ -62,6 +62,7 @@ func _initialize() -> void:
 	_check_a_horse_swims()
 	_check_the_horses_are_spread_and_grazing()
 	_check_the_swing_is_pumped()
+	_check_the_motorcycle_is_heard()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
 	_check_the_shop_is_somewhere_you_walk_to()
@@ -2558,6 +2559,46 @@ func _check_the_ducks_are_only_ducks() -> void:
 	_expect(not is_animal, "a duck is not one of the animals that wants something")
 	ducks.queue_free()
 
+## A motorcycle is heard. The whole trade the machine offers is that it is the
+## fastest thing in the valley and empties the meadow around it — and it was
+## emptying the meadow in silence, which reads as the animals fleeing for no
+## reason.
+func _check_the_motorcycle_is_heard() -> void:
+	print("the motorcycle is heard")
+	var sound := Ambience.new()
+	get_root().add_child(sound)
+	_expect(not sound.engine_is_running(), "nothing is running before anybody starts one")
+	sound.engine(0.0)
+	_expect(sound.engine_is_running(), "an idling engine is heard")
+	var idle := sound._engine.pitch_scale
+	var idle_db := sound._engine.volume_db
+	sound.engine(1.0)
+	_expect(sound._engine.pitch_scale > idle, "it rises in pitch as the machine pulls away")
+	_expect(sound._engine.volume_db > idle_db, "and in loudness with it")
+	sound.engine(-1.0)
+	_expect(not sound.engine_is_running(), "and stops when the rider gets off")
+	sound.queue_free()
+
+	# What it costs: everything within earshot goes, whatever it was doing.
+	var field := HeightField.new(20260903)
+	var beasts := Animals.new(field, 20260903)
+	get_root().add_child(beasts)
+	var spot := field.find_spawn_point()
+	var beast := beasts.put_one_at(AnimalKinds.DOG, spot + Vector3(6.0, 0.0, 0.0))
+	beasts.racket = true
+	beasts.watch(spot, Inventory.new())
+	var fleeing: Vector3 = beast["target"]
+	_expect(
+		fleeing.distance_to(spot) > (beast["node"] as Node3D).position.distance_to(spot),
+		"an animal near a running engine heads away from it"
+	)
+	_expect(
+		float(beast["speed"]) > Animals.SPEED,
+		"at a run rather than a walk (%.1f m/s)" % float(beast["speed"])
+	)
+	_expect(Animals.RACKET_RANGE > Animals.NOTICE * 3.0, "and it is heard %.0f m off, long before it is seen" % Animals.RACKET_RANGE)
+	beasts.queue_free()
+
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
 	var field := HeightField.new(20260903)
@@ -3938,6 +3979,20 @@ func _check_riding() -> void:
 		"the bicycle is faster on the flat (%.1f vs %.1f m/s)" % [
 			MountKinds.speed(MountKinds.BICYCLE), MountKinds.speed(MountKinds.HORSE)
 		]
+	)
+	# The motorcycle is the climber: an engine and a knobbly tyre beat a horse
+	# up a bank, and a machine costing three hundred coins that stopped at the
+	# first slope would be a strange reward.
+	_expect(
+		MountKinds.max_slope(MountKinds.MOTORCYCLE) > MountKinds.max_slope(MountKinds.HORSE) + Mounts.SADDLE_GRIP,
+		"a motorcycle takes %.2f, steeper than a saddled horse's %.2f" % [
+			MountKinds.max_slope(MountKinds.MOTORCYCLE),
+			MountKinds.max_slope(MountKinds.HORSE) + Mounts.SADDLE_GRIP
+		]
+	)
+	_expect(
+		MountKinds.max_slope(MountKinds.MOTORCYCLE) < tan(Player.CLIMBS_TO),
+		"and still less than a child manages on their own feet"
 	)
 	_expect(
 		MountKinds.max_slope(MountKinds.HORSE) > MountKinds.max_slope(MountKinds.BICYCLE),
@@ -5534,7 +5589,7 @@ func _check_it_will_run_on_a_tablet() -> void:
 	for face: String in [
 		"JUMP", "KICK", "BUILD", "CLOSE", "DRINK", "WHISTLE", "CHOP", "RIDE",
 		"GET_OFF", "SHOOT", "SWING", "EAT", "GIVE_STICK", "FEED_FIRE", "SLEEP", "TALK",
-		"TICKET", "SHOP",
+		"TICKET", "SHOP", "SNACK", "LANTERN", "RIDE_BICYCLE", "RIDE_MOTORCYCLE",
 	]:
 		if not icon_source.contains("Kind.%s:" % face):
 			drawn = false

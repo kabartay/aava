@@ -429,8 +429,17 @@ func _process(delta: float) -> void:
 	# the horse walking into it, and an engine going past empties the meadow.
 	world.riding = riding
 	world.mounts.saddled = wallet.has(ShopStock.SADDLE)
-	world.animals.racket = (
-		MountKinds.kind_of(riding) == MountKinds.MOTORCYCLE and player.is_moving
+	var on_the_motorcycle := MountKinds.kind_of(riding) == MountKinds.MOTORCYCLE
+	world.animals.racket = on_the_motorcycle and player.is_moving
+	# The engine, under the rider and nobody else. How hard it is working comes
+	# from how fast the machine is actually going, so the note rises as it
+	# pulls away and drops when it stops — an engine at one pitch is a hum.
+	ambience.engine(
+		clampf(
+			Vector2(player.velocity.x, player.velocity.z).length()
+			/ MountKinds.speed(MountKinds.MOTORCYCLE),
+			0.0, 1.0
+		) if on_the_motorcycle else -1.0
 	)
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.
@@ -441,15 +450,22 @@ func _process(delta: float) -> void:
 	var offered := world.mounts.nearest(player.global_position)
 	hud.set_mount_in_reach(
 		offered != &"", riding != &"",
-		MountKinds.floats(offered if offered != &"" else riding) if (offered != &"" or riding != &"") else false
+		MountKinds.floats(offered if offered != &"" else riding) if (offered != &"" or riding != &"") else false,
+		MountKinds.kind_of(offered) if offered != &"" else &""
 	)
 	if riding != &"" and not world.mounts.can_ride_over(riding, player.global_position):
 		# Ridden somewhere this mount cannot go — put the child down rather than
-		# stranding them on a bicycle halfway up a cliff.
-		world.mounts.dismount(player.global_position, player.facing_angle())
+		# stranding them on a bicycle halfway up a cliff. Back on the last
+		# ground it was willing to stand on, not on the slope that refused it:
+		# put down where they were, a child ended up in the hillside.
+		var back_at := world.mounts.safe_ground(player.global_position)
+		player.global_position = back_at + Vector3(0.0, 0.2, 0.0)
+		world.mounts.dismount(back_at, player.facing_angle())
 		player.riding = &""
 		camera_rig.set_eye_lift(0.0)
 		sounds.play(Sounds.Sound.REFUSE)
+	elif riding != &"":
+		world.mounts.note_good_ground(player.global_position)
 
 	# How deep the player is *submerged* — not how deep the water is where they
 	# are standing. Those agree only while a child is on the bottom, and the

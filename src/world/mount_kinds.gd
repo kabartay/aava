@@ -130,7 +130,12 @@ const INFO := {
 		# motorcycle that pivots on the spot is a bicycle that goes fast.
 		"speed": 16.5,
 		"turn": 1.5,
-		"max_slope": 0.34,
+		# The best climber here, by some way: steeper than a horse with a
+		# saddle on it and not far off what a child manages on their own feet.
+		# An engine and a knobbly tyre is exactly the thing for getting up a
+		# bank, and it would be a strange machine that cost three hundred coins
+		# and stopped at the first slope.
+		"max_slope": 0.95,
 		"fords": false,
 		"floats": false,
 		"eye": 0.62,

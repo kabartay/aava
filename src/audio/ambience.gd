@@ -87,6 +87,66 @@ func _init() -> void:
 	_leaves = _voice(_make_leaves())
 	_birds = _voice(_make_birds())
 	_swimming = _voice(_make_swimming())
+	_engine = _voice(_make_engine())
+
+## How loud the engine is under the rider, and how far its pitch rises between
+## idling and full pelt. Loud: the whole point of the machine is that it is
+## heard before it is seen, and every animal within thirty metres leaves.
+const ENGINE_DB := -20.0
+const ENGINE_PITCH := 0.7
+const ENGINE_PITCH_RANGE := 0.9
+
+var _engine: AudioStreamPlayer
+
+## Called every frame with how hard the engine is working, from 0 for a
+## machine standing still to 1 for one at full pelt, and -1 for no engine at
+## all. It rises in pitch as well as in volume, because an engine that only
+## gets louder reads as a volume knob rather than as an engine.
+func engine(effort: float) -> void:
+	if effort < 0.0:
+		_apply(_engine, 0.0, ENGINE_DB)
+		return
+	_engine.pitch_scale = ENGINE_PITCH + ENGINE_PITCH_RANGE * clampf(effort, 0.0, 1.0)
+	_apply(_engine, 0.35 + 0.65 * clampf(effort, 0.0, 1.0), ENGINE_DB)
+
+## Is the engine running? For the checks.
+func engine_is_running() -> bool:
+	return _engine.playing
+
+## A single-cylinder engine: a low beat with a rasp on top.
+##
+## Two things make it read as an engine rather than as a hum. The first is that
+## it is a *beat* — a firing pulse that repeats a few dozen times a second,
+## with a gap between the pulses — rather than a continuous tone. The second is
+## the rasp: harmonics well above the fundamental, which is what an exhaust
+## actually sounds like and what carries across a valley.
+func _make_engine() -> AudioStreamWAV:
+	var seconds := 1.0
+	var samples := int(RATE * seconds)
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	# Twenty-two firings a second at rest: slow enough to hear as separate
+	# beats, which is what says single cylinder rather than turbine.
+	var firings := 22.0
+	for i in samples:
+		var t := float(i) / float(RATE)
+		# Where we are between one firing and the next, 0 to 1.
+		var phase := fmod(t * firings, 1.0)
+		# The pulse: a sharp rise and a longer fall, the shape of a bang.
+		var pulse := exp(-phase * 7.0) - exp(-phase * 34.0)
+		# The rasp riding on it.
+		var rasp := (
+			sin(TAU * 96.0 * t) * 0.5
+			+ sin(TAU * 192.0 * t + 0.6) * 0.28
+			+ sin(TAU * 312.0 * t + 1.2) * 0.16
+		)
+		var value := pulse * (0.62 + 0.38 * rasp)
+		# A little noise, so it is machinery rather than a synthesiser.
+		value += (randf() * 2.0 - 1.0) * 0.06 * maxf(pulse, 0.0)
+		var sample := int(clampf(value * 0.55, -1.0, 1.0) * 32000.0)
+		data[i * 2] = sample & 0xFF
+		data[i * 2 + 1] = (sample >> 8) & 0xFF
+	return _wrap(data)
 
 func _voice(stream: AudioStreamWAV) -> AudioStreamPlayer:
 	var player := AudioStreamPlayer.new()

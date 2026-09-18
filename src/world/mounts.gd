@@ -440,6 +440,26 @@ func horse_count() -> int:
 			count += 1
 	return count
 
+## The last place riding was allowed, so that being put down never means being
+## put down inside a hillside.
+##
+## A mount ridden somewhere it cannot go sets its rider on their feet, which is
+## right — better than being stranded halfway up a cliff. But it did it where
+## they were standing, and where they were standing was the slope that refused
+## them: on a motorcycle a child ended up in the ground rather than on it.
+var _last_good := Vector3(1e9, 1e9, 1e9)
+
+## Remember somewhere a mount was happy. Called every frame by the game.
+func note_good_ground(at: Vector3) -> void:
+	_last_good = at
+
+## Where to put a rider who has to be put down: the last ground their mount was
+## willing to stand on, or where they are if there is no such place yet.
+func safe_ground(at: Vector3) -> Vector3:
+	if _last_good.x > 1e8:
+		return at
+	return _last_good
+
 ## How far aside a dismounted mount is put, and how far the child must be
 ## from it before it becomes something to bump into again.
 const STEP_ASIDE := 1.8

@@ -22,7 +22,7 @@ enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
 	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET, SHOP,
-	SNACK, LANTERN,
+	SNACK, LANTERN, RIDE_BICYCLE, RIDE_MOTORCYCLE,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -106,6 +106,61 @@ func _draw() -> void:
 			_snack(box)
 		Kind.LANTERN:
 			_lantern(box)
+		Kind.RIDE_BICYCLE:
+			_two_wheeler(box, false)
+		Kind.RIDE_MOTORCYCLE:
+			_two_wheeler(box, true)
+
+## A two-wheeler seen from the side: thin wheels and a diamond frame for the
+## bicycle, fat wheels and a body between them for the motorcycle.
+##
+## The button to get on something used to show a horseshoe whatever it was, so
+## the picture for getting on a motorcycle was a hoof. A child reads the
+## silhouette, and these two silhouettes are the difference between the two
+## machines.
+func _two_wheeler(box: Rect2, engine: bool) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var axle := unit * 0.28
+	var wheel := unit * 0.2 if engine else unit * 0.22
+	var thick := maxf(2.0, unit * (0.085 if engine else 0.055))
+	for side: float in [-1.0, 1.0]:
+		draw_arc(centre + Vector2(side * axle, unit * 0.2), wheel, 0.0, TAU, 20, tint, thick)
+	if engine:
+		# Tank and seat as one slab, bars rising at the front, a plume behind.
+		var body := PackedVector2Array([
+			centre + Vector2(-axle - unit * 0.04, unit * 0.04),
+			centre + Vector2(-axle * 0.2, -unit * 0.12),
+			centre + Vector2(axle * 0.5, -unit * 0.1),
+			centre + Vector2(axle + unit * 0.02, unit * 0.04),
+		])
+		draw_colored_polygon(body, tint)
+		draw_line(
+			centre + Vector2(-axle * 0.15, -unit * 0.12),
+			centre + Vector2(-axle * 0.55, -unit * 0.3), tint, thick * 0.7
+		)
+		for puff in 2:
+			draw_circle(
+				centre + Vector2(axle + unit * (0.12 + 0.09 * float(puff)), unit * (0.02 - 0.05 * float(puff))),
+				unit * (0.045 + 0.02 * float(puff)),
+				Color(tint.r, tint.g, tint.b, 0.45 - 0.14 * float(puff))
+			)
+		return
+	# The bicycle: a diamond of thin tubes, bars and a saddle.
+	var bracket := centre + Vector2(0.0, unit * 0.12)
+	var seat := centre + Vector2(axle * 0.42, -unit * 0.16)
+	var head := centre + Vector2(-axle * 0.55, -unit * 0.1)
+	draw_line(bracket, head, tint, thick)
+	draw_line(bracket, seat, tint, thick)
+	draw_line(head, seat, tint, thick)
+	draw_line(bracket, centre + Vector2(axle, unit * 0.2), tint, thick)
+	draw_line(seat, centre + Vector2(axle, unit * 0.2), tint, thick)
+	draw_line(head, centre + Vector2(-axle, unit * 0.2), tint, thick)
+	draw_line(head, head + Vector2(-unit * 0.12, -unit * 0.1), tint, thick)
+	draw_line(
+		seat + Vector2(-unit * 0.06, -unit * 0.04),
+		seat + Vector2(unit * 0.08, -unit * 0.04), tint, thick * 1.4
+	)
 
 ## A lantern: a body with a handle over it and light coming out. The same shape
 ## as the one on the shop's shelf, so the thing bought and the thing switched

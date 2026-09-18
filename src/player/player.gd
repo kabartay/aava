@@ -59,6 +59,12 @@ const MAX_RISE := 3.4
 const HEIGHT := 1.55
 const RADIUS := 0.34
 
+## The steepest ground a child gets up on their own feet. Anything past this is
+## a slope they slide off, and it is what every mount's own limit is measured
+## against — a machine that climbs better than legs would be a strange thing to
+## put in a valley children are meant to walk about in.
+const CLIMBS_TO := deg_to_rad(52.0)
+
 signal moved(world_position: Vector3)
 
 ## Emitted the instant the body leaves the ground and the instant it arrives.
@@ -147,7 +153,7 @@ func _init() -> void:
 	# which reads as a stutter. Half a metre removes it entirely.
 	floor_snap_length = 0.5
 	floor_constant_speed = true
-	floor_max_angle = deg_to_rad(52.0)
+	floor_max_angle = CLIMBS_TO
 	safe_margin = 0.02
 	slide_on_ceiling = false
 	# The ground, and the thin props the camera is allowed to see through.
