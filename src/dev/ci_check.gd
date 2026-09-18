@@ -2425,6 +2425,13 @@ func _check_the_ducks_are_only_ducks() -> void:
 			ashore += 1
 	_expect(ashore == 0, "and after a minute of paddling none has left the water")
 
+	# Solid: a duck you swim straight through is a picture of a duck.
+	var solid := true
+	for i in ducks.count():
+		if not ducks.is_solid(i):
+			solid = false
+	_expect(solid, "every duck is something a child bumps into")
+
 	# And they are not animals: nothing to feed, no coins, no cooldown.
 	var is_animal := false
 	for kind in AnimalKinds.ALL:
@@ -3948,6 +3955,33 @@ func _check_riding() -> void:
 	get_root().add_child(herd)
 	herd.from_data({"horse:3": [12.0, 0.0, 34.0]})
 	_expect(herd.exists(MountKinds.horse_id(3)), "and a save with the whole herd in it comes back as the herd")
+	# A horse saved standing in a lake comes out of it. Worlds written before
+	# the ponds had water levels of their own have horses in the middle of one,
+	# and a solid animal out in the water is something a swimming child gets
+	# trapped against — which is how it was found.
+	var drowned := Vector3(
+		Lakes.at(1, Lakes.POND_X), 0.0, Lakes.at(1, Lakes.POND_Z)
+	)
+	herd.from_data({"horse:4": [drowned.x, 0.0, drowned.z]})
+	var rescued := herd.position_of(MountKinds.horse_id(4))
+	_expect(
+		not field.is_pond(rescued.x, rescued.z),
+		"a horse saved in the lake is put ashore, %.0f m away" % rescued.distance_to(drowned)
+	)
+	_expect(
+		rescued.y > field.water_level_at(rescued.x, rescued.z),
+		"on ground above the water rather than under it"
+	)
+	# The bank of a lake stands half a metre above its water, which is less
+	# than the metre of clearance that makes ground worth turning a horse out
+	# on — so a rescue that asked for good grazing refused every bank round the
+	# pond and left the horse where it was.
+	_expect(
+		rescued.y - Lakes.at(1, Lakes.POND_LEVEL) < 1.2,
+		"which is the pond's own bank, %.2f m above its water, and not a hill a mile away" % (
+			rescued.y - Lakes.at(1, Lakes.POND_LEVEL)
+		)
+	)
 	herd.queue_free()
 
 	for kind in MountKinds.ALL:
@@ -4588,8 +4622,24 @@ func _check_paths_lead_somewhere() -> void:
 	# The grid the terrain is actually built from has to agree with the height
 	# anything else asks for, or the ground a child walks on is not the ground
 	# they can see.
+	# Sampled where the ground is actually carved, not only out in open
+	# country. Three corners of empty valley agreed perfectly while every pond
+	# in the world was a different shape in the two paths: the grid still dug
+	# each one down to sea level and gave it no shore, so the lake a child saw
+	# was the old crater with its water hanging two or three metres above the
+	# bank. Every place that shapes the ground gets a corner here now.
 	var worst := 0.0
-	for corner: Vector2 in [Vector2(0.0, 0.0), Vector2(-320.0, 224.0), Vector2(896.0, 0.0)]:
+	var corners: Array[Vector2] = [Vector2(0.0, 0.0), Vector2(-320.0, 224.0), Vector2(896.0, 0.0)]
+	for pond in Lakes.count():
+		var middle := Vector2(Lakes.at(pond, Lakes.POND_X), Lakes.at(pond, Lakes.POND_Z))
+		# The middle of the water, and its shore on two sides.
+		corners.append(middle - Vector2(16.0, 16.0))
+		corners.append(middle + Vector2(Lakes.at(pond, Lakes.POND_LONG) - 8.0, 0.0))
+		corners.append(middle - Vector2(Lakes.at(pond, Lakes.POND_LONG) + 24.0, 0.0))
+	for place in PlaceSpec.OFFSETS:
+		var centre := PlaceSpec.centre_of(place, field.camp_centre())
+		corners.append(Vector2(centre.x - 16.0, centre.z - 16.0))
+	for corner: Vector2 in corners:
 		var grid := field.fill_grid(corner.x, corner.y, 1.0, 33)
 		for row in 33:
 			for column in 33:

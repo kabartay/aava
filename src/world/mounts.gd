@@ -370,8 +370,14 @@ func _grazing_spot(camp: Vector3, bearing: float, wanted: float) -> Vector3:
 ## Would a horse stand here? Dry and well clear of the river, gentle enough to
 ## graze on, below the trees, out of the fenced places and not in a thicket.
 func _stands_here(camp: Vector3, at: Vector3) -> bool:
+	# Not in a pond. A raised pond's bed is well above the world's waterline,
+	# so a test against that alone called the middle of the lake dry meadow and
+	# turned a horse out in it — where a child swimming past was trapped
+	# between the animal and the bank.
+	if field.is_pond(at.x, at.z):
+		return false
 	var ground := field.height_at(at.x, at.z)
-	if ground < HeightField.WATER_LEVEL + 1.2 or ground > HeightField.TREELINE - 30.0:
+	if ground < field.water_level_at(at.x, at.z) + 1.2 or ground > HeightField.TREELINE - 30.0:
 		return false
 	if field.steepness_at(at.x, at.z) > 0.3:
 		return false
@@ -380,6 +386,40 @@ func _stands_here(camp: Vector3, at: Vector3) -> bool:
 	if field.forest_density_at(at.x, at.z) > 0.35:
 		return false
 	return absf(at.x - field.river_centre_x(at.z)) > 24.0
+
+## Is this somewhere a mount is stuck in the water?
+##
+## A pond, and only a pond. The river is fordable and a horse left standing in
+## it is a horse where its rider left it — but a pond is still water with a
+## bank round it, and a solid animal out in the middle of one is something a
+## swimming child gets trapped against.
+func _is_in_water(at: Vector3) -> bool:
+	return field.is_pond(at.x, at.z)
+
+## The nearest dry ground, searched outwards in rings. A mount found in the
+## water is put on the bank rather than deleted: it is somebody's horse.
+##
+## Dry ground, not good grazing. The first version asked `_stands_here`, which
+## wants ground a good metre above the water because that is where a horse is
+## worth turning out — and a lake's beach stands half a metre above it, so
+## every bank round the pond was refused and the horse stayed in the water.
+func _walk_out_of_the_water(at: Vector3) -> Vector3:
+	for ring in 30:
+		var out := 4.0 + 5.0 * float(ring)
+		for step in 16:
+			var bearing := TAU * float(step) / 16.0
+			var spot := at + Vector3(cos(bearing), 0.0, sin(bearing)) * out
+			if _is_dry_footing(spot):
+				return spot
+	return at
+
+## Somewhere a mount can simply stand: out of the water and not up a cliff.
+func _is_dry_footing(at: Vector3) -> bool:
+	if field.is_pond(at.x, at.z):
+		return false
+	if field.height_at(at.x, at.z) < field.water_level_at(at.x, at.z) + 0.2:
+		return false
+	return field.steepness_at(at.x, at.z) < 0.5
 
 ## How many horses are turned out. For the checks.
 func horse_count() -> int:
@@ -620,4 +660,13 @@ func from_data(data: Dictionary) -> void:
 		# number, which nothing else would ever look for.
 		if id == MountKinds.HORSE:
 			id = MountKinds.horse_id(0)
-		place(id, Vector3(float(entry[0]), float(entry[1]), float(entry[2])))
+		var at := Vector3(float(entry[0]), float(entry[1]), float(entry[2]))
+		# A horse saved standing in water comes out of it. Worlds written
+		# before the ponds had their own water level have horses in the middle
+		# of a lake — the test for dry ground compared against the world's
+		# waterline, and a raised pond's bed is well above that — and a solid
+		# animal out in the water is something a swimming child gets trapped
+		# against. Boats stay where they are; a boat in a lake is a boat.
+		if not MountKinds.floats(id) and _is_in_water(at):
+			at = _walk_out_of_the_water(at)
+		place(id, at)

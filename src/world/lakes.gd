@@ -92,8 +92,21 @@ const DEPTH := 2.0
 ## needs no shore built for it — the meadow is already the shore — and filling
 ## would have raised the western pond's whole valley floor half a metre for
 ## nothing.
-const SHORE := 1.2
-const SHORE_FADE := 3.0
+## Measured in metres out from the water's edge, not in units of the basin's
+## own axes. In units of the axes the same number meant a hundred metres on the
+## long side and sixty on the short one, so the bank was half again as steep
+## across the pond as along it — and the steep side was what a child saw.
+##
+## SHORE is wide on purpose. Easing the hillside down to the water over a long
+## fade sounds like the gentler answer and is not: the hill behind this pond
+## rises fifty metres, and a fade long enough to make that gentle would flatten
+## a quarter of the valley. A flat beach right around the water does the job
+## the fade was meant to do — a child who swims to any side of the lake comes
+## out onto level ground and walks away from it — and the hill is free to be a
+## hill again beyond the beach, which is what a lake under a hillside looks
+## like anyway.
+const SHORE := 25.0
+const SHORE_FADE := 25.0
 const SHORE_RISE := 0.5
 
 ## How much of the way out the bed stays flat before it starts rising. A pond
@@ -165,14 +178,21 @@ static func shore_at(x: float, z: float) -> Array:
 	while i < PONDS.size():
 		var long_axis := PONDS[i + POND_LONG]
 		var short_axis := PONDS[i + POND_SHORT]
-		var reach := (long_axis if long_axis > short_axis else short_axis) * SHORE_FADE
+		var reach := (long_axis if long_axis > short_axis else short_axis) + SHORE + SHORE_FADE
 		var dx := x - PONDS[i + POND_X]
 		var dz := z - PONDS[i + POND_Z]
 		if absf(dx) > reach or absf(dz) > reach:
 			i += POND_STRIDE
 			continue
-		var distance := _reach_of(dx, dz, long_axis, short_axis, PONDS[i + POND_ANGLE])
-		var here := 1.0 - smoothstep(SHORE, SHORE_FADE, distance)
+		# How far out of the water this point is, in metres. The basin's own
+		# frame says how many basin-radii out it is; multiplying back by the
+		# radius along this very bearing turns that into a distance, which is
+		# the same on the short side of the pond as on the long one.
+		var out := _reach_of(dx, dz, long_axis, short_axis, PONDS[i + POND_ANGLE])
+		var metres := 0.0
+		if out > 0.0001:
+			metres = sqrt(dx * dx + dz * dz) * (1.0 - 1.0 / out)
+		var here := 1.0 - smoothstep(SHORE, SHORE + SHORE_FADE, metres)
 		if here > strongest:
 			strongest = here
 			height = PONDS[i + POND_LEVEL] + SHORE_RISE

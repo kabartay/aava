@@ -298,24 +298,35 @@ func fill_grid(
 				var pitch := Pitch.influence(x, z)
 				if pitch > 0.0:
 					height = lerpf(height, PITCH_LEVEL, pitch)
+			# The lakes before the places, and in exactly the order height_at
+			# does it: shore cut first, then the basin dug below the pond's
+			# own water. This is the path that builds the ground a child
+			# actually stands on and sees, and it had the old arithmetic in it
+			# — every pond dug to sea level and no shore at all. The height
+			# field said one thing and the terrain under their feet another:
+			# the lake's surface sat two or three metres below its own bank,
+			# because the bank was still the wall of the old crater.
+			var lake := 0.0
+			if lakes_here:
+				var shore := Lakes.shore_at(x, z)
+				if float(shore[1]) > 0.0:
+					height = minf(height, lerpf(height, float(shore[0]), float(shore[1])))
+				var water := Lakes.water_at(x, z, WATER_LEVEL)
+				lake = float(water[1])
+				if lake > 0.0:
+					height = lerpf(height, float(water[0]) - Lakes.DEPTH, lake)
 			if places_here and PlaceSpec.influence(x, z, camp) > 0.0:
 				for place in PlaceSpec.OFFSETS:
 					var pull := PlaceSpec.influence_of(place, x, z, camp)
 					if pull > 0.0:
 						height = lerpf(height, float(_place_levels[place]), pull)
 				height -= PlaceSpec.excavation(x, z, camp)
-			if lakes_here:
-				var lake := Lakes.influence(x, z)
-				if lake > 0.0:
-					height = lerpf(height, WATER_LEVEL - Lakes.DEPTH, lake)
 			if dams_here:
 				height += DamSpec.fill(x, z, river_centre_x(z), dams_built)
 			# The same holding-above-water as height_at does, or the mesh and
 			# the collision would disagree with everything that asks a point
 			# at a time. A check compares the two.
-			out[gz * count + gx] = _dry_unless_water(
-				height, x, z, Lakes.influence(x, z) if lakes_here else 0.0
-			)
+			out[gz * count + gx] = _dry_unless_water(height, x, z, lake)
 	return out
 
 ## Whether a box comes within `reach` of a centre. Both are axis-aligned, so

@@ -25,6 +25,10 @@ const TURN := 0.8
 ## How far out into the pond they keep, as a fraction of its basin. They turn
 ## back at this, so nobody watches a duck walk up a bank.
 const KEEP_WITHIN := 0.78
+## How wide a duck is to bump into. Small, but not nothing: swimming straight
+## through one reads as the duck not being there, which is what it was.
+const GIRTH := 0.22
+
 ## How far they bob, and how fast.
 const BOB := 0.035
 const BOB_SPEED := 1.4
@@ -70,6 +74,18 @@ func settle(world_seed: int) -> void:
 			node.mesh = _drake if i % 2 == 0 else _hen
 			node.position = Vector3(centre.x + local.x, level, centre.y + local.y)
 			node.rotation.y = rng.randf() * TAU
+			# Solid, like everything else that is really there. A duck you swim
+			# straight through is a picture of a duck.
+			var body := StaticBody3D.new()
+			body.collision_layer = TerrainSpec.LAYER_PROPS
+			var shape := CapsuleShape3D.new()
+			shape.radius = GIRTH
+			shape.height = GIRTH * 2.6
+			var collider := CollisionShape3D.new()
+			collider.shape = shape
+			collider.position = Vector3(0.0, GIRTH * 0.6, 0.0)
+			body.add_child(collider)
+			node.add_child(body)
 			add_child(node)
 			_ducks.append({
 				"node": node,
@@ -205,3 +221,12 @@ func duck_position(index: int) -> Vector3:
 
 func duck_pond(index: int) -> int:
 	return _ducks[index]["pond"]
+
+## Whether a duck is something a child bumps into. For the checks.
+func is_solid(index: int) -> bool:
+	var node: Node3D = _ducks[index]["node"]
+	for child in node.get_children():
+		var body := child as StaticBody3D
+		if body != null and body.collision_layer == TerrainSpec.LAYER_PROPS:
+			return body.get_child_count() > 0
+	return false
