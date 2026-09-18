@@ -39,8 +39,12 @@ const SHEARS := &"shears"
 ## café is four hundred metres away — which is the whole reason it exists.
 const CHOCOLATE := &"chocolate"
 
+## In the order they are shown: cheapest first, dearest last. A child works
+## down the shelf until the prices stop being numbers they have, and that only
+## reads as a ladder if the ladder is in order. A check keeps this list sorted,
+## because the obvious way to add something is to put it at the end.
 const ALL: Array[StringName] = [
-	CHOCOLATE, BOTTLE, AXE, SHEARS, SADDLE, LANTERN, BICYCLE, WHISTLE, MOTORCYCLE,
+	CHOCOLATE, BOTTLE, AXE, SHEARS, LANTERN, WHISTLE, SADDLE, BICYCLE, MOTORCYCLE,
 ]
 
 ## What is used up rather than owned. The wallet refuses to sell a thing twice,
@@ -54,16 +58,23 @@ static func is_consumable(item: StringName) -> bool:
 ## which costs three times as much and sits you down for it.
 const CHOCOLATE_RESTORE := 0.22
 
+## Shop prices, in the order they are shown. Twelve, twenty-four, twenty-eight,
+## thirty-four were arrived at by tuning one price at a time against the animal
+## that pays for it, and they read as noise. These are the numbers a child sees
+## on a shelf in a real shop — nines all the way up — which makes the ladder
+## legible at a glance and the top of it plainly a long way off.
 const INFO := {
-	BOTTLE: {"price": 12, "colour": Color(0.44, 0.72, 0.86)},
-	AXE: {"price": 20, "colour": Color(0.70, 0.55, 0.35)},
-	LANTERN: {"price": 28, "colour": Color(0.96, 0.82, 0.42)},
-	WHISTLE: {"price": 34, "colour": Color(0.80, 0.80, 0.84)},
-	BICYCLE: {"price": 60, "colour": Color(0.86, 0.42, 0.36)},
 	CHOCOLATE: {"price": 1, "colour": Color(0.36, 0.22, 0.14)},
-	SHEARS: {"price": 24, "colour": Color(0.78, 0.80, 0.84)},
-	SADDLE: {"price": 44, "colour": Color(0.52, 0.32, 0.18)},
-	MOTORCYCLE: {"price": 140, "colour": Color(0.16, 0.20, 0.30)},
+	BOTTLE: {"price": 19, "colour": Color(0.44, 0.72, 0.86)},
+	AXE: {"price": 29, "colour": Color(0.70, 0.55, 0.35)},
+	SHEARS: {"price": 39, "colour": Color(0.78, 0.80, 0.84)},
+	LANTERN: {"price": 49, "colour": Color(0.96, 0.82, 0.42)},
+	WHISTLE: {"price": 59, "colour": Color(0.80, 0.80, 0.84)},
+	SADDLE: {"price": 79, "colour": Color(0.52, 0.32, 0.18)},
+	BICYCLE: {"price": 99, "colour": Color(0.86, 0.42, 0.36)},
+	# Three bicycles. It is the last thing anybody buys here, and it should
+	# feel like the end of a long summer rather than the obvious next purchase.
+	MOTORCYCLE: {"price": 299, "colour": Color(0.16, 0.20, 0.30)},
 }
 
 static func price(item: StringName) -> int:
@@ -75,5 +86,8 @@ static func colour(item: StringName) -> Color:
 static func label(item: StringName) -> String:
 	return Text.of("shop_" + String(item))
 
+## What the thing is for, in one line. Not on the shelf — the shelf is pictures
+## and prices, because a shop of words excludes the child most likely to be
+## saving up — but shown when a child taps a picture to ask about it.
 static func description(item: StringName) -> String:
 	return Text.of("shop_%s_what" % String(item))

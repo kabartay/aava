@@ -99,6 +99,14 @@ var _sleep_button: Button
 var together: TogetherPanel
 var _talk_button: Button
 var _shop: PanelContainer
+## The shelf the stock sits on, which scrolls when there is more of it than
+## fits, and how many pictures stand across it.
+var _shop_shelf: ScrollContainer
+const SHOP_COLUMNS := 3
+## The picture a child has tapped, and the two lines that answer them.
+var _shop_chosen := &""
+var _shop_name: Label
+var _shop_note: Label
 var _shop_rows: Dictionary = {}
 
 func _init() -> void:
@@ -496,59 +504,76 @@ func _build_shop() -> PanelContainer:
 	heading.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
 	column.add_child(heading)
 
-	# Each row is icon | name and description | price, in fixed columns, so the
-	# prices line up and can be compared down the list. Centred text in one
-	# blob made "which of these can I afford" a reading exercise.
-	for item in ShopStock.ALL:
-		var row := Button.new()
-		row.custom_minimum_size = Vector2(BUTTON * 4.8, BUTTON * 0.86)
-		row.focus_mode = Control.FOCUS_NONE
-		row.pressed.connect(func() -> void: shop_buy.emit(item))
-		column.add_child(row)
+	# Pictures and prices, three to a row, and no words at all.
+	#
+	# Each row used to be icon | name | what it does | price. That is four
+	# columns of reading for a child who cannot read, in the one part of the
+	# game that exists so they need not — the same mistake this file has
+	# already made once and written down in LESSONS. The picture says what the
+	# thing is; the number says what it costs; everything else was for adults.
+	#
+	# And the shelf scrolls. There were five things in the shop when the panel
+	# was written and there are nine now, which ran off the bottom of the
+	# screen with no way to reach them: a child could not buy what they could
+	# not see, and nothing said so.
+	_shop_shelf = ScrollContainer.new()
+	_shop_shelf.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_shop_shelf.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(_shop_shelf)
 
-		var line := HBoxContainer.new()
-		line.add_theme_constant_override("separation", 12)
-		line.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		line.offset_left = 14.0
-		line.offset_right = -14.0
-		# The label must not swallow the press, or the row stops buying.
-		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_child(line)
+	var grid := GridContainer.new()
+	grid.columns = SHOP_COLUMNS
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_shop_shelf.add_child(grid)
+
+	for item in ShopStock.ALL:
+		var tile := Button.new()
+		tile.custom_minimum_size = Vector2(BUTTON * 1.5, BUTTON * 1.62)
+		tile.focus_mode = Control.FOCUS_NONE
+		# Tap once to ask what it is, again to buy it. The words a child needs
+		# are the ones they asked for, and the second tap is also what stops a
+		# six-year-old spending a summer's coins on the wrong picture.
+		tile.pressed.connect(func() -> void: _shop_tapped(item))
+		grid.add_child(tile)
+
+		var stack := VBoxContainer.new()
+		stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		stack.add_theme_constant_override("separation", 2)
+		stack.alignment = BoxContainer.ALIGNMENT_CENTER
+		# The contents must not swallow the press, or the tile stops buying.
+		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tile.add_child(stack)
 
 		var icon := ShopIcon.new(item)
-		icon.custom_minimum_size = Vector2(BUTTON * 0.62, BUTTON * 0.62)
-		line.add_child(icon)
-
-		var words := VBoxContainer.new()
-		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		words.add_theme_constant_override("separation", 0)
-		words.alignment = BoxContainer.ALIGNMENT_CENTER
-		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		line.add_child(words)
-
-		var name_label := Label.new()
-		name_label.text = ShopStock.label(item)
-		name_label.add_theme_font_size_override("font_size", 19)
-		name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		words.add_child(name_label)
-
-		var note := Label.new()
-		note.text = ShopStock.description(item)
-		note.add_theme_font_size_override("font_size", 14)
-		note.add_theme_color_override("font_color", Color(0.72, 0.76, 0.82))
-		note.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		words.add_child(note)
+		icon.custom_minimum_size = Vector2(BUTTON * 1.0, BUTTON * 1.0)
+		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		stack.add_child(icon)
 
 		var price := Label.new()
-		price.add_theme_font_size_override("font_size", 20)
+		price.add_theme_font_size_override("font_size", 19)
 		price.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
-		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		price.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		price.custom_minimum_size = Vector2(BUTTON * 0.86, 0.0)
+		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		price.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		line.add_child(price)
+		stack.add_child(price)
 
-		_shop_rows[item] = {"button": row, "price": price, "icon": icon}
+		_shop_rows[item] = {"button": tile, "price": price, "icon": icon}
+
+	# What the chosen thing is, under the shelf: its name, and one line saying
+	# what it is for. Empty until a child taps something.
+	_shop_name = Label.new()
+	_shop_name.add_theme_font_size_override("font_size", 21)
+	_shop_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_shop_name)
+
+	_shop_note = Label.new()
+	_shop_note.add_theme_font_size_override("font_size", 15)
+	_shop_note.add_theme_color_override("font_color", Color(0.74, 0.78, 0.84))
+	_shop_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_shop_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_shop_note.custom_minimum_size = Vector2(float(SHOP_COLUMNS) * (BUTTON * 1.5 + 10.0), 0.0)
+	column.add_child(_shop_note)
 
 	var close := _button(Text.of("ui_back"), Color(0.90, 0.93, 0.97))
 	close.custom_minimum_size = Vector2(BUTTON * 4.6, BUTTON * 0.62)
@@ -557,9 +582,44 @@ func _build_shop() -> PanelContainer:
 	column.add_child(close)
 	return panel
 
+## A picture was tapped. The first tap on a thing says what it is; the next one
+## buys it.
+func _shop_tapped(item: StringName) -> void:
+	if _shop_chosen == item:
+		shop_buy.emit(item)
+		return
+	_shop_chosen = item
+	_shop_name.text = ShopStock.label(item)
+	_shop_note.text = ShopStock.description(item)
+	_shop_mark_chosen()
+
+## Ring the chosen picture, so it is plain which one the words belong to and
+## which one a second tap would buy.
+func _shop_mark_chosen() -> void:
+	for item in _shop_rows:
+		var parts: Dictionary = _shop_rows[item]
+		var tile: Button = parts["button"]
+		var picked: bool = item == _shop_chosen
+		tile.add_theme_constant_override("outline_size", 2 if picked else 0)
+		var mark := StyleBoxFlat.new()
+		mark.bg_color = Color(1.0, 0.90, 0.52, 0.18) if picked else Color(1.0, 1.0, 1.0, 0.06)
+		mark.set_corner_radius_all(12)
+		if picked:
+			mark.border_color = Color(1.0, 0.90, 0.52, 0.85)
+			mark.set_border_width_all(2)
+		tile.add_theme_stylebox_override("normal", mark)
+
 ## Show or hide the shop, and refresh every row against the current purse.
 func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
+	var opening := open and not _shop.visible
 	_shop.visible = open
+	if opening:
+		# A shop just opened has nothing chosen: otherwise the first tap after
+		# walking in buys whatever was tapped last time.
+		_shop_chosen = &""
+		_shop_name.text = ""
+		_shop_note.text = ""
+		_shop_mark_chosen()
 	if open:
 		for item in ShopStock.ALL:
 			var parts: Dictionary = _shop_rows[item]
@@ -1135,6 +1195,13 @@ func _layout() -> void:
 		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
 
+	# The shelf is given at most half the screen, so the heading and the way out
+	# are always on it however much the shop comes to stock.
+	if _shop_shelf != null:
+		_shop_shelf.custom_minimum_size = Vector2(
+			float(SHOP_COLUMNS) * (BUTTON * 1.5 + 10.0),
+			minf(safe.size.y * 0.5, float(ShopStock.ALL.size()) * BUTTON * 0.62)
+		)
 	_shop.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _shop.size.x * 0.5,
 		safe.position.y + safe.size.y * 0.5 - _shop.size.y * 0.5

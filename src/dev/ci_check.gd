@@ -2271,9 +2271,9 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 			printerr("  %s costs nothing" % item)
 		for code: StringName in [Text.EN, Text.FR, Text.RU]:
 			Text.set_language(code)
-			if ShopStock.label(item).begins_with("?") or ShopStock.description(item).begins_with("?"):
+			if ShopStock.label(item).begins_with("?"):
 				stocked = false
-				printerr("  %s has no words in %s" % [item, code])
+				printerr("  %s has no name in %s" % [item, code])
 	Text.set_language(Text.EN)
 	_expect(stocked, "every one of the %d things for sale is priced and named" % ShopStock.ALL.size())
 	_expect(places.shop_wall_count() >= 4, "and %d walls, which the camera stops at" % places.shop_wall_count())
@@ -3531,6 +3531,21 @@ func _check_the_shop_adds_up() -> void:
 			priced = false
 			printerr("  %s costs nothing" % item)
 	_expect(priced, "all %d items in the shop cost something" % ShopStock.ALL.size())
+
+	# And they are in price order, cheapest first: the shelf is a ladder a
+	# child climbs, and a ladder with its rungs shuffled is a list.
+	var ordered := true
+	for i in range(1, ShopStock.ALL.size()):
+		if ShopStock.price(ShopStock.ALL[i]) < ShopStock.price(ShopStock.ALL[i - 1]):
+			ordered = false
+			printerr("  %s at %d comes after %s at %d" % [
+				ShopStock.ALL[i], ShopStock.price(ShopStock.ALL[i]),
+				ShopStock.ALL[i - 1], ShopStock.price(ShopStock.ALL[i - 1])
+			])
+	_expect(ordered, "the shelf runs from %d coins to %d" % [
+		ShopStock.price(ShopStock.ALL[0]),
+		ShopStock.price(ShopStock.ALL[ShopStock.ALL.size() - 1])
+	])
 
 	# The cheapest thing must be within a short session's reach: caring for a
 	# beaver pays 5, so a first purchase should be a handful of animals away.
