@@ -65,6 +65,7 @@ func _initialize() -> void:
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
 	_check_the_shop_is_somewhere_you_walk_to()
+	_check_a_child_can_get_out_of_every_pond()
 	_check_the_range_is_clear()
 	_check_the_bow_can_be_aimed()
 	_check_swimming_looks_like_swimming()
@@ -380,19 +381,30 @@ func _check_the_ponds_hold_water() -> void:
 	print("the ponds hold water")
 	var field := HeightField.new(20260903)
 
-	var i := 0
-	var index := 0
-	while i < Lakes.PONDS.size():
-		var cx := Lakes.PONDS[i]
-		var cz := Lakes.PONDS[i + 1]
-		var long_axis := Lakes.PONDS[i + 2]
-		var short_axis := Lakes.PONDS[i + 3]
-		i += Lakes.POND_STRIDE
-		index += 1
+	for pond in Lakes.count():
+		var cx := Lakes.at(pond, Lakes.POND_X)
+		var cz := Lakes.at(pond, Lakes.POND_Z)
+		var long_axis := Lakes.at(pond, Lakes.POND_LONG)
+		var short_axis := Lakes.at(pond, Lakes.POND_SHORT)
+		var level := Lakes.at(pond, Lakes.POND_LEVEL)
+		var index := pond + 1
 
+		# Dug below its own water, which is not the world's for a pond up a
+		# hill. Digging every pond to sea level is what turned the eastern one
+		# into a crater a child could not climb out of.
 		_expect(
-			field.height_at(cx, cz) < HeightField.WATER_LEVEL - 1.0,
-			"pond %d is dug below the waterline (%.1f m)" % [index, field.height_at(cx, cz)]
+			field.height_at(cx, cz) < level - 1.0,
+			"pond %d is dug %.1f m below its own water, which stands at %.1f m" % [
+				index, level - field.height_at(cx, cz), level
+			]
+		)
+		_expect(
+			level - field.height_at(cx, cz) <= Lakes.DEPTH + 0.01,
+			"and no deeper than the %.1f m it is meant to be" % Lakes.DEPTH
+		)
+		_expect(
+			is_equal_approx(field.water_level_at(cx, cz), level),
+			"the game agrees the water here stands at %.1f m" % field.water_level_at(cx, cz)
 		)
 		_expect(
 			Lakes.influence(cx, cz) > 0.95,
@@ -409,7 +421,7 @@ func _check_the_ponds_hold_water() -> void:
 		# basin is always wider than the water in it.
 		var wet_metres := 0
 		for step in range(-60, 61):
-			if field.height_at(cx + float(step), cz) < HeightField.WATER_LEVEL:
+			if field.height_at(cx + float(step), cz) < level:
 				wet_metres += 1
 		_expect(
 			wet_metres >= 12,
@@ -2202,6 +2214,115 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	# Nothing is ridden in through the doorway; there is a rail outside to tie
 	# a horse to instead.
 	_expect(Places.SHOP_RAIL_X != 0.0 or Places.SHOP_RAIL_Z != 0.0, "there is a hitching rail outside")
+	places.queue_free()
+
+## Every pond has a shore a child can walk out by, and its water never stands
+## higher than the ground holding it in.
+##
+## Both ponds were dug straight down to the world's waterline wherever they
+## happened to lie. The eastern one lies on a shoulder of hill thirteen metres
+## up, so what was there was a crater forty metres across with water in the
+## bottom and banks too steep to climb — reported from the phone as "a huge pit
+## with water; if you fall in you cannot get out". It was exactly that.
+func _check_a_child_can_get_out_of_every_pond() -> void:
+	print("a child can get out of every pond")
+	var field := HeightField.new(20260903)
+	for pond in Lakes.count():
+		var cx := Lakes.at(pond, Lakes.POND_X)
+		var cz := Lakes.at(pond, Lakes.POND_Z)
+		var long_axis := Lakes.at(pond, Lakes.POND_LONG)
+		var short_axis := Lakes.at(pond, Lakes.POND_SHORT)
+		var angle := Lakes.at(pond, Lakes.POND_ANGLE)
+		var level := Lakes.at(pond, Lakes.POND_LEVEL)
+
+		# The ground all round the outside of the basin. The lowest of it is
+		# the lip the water would run out over, and the gentlest of it is the
+		# way out.
+		var lowest_shore := 1e9
+		var kindest_bank := 1e9
+		for step in 72:
+			var bearing := TAU * float(step) / 72.0
+			var along := cos(bearing) * long_axis
+			var across := sin(bearing) * short_axis
+			var turned := Vector2(
+				along * cos(angle) - across * sin(angle),
+				along * sin(angle) + across * cos(angle)
+			)
+			var out_at := Vector3(cx + turned.x * 1.35, 0.0, cz + turned.y * 1.35)
+			if Lakes.influence(out_at.x, out_at.z) > 0.0:
+				continue
+			lowest_shore = minf(lowest_shore, field.height_at(out_at.x, out_at.z))
+			# How steeply the bank climbs from the water's edge to that ground:
+			# the rise over the last stretch of shore.
+			var edge_at := Vector3(cx + turned.x, 0.0, cz + turned.y)
+			var rise := field.height_at(out_at.x, out_at.z) - field.height_at(edge_at.x, edge_at.z)
+			var run := Vector2(turned.x, turned.y).length() * 0.35
+			kindest_bank = minf(kindest_bank, rise / maxf(run, 0.01))
+
+		# Water that stands above the lowest ground on its shore is water
+		# running out over that lip.
+		_expect(
+			level <= lowest_shore + 0.01,
+			"pond %d holds its water: the surface at %.1f m is under the lowest shore at %.1f m" % [
+				pond + 1, level, lowest_shore
+			]
+		)
+		# And it is not a well: a child who swims to the right side of it walks
+		# out rather than treading water against a wall.
+		_expect(
+			lowest_shore - level < 1.6,
+			"and its lowest shore is %.2f m above the water, which is a step and not a wall" % (lowest_shore - level)
+		)
+		_expect(
+			kindest_bank < 0.9,
+			"its gentlest bank climbs at %.2f, which a child walks up" % kindest_bank
+		)
+
+		# The bed is below the water everywhere a child could be swimming, and
+		# the drop from the surface to the bed is the depth it is meant to be.
+		var deepest := level - field.height_at(cx, cz)
+		_expect(
+			deepest > 1.0 and deepest <= Lakes.DEPTH + 0.01,
+			"pond %d is %.1f m deep: enough to swim, not enough to lose anybody" % [pond + 1, deepest]
+		)
+
+		# Nothing grows in it, whatever height it stands at. A raised pond's
+		# bed is well above the world's waterline, and to everything that asks
+		# the height alone it looked like dry hillside.
+		_expect(field.is_pond(cx, cz), "and the world knows pond %d is water" % (pond + 1))
+
+	# A raised pond gets a surface of its own, because the world's one sheet of
+	# water lies flat at zero and cannot cover it.
+	var water := Water.new()
+	get_root().add_child(water)
+	var raised := 0
+	for pond in Lakes.count():
+		if Lakes.is_raised(pond, HeightField.WATER_LEVEL):
+			raised += 1
+	_expect(water.tarn_count() == raised, "%d pond(s) above the waterline have a surface drawn at their own height" % water.tarn_count())
+	for i in water.tarn_count():
+		_expect(
+			water.tarn_level(i) > HeightField.WATER_LEVEL,
+			"and it stands at %.1f m rather than at the sea's level" % water.tarn_level(i)
+		)
+	water.queue_free()
+
+	# Swimming works up there: a child in the middle of a raised pond is in
+	# water, not standing on a hillside.
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	for pond in Lakes.count():
+		if not Lakes.is_raised(pond, HeightField.WATER_LEVEL):
+			continue
+		# Standing on the bed in the middle of it, which is where a child who
+		# waded in ends up.
+		var middle := Vector3(
+			Lakes.at(pond, Lakes.POND_X), 0.0, Lakes.at(pond, Lakes.POND_Z)
+		)
+		middle.y = field.height_at(middle.x, middle.z) + Player.HEIGHT * 0.5
+		var depth := places.submersion(middle, Player.HEIGHT)
+		_expect(depth > Player.SWIM_DEPTH, "a child in the middle of it is %.2f m under and swimming" % depth)
 	places.queue_free()
 
 func _check_trees_are_solid() -> void:

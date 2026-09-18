@@ -71,6 +71,11 @@ static func bake(
 			var world_x := origin_x + local.x
 			var world_z := origin_z + local.z
 			var height := field.height_at(world_x, world_z)
+			# Nothing grows in a pond, whatever height its water stands at. A
+			# raised pond's bed sits well above the world's waterline and read
+			# to this as ordinary dry hillside — a wood in a lake.
+			if field.is_pond(world_x, world_z):
+				continue
 			if height < HeightField.WATER_LEVEL + 0.35 or height > HeightField.TREELINE:
 				continue
 			# A forward difference from the height already in hand, rather than
@@ -175,6 +180,12 @@ static func generate_trees(
 		if thinned:
 			continue
 		if felled != null and felled.is_felled(world_x, world_z):
+			continue
+		# Nothing grows in a pond, whatever height its water stands at. A
+		# raised pond's bed sits well above the world's waterline, so to
+		# everything that asks the height alone it looked like dry hillside —
+		# and a wood grew in the lake.
+		if field.is_pond(world_x, world_z):
 			continue
 
 		# The wood changes character as it climbs rather than merely thinning:

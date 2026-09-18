@@ -202,11 +202,28 @@ func height_at(x: float, z: float) -> float:
 	# The lakes are carved out of the ground rather than the water being raised
 	# to meet them, for the same reason the swimming pool is: the water surface
 	# is one flat plane across the whole world.
-	var lake := Lakes.influence(x, z)
+	# A pond's bed is dug below the pond's own water, which is not always the
+	# world's. Digging every pond down to sea level turned the one up the hill
+	# into a crater with no way out of it.
+	var water := Lakes.water_at(x, z, WATER_LEVEL)
+	var lake: float = water[1]
 	if lake > 0.0:
-		floor_height = lerpf(floor_height, WATER_LEVEL - Lakes.DEPTH, lake)
+		floor_height = lerpf(floor_height, float(water[0]) - Lakes.DEPTH, lake)
 
 	return _dry_unless_water(floor_height, x, z, lake)
+
+## The height water stands at here: the world's waterline, or a pond's own if
+## one covers this point. Everything that asks how deep the water is asks this
+## first — a pond thirteen metres up the hill is still a pond.
+func water_level_at(x: float, z: float) -> float:
+	return Lakes.level_at(x, z, WATER_LEVEL)
+
+## Is there still water here at all? True inside a pond, whatever height it
+## stands at — what the trees, the boulders and the pickups need to know, since
+## a raised pond's bed is well above the world's waterline and looked to all of
+## them like ordinary dry hillside.
+func is_pond(x: float, z: float) -> bool:
+	return Lakes.influence(x, z) > 0.0
 
 ## Hold the ground above the waterline unless this is somewhere water is
 ## actually drawn: the river's own width, or a pond. Excavated ground — the

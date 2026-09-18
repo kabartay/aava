@@ -64,14 +64,15 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 ## its hull half under, until this.
 func _rest_height(kind: StringName, at: Vector3) -> float:
 	var ground := field.height_at(at.x, at.z)
+	var level := field.water_level_at(at.x, at.z)
 	if MountKinds.floats(kind):
-		return maxf(ground, HeightField.WATER_LEVEL)
+		return maxf(ground, level)
 	# A horse in water over its head swims: it floats with most of its barrel
 	# under and its withers clear, rather than walking along the bottom. It
 	# used to walk the bottom while its rider floated at the surface, and the
 	# two came apart with a gap of open water between them.
-	if swims(kind) and HeightField.WATER_LEVEL - ground > MountKinds.HORSE_SWIMS_AT:
-		return HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT
+	if swims(kind) and level - ground > MountKinds.HORSE_SWIMS_AT:
+		return level - MountKinds.HORSE_DRAUGHT
 	return ground
 
 ## Whether this mount swims when the water is deep: a horse does, a bicycle
@@ -84,7 +85,10 @@ static func swims(kind: StringName) -> bool:
 func afloat(kind: StringName, at: Vector3) -> bool:
 	if not swims(kind):
 		return false
-	return HeightField.WATER_LEVEL - field.height_at(at.x, at.z) > MountKinds.HORSE_SWIMS_AT
+	return (
+		field.water_level_at(at.x, at.z) - field.height_at(at.x, at.z)
+		> MountKinds.HORSE_SWIMS_AT
+	)
 
 ## Where a rider *stands* while their mount swims — which is where the horse
 ## itself is, not where its saddle is.
@@ -93,8 +97,8 @@ func afloat(kind: StringName, at: Vector3) -> bool:
 ## on land they stand on the ground the horse stands on and the drawing puts
 ## them in the saddle. Held at the saddle's own height instead, that lift was
 ## added a second time and the child floated a body's length above the horse.
-static func saddle_afloat() -> float:
-	return HeightField.WATER_LEVEL - MountKinds.HORSE_DRAUGHT
+static func saddle_afloat(level := HeightField.WATER_LEVEL) -> float:
+	return level - MountKinds.HORSE_DRAUGHT
 
 ## Launch `count` boats round the shore of a pond, each where the water is
 ## about `depth` deep — wading depth, so a child walks out to one — and each
@@ -116,7 +120,7 @@ func launch_boats(pond: int, count: int, depth := 0.7) -> void:
 		var walked := 0.25
 		while walked < reach:
 			var probe := centre + direction * walked
-			var under := HeightField.WATER_LEVEL - field.height_at(probe.x, probe.z)
+			var under := field.water_level_at(probe.x, probe.z) - field.height_at(probe.x, probe.z)
 			if under > 0.0 and absf(under - depth) < closest:
 				closest = absf(under - depth)
 				spot = probe
@@ -576,7 +580,10 @@ func is_solid(kind: StringName) -> bool:
 ## on the far shore.
 func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	if MountKinds.floats(kind):
-		return field.height_at(at.x, at.z) < HeightField.WATER_LEVEL - MountKinds.BOAT_DRAFT
+		return (
+			field.height_at(at.x, at.z)
+			< field.water_level_at(at.x, at.z) - MountKinds.BOAT_DRAFT
+		)
 	# Not into the swimming pool, and not inside its fence either. A horse
 	# fords a river, but the pool is a hole with walls: one ridden into it
 	# stuck in the excavation while its rider floated free of it. Stopping at
@@ -591,7 +598,7 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 		return false
 	if MountKinds.fords_water(kind):
 		return field.steepness_at(at.x, at.z) <= MountKinds.max_slope(kind)
-	if at.y < HeightField.WATER_LEVEL + 0.4:
+	if at.y < field.water_level_at(at.x, at.z) + 0.4:
 		return false
 	return field.steepness_at(at.x, at.z) <= MountKinds.max_slope(kind)
 

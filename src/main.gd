@@ -403,7 +403,9 @@ func _process(delta: float) -> void:
 	# A horse in deep water swims, and its rider stays in the saddle rather
 	# than floating off it.
 	if riding != &"" and world.mounts.afloat(riding, player.global_position):
-		player.held_at_height = Mounts.saddle_afloat()
+		player.held_at_height = Mounts.saddle_afloat(
+			world.field.water_level_at(player.global_position.x, player.global_position.z)
+		)
 	elif riding != &"":
 		# A rider follows the ground the horse is walking on. Left to
 		# ordinary physics, going downhill the child carried on in a straight

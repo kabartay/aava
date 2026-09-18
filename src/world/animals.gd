@@ -180,13 +180,13 @@ func _build_tile(coord: Vector2i) -> void:
 ## Where an animal's feet actually rest: the ground, unless the ground here is
 ## the bed of a river or a lake, in which case no lower than a wade.
 func _footing(x: float, z: float) -> float:
-	return maxf(field.height_at(x, z), HeightField.WATER_LEVEL - MAX_WADE_DEPTH)
+	return maxf(field.height_at(x, z), field.water_level_at(x, z) - MAX_WADE_DEPTH)
 
 ## Who lives where. Each animal belongs to the ground it is found on, which is
 ## how a child learns that cones are a forest thing and beavers are a river one.
 func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	var height := field.height_at(x, z)
-	if height < HeightField.WATER_LEVEL + 0.2:
+	if field.is_pond(x, z) or height < field.water_level_at(x, z) + 0.2:
 		return &""
 	if Pitch.is_levelled(x, z):
 		return &""

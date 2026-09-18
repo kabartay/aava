@@ -406,10 +406,13 @@ func submersion(at: Vector3, body_height: float) -> float:
 	var feet := at.y - body_height * 0.5
 
 	var surface := -1e9
-	# The river: its surface is the world's water line, wherever the bed is
-	# below it.
-	if ground < HeightField.WATER_LEVEL:
-		surface = HeightField.WATER_LEVEL
+	# The river and the ponds. The surface is the world's waterline for the
+	# river and for a pond beside it, and a pond's own for one up a hill — ask
+	# the field rather than assuming, or a child swims in mid-air over a tarn
+	# and walks about on the bottom of it.
+	var level := field.water_level_at(at.x, at.z)
+	if ground < level:
+		surface = level
 	# The pool: filled to the brim of the ground it was dug from, so its surface
 	# is that ground plus what was excavated out of it.
 	var dug := water_depth_at(at.x, at.z)

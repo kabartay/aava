@@ -198,6 +198,8 @@ func _build_tile(coord: Vector2i) -> void:
 ## not so steep that it would be half buried.
 func _suits(x: float, z: float) -> bool:
 	var height := field.height_at(x, z)
+	if field.is_pond(x, z):
+		return false
 	if height < HeightField.WATER_LEVEL + 0.4:
 		return false
 	if Pitch.is_levelled(x, z):

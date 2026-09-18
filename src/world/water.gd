@@ -164,16 +164,22 @@ func _init() -> void:
 	# Where the still ponds are, read straight out of Lakes rather than written
 	# here a second time. The height field digs those holes; without this the
 	# sheet drew river water only and both ponds were dry craters.
+	# Only the ponds whose water lies at the world's own level belong on this
+	# sheet: it is one flat plane at zero, and a pond up a hill would be drawn
+	# as a disc of water buried thirteen metres inside the hillside. Those get
+	# a surface of their own, at their own height.
 	var places: Array[Plane] = []
 	var turns: Array[Vector2] = []
-	var i := 0
-	while i < Lakes.PONDS.size() and places.size() < MAX_PONDS:
-		var angle := Lakes.PONDS[i + 4]
+	for pond in Lakes.count():
+		if places.size() >= MAX_PONDS or Lakes.is_raised(pond, HeightField.WATER_LEVEL):
+			continue
+		var angle := Lakes.at(pond, Lakes.POND_ANGLE)
 		places.append(Plane(
-			Lakes.PONDS[i], Lakes.PONDS[i + 1], Lakes.PONDS[i + 2], Lakes.PONDS[i + 3]
+			Lakes.at(pond, Lakes.POND_X), Lakes.at(pond, Lakes.POND_Z),
+			Lakes.at(pond, Lakes.POND_LONG), Lakes.at(pond, Lakes.POND_SHORT)
 		))
 		turns.append(Vector2(cos(angle), sin(angle)))
-		i += Lakes.POND_STRIDE
+	_raise_the_tarns()
 
 	material.set_shader_parameter("pond_count", places.size())
 	material.set_shader_parameter("pond_place", places)
@@ -185,6 +191,62 @@ func _init() -> void:
 
 	position.y = HeightField.WATER_LEVEL
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+## A surface for every pond that stands above the world's waterline.
+##
+## The main sheet is one flat plane at zero with a shader deciding where it is
+## water; a pond on a hillside cannot be drawn that way at all. Each one gets a
+## still pane cut to its own outline at its own height — the same answer the
+## swimming pool already uses, and for the same reason.
+func _raise_the_tarns() -> void:
+	for pond in Lakes.count():
+		if not Lakes.is_raised(pond, HeightField.WATER_LEVEL):
+			continue
+		var ring := Lakes.outline(pond, 48)
+		if ring.size() < 3:
+			continue
+		var tool := SurfaceTool.new()
+		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var centre := Vector2(Lakes.at(pond, Lakes.POND_X), Lakes.at(pond, Lakes.POND_Z))
+		var level := Lakes.at(pond, Lakes.POND_LEVEL)
+		# A fan from the middle: a pond is convex enough for one, and this is
+		# the cheapest surface that follows a wobbling shore.
+		for step in ring.size():
+			var a := ring[step]
+			var b := ring[(step + 1) % ring.size()]
+			tool.set_normal(Vector3.UP)
+			tool.add_vertex(Vector3(0.0, 0.0, 0.0))
+			tool.set_normal(Vector3.UP)
+			tool.add_vertex(Vector3(b.x, 0.0, b.y))
+			tool.set_normal(Vector3.UP)
+			tool.add_vertex(Vector3(a.x, 0.0, a.y))
+		var surface := StandardMaterial3D.new()
+		surface.albedo_color = TARN_COLOUR
+		surface.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		surface.roughness = 0.14
+		surface.metallic = 0.3
+		surface.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var pane := MeshInstance3D.new()
+		pane.name = "Tarn%d" % pond
+		pane.mesh = tool.commit()
+		pane.material_override = surface
+		pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		pane.position = Vector3(centre.x, level, centre.y)
+		add_child(pane)
+		_tarns.append(pane)
+
+## The still surface of every raised pond. For the checks.
+var _tarns: Array[MeshInstance3D] = []
+
+func tarn_count() -> int:
+	return _tarns.size()
+
+func tarn_level(index: int) -> float:
+	return _tarns[index].position.y
+
+## The colour a still pond takes: the pool's blue, which is what water away
+## from the river already looks like here.
+const TARN_COLOUR := Color(0.36, 0.62, 0.78, 0.78)
 
 ## The sheet is finite, so it has to travel with the player — snapped, so the
 ## waves do not appear to be dragged along.

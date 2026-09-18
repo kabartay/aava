@@ -21,8 +21,21 @@ extends RefCounted
 ## craters. It knows about these now, and `_check_the_ponds_hold_water` fails
 ## the build if the two ever disagree again.
 
-## Each pond as five numbers: centre x, centre z, the long and short half-axes,
-## and the angle the long axis lies along.
+## Each pond as six numbers: centre x, centre z, the long and short half-axes,
+## the angle the long axis lies along, and the height its water stands at.
+##
+## The level is the sixth number because a pond is not a hole in the sea. Both
+## of these were dug straight down to the world's waterline wherever they
+## happened to sit, and the eastern one sits on a shoulder of hill thirteen
+## metres up: what a child found there was a crater forty metres across with
+## water at the bottom of it and banks too steep to climb out of. Reported from
+## the phone as "a huge pit with water — if you fall in you cannot get out",
+## which is exactly what it was.
+##
+## A pond up a hill holds its own water. The level has to stay below the lowest
+## ground on its shore, or the water would run out over that lip; a check works
+## that out from the terrain and fails the build if a pond is ever moved
+## somewhere it would spill.
 ##
 ## Flat floats rather than a Vector3 apiece, which is what this was: the
 ## comment said "(x, z, radius)" and the code read "(x, radius, z)", so the two
@@ -36,18 +49,31 @@ extends RefCounted
 ## to read as a shore. These give something over fifty metres of open water on
 ## the long side: far enough across that swimming it is a decision, which is
 ## what makes a pond somewhere to go.
-const POND_STRIDE := 5
+const POND_STRIDE := 6
 const PONDS: Array[float] = [
-	# Across the river from the camp, in the western meadow.
-	-205.0, -370.0, 54.0, 34.0, 0.62,
-	# The eastern one, beyond the trees.
-	255.0, 250.0, 46.0, 31.0, -0.35,
+	# Across the river from the camp, in the western meadow. Its lowest shore
+	# is barely a metre up, so this one always was a lowland pond and its water
+	# stays at the valley's own waterline.
+	-205.0, -370.0, 54.0, 34.0, 0.62, 0.0,
+	# The eastern one, beyond the trees and up on a shoulder of hill. Its
+	# lowest shore stands at 13.6 m; the water sits just under that, so it fills
+	# the hollow to the brim and a child wades out at the low end instead of
+	# being trapped at the bottom of a pit.
+	255.0, 250.0, 46.0, 31.0, -0.35, 13.0,
 ]
 
-## How far below the waterline the middle of a pond sits. Comfortably more than
-## the depth at which a child starts swimming, so the middle is for swimming and
-## the edge is for wading in.
-const DEPTH := 3.6
+## Which numbers are which, so no caller counts on its fingers.
+const POND_X := 0
+const POND_Z := 1
+const POND_LONG := 2
+const POND_SHORT := 3
+const POND_ANGLE := 4
+const POND_LEVEL := 5
+
+## How far below its own water a pond's bed sits — its own, not the world's.
+## Deep enough that the middle is for swimming and the edge is for wading in,
+## and no deeper: a pond is somewhere to swim, not somewhere to disappear.
+const DEPTH := 2.0
 
 ## How much of the way out the bed stays flat before it starts rising. A pond
 ## with a vertical edge reads as a hole full of water; this one has a beach.
@@ -85,11 +111,11 @@ static func influence(x: float, z: float) -> float:
 	var deepest := 0.0
 	var i := 0
 	while i < PONDS.size():
-		var cx := PONDS[i]
-		var cz := PONDS[i + 1]
-		var long_axis := PONDS[i + 2]
-		var short_axis := PONDS[i + 3]
-		var angle := PONDS[i + 4]
+		var cx := PONDS[i + POND_X]
+		var cz := PONDS[i + POND_Z]
+		var long_axis := PONDS[i + POND_LONG]
+		var short_axis := PONDS[i + POND_SHORT]
+		var angle := PONDS[i + POND_ANGLE]
 		i += POND_STRIDE
 
 		# A box first, on the larger of the two axes, before any trigonometry.
@@ -101,6 +127,78 @@ static func influence(x: float, z: float) -> float:
 
 		deepest = maxf(deepest, _pond_at(dx, dz, long_axis, short_axis, angle))
 	return deepest
+
+## The height the water stands at here, and how much of a pond is here, as one
+## answer: [level, influence]. Everything that used to compare against the
+## world's waterline asks this instead, because the world's waterline is only
+## the answer for the river and for ponds that happen to sit beside it.
+static func water_at(x: float, z: float, world_level: float) -> Array:
+	if absf(x) > BOUNDS or absf(z) > BOUNDS:
+		return [world_level, 0.0]
+	var best := world_level
+	var deepest := 0.0
+	var i := 0
+	while i < PONDS.size():
+		var here := _pond_at(
+			x - PONDS[i + POND_X], z - PONDS[i + POND_Z],
+			PONDS[i + POND_LONG], PONDS[i + POND_SHORT], PONDS[i + POND_ANGLE]
+		)
+		if here > deepest:
+			deepest = here
+			best = PONDS[i + POND_LEVEL]
+		i += POND_STRIDE
+	return [best, deepest]
+
+## The height of the water covering this point, or the world's own waterline
+## where no pond does.
+static func level_at(x: float, z: float, world_level: float) -> float:
+	return water_at(x, z, world_level)[0]
+
+## Is this pond's water above the world's waterline? Those are the ones that
+## need a surface of their own drawn at their own height, because the world's
+## one sheet of water lies flat at zero.
+static func is_raised(index: int, world_level: float) -> bool:
+	return PONDS[index * POND_STRIDE + POND_LEVEL] > world_level + 0.01
+
+## How many ponds there are.
+static func count() -> int:
+	return PONDS.size() / POND_STRIDE
+
+static func at(index: int, field: int) -> float:
+	return PONDS[index * POND_STRIDE + field]
+
+## The pond's outline at the height its water stands at, as a ring of points
+## around its centre: what a surface drawn for it has to cover. Sampled rather
+## than solved, because the bank wobbles and the shelf is a smoothstep — and
+## this runs twice in the life of a world.
+static func outline(index: int, points: int, cut := 0.06) -> PackedVector2Array:
+	var long_axis := at(index, POND_LONG)
+	var short_axis := at(index, POND_SHORT)
+	var angle := at(index, POND_ANGLE)
+	var turn_cos := cos(angle)
+	var turn_sin := sin(angle)
+	var ring := PackedVector2Array()
+	for step in points:
+		var bearing := TAU * float(step) / float(points)
+		var along := cos(bearing)
+		var across := sin(bearing)
+		# Walk outwards along this bearing until the pond gives out.
+		var reach := 0.0
+		var probe := 0.02
+		while probe <= 1.0 + WOBBLE:
+			var dx := (along * probe * long_axis) * turn_cos - (across * probe * short_axis) * turn_sin
+			var dz := (along * probe * long_axis) * turn_sin + (across * probe * short_axis) * turn_cos
+			if _pond_at(dx, dz, long_axis, short_axis, angle) < cut:
+				break
+			reach = probe
+			probe += 0.02
+		var out_along := along * reach * long_axis
+		var out_across := across * reach * short_axis
+		ring.append(Vector2(
+			out_along * turn_cos - out_across * turn_sin,
+			out_along * turn_sin + out_across * turn_cos
+		))
+	return ring
 
 ## One pond, in its own frame: the point turned into the ellipse's axes, then
 ## measured against a radius that wanders a little with the angle.
