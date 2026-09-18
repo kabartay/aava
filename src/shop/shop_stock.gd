@@ -27,8 +27,14 @@ const MOTORCYCLE := &"motorcycle"
 ## off, which is what turns the steep shoulders of this valley from walls into
 ## ways through. The one purchase that makes the map bigger rather than faster.
 const SADDLE := &"saddle"
+## Shears, for the sheep. A fleece grows back, so this is the one purchase that
+## pays for itself over and over — which is the point of it: it turns a walk
+## across the meadow into a living rather than a single reward.
+const SHEARS := &"shears"
 
-const ALL: Array[StringName] = [BOTTLE, AXE, SADDLE, LANTERN, BICYCLE, WHISTLE, MOTORCYCLE]
+const ALL: Array[StringName] = [
+	BOTTLE, AXE, SHEARS, SADDLE, LANTERN, BICYCLE, WHISTLE, MOTORCYCLE,
+]
 
 const INFO := {
 	BOTTLE: {"price": 12, "colour": Color(0.44, 0.72, 0.86)},
@@ -36,6 +42,7 @@ const INFO := {
 	LANTERN: {"price": 28, "colour": Color(0.96, 0.82, 0.42)},
 	WHISTLE: {"price": 34, "colour": Color(0.80, 0.80, 0.84)},
 	BICYCLE: {"price": 60, "colour": Color(0.86, 0.42, 0.36)},
+	SHEARS: {"price": 24, "colour": Color(0.78, 0.80, 0.84)},
 	SADDLE: {"price": 44, "colour": Color(0.52, 0.32, 0.18)},
 	MOTORCYCLE: {"price": 140, "colour": Color(0.16, 0.20, 0.30)},
 }

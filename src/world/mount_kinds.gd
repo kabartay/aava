@@ -663,89 +663,153 @@ static func build_node(kind: StringName) -> Node3D:
 ## mechanical — it is a shape a six-year-old can name from across a field.
 static func _motorcycle(tool: SurfaceTool) -> void:
 	var paint: Color = colour(MOTORCYCLE)
-	var rubber := Color(0.14, 0.14, 0.16)
-	var steel := Color(0.72, 0.74, 0.78)
-	var chrome := Color(0.86, 0.88, 0.92)
+	var rubber := Color(0.12, 0.12, 0.14)
+	var steel := Color(0.46, 0.48, 0.52)
+	var chrome := Color(0.88, 0.90, 0.94)
+	var leather := Color(0.11, 0.11, 0.13)
 
-	# Wheels: wider and squatter than a bicycle's, which is most of what says
-	# "engine" before anything else is drawn.
-	for front in PackedFloat32Array([-1.0, 1.0]):
-		var wheel := TorusMesh.new()
-		wheel.inner_radius = 0.20
-		wheel.outer_radius = 0.42
-		wheel.rings = 14
-		wheel.ring_segments = 8
-		_add(tool, wheel, Transform3D(
-			Basis(Vector3.RIGHT, deg_to_rad(90.0)), Vector3(0.0, 0.42, front * 0.78)
-		), rubber)
-		var hub := CylinderMesh.new()
-		hub.top_radius = 0.1
-		hub.bottom_radius = 0.1
-		hub.height = 0.16
-		hub.radial_segments = 8
-		_add(tool, hub, Transform3D(
-			Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(0.0, 0.42, front * 0.78)
-		), steel)
+	var back := Vector3(0.0, 0.42, 0.74)
+	var front := Vector3(0.0, 0.42, -0.78)
+	# Fatter tyres and more spokes than the bicycle: same wheel, different
+	# machine, which is exactly how the two should differ.
+	_wheel(tool, back, 0.42, 0.12, 8, rubber, steel)
+	_wheel(tool, front, 0.42, 0.11, 8, rubber, steel)
 
-	# The engine: a block low between the wheels, with cooling fins.
-	var block := BoxMesh.new()
-	block.size = Vector3(0.36, 0.42, 0.5)
-	_add(tool, block, Transform3D(Basis(), Vector3(0.0, 0.5, 0.0)), steel.darkened(0.3))
-	for fin in 3:
+	# Mudguards over both wheels, which is most of what makes a motorcycle look
+	# built rather than assembled: a curve following the tyre.
+	for wheel: Array in [[front, -1.0, 0.11], [back, 1.0, 0.12]]:
+		var hub_at: Vector3 = wheel[0]
+		for piece in 5:
+			var sweep := deg_to_rad(-52.0 + float(piece) * 26.0) * float(wheel[1])
+			var plate := BoxMesh.new()
+			plate.size = Vector3(float(wheel[2]) * 2.4, 0.05, 0.22)
+			_add(tool, plate, Transform3D(
+				Basis(Vector3.RIGHT, sweep),
+				hub_at + Vector3(0.0, cos(sweep) * 0.5, -sin(sweep) * 0.5)
+			), paint)
+
+	# The engine: a crankcase with a cylinder leaning forward out of it, finned.
+	var crankcase := BoxMesh.new()
+	crankcase.size = Vector3(0.34, 0.3, 0.44)
+	_add(tool, crankcase, Transform3D(Basis(), Vector3(0.0, 0.42, 0.08)), steel.darkened(0.25))
+	var barrel := BoxMesh.new()
+	barrel.size = Vector3(0.3, 0.34, 0.26)
+	_add(tool, barrel, Transform3D(
+		Basis(Vector3.RIGHT, deg_to_rad(16.0)), Vector3(0.0, 0.7, -0.04)
+	), steel)
+	for fin in 4:
 		var rib := BoxMesh.new()
-		rib.size = Vector3(0.44, 0.04, 0.42)
-		_add(tool, rib, Transform3D(Basis(), Vector3(0.0, 0.42 + float(fin) * 0.1, 0.0)), steel)
-
-	# The tank along the top, and the seat behind it.
-	var tank := SphereMesh.new()
-	tank.radius = 0.24
-	tank.height = 0.38
-	tank.radial_segments = 10
-	tank.rings = 6
-	_add(tool, tank, Transform3D(
-		Basis().scaled(Vector3(0.82, 1.0, 1.55)), Vector3(0.0, 0.86, -0.18)
-	), paint)
-	var seat := BoxMesh.new()
-	seat.size = Vector3(0.3, 0.13, 0.62)
-	_add(tool, seat, Transform3D(Basis(), Vector3(0.0, 0.9, 0.34)), Color(0.12, 0.12, 0.14))
-	# A mudguard over the back wheel, so the tail is not just a tyre.
-	var guard := BoxMesh.new()
-	guard.size = Vector3(0.3, 0.06, 0.5)
-	_add(tool, guard, Transform3D(Basis(), Vector3(0.0, 0.84, 0.74)), paint)
-
-	# Forks, handlebars and a headlamp.
-	for side in PackedFloat32Array([-1.0, 1.0]):
-		var fork := CylinderMesh.new()
-		fork.top_radius = 0.045
-		fork.bottom_radius = 0.045
-		fork.height = 0.78
-		fork.radial_segments = 6
-		_add(tool, fork, Transform3D(
-			Basis(Vector3.RIGHT, deg_to_rad(18.0)), Vector3(side * 0.13, 0.74, -0.68)
+		rib.size = Vector3(0.38, 0.03, 0.32)
+		_add(tool, rib, Transform3D(
+			Basis(Vector3.RIGHT, deg_to_rad(16.0)), Vector3(0.0, 0.6 + float(fin) * 0.08, -0.03)
 		), chrome)
-	var bars := CylinderMesh.new()
-	bars.top_radius = 0.035
-	bars.bottom_radius = 0.035
-	bars.height = 0.66
-	bars.radial_segments = 6
-	_add(tool, bars, Transform3D(
-		Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(0.0, 1.06, -0.56)
+
+	# The frame: a spine from the head to the back, and the swingarm.
+	var head_low := Vector3(0.0, 0.78, -0.58)
+	var head_high := Vector3(0.0, 1.12, -0.5)
+	var spine := Vector3(0.0, 1.0, 0.36)
+	_tube(tool, head_low, spine, 0.055, paint.darkened(0.25))
+	_tube(tool, head_low, head_high, 0.06, steel)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_tube(tool, Vector3(side * 0.1, 0.42, 0.2), back + Vector3(side * 0.12, 0.0, 0.0), 0.04, steel)
+		# The shock absorber up to the seat rails.
+		_tube(tool, back + Vector3(side * 0.12, 0.0, 0.0), Vector3(side * 0.12, 0.92, 0.5), 0.045, chrome)
+		# Front forks, with a fat slider at the bottom.
+		_tube(tool, head_low, front + Vector3(side * 0.1, 0.0, 0.0), 0.045, chrome)
+
+	# The tank: two spheres blended, wider at the front, so it has a waist.
+	var tank := SphereMesh.new()
+	tank.radius = 0.26
+	tank.height = 0.42
+	tank.radial_segments = 12
+	tank.rings = 7
+	_add(tool, tank, Transform3D(
+		Basis().scaled(Vector3(0.9, 1.0, 1.3)), Vector3(0.0, 1.0, -0.24)
+	), paint)
+	var tank_tail := SphereMesh.new()
+	tank_tail.radius = 0.2
+	tank_tail.height = 0.34
+	tank_tail.radial_segments = 10
+	tank_tail.rings = 6
+	_add(tool, tank_tail, Transform3D(
+		Basis().scaled(Vector3(0.85, 1.0, 1.2)), Vector3(0.0, 1.02, 0.06)
+	), paint)
+	# A stripe along it, which is what makes a painted tank read as painted.
+	var stripe := BoxMesh.new()
+	stripe.size = Vector3(0.1, 0.02, 0.7)
+	_add(tool, stripe, Transform3D(Basis(), Vector3(0.0, 1.22, -0.16)), Color(0.92, 0.90, 0.86))
+
+	# The seat: a long saddle with a step up to the pillion and a tail behind.
+	var saddle := BoxMesh.new()
+	saddle.size = Vector3(0.3, 0.12, 0.52)
+	_add(tool, saddle, Transform3D(Basis(), Vector3(0.0, 1.06, 0.4)), leather)
+	var pillion := BoxMesh.new()
+	pillion.size = Vector3(0.28, 0.12, 0.3)
+	_add(tool, pillion, Transform3D(Basis(), Vector3(0.0, 1.14, 0.72)), leather)
+	var tail := BoxMesh.new()
+	tail.size = Vector3(0.24, 0.16, 0.2)
+	_add(tool, tail, Transform3D(Basis(), Vector3(0.0, 1.12, 0.92)), paint)
+	var lamp_back := BoxMesh.new()
+	lamp_back.size = Vector3(0.14, 0.08, 0.05)
+	_add(tool, lamp_back, Transform3D(Basis(), Vector3(0.0, 1.12, 1.02)), Color(0.86, 0.22, 0.20))
+
+	# Bars, grips, mirrors and a headlamp in its shell.
+	var bars_at := head_high + Vector3(0.0, 0.08, -0.04)
+	_tube(tool, bars_at + Vector3(-0.34, 0.0, 0.0), bars_at + Vector3(0.34, 0.0, 0.0), 0.032, chrome)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_tube(
+			tool, bars_at + Vector3(side * 0.22, 0.0, 0.0),
+			bars_at + Vector3(side * 0.34, 0.0, 0.05), 0.042, leather
+		)
+		_tube(
+			tool, bars_at + Vector3(side * 0.2, 0.0, 0.0),
+			bars_at + Vector3(side * 0.26, 0.2, -0.02), 0.018, chrome
+		)
+		var glass := BoxMesh.new()
+		glass.size = Vector3(0.12, 0.08, 0.02)
+		_add(tool, glass, Transform3D(
+			Basis(), bars_at + Vector3(side * 0.26, 0.21, -0.02)
+		), Color(0.74, 0.82, 0.88))
+	var shell := SphereMesh.new()
+	shell.radius = 0.16
+	shell.height = 0.3
+	shell.radial_segments = 10
+	shell.rings = 6
+	_add(tool, shell, Transform3D(
+		Basis().scaled(Vector3(1.0, 1.0, 0.8)), Vector3(0.0, 1.0, -0.7)
+	), paint)
+	var lens := CylinderMesh.new()
+	lens.top_radius = 0.12
+	lens.bottom_radius = 0.12
+	lens.height = 0.04
+	lens.radial_segments = 12
+	_add(tool, lens, Transform3D(
+		Basis(Vector3.RIGHT, deg_to_rad(90.0)), Vector3(0.0, 1.0, -0.8)
+	), Color(0.97, 0.95, 0.76))
+
+	# The exhaust: a header off the barrel curving back into a silencer.
+	_tube(tool, Vector3(0.1, 0.5, -0.16), Vector3(0.2, 0.34, 0.2), 0.05, chrome)
+	_tube(tool, Vector3(0.2, 0.34, 0.2), Vector3(0.24, 0.38, 0.86), 0.07, chrome)
+	var can := CylinderMesh.new()
+	can.top_radius = 0.085
+	can.bottom_radius = 0.075
+	can.height = 0.3
+	can.radial_segments = 8
+	_add(tool, can, Transform3D(
+		Basis(Vector3.RIGHT, deg_to_rad(86.0)), Vector3(0.24, 0.4, 0.94)
 	), chrome)
-	var lamp := SphereMesh.new()
-	lamp.radius = 0.11
-	lamp.height = 0.2
-	lamp.radial_segments = 8
-	lamp.rings = 5
-	_add(tool, lamp, Transform3D(Basis(), Vector3(0.0, 0.96, -0.74)), Color(0.96, 0.94, 0.72))
-	# The pipe: the one part that says out loud what is wrong with it.
-	var pipe := CylinderMesh.new()
-	pipe.top_radius = 0.06
-	pipe.bottom_radius = 0.075
-	pipe.height = 0.9
-	pipe.radial_segments = 6
-	_add(tool, pipe, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(80.0)), Vector3(0.22, 0.4, 0.3)
-	), chrome)
+
+	# Footrests and a kickstand, so it stands rather than balancing.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var rest := CylinderMesh.new()
+		rest.top_radius = 0.028
+		rest.bottom_radius = 0.028
+		rest.height = 0.2
+		rest.radial_segments = 6
+		_add(tool, rest, Transform3D(
+			Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(side * 0.24, 0.36, 0.3)
+		), steel)
+	_tube(tool, Vector3(-0.16, 0.36, 0.22), Vector3(-0.3, 0.03, 0.34), 0.03, steel)
 
 ## A rowing boat, facing -Z like everything else that is ridden: a hull with a
 ## pointed bow and a flat stern, a pale wooden inside with two thwarts to sit
@@ -825,66 +889,153 @@ static func _boat(tool: SurfaceTool, hull: Color) -> void:
 		blade.size = Vector3(0.5, 0.03, 0.16)
 		_add(tool, blade, Transform3D(lay * Basis(Vector3.FORWARD, deg_to_rad(-90.0)), Vector3(side * 1.75, top - 0.14, 0.1)), wood)
 
+## A spoked wheel standing upright: tyre, rim, hub and spokes, at a given
+## place along the machine. Every wheel in this file is built here, so a
+## bicycle's and a motorcycle's differ in their numbers rather than in their
+## code — and spokes are what stop a wheel reading as a black doughnut.
+static func _wheel(
+	tool: SurfaceTool, at: Vector3, tyre_radius: float, tyre_width: float,
+	spokes: int, rubber: Color, metal: Color
+) -> void:
+	var tyre := TorusMesh.new()
+	tyre.inner_radius = tyre_radius - tyre_width
+	tyre.outer_radius = tyre_radius
+	tyre.rings = 16
+	tyre.ring_segments = 8
+	_add(tool, tyre, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(90.0)), at), rubber)
+	# The rim just inside the tyre, a shade brighter, so the two read apart.
+	var rim := TorusMesh.new()
+	rim.inner_radius = tyre_radius - tyre_width - 0.03
+	rim.outer_radius = tyre_radius - tyre_width + 0.01
+	rim.rings = 16
+	rim.ring_segments = 5
+	_add(tool, rim, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(90.0)), at), metal)
+	var hub := CylinderMesh.new()
+	hub.top_radius = tyre_width * 0.75
+	hub.bottom_radius = tyre_width * 0.75
+	hub.height = tyre_width * 1.6
+	hub.radial_segments = 8
+	_add(tool, hub, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(90.0)), at), metal)
+	for spoke in spokes:
+		var angle := PI * float(spoke) / float(spokes)
+		var bar := CylinderMesh.new()
+		bar.top_radius = 0.012
+		bar.bottom_radius = 0.012
+		bar.height = (tyre_radius - tyre_width) * 2.0
+		bar.radial_segments = 4
+		_add(tool, bar, Transform3D(Basis(Vector3.FORWARD, angle), at), metal)
+
+## A bicycle, facing -Z.
+##
+## Built as a bicycle is built rather than as a silhouette of one: two spoked
+## wheels, a diamond frame with a head tube and forks, chainstays reaching back
+## to the rear axle, a chainring with cranks and pedals, bars with grips on a
+## stem, and a saddle on a post. It was five fat tubes and two hoops before,
+## which read as a bicycle only because nothing else in the valley has two
+## wheels.
+##
+## Tubes stay thicker than a real bicycle\'s. At the distance a child sees one
+## across a valley, four centimetres of steel is less than a pixel and the
+## machine disappears; five to six reads as a bicycle.
 static func _bicycle(tool: SurfaceTool) -> void:
-	# Tubes are deliberately thicker than a real bicycle's. At the distance a
-	# child sees it across a valley, 4 cm of steel is one pixel and the whole
-	# machine reads as a discarded toy; 7 cm reads as a bicycle.
 	var frame: Color = colour(BICYCLE)
-	var rubber := Color(0.16, 0.16, 0.18)
+	var rubber := Color(0.13, 0.13, 0.15)
+	var metal := Color(0.80, 0.82, 0.86)
+	var grip := Color(0.18, 0.18, 0.20)
 
-	# A TorusMesh lies in the XZ plane, so a wheel needs rotating about X to
-	# stand upright — not about Y, which merely spins a flat ring and leaves the
-	# bicycle looking like two hoops dropped on the grass.
-	for front in PackedFloat32Array([-1.0, 1.0]):
-		var wheel := TorusMesh.new()
-		wheel.inner_radius = 0.28
-		wheel.outer_radius = 0.38
-		wheel.rings = 14
-		wheel.ring_segments = 7
-		_add(tool, wheel, Transform3D(
-			Basis(Vector3.RIGHT, deg_to_rad(90.0)), Vector3(0.0, 0.38, front * 0.62)
-		), rubber)
+	var back := Vector3(0.0, 0.40, 0.66)
+	var front := Vector3(0.0, 0.40, -0.66)
+	_wheel(tool, back, 0.40, 0.055, 6, rubber, metal)
+	_wheel(tool, front, 0.40, 0.055, 6, rubber, metal)
 
-	# Frame: two bars from the wheels up to the saddle, and the handlebars.
-	var down_tube := CylinderMesh.new()
-	down_tube.top_radius = 0.075
-	down_tube.bottom_radius = 0.075
-	down_tube.height = 1.05
-	down_tube.radial_segments = 6
-	_add(tool, down_tube, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(58.0)), Vector3(0.0, 0.62, -0.28)
-	), frame)
+	# The diamond: bottom bracket low in the middle, seat tube up from it, down
+	# tube forward to the head tube, top tube between the two.
+	var bracket := Vector3(0.0, 0.34, 0.16)
+	var head_low := Vector3(0.0, 0.62, -0.5)
+	var head_high := Vector3(0.0, 0.98, -0.42)
+	var seat_top := Vector3(0.0, 1.06, 0.3)
+	_tube(tool, bracket, head_low, 0.055, frame)
+	_tube(tool, bracket, seat_top, 0.05, frame)
+	_tube(tool, head_high, seat_top, 0.05, frame)
+	_tube(tool, head_low, head_high, 0.06, frame)
+	# Chainstays and seatstays: the triangle behind, which is the half of a
+	# bicycle everyone forgets and the half that makes it read as one.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_tube(tool, bracket, back + Vector3(side * 0.06, 0.0, 0.0), 0.032, frame)
+		_tube(tool, seat_top, back + Vector3(side * 0.06, 0.0, 0.0), 0.028, frame)
+		# Forks down to the front axle.
+		_tube(tool, head_low, front + Vector3(side * 0.06, 0.0, 0.0), 0.034, metal)
 
-	var seat_tube := CylinderMesh.new()
-	seat_tube.top_radius = 0.075
-	seat_tube.bottom_radius = 0.075
-	seat_tube.height = 0.86
-	seat_tube.radial_segments = 6
-	_add(tool, seat_tube, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(-22.0)), Vector3(0.0, 0.68, 0.34)
-	), frame)
+	# Chainring and cranks, with a pedal on each.
+	var ring := CylinderMesh.new()
+	ring.top_radius = 0.13
+	ring.bottom_radius = 0.13
+	ring.height = 0.02
+	ring.radial_segments = 12
+	_add(tool, ring, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(90.0)), bracket), metal)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var crank := BoxMesh.new()
+		crank.size = Vector3(0.035, 0.24, 0.05)
+		_add(tool, crank, Transform3D(
+			Basis(Vector3.RIGHT, side * deg_to_rad(40.0)),
+			bracket + Vector3(side * 0.09, 0.0, 0.0)
+		), metal)
+		var pedal := BoxMesh.new()
+		pedal.size = Vector3(0.09, 0.03, 0.17)
+		_add(tool, pedal, Transform3D(
+			Basis(), bracket + Vector3(side * 0.13, side * -0.1, side * 0.07)
+		), grip)
 
-	var top_tube := CylinderMesh.new()
-	top_tube.top_radius = 0.07
-	top_tube.bottom_radius = 0.07
-	top_tube.height = 0.92
-	top_tube.radial_segments = 6
-	_add(tool, top_tube, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(90.0)), Vector3(0.0, 0.94, 0.0)
-	), frame)
+	# Bars on a stem, with grips at the ends.
+	_tube(tool, head_high, head_high + Vector3(0.0, 0.1, -0.08), 0.04, metal)
+	var bars_at := head_high + Vector3(0.0, 0.1, -0.08)
+	_tube(tool, bars_at + Vector3(-0.28, 0.0, 0.0), bars_at + Vector3(0.28, 0.0, 0.0), 0.028, metal)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_tube(
+			tool, bars_at + Vector3(side * 0.18, 0.0, 0.0),
+			bars_at + Vector3(side * 0.28, 0.0, 0.04), 0.036, grip
+		)
 
-	var bars := CylinderMesh.new()
-	bars.top_radius = 0.06
-	bars.bottom_radius = 0.06
-	bars.height = 0.52
-	bars.radial_segments = 6
-	_add(tool, bars, Transform3D(
-		Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(0.0, 1.06, -0.52)
-	), rubber)
+	# Saddle on its post: a nose and a seat, not a brick.
+	_tube(tool, seat_top, seat_top + Vector3(0.0, 0.1, 0.02), 0.032, metal)
+	var seat := BoxMesh.new()
+	seat.size = Vector3(0.17, 0.06, 0.26)
+	_add(tool, seat, Transform3D(Basis(), seat_top + Vector3(0.0, 0.16, 0.04)), grip)
+	var nose := BoxMesh.new()
+	nose.size = Vector3(0.07, 0.05, 0.16)
+	_add(tool, nose, Transform3D(Basis(), seat_top + Vector3(0.0, 0.16, -0.12)), grip)
+	# A bell, because every child\'s bicycle has one.
+	var bell := CylinderMesh.new()
+	bell.top_radius = 0.035
+	bell.bottom_radius = 0.035
+	bell.height = 0.04
+	bell.radial_segments = 8
+	_add(tool, bell, Transform3D(Basis(), bars_at + Vector3(-0.1, 0.05, 0.0)), Color(0.86, 0.72, 0.32))
 
-	var saddle := BoxMesh.new()
-	saddle.size = Vector3(0.20, 0.10, 0.40)
-	_add(tool, saddle, Transform3D(Basis(), Vector3(0.0, 1.12, 0.42)), rubber)
+## A length of tube between two points, which is how every frame here is
+## described: a cylinder is defined by its middle and its axis, and writing
+## that out at each of a dozen joints is where frames come apart.
+static func _tube(
+	tool: SurfaceTool, from: Vector3, to: Vector3, radius: float, colour_of: Color
+) -> void:
+	var along := to - from
+	var length := along.length()
+	if length < 0.001:
+		return
+	var tube := CylinderMesh.new()
+	tube.top_radius = radius
+	tube.bottom_radius = radius
+	tube.height = length
+	tube.radial_segments = 6
+	# A cylinder stands along +Y; turn that onto the line between the points.
+	var up := Vector3.UP
+	var axis := up.cross(along.normalized())
+	var basis := Basis()
+	if axis.length() > 0.0001:
+		basis = Basis(axis.normalized(), up.angle_to(along.normalized()))
+	elif along.y < 0.0:
+		basis = Basis(Vector3.RIGHT, PI)
+	_add(tool, tube, Transform3D(basis, (from + to) * 0.5), colour_of)
 
 static func _add(tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, colour: Color) -> void:
 	var arrays := source.get_mesh_arrays()

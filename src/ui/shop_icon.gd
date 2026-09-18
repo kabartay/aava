@@ -46,8 +46,28 @@ func _draw() -> void:
 			_motorcycle(box)
 		ShopStock.SADDLE:
 			_saddle(box)
+		ShopStock.SHEARS:
+			_shears(box)
 		ShopStock.WHISTLE:
 			_whistle(box)
+
+## Shears: two blades crossed, with the bow handles behind them. Open rather
+## than closed, because closed they are a knife.
+func _shears(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var thick := maxf(2.5, unit * 0.075)
+	var pivot := centre + Vector2(0.0, unit * 0.04)
+	for side: float in [-1.0, 1.0]:
+		# The blade, forward and out.
+		draw_line(pivot, pivot + Vector2(side * unit * 0.22, -unit * 0.38), METAL, thick)
+		# The handle, back and out the other way.
+		draw_line(pivot, pivot + Vector2(side * -unit * 0.1, unit * 0.22), DARK, thick * 0.8)
+		draw_arc(
+			pivot + Vector2(side * -unit * 0.14, unit * 0.3), unit * 0.1,
+			0.0, TAU, 12, DARK, thick * 0.7
+		)
+	draw_circle(pivot, unit * 0.05, DARK)
 
 ## A saddle, seen from the side: the seat curving up at the cantle, the skirt
 ## below it, and the girth hanging under. A child who has seen a horse knows it

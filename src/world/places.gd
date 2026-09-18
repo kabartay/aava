@@ -37,8 +37,8 @@ const REACH := 5.5
 const MEAL_SHOWN := 8.0
 ## The café's shape, relative to its centre. It faces -Z: the door is in the
 ## front wall, the bar along the back wall, the terrace out in front.
-const CAFE_WIDTH := 10.4
-const CAFE_DEPTH := 7.6
+const CAFE_WIDTH: float = PlaceSpec.BUILDINGS[&"cafe"][0]
+const CAFE_DEPTH: float = PlaceSpec.BUILDINGS[&"cafe"][1]
 const CAFE_HEIGHT := 3.5
 const CAFE_MID_Z := 1.6
 const CAFE_DOOR_HALF := 0.9
@@ -73,10 +73,10 @@ const CAFE_LAMPS: Array[Vector3] = [
 ## Twice the floor it started with: a room a child walks around in, with the
 ## machines standing on the floor and the small goods out on stands, rather
 ## than a hut with a counter across it.
-const SHOP_WIDTH := 16.8
-const SHOP_DEPTH := 12.8
+const SHOP_WIDTH: float = PlaceSpec.BUILDINGS[&"shop"][0]
+const SHOP_DEPTH: float = PlaceSpec.BUILDINGS[&"shop"][1]
 const SHOP_HEIGHT := 4.4
-const SHOP_MID_Z := 1.6
+const SHOP_MID_Z: float = PlaceSpec.BUILDINGS[&"shop"][2]
 const SHOP_DOOR_HALF := 1.3
 ## Where the counter runs, and where the goods stand on the shelves behind it.
 const SHOP_COUNTER_Z := SHOP_MID_Z + 4.2
@@ -87,7 +87,7 @@ const SHOP_COUNTER_Z := SHOP_MID_Z + 4.2
 const SHOP_BICYCLES := 5
 const SHOP_MOTORCYCLES := 2
 ## The two stands down the middle, where the small goods are laid out.
-const SHOP_STAND_Z: Array[float] = [-2.2, 1.4]
+const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
 ## The hitching rail outside, because nothing is ridden through a doorway.
 const SHOP_RAIL_X := -10.4
 const SHOP_RAIL_Z := -4.4
@@ -846,21 +846,31 @@ func _build_shop(at: Vector3) -> void:
 		shelf.size = Vector3(w - 2.0, 0.08, 0.4)
 		_add(tool, shelf, Transform3D(Basis(), Vector3(0.0, 1.5 + float(level) * 0.8, back - 0.36)), timber)
 
-	# The machines, standing on the floor where a child can walk round them.
-	# Their own meshes, not coloured boxes: what you are saving up for should be
-	# in the shop, visibly, or the shop is a menu with walls.
+	# The machines stand along the walls, nose out, with the aisle from the door
+	# to the counter left clear between them. Down the middle they were the
+	# first thing a child walked into, which is a shop laid out by somebody who
+	# has never had to carry anything through one.
+	#
+	# Bicycles down the left wall, motorcycles down the right: the cheap thing
+	# on the way in, the dear one further back, which is how a shop is arranged
+	# and also how the saving-up reads.
+	var wall_x := w * 0.5 - 1.5
+	var rank_from := front + 2.2
+	var rank_to := SHOP_COUNTER_Z - 2.0
 	for i in SHOP_BICYCLES:
-		var along := -w * 0.5 + 1.6 + float(i) * ((w - 3.2) / float(maxi(SHOP_BICYCLES - 1, 1)))
+		var along := lerpf(rank_from, rank_to, float(i) / float(maxi(SHOP_BICYCLES - 1, 1)))
 		_add_as_drawn(
 			tool, MountKinds.build_mesh(MountKinds.BICYCLE),
-			Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), Vector3(along, 0.12, mid - d * 0.5 + 1.5))
+			Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), Vector3(-wall_x, 0.12, along))
 		)
+		_collide(solid, _box_shape(Vector3(1.9, 1.3, 0.7)), Transform3D(Basis(), Vector3(-wall_x, 0.65, along)))
 	for i in SHOP_MOTORCYCLES:
-		var along := -3.4 + float(i) * 6.8
+		var along := lerpf(rank_from + 0.6, rank_to - 0.6, float(i) / float(maxi(SHOP_MOTORCYCLES - 1, 1)))
 		_add_as_drawn(
 			tool, MountKinds.build_mesh(MountKinds.MOTORCYCLE),
-			Transform3D(Basis(Vector3.UP, deg_to_rad(-90.0)), Vector3(along, 0.12, mid + 1.0))
+			Transform3D(Basis(Vector3.UP, deg_to_rad(-90.0)), Vector3(wall_x, 0.12, along))
 		)
+		_collide(solid, _box_shape(Vector3(2.3, 1.4, 0.9)), Transform3D(Basis(), Vector3(wall_x, 0.7, along)))
 
 	# Two stands down the middle with the small goods laid out on them, and the
 	# same goods again on the shelves behind the counter.
@@ -868,24 +878,28 @@ func _build_shop(at: Vector3) -> void:
 	for item in ShopStock.ALL:
 		if item != ShopStock.BICYCLE and item != ShopStock.MOTORCYCLE:
 			small.append(item)
+	# Two stands, one either side of the aisle rather than across it, so the way
+	# in is a way in. Waist height for a child, and shallow enough to reach
+	# across.
 	for stand in SHOP_STAND_Z.size():
 		var top_at: float = SHOP_STAND_Z[stand]
+		var side := -1.0 if stand % 2 == 0 else 1.0
+		var stand_x := side * w * 0.22
 		var table := BoxMesh.new()
-		table.size = Vector3(w * 0.42, 0.12, 1.1)
-		_add(tool, table, Transform3D(Basis(), Vector3(0.0, 0.95, top_at)), timber)
-		_collide(solid, _box_shape(Vector3(w * 0.42, 0.95, 1.1)), Transform3D(Basis(), Vector3(0.0, 0.48, top_at)))
+		table.size = Vector3(2.6, 0.12, 1.0)
+		_add(tool, table, Transform3D(Basis(), Vector3(stand_x, 0.86, top_at)), timber)
+		_collide(solid, _box_shape(Vector3(2.6, 0.86, 1.0)), Transform3D(Basis(), Vector3(stand_x, 0.43, top_at)))
 		for leg in 4:
 			var post := BoxMesh.new()
-			post.size = Vector3(0.12, 0.9, 0.12)
+			post.size = Vector3(0.1, 0.8, 0.1)
 			_add(tool, post, Transform3D(Basis(), Vector3(
-				(-1.0 if leg % 2 == 0 else 1.0) * (w * 0.2),
-				0.45,
-				top_at + (-0.45 if leg < 2 else 0.45)
+				stand_x + (-1.15 if leg % 2 == 0 else 1.15),
+				0.4,
+				top_at + (-0.4 if leg < 2 else 0.4)
 			)), timber.darkened(0.2))
 		for i in small.size():
-			var across := w * 0.36
-			var x := -across * 0.5 + across * (float(i) + 0.5) / float(small.size())
-			_add_goods(tool, small[i], Vector3(x, 1.01, top_at))
+			var x := stand_x - 1.0 + 2.0 * (float(i) + 0.5) / float(small.size())
+			_add_goods(tool, small[i], Vector3(x, 0.92, top_at))
 	for i in small.size():
 		var across := w - 3.0
 		var x := -across * 0.5 + across * (float(i) + 0.5) / float(small.size())

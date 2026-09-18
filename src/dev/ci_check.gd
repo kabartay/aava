@@ -2212,6 +2212,38 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	)
 	_expect(Places.SHOP_STAND_Z.size() >= 2, "and the small goods are out on stands")
 
+	# The way in is a way in. Nothing stands in the aisle between the door and
+	# the counter: a shop with the stock down the middle of it is a shop laid
+	# out by somebody who never had to carry anything through one.
+	var door_at := places.position_of(Places.SHOP) + Vector3(0.0, 0.0, Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5)
+	var aisle_clear := true
+	for step in 12:
+		var along := door_at + Vector3(0.0, 0.9, 1.0 + float(step) * 0.8)
+		for piece in places._shop_solid.get_children():
+			var shape := piece as CollisionShape3D
+			if shape == null or not (shape.shape is BoxShape3D):
+				continue
+			var box := (shape.shape as BoxShape3D).size
+			var middle: Vector3 = places.position_of(Places.SHOP) + shape.position
+			if (
+				absf(along.x - middle.x) < box.x * 0.5 + 0.35
+				and absf(along.z - middle.z) < box.z * 0.5 + 0.35
+				and along.y < middle.y + box.y * 0.5
+			):
+				aisle_clear = false
+	_expect(aisle_clear, "the aisle from the door to the counter is clear")
+
+	# Nothing grows through the floor of a building.
+	var inside_shop := places.position_of(Places.SHOP) + Vector3(0.0, 0.0, Places.SHOP_MID_Z)
+	_expect(
+		PlaceSpec.indoors(inside_shop.x, inside_shop.z, camp),
+		"the middle of the shop counts as indoors, where nothing is planted"
+	)
+	_expect(
+		not PlaceSpec.indoors(inside_shop.x + Places.SHOP_WIDTH, inside_shop.z, camp),
+		"and the ground outside its wall does not"
+	)
+
 	# Everything the shop sells has a name, a price, a picture for the panel and
 	# a shape for the shelf. A thing you can buy and cannot see is a thing a
 	# child never buys.

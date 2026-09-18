@@ -208,6 +208,10 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	# lake, because that is what they were.
 	if field.is_pond(x, z):
 		return &""
+	# Nor indoors: a stick lying on the floor of the shop is a stick that grew
+	# through it.
+	if PlaceSpec.indoors(x, z, field.camp_centre()):
+		return &""
 
 	var to_river := field.distance_to_river(x, z)
 	if to_river < 20.0 and height < HeightField.WATER_LEVEL + 2.4:

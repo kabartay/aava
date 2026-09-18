@@ -478,6 +478,12 @@ const STRINGS := {
 		FR: "tes amis viennent quand tu appelles",
 		RU: "друзья приходят на зов",
 	},
+	"shop_shears": {EN: "shears", FR: "tondeuse", RU: "ножницы"},
+	"shop_shears_what": {
+		EN: "shear the sheep for their wool",
+		FR: "tonds les moutons pour leur laine",
+		RU: "стриги овец и получай шерсть",
+	},
 	"shop_saddle": {EN: "saddle", FR: "selle", RU: "седло"},
 	"shop_saddle_what": {
 		EN: "your horse takes hills it would slide off",

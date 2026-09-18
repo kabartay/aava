@@ -240,6 +240,28 @@ const POOL_HALF_X := 14.0
 const POOL_HALF_Z := 9.0
 const POOL_HALF := POOL_HALF_Z
 
+## The buildings that stand at these places, as width, depth and how far the
+## middle of the building sits from the middle of its place. Here rather than
+## in Places because the things that scatter grass and stones run on a worker
+## thread off the leaf classes alone and may not ask Places anything — and
+## without this, grass grew through the floor of the café and the shop.
+const BUILDINGS := {
+	&"cafe": [10.4, 7.6, 1.6],
+	&"shop": [16.8, 12.8, 1.6],
+}
+
+## Is this point inside a building — on somebody's floor rather than on the
+## ground? A little generous, so a tuft does not come up against the skirting.
+static func indoors(x: float, z: float, camp: Vector3) -> bool:
+	for place in BUILDINGS:
+		var centre: Vector3 = camp + OFFSETS[place]
+		var shape: Array = BUILDINGS[place]
+		var dx := absf(x - centre.x)
+		var dz := absf(z - (centre.z + float(shape[2])))
+		if dx < float(shape[0]) * 0.5 + 0.4 and dz < float(shape[1]) * 0.5 + 0.4:
+			return true
+	return false
+
 ## How far out the pool's fence stands from the water, so that one place can
 ## answer "is this inside the pool's enclosure" without depending on Places —
 ## the height field and the mounts both ask, and neither may.
