@@ -26,9 +26,11 @@ const CAFE := &"cafe"
 const ALL: Array[StringName] = [PLAYGROUND, POOL, CAFE]
 
 ## How close a child must be for a place to offer itself. The café is bigger
-## than the others' reach: a child at a terrace table is at the café.
+## than the others' reach: a child at a terrace table is at the café, and the
+## terrace now stands a café's length out in front of the door, so the reach is
+## worked out from where the furthest table actually is rather than from a
+## number that was true when the tables were on the doorstep.
 const REACH := 5.5
-const CAFE_REACH := 7.5
 ## How long a served meal sits on the counter, steaming.
 const MEAL_SHOWN := 8.0
 ## The café's shape, relative to its centre. It faces -Z: the door is in the
@@ -43,10 +45,39 @@ const CAFE_DOOR_HALF := 0.9
 const CAFE_TABLES: Array[Vector3] = [
 	Vector3(-3.2, 0.0, -0.4), Vector3(-3.2, 0.0, 2.6), Vector3(2.9, 0.0, -0.4),
 ]
-const CAFE_TERRACE: Array[Vector3] = [Vector3(-3.6, 0.0, -4.8), Vector3(3.6, 0.0, -4.8)]
-const CAFE_LAMPS: Array[Vector3] = [Vector3(-6.4, 0.0, -3.4), Vector3(6.4, 0.0, -3.4)]
+## The terrace stands out in front of the door rather than on the doorstep.
+## The two tables used to sit two and a half metres from the front wall, which
+## from the path read as furniture blocking the way in; they are a café's
+## length out now, far enough that the building and its terrace are two things
+## rather than a pile. The lamps stand between the two, lighting both.
+##
+## Measured from the front wall in café-lengths, so moving or resizing the
+## building takes the terrace with it instead of leaving it behind.
+const CAFE_TERRACE_OUT := 0.8
+const CAFE_FRONT_Z := CAFE_MID_Z - CAFE_DEPTH * 0.5
+const CAFE_TERRACE_Z := CAFE_FRONT_Z - CAFE_WIDTH * CAFE_TERRACE_OUT
+const CAFE_TERRACE: Array[Vector3] = [
+	Vector3(-3.6, 0.0, CAFE_TERRACE_Z), Vector3(3.6, 0.0, CAFE_TERRACE_Z),
+]
+const CAFE_LAMPS: Array[Vector3] = [
+	Vector3(-6.4, 0.0, CAFE_TERRACE_Z + 1.6), Vector3(6.4, 0.0, CAFE_TERRACE_Z + 1.6),
+]
 ## How far from a seat a child may be and still be sat down at it.
 const CAFE_SEAT_REACH := 6.0
+
+## The café's own reach: out to the furthest terrace table, with a pace to
+## spare, so that sitting down outside is still being at the café. Worked out
+## from where the tables are rather than written down beside them, because the
+## last number written down beside them was true when they stood on the
+## doorstep and wrong the moment they moved.
+static var _cafe_reach := 0.0
+
+static func cafe_reach() -> float:
+	if _cafe_reach <= 0.0:
+		for table in CAFE_TERRACE:
+			_cafe_reach = maxf(_cafe_reach, Vector2(table.x, table.z).length())
+		_cafe_reach += 1.5
+	return _cafe_reach
 
 ## What a plate of food at the café costs, and what it restores. Priced so that
 ## a hungry child can afford it from one round of looking after animals.
@@ -305,7 +336,7 @@ func nearest(at: Vector3) -> StringName:
 			if place == CAFE:
 				# Measured against the café's own, longer reach, then put on
 				# the common scale so the nearest place still wins.
-				distance *= REACH / CAFE_REACH
+				distance *= REACH / cafe_reach()
 		if distance < best_distance:
 			best_distance = distance
 			best = place

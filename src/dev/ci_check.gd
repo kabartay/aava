@@ -63,6 +63,7 @@ func _initialize() -> void:
 	_check_the_horses_are_spread_and_grazing()
 	_check_the_swing_is_pumped()
 	_check_a_horse_cannot_walk_through_a_wood()
+	_check_the_terrace_is_off_the_doorstep()
 	_check_the_range_is_clear()
 	_check_the_bow_can_be_aimed()
 	_check_swimming_looks_like_swimming()
@@ -2089,6 +2090,49 @@ func _check_a_horse_cannot_walk_through_a_wood() -> void:
 
 	# And a rider is never lifted far off the saddle, whatever the ground does.
 	_expect(Player.HOLD_SLACK < 0.2, "a held rider is never more than %.2f m off where they are held" % Player.HOLD_SLACK)
+
+## The café's outside tables stand out in front of the door, not against it.
+##
+## They were two and a half metres from the front wall, with their umbrellas
+## over the way in: from the path the café read as a building with furniture
+## piled against its door.
+func _check_the_terrace_is_off_the_doorstep() -> void:
+	print("the terrace is off the doorstep")
+	var out := Places.CAFE_FRONT_Z - Places.CAFE_TERRACE_Z
+	_expect(out > 0.0, "the terrace is on the door's side of the café")
+	_expect(
+		out >= Places.CAFE_WIDTH * 0.7 and out <= Places.CAFE_WIDTH * 1.0,
+		"and stands %.1f m out, which is %.2f of the café's own length" % [out, out / Places.CAFE_WIDTH]
+	)
+
+	# Far enough that nobody has to squeeze past an umbrella to get in, and
+	# still on the café's own flat ground rather than out on the slope.
+	for table in Places.CAFE_TERRACE:
+		var from_door := Vector2(table.x, table.z - Places.CAFE_FRONT_Z).length()
+		_expect(from_door > 4.0, "a table %.1f m from the doorway is not in the way of it" % from_door)
+		var from_centre := Vector2(table.x, table.z).length()
+		_expect(
+			from_centre < PlaceSpec.RADIUS[&"cafe"],
+			"and stands %.1f m from the middle, inside the %.0f m of level ground" % [
+				from_centre, float(PlaceSpec.RADIUS[&"cafe"])
+			]
+		)
+
+	# And the café still reaches its own terrace: a child who sits down outside
+	# must still be able to order. The reach used to be a number written beside
+	# the tables, which was true while they stood on the doorstep.
+	_expect(
+		Places.cafe_reach() > Vector2(Places.CAFE_TERRACE[0].x, Places.CAFE_TERRACE[0].z).length(),
+		"the café reaches %.1f m, out past its own furthest table" % Places.cafe_reach()
+	)
+
+	# The lamps came with them: a terrace nobody lit is a terrace nobody uses
+	# after tea.
+	for lamp in Places.CAFE_LAMPS:
+		var to_table := 1e9
+		for table in Places.CAFE_TERRACE:
+			to_table = minf(to_table, Vector2(lamp.x - table.x, lamp.z - table.z).length())
+		_expect(to_table < 5.0, "a lamp stands %.1f m from a table it lights" % to_table)
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
