@@ -8,9 +8,12 @@ extends Node3D
 ## makes a circle of night into day, which is the whole appeal: what is just
 ## outside the circle is worth walking towards.
 ##
-## Lit automatically rather than by a button. A six-year-old in the dark should
-## not have to work out which control turns the light on, and there is no
-## interesting decision in "would you like to see?".
+## It lights itself at dusk, and there is a switch. Lighting itself is right —
+## a six-year-old in the dark should not have to work out which control turns
+## the light on — but a lamp you cannot put out is not a lamp you own, and
+## being able to turn it off is most of what makes carrying one feel like
+## carrying something. Switched off it stays off until it is switched on again,
+## whatever the hour.
 
 ## How far the light reaches, and how bright at the centre. Generous enough to
 ## walk by, small enough that the valley still feels large in the dark.
@@ -29,6 +32,10 @@ const FADE := 1.6
 const THRESHOLD := 0.22
 
 var owned := false
+
+## Whether the switch is on. It is, to begin with, so a child who buys a
+## lantern and walks into the night gets a lantern.
+var switched_on := true
 
 var _light: OmniLight3D
 var _glass: MeshInstance3D
@@ -71,7 +78,7 @@ func _init() -> void:
 
 ## Called every frame with how dark it is. The lantern decides for itself.
 func follow(darkness: float, delta: float) -> void:
-	var want := 1.0 if owned and darkness > THRESHOLD else 0.0
+	var want := 1.0 if owned and switched_on and darkness > THRESHOLD else 0.0
 	_lit = move_toward(_lit, want, delta / FADE)
 	# Eased against the darkness as well as the fade, so the light comes up as
 	# dusk falls rather than switching on at a threshold.
@@ -85,3 +92,8 @@ func follow(darkness: float, delta: float) -> void:
 
 func is_lit() -> bool:
 	return _light.light_energy > 0.01
+
+## Turn it on or off. Returns what it is now, so the game can say so.
+func flick() -> bool:
+	switched_on = not switched_on
+	return switched_on

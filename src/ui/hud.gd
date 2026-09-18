@@ -33,6 +33,7 @@ signal care_pressed()
 signal shop_toggled()
 signal shop_buy(item: StringName)
 signal snack_pressed()
+signal lantern_pressed()
 signal drink_pressed()
 signal whistle_pressed()
 signal chop_pressed()
@@ -95,6 +96,7 @@ var _ticket_button: Button
 var _dam_button: Button
 var _fire_button: Button
 var _snack_button: Button
+var _lantern_button: Button
 var _sleep_button: Button
 var together: TogetherPanel
 var _talk_button: Button
@@ -103,8 +105,13 @@ var _shop: PanelContainer
 ## fits, and how many pictures stand across it.
 var _shop_shelf: ScrollContainer
 const SHOP_COLUMNS := 3
-## The picture a child has tapped, and the two lines that answer them.
+## The picture a child has tapped, the two lines that answer them, and what is
+## already theirs.
 var _shop_chosen := &""
+var _shop_owned: Dictionary = {}
+var _shop_buy_button: Button
+## What is in the purse, so the buying button can grey itself out.
+var _shop_coins := 0
 var _shop_name: Label
 var _shop_note: Label
 var _shop_rows: Dictionary = {}
@@ -294,6 +301,11 @@ func _init() -> void:
 	add_child(_dam_button)
 
 	# Shown at a campfire, with wood in the bag.
+	_lantern_button = _icon_button(ActionIcon.Kind.LANTERN)
+	_lantern_button.visible = false
+	_lantern_button.pressed.connect(func() -> void: lantern_pressed.emit())
+	add_child(_lantern_button)
+
 	_snack_button = _icon_button(ActionIcon.Kind.SNACK)
 	_snack_button.visible = false
 	_snack_button.pressed.connect(func() -> void: snack_pressed.emit())
@@ -532,9 +544,15 @@ func _build_shop() -> PanelContainer:
 		var tile := Button.new()
 		tile.custom_minimum_size = Vector2(BUTTON * 1.5, BUTTON * 1.62)
 		tile.focus_mode = Control.FOCUS_NONE
-		# Tap once to ask what it is, again to buy it. The words a child needs
-		# are the ones they asked for, and the second tap is also what stops a
-		# six-year-old spending a summer's coins on the wrong picture.
+		# The shelf is scrolled with a thumb, and a button that swallows the
+		# touch swallows the drag with it: the list could not be scrolled at
+		# all. PASS lets the press work and the drag through to the shelf. It
+		# is safe here only because a tap on a picture no longer buys anything.
+		tile.mouse_filter = Control.MOUSE_FILTER_PASS
+		# Tapping a picture asks what it is. It never buys: buying is a button
+		# of its own, below, with the price written on it. Tap-twice-to-buy was
+		# tried and is a trap — the second tap is how a child reads the words
+		# again, and it was spending their coins.
 		tile.pressed.connect(func() -> void: _shop_tapped(item))
 		grid.add_child(tile)
 
@@ -575,6 +593,19 @@ func _build_shop() -> PanelContainer:
 	_shop_note.custom_minimum_size = Vector2(float(SHOP_COLUMNS) * (BUTTON * 1.5 + 10.0), 0.0)
 	column.add_child(_shop_note)
 
+	# The one thing here that spends coins, with the price on its face. Hidden
+	# until a child has chosen something, so nothing can be bought by a tap
+	# that was asking a question.
+	_shop_buy_button = _button("", Color(1.0, 0.90, 0.52))
+	_shop_buy_button.custom_minimum_size = Vector2(BUTTON * 3.0, BUTTON * 0.7)
+	_shop_buy_button.add_theme_font_size_override("font_size", 20)
+	_shop_buy_button.visible = false
+	_shop_buy_button.pressed.connect(func() -> void:
+		if _shop_chosen != &"" and not bool(_shop_owned.get(_shop_chosen, false)):
+			shop_buy.emit(_shop_chosen)
+	)
+	column.add_child(_shop_buy_button)
+
 	var close := _button(Text.of("ui_back"), Color(0.90, 0.93, 0.97))
 	close.custom_minimum_size = Vector2(BUTTON * 4.6, BUTTON * 0.62)
 	close.add_theme_font_size_override("font_size", 18)
@@ -585,13 +616,30 @@ func _build_shop() -> PanelContainer:
 ## A picture was tapped. The first tap on a thing says what it is; the next one
 ## buys it.
 func _shop_tapped(item: StringName) -> void:
-	if _shop_chosen == item:
-		shop_buy.emit(item)
-		return
 	_shop_chosen = item
 	_shop_name.text = ShopStock.label(item)
+	if bool(_shop_owned.get(item, false)):
+		_shop_name.text += " ✓"
 	_shop_note.text = ShopStock.description(item)
+	_refresh_shop_buy()
 	_shop_mark_chosen()
+
+## The buying button: what it would cost, or that it is already yours.
+func _refresh_shop_buy() -> void:
+	if _shop_buy_button == null:
+		return
+	if _shop_chosen == &"":
+		_shop_buy_button.visible = false
+		return
+	_shop_buy_button.visible = true
+	if bool(_shop_owned.get(_shop_chosen, false)):
+		_shop_buy_button.text = Text.of("ui_owned")
+		_shop_buy_button.disabled = true
+	else:
+		_shop_buy_button.text = "%s  %d ●" % [
+			Text.of("ui_buy"), ShopStock.price(_shop_chosen)
+		]
+		_shop_buy_button.disabled = _shop_coins < ShopStock.price(_shop_chosen)
 
 ## Ring the chosen picture, so it is plain which one the words belong to and
 ## which one a second tap would buy.
@@ -621,6 +669,7 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 		_shop_note.text = ""
 		_shop_mark_chosen()
 	if open:
+		_shop_coins = coins
 		for item in ShopStock.ALL:
 			var parts: Dictionary = _shop_rows[item]
 			var row: Button = parts["button"]
@@ -641,7 +690,13 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 				row.modulate = (
 					Color.WHITE if coins >= price else Color(1.0, 1.0, 1.0, 0.45)
 				)
-			row.disabled = mine
+			# Never disabled. A bought thing still has to answer "what is this"
+			# when a child taps it — that was the whole point of the words —
+			# and a disabled button answers nothing at all.
+			_shop_owned[item] = mine
+		# The purse may have changed since the words went up — a child has just
+		# bought something, or earned a coin — so the button says so.
+		_refresh_shop_buy()
 	_layout()
 
 ## Energy and water, and whether a drink is worth offering.
@@ -698,6 +753,14 @@ func set_place_offer(place: StringName) -> void:
 	if _visit_button.visible != wanted:
 		_visit_button.visible = wanted
 		_layout()
+
+## Whether a lantern is owned, and whether it is alight. The button appears
+## once there is one to switch, and dims while it is out.
+func set_lantern(owned: bool, alight: bool) -> void:
+	if _lantern_button.visible != owned:
+		_lantern_button.visible = owned
+		_layout()
+	_lantern_button.modulate = Color.WHITE if alight else Color(1.0, 1.0, 1.0, 0.45)
 
 ## Whether there is chocolate in the bag to eat.
 func set_snack_offer(wanted: bool) -> void:

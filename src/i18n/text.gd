@@ -367,6 +367,8 @@ const STRINGS := {
 	"ui_eat": {
 		EN: "eat", FR: "manger", RU: "поесть",
 	},
+	"say_lantern_on": {EN: "the lantern is lit", FR: "la lanterne est allumée", RU: "фонарь зажжён"},
+	"say_lantern_off": {EN: "the lantern is out", FR: "la lanterne est éteinte", RU: "фонарь погашен"},
 	"say_chocolate": {
 		EN: "that is better",
 		FR: "ça va mieux",
@@ -452,6 +454,7 @@ const STRINGS := {
 		EN: "%s had a drink", FR: "%s a bu", RU: "%s пьёт",
 	},
 	"ui_shop": {EN: "shop", FR: "boutique", RU: "магазин"},
+	"ui_buy": {EN: "buy", FR: "acheter", RU: "купить"},
 	"place_shop": {EN: "the shop", FR: "la boutique", RU: "магазин"},
 	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
 	"ui_owned": {EN: "yours", FR: "à toi", RU: "твоё"},

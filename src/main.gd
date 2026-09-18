@@ -251,11 +251,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# A bicycle already bought must be standing in the world on reload.
 	lantern.owned = wallet.has(ShopStock.LANTERN)
 	if wallet.has(ShopStock.BICYCLE) and not world.mounts.exists(MountKinds.BICYCLE):
-		world.mounts.place(MountKinds.BICYCLE, world.field.find_spawn_point() + Vector3(-4.0, 0.0, 3.0))
+		world.mounts.place(MountKinds.BICYCLE, _outside_the_shop(Places.BICYCLE_STANDS_AT))
 	if wallet.has(ShopStock.MOTORCYCLE) and not world.mounts.exists(MountKinds.MOTORCYCLE):
-		world.mounts.place(
-			MountKinds.MOTORCYCLE, world.field.find_spawn_point() + Vector3(-6.5, 0.0, 3.0)
-		)
+		world.mounts.place(MountKinds.MOTORCYCLE, _outside_the_shop(Places.MOTORCYCLE_STANDS_AT))
 
 	world.archery.hit_target.connect(_on_arrow_hit)
 	world.archery.missed.connect(func() -> void:
@@ -476,6 +474,8 @@ func _process(delta: float) -> void:
 	# A roof comes off while you are under it, or the camera looks at tiles.
 	world.places.roofs_follow(at)
 
+	hud.set_lantern(lantern.owned, lantern.switched_on)
+
 	# Chocolate can be eaten anywhere, which is the point of carrying it.
 	hud.set_snack_offer(inventory.count(ItemKinds.CHOCOLATE) > 0)
 
@@ -619,6 +619,7 @@ func _handlers() -> Dictionary:
 		&"dam": _on_dam_stick,
 		&"ticket": _on_ticket,
 		&"snack": _on_snack,
+		&"lantern": _on_lantern,
 	}
 
 ## Feeding or stroking whatever is in front of the player.
@@ -1052,6 +1053,14 @@ func _on_care() -> void:
 func _on_shop() -> void:
 	hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
 
+func _outside_the_shop(offset: Vector3) -> Vector3:
+	var spot := world.places.position_of(Places.SHOP)
+	if spot == Vector3.ZERO:
+		# No shop in this world yet: fall back to where the child wakes up,
+		# which is at least somewhere they will walk past.
+		return world.field.find_spawn_point() + offset
+	return spot + offset
+
 func _on_buy(item: StringName) -> void:
 	# A bar of chocolate is used up rather than owned, so it goes through the
 	# purse rather than the ledger: buy as many as you like, one at a time.
@@ -1071,10 +1080,7 @@ func _on_buy(item: StringName) -> void:
 		if item == ShopStock.LANTERN:
 			lantern.owned = true
 		if item == ShopStock.MOTORCYCLE:
-			world.mounts.place(
-				MountKinds.MOTORCYCLE,
-				world.field.find_spawn_point() + Vector3(-6.5, 0.0, 3.0)
-			)
+			world.mounts.place(MountKinds.MOTORCYCLE, _outside_the_shop(Places.MOTORCYCLE_STANDS_AT))
 		if item == ShopStock.BICYCLE:
 			# At the camp, not underfoot: a bicycle that appears wherever you
 			# happen to stand feels like a cheat rather than something you own.
@@ -1191,6 +1197,17 @@ func _watch_the_turnstile() -> void:
 		hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
 	elif not near:
 		_ticket_told = false
+
+## Turn the lantern on or off. It lights itself at dusk; this is how a child
+## puts it out, which is most of what makes carrying one feel like carrying
+## something.
+func _on_lantern() -> void:
+	if not lantern.owned:
+		return
+	var on := lantern.flick()
+	sounds.play(Sounds.Sound.CHIME, 1.5 if on else 0.9)
+	hud.announce(Text.of("say_lantern_on" if on else "say_lantern_off"), 1.6)
+	hud.set_lantern(true, on)
 
 ## Eat a bar of chocolate. The one thing in the bag that is used up by using
 ## it, and the only way to get energy back without walking to the café.

@@ -22,7 +22,7 @@ enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
 	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET, SHOP,
-	SNACK,
+	SNACK, LANTERN,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -104,6 +104,33 @@ func _draw() -> void:
 			_shop(box)
 		Kind.SNACK:
 			_snack(box)
+		Kind.LANTERN:
+			_lantern(box)
+
+## A lantern: a body with a handle over it and light coming out. The same shape
+## as the one on the shop's shelf, so the thing bought and the thing switched
+## read as one object.
+func _lantern(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var thick := maxf(2.0, unit * 0.06)
+	var body := Rect2(
+		centre + Vector2(-unit * 0.17, -unit * 0.14), Vector2(unit * 0.34, unit * 0.36)
+	)
+	draw_rect(body, tint, false, thick)
+	# The flame inside.
+	draw_circle(centre + Vector2(0.0, unit * 0.05), unit * 0.08, tint)
+	# The handle.
+	draw_arc(centre + Vector2(0.0, -unit * 0.14), unit * 0.13, PI, TAU, 12, tint, thick)
+	# A cap and a foot, so it is a lantern rather than a window.
+	draw_line(
+		centre + Vector2(-unit * 0.21, -unit * 0.14),
+		centre + Vector2(unit * 0.21, -unit * 0.14), tint, thick
+	)
+	draw_line(
+		centre + Vector2(-unit * 0.21, unit * 0.22),
+		centre + Vector2(unit * 0.21, unit * 0.22), tint, thick
+	)
 
 ## A bar of chocolate, half unwrapped: the squares showing at one end and the
 ## foil turned back at the other.

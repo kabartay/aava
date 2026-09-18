@@ -2250,6 +2250,46 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	places.roofs_follow(shop_middle + Vector3(Places.SHOP_WIDTH, 0.0, 0.0))
 	_expect(places.roof_is_on(Places.SHOP), "a pace outside the wall, the roof is back")
 
+	# A machine bought at the shop is left outside the shop. They used to be
+	# put at the camp, four hundred and fifty metres away: a child bought a
+	# bicycle, walked out of the door and found nothing at all.
+	for stands: Vector3 in [Places.BICYCLE_STANDS_AT, Places.MOTORCYCLE_STANDS_AT]:
+		var parked := places.position_of(Places.SHOP) + stands
+		_expect(
+			Vector2(stands.x, stands.z).length() < PlaceSpec.RADIUS[&"shop"],
+			"a machine bought here stands %.1f m from the door, on the shop's own flat ground" % Vector2(stands.x, stands.z).length()
+		)
+		_expect(
+			not PlaceSpec.indoors(parked.x, parked.z, camp),
+			"and outside the building rather than in the middle of the floor"
+		)
+		_expect(
+			stands.z < Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5,
+			"on the door's side of it, where a child walking out will see it"
+		)
+
+	# The shop is lit. A tall room with a roof on it is a dark room, and what a
+	# child saw walking in was a shed full of shapes.
+	var lit := 0
+	for child in places.get_children():
+		var lamp := child as OmniLight3D
+		if lamp == null:
+			continue
+		if PlaceSpec.indoors(lamp.position.x, lamp.position.z, camp):
+			lit += 1
+	_expect(lit >= 4, "%d lights hang inside the shop" % lit)
+
+	# And the lake is blue on the map. The colouring asked whether the ground
+	# was below the world's waterline, and a raised pond's bed is eleven metres
+	# above it, so the one piece of open water in that quarter came out green.
+	var map := Minimap.new(field)
+	var lake_at := Vector2(Lakes.at(1, Lakes.POND_X), Lakes.at(1, Lakes.POND_Z))
+	_expect(
+		map._colour_at(lake_at.x, lake_at.y) == Minimap.WATER,
+		"the lake up the hill is drawn as water on the map"
+	)
+	map.queue_free()
+
 	# Nothing grows through the floor of a building.
 	var inside_shop := places.position_of(Places.SHOP) + Vector3(0.0, 0.0, Places.SHOP_MID_Z)
 	_expect(

@@ -312,6 +312,13 @@ func _finish_bake() -> void:
 
 func _colour_at(x: float, z: float) -> Color:
 	var height := _field.height_at(x, z)
+	# A pond is blue whatever height its water stands at. This asked whether
+	# the ground was below the world's waterline, and the bed of the lake up on
+	# the eastern shoulder is eleven metres above it — so the one piece of open
+	# water a child walks to came out green, and the map said there was nothing
+	# there.
+	if _field.is_pond(x, z):
+		return WATER
 	if height < HeightField.WATER_LEVEL:
 		return WATER
 	if Pitch.is_in_play(x, z):
