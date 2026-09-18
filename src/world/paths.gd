@@ -47,6 +47,10 @@ const ROUTES: Array[Dictionary] = [
 	# One that does not touch the camp, so it is not the only hub and the far
 	# side of the valley is worth crossing.
 	{"from": &"playground", "to": &"pool"},
+	# The lake up on the eastern shoulder and the shop above it: seventy metres
+	# apart, and the two things a child in that quarter of the valley has come
+	# for. A path between them is what says the pair belong together.
+	{"from": &"lake", "to": &"shop"},
 ]
 
 ## Everything the paths touch, as a box around the camp. Checked before any
@@ -77,7 +81,15 @@ const BOUNDS_HALF := 480.0
 ## the two cannot drift apart.
 const ARRIVES_AT := {
 	&"pool": Vector3(18.5, 0.0, 0.0),
+	# The shop's door is in its front wall, which faces -Z. A path to the
+	# middle of the building arrives inside it.
+	&"shop": Vector3(0.0, 0.0, -6.5),
 }
+
+## The lake's end of that path: the eastern pond's shore on the side the shop
+## is on, worked out from the pond itself rather than written down twice.
+const LAKE_POND := 1
+const LAKE_SHORE := 1.12
 
 ## Every route as four flat numbers: ax, az, bx, bz.
 ##
@@ -96,6 +108,7 @@ const SEGMENTS: Array[float] = [
 	0.0, 18.0, -3.5, 86.0,
 	-360.0, 268.0, -3.5, 86.0,
 	0.0, 18.0, 440.0, 58.0,
+	284.0, 274.0, 340.0, 313.5,
 ]
 
 ## Whether any route comes near this box at all, so a caller working over a
@@ -187,8 +200,8 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 
 	var strongest := 0.0
 	for route in ROUTES:
-		var a := _end_of(route["from"], camp)
-		var b := _end_of(route["to"], camp)
+		var a := end_of(route["from"], camp)
+		var b := end_of(route["to"], camp)
 		# The same rejection per route, on the segment's own box.
 		var reach := HALF_WIDTH + FEATHER
 		if x < minf(a.x, b.x) - reach or x > maxf(a.x, b.x) + reach:
@@ -214,10 +227,43 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 	return strongest
 
 ## Where a named end of a route is. The empty name is the camp itself.
-static func _end_of(place: StringName, camp: Vector3) -> Vector3:
+## Where a route's end actually is. Public because the checks were resolving
+## endpoints themselves, in two places, by reaching into PlaceSpec and
+## ARRIVES_AT — so the day a route ended somewhere that is not a place at all,
+## they asked PlaceSpec for the lake and fell over.
+static func end_of(place: StringName, camp: Vector3) -> Vector3:
 	if place == &"":
 		return camp
+	if place == &"lake":
+		return lake_landing(camp)
 	return PlaceSpec.centre_of(place, camp) + ARRIVES_AT.get(place, Vector3.ZERO)
+
+## Where a path meets the lake: on its shore, on the side facing the shop, just
+## outside the water. Computed from the pond and the shop so that moving either
+## moves the path's end with it.
+static func lake_landing(camp: Vector3) -> Vector3:
+	var centre := Vector2(
+		Lakes.at(LAKE_POND, Lakes.POND_X), Lakes.at(LAKE_POND, Lakes.POND_Z)
+	)
+	var shop := PlaceSpec.centre_of(&"shop", camp)
+	var towards := Vector2(shop.x - centre.x, shop.z - centre.y).normalized()
+	var long_axis := Lakes.at(LAKE_POND, Lakes.POND_LONG)
+	var short_axis := Lakes.at(LAKE_POND, Lakes.POND_SHORT)
+	var angle := Lakes.at(LAKE_POND, Lakes.POND_ANGLE)
+	# Out along that bearing until the pond's own frame says we are clear of
+	# the water: a path that ends in the lake ends nowhere a child stands.
+	var out := 0.0
+	while out < long_axis * 2.0:
+		var here := (towards * out).rotated(-angle)
+		var reach := sqrt(
+			(here.x / long_axis) * (here.x / long_axis)
+			+ (here.y / short_axis) * (here.y / short_axis)
+		)
+		if reach >= LAKE_SHORE:
+			break
+		out += 0.5
+	var landing := centre + towards * out
+	return Vector3(landing.x, 0.0, landing.y)
 
 ## Perpendicular distance from a point to a line segment, in the ground plane.
 static func _distance_to_segment(

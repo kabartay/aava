@@ -177,6 +177,35 @@ func height_at(x: float, z: float) -> float:
 	if pitch > 0.0:
 		floor_height = lerpf(floor_height, PITCH_LEVEL, pitch)
 
+	# The lakes are carved out of the ground rather than the water being raised
+	# to meet them, for the same reason the swimming pool is: the water surface
+	# is one flat plane across the whole world.
+	#
+	# Before the places, not after: a lake's shore reaches a hundred metres and
+	# more, and the shop stands within that of the eastern pond. Cutting the
+	# shore afterwards took a hand's breadth off one corner of its levelled
+	# pad, and a building wants level ground more than a lake wants a shore.
+	#
+	# The shore first: a band of low ground round the water, half a metre above
+	# it, easing back into the hillside beyond. Without it the raised pond was
+	# a bath — water thirteen metres up with the hill still climbing thirty
+	# metres out of it on three sides.
+	#
+	# Cut only, never filled. A lake in a meadow needs no shore built for it,
+	# and filling would have lifted the western pond's whole valley floor.
+	var shore := Lakes.shore_at(x, z)
+	if float(shore[1]) > 0.0:
+		var eased := lerpf(floor_height, float(shore[0]), float(shore[1]))
+		floor_height = minf(floor_height, eased)
+
+	# Then the basin. A pond's bed is dug below the pond's own water, which is
+	# not always the world's: digging every pond down to sea level turned the
+	# one up the hill into a crater with no way out of it.
+	var water := Lakes.water_at(x, z, WATER_LEVEL)
+	var lake: float = water[1]
+	if lake > 0.0:
+		floor_height = lerpf(floor_height, float(water[0]) - Lakes.DEPTH, lake)
+
 	# The playground, pool and café stand on levelled ground the same way. The
 	# camp is a constant rather than the result of find_spawn_point(), because
 	# that function calls height_at: asking it here would recurse, and a height
@@ -198,17 +227,6 @@ func height_at(x: float, z: float) -> float:
 	# child exactly what they expect to see.
 	if not dams_built.is_empty():
 		floor_height += DamSpec.fill(x, z, river_centre_x(z), dams_built)
-
-	# The lakes are carved out of the ground rather than the water being raised
-	# to meet them, for the same reason the swimming pool is: the water surface
-	# is one flat plane across the whole world.
-	# A pond's bed is dug below the pond's own water, which is not always the
-	# world's. Digging every pond down to sea level turned the one up the hill
-	# into a crater with no way out of it.
-	var water := Lakes.water_at(x, z, WATER_LEVEL)
-	var lake: float = water[1]
-	if lake > 0.0:
-		floor_height = lerpf(floor_height, float(water[0]) - Lakes.DEPTH, lake)
 
 	return _dry_unless_water(floor_height, x, z, lake)
 

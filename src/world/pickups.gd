@@ -202,6 +202,12 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	var height := field.height_at(x, z)
 	if height < HeightField.WATER_LEVEL + 0.1:
 		return &""
+	# Nor in a pond, whatever height its water stands at. A raised pond's bed
+	# is well above the world's waterline, so this saw dry hillside and strewed
+	# it with stones — which from the bank looked like stones floating in the
+	# lake, because that is what they were.
+	if field.is_pond(x, z):
+		return &""
 
 	var to_river := field.distance_to_river(x, z)
 	if to_river < 20.0 and height < HeightField.WATER_LEVEL + 2.4:

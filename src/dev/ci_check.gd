@@ -66,6 +66,7 @@ func _initialize() -> void:
 	_check_the_terrace_is_off_the_doorstep()
 	_check_the_shop_is_somewhere_you_walk_to()
 	_check_a_child_can_get_out_of_every_pond()
+	_check_the_ducks_are_only_ducks()
 	_check_the_range_is_clear()
 	_check_the_bow_can_be_aimed()
 	_check_swimming_looks_like_swimming()
@@ -2291,6 +2292,47 @@ func _check_a_child_can_get_out_of_every_pond() -> void:
 		# the height alone it looked like dry hillside.
 		_expect(field.is_pond(cx, cz), "and the world knows pond %d is water" % (pond + 1))
 
+		# You walk in and you are swimming. The bed used to start climbing a
+		# third of the way out, so a child waded a long way down a slope in
+		# knee-deep water and never got off their feet — reported from the
+		# phone as walking about on the bottom of the pond.
+		var wet_at := -1.0
+		var swimming_at := -1.0
+		for step in range(0, 200):
+			var out := long_axis * 1.25 - float(step) * 0.5
+			var depth := level - field.height_at(cx + out, cz)
+			if depth > 0.05 and wet_at < 0.0:
+				wet_at = float(step) * 0.5
+			if depth >= Player.SWIM_DEPTH and swimming_at < 0.0:
+				swimming_at = float(step) * 0.5
+				break
+		_expect(swimming_at > 0.0, "a child walking into pond %d ends up swimming" % (pond + 1))
+		_expect(
+			swimming_at - wet_at < 8.0,
+			"after %.1f m of wading, not a walk down a slope" % (swimming_at - wet_at)
+		)
+
+		# And the shore they walked in from is a step above the water, not a
+		# wall: the whole ring of it, measured in the pond's own frame rather
+		# than on a circle that overshoots the short axis.
+		var shore_low := 1e9
+		var shore_high := -1e9
+		for step in 48:
+			var bearing := TAU * float(step) / 48.0
+			var along := cos(bearing) * 1.1 * long_axis
+			var across := sin(bearing) * 1.1 * short_axis
+			var at := Vector3(
+				cx + along * cos(angle) - across * sin(angle), 0.0,
+				cz + along * sin(angle) + across * cos(angle)
+			)
+			shore_low = minf(shore_low, field.height_at(at.x, at.z))
+			shore_high = maxf(shore_high, field.height_at(at.x, at.z))
+		_expect(
+			shore_high - level <= Lakes.SHORE_RISE + 0.01,
+			"its shore stands %.2f m above the water all the way round" % (shore_high - level)
+		)
+		_expect(shore_low >= level - 0.01, "and none of it is under water")
+
 	# A raised pond gets a surface of its own, because the world's one sheet of
 	# water lies flat at zero and cannot cover it.
 	var water := Water.new()
@@ -2333,6 +2375,63 @@ func _check_a_child_can_get_out_of_every_pond() -> void:
 		var depth := places.submersion(middle, Player.HEIGHT)
 		_expect(depth > Player.SWIM_DEPTH, "a child in the middle of it is %.2f m under and swimming" % depth)
 	places.queue_free()
+
+## Ducks on the ponds: afloat, staying on their own water, and asking nothing
+## of anybody.
+##
+## They are the one living thing here that is not an errand. Everything else
+## that moves wants a cone or a stick or a stroke, and a valley where every
+## moving thing is a task is a place to work rather than a place to be.
+func _check_the_ducks_are_only_ducks() -> void:
+	print("the ducks are only ducks")
+	var ducks := Ducks.new()
+	get_root().add_child(ducks)
+	ducks.settle(20260903)
+	_expect(
+		ducks.count() == Lakes.count() * Ducks.PER_POND,
+		"%d ducks, %d on each pond" % [ducks.count(), Ducks.PER_POND]
+	)
+
+	# Each one floats on the water of the pond it belongs to, not on the world's
+	# waterline and not on the bed.
+	var afloat := true
+	var inside := true
+	for i in ducks.count():
+		var pond := ducks.duck_pond(i)
+		var at := ducks.duck_position(i)
+		if absf(at.y - Lakes.at(pond, Lakes.POND_LEVEL)) > 0.1:
+			afloat = false
+			printerr("  duck %d sits %.2f m off its pond's surface" % [
+				i, at.y - Lakes.at(pond, Lakes.POND_LEVEL)
+			])
+		if Lakes.influence(at.x, at.z) <= 0.0:
+			inside = false
+			printerr("  duck %d is not on any pond at all" % i)
+	_expect(afloat, "every duck floats on its own pond's surface")
+	_expect(inside, "and every one of them is on the water")
+
+	# They paddle, and they stay on the pond: a duck that walks up the bank and
+	# off across the meadow is a duck that has stopped being decoration.
+	var before := ducks.duck_position(0)
+	for _frame in 60:
+		ducks._process(1.0 / 60.0)
+	_expect(ducks.duck_position(0).distance_to(before) > 0.2, "they paddle about")
+	for _frame in 3600:
+		ducks._process(1.0 / 60.0)
+	var ashore := 0
+	for i in ducks.count():
+		var at := ducks.duck_position(i)
+		if Lakes.influence(at.x, at.z) <= 0.0:
+			ashore += 1
+	_expect(ashore == 0, "and after a minute of paddling none has left the water")
+
+	# And they are not animals: nothing to feed, no coins, no cooldown.
+	var is_animal := false
+	for kind in AnimalKinds.ALL:
+		if String(kind).contains("duck"):
+			is_animal = true
+	_expect(not is_animal, "a duck is not one of the animals that wants something")
+	ducks.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
@@ -4374,7 +4473,7 @@ func _check_paths_lead_somewhere() -> void:
 	# swimming pool is not somewhere to paint a trodden path.
 	for route in Paths.ROUTES:
 		for end: StringName in [route["from"], route["to"]]:
-			var at: Vector3 = camp if end == &"" else PlaceSpec.centre_of(end, camp) + Paths.ARRIVES_AT.get(end, Vector3.ZERO)
+			var at: Vector3 = Paths.end_of(end, camp)
 			var arrives := false
 			for step in 24:
 				var reach := float(step)
@@ -4404,8 +4503,8 @@ func _check_paths_lead_somewhere() -> void:
 	for route in Paths.ROUTES:
 		# Each route runs to where it actually arrives, which for the pool is
 		# its gate rather than the bottom of the water.
-		var a: Vector3 = camp if route["from"] == &"" else PlaceSpec.centre_of(route["from"], camp) + Paths.ARRIVES_AT.get(route["from"], Vector3.ZERO)
-		var b: Vector3 = camp if route["to"] == &"" else PlaceSpec.centre_of(route["to"], camp) + Paths.ARRIVES_AT.get(route["to"], Vector3.ZERO)
+		var a: Vector3 = Paths.end_of(route["from"], camp)
+		var b: Vector3 = Paths.end_of(route["to"], camp)
 		for step in 19:
 			var at := a.lerp(b, float(step + 1) / 20.0)
 			var ground := field.height_at(at.x, at.z)

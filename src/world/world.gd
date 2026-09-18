@@ -17,6 +17,7 @@ var vegetation: Vegetation
 var tree_collision: TreeCollision
 var animal_collision: AnimalCollision
 var distant_land: DistantLand
+var ducks: Ducks
 
 ## How many horses are turned out in the valley.
 const HORSES := 5
@@ -114,6 +115,13 @@ func _ready() -> void:
 	water = Water.new()
 	water.name = "Water"
 	add_child(water)
+
+	# Ducks on the ponds. Decoration, and nothing else: they give no coins and
+	# want nothing, because a valley where everything that moves is an errand
+	# is a place to work rather than a place to be.
+	ducks = Ducks.new()
+	add_child(ducks)
+	ducks.settle(world_seed)
 
 	var spawn := field.find_spawn_point()
 	# Five horses turned out across the valley. One waits near the spawn —

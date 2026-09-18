@@ -75,13 +75,38 @@ const POND_LEVEL := 5
 ## and no deeper: a pond is somewhere to swim, not somewhere to disappear.
 const DEPTH := 2.0
 
+## The shore.
+##
+## A basin dug into a hillside is a bath, and that is what the raised pond
+## looked like: water thirteen metres up with the hill going on rising thirty
+## metres out of it on three sides. A lake has a shore — a band of low ground
+## round the water, half a metre above it, and the hill starting beyond that.
+##
+## SHORE is how far out that low ground reaches, and SHORE_FADE where it has
+## blended back into the hillside, both in units of the basin's own axes.
+## SHORE_RISE is how far the shore stands above the water: enough that the
+## ground is dry and little enough that a child steps in rather than climbing
+## down.
+##
+## The shore only ever cuts ground away, never fills it in. A lake in a meadow
+## needs no shore built for it — the meadow is already the shore — and filling
+## would have raised the western pond's whole valley floor half a metre for
+## nothing.
+const SHORE := 1.2
+const SHORE_FADE := 3.0
+const SHORE_RISE := 0.5
+
 ## How much of the way out the bed stays flat before it starts rising. A pond
 ## with a vertical edge reads as a hole full of water; this one has a beach.
 ##
-## Lower than it was: a longer shelf means the ground comes up to meet the
-## water over ten metres or so rather than two, which is the difference between
-## a shore and the rim of a bucket.
-const SHELF := 0.34
+## Higher than it was, now that a pond is two metres deep rather than three and
+## a half. At a third of the way out the bed spent most of the pond climbing,
+## so a child walked a long way down a slope in knee-deep water before anything
+## happened — reported from the phone as walking about on the bottom instead of
+## swimming. At seven tenths the bed is flat across most of the pond and comes
+## up over the last dozen metres: a few steps in from the shore and you are
+## swimming, which is what a pond is for.
+const SHELF := 0.72
 
 ## How much the outline wanders from a true ellipse, as a fraction of the
 ## radius. A stamped ellipse reads as a swimming pool; a wobble on two periods
@@ -127,6 +152,44 @@ static func influence(x: float, z: float) -> float:
 
 		deepest = maxf(deepest, _pond_at(dx, dz, long_axis, short_axis, angle))
 	return deepest
+
+## How strongly the shore's levelling applies here, from 1 at the water's edge
+## to 0 where the hillside takes over again — and the height it levels to, as
+## one answer: [shore_height, strength].
+static func shore_at(x: float, z: float) -> Array:
+	if absf(x) > BOUNDS or absf(z) > BOUNDS:
+		return [0.0, 0.0]
+	var strongest := 0.0
+	var height := 0.0
+	var i := 0
+	while i < PONDS.size():
+		var long_axis := PONDS[i + POND_LONG]
+		var short_axis := PONDS[i + POND_SHORT]
+		var reach := (long_axis if long_axis > short_axis else short_axis) * SHORE_FADE
+		var dx := x - PONDS[i + POND_X]
+		var dz := z - PONDS[i + POND_Z]
+		if absf(dx) > reach or absf(dz) > reach:
+			i += POND_STRIDE
+			continue
+		var distance := _reach_of(dx, dz, long_axis, short_axis, PONDS[i + POND_ANGLE])
+		var here := 1.0 - smoothstep(SHORE, SHORE_FADE, distance)
+		if here > strongest:
+			strongest = here
+			height = PONDS[i + POND_LEVEL] + SHORE_RISE
+		i += POND_STRIDE
+	return [height, strongest]
+
+## How far out a point is in a pond's own frame, where 1.0 is the basin's edge.
+## Both the basin and the shore are measured from this, so the two cannot drift
+## apart.
+static func _reach_of(
+	dx: float, dz: float, long_axis: float, short_axis: float, angle: float
+) -> float:
+	var turn_cos := cos(angle)
+	var turn_sin := sin(angle)
+	var along := (dx * turn_cos + dz * turn_sin) / long_axis
+	var across := (-dx * turn_sin + dz * turn_cos) / short_axis
+	return sqrt(along * along + across * across)
 
 ## The height the water stands at here, and how much of a pond is here, as one
 ## answer: [level, influence]. Everything that used to compare against the
