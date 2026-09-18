@@ -177,6 +177,27 @@ func _build_tile(coord: Vector2i) -> void:
 			"velocity": 0.0,
 		})
 
+## Put one animal somewhere, for the checks. The world spawns them by tile and
+## by chance, which is no way to ask "what does a cat standing in the lake do".
+func put_one_at(kind: StringName, at: Vector3) -> Dictionary:
+	var node := AnimalKinds.build_node(kind)
+	node.position = at
+	add_child(node)
+	var animal := {
+		"kind": kind,
+		"node": node,
+		"home": at,
+		"target": at,
+		"tile": Vector2i.ZERO,
+		"rest": 0.0,
+		"cooldown": 0.0,
+		"bob": 0.0,
+		"heading": 0.0,
+		"velocity": 0.0,
+	}
+	_living.append(animal)
+	return animal
+
 ## Where an animal's feet actually rest: the ground, unless the ground here is
 ## the bed of a river or a lake, in which case no lower than a wade.
 func _footing(x: float, z: float) -> float:
@@ -213,6 +234,11 @@ func _step(animal: Dictionary, delta: float) -> void:
 	var node: Node3D = animal["node"]
 	if not is_instance_valid(node):
 		return
+	# One that is already standing in a pond walks out of it. They are placed
+	# on dry ground and never choose a pond to walk to, but a pond can appear
+	# under one: the eastern lake was dug where a cat was already living.
+	if field.is_pond(node.position.x, node.position.z):
+		_head_for_the_bank(animal)
 	animal["cooldown"] = maxf(0.0, float(animal["cooldown"]) - delta)
 
 	var to_target: Vector3 = animal["target"] - node.position
@@ -318,12 +344,37 @@ func _pick_wander(animal: Dictionary) -> void:
 		var spot := home + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
 		if obstacles != null and obstacles.obstructed(spot.x, spot.z, 0.4):
 			continue
+		# Not into a pond. An animal wades a river, which is shallow and has
+		# two banks; a pond is deep still water, and a cat that walked into one
+		# stood there in it up to its neck with nowhere to go.
+		if field.is_pond(spot.x, spot.z):
+			continue
 		spot.y = _footing(spot.x, spot.z)
 		animal["target"] = spot
 		animal["rest"] = randf_range(1.5, 5.0)
 		animal["speed"] = SPEED
 		return
 	animal["rest"] = randf_range(1.0, 2.0)
+
+## Send an animal to the nearest dry ground. Its home moves too — otherwise it
+## wanders straight back into the water it has just come out of.
+func _head_for_the_bank(animal: Dictionary) -> void:
+	var node: Node3D = animal["node"]
+	for ring in 12:
+		var out := 6.0 + 8.0 * float(ring)
+		for step in 12:
+			var bearing := TAU * float(step) / 12.0
+			var spot := node.position + Vector3(cos(bearing), 0.0, sin(bearing)) * out
+			if field.is_pond(spot.x, spot.z):
+				continue
+			if field.height_at(spot.x, spot.z) < field.water_level_at(spot.x, spot.z) + 0.2:
+				continue
+			spot.y = _footing(spot.x, spot.z)
+			animal["home"] = spot
+			animal["target"] = spot
+			animal["rest"] = 0.0
+			animal["speed"] = FLEE_SPEED
+			return
 
 ## Called every frame with where the player is and what they are carrying.
 ##

@@ -47,10 +47,36 @@ const ROUTES: Array[Dictionary] = [
 	# One that does not touch the camp, so it is not the only hub and the far
 	# side of the valley is worth crossing.
 	{"from": &"playground", "to": &"pool"},
-	# The lake up on the eastern shoulder and the shop above it: seventy metres
-	# apart, and the two things a child in that quarter of the valley has come
-	# for. A path between them is what says the pair belong together.
-	{"from": &"lake", "to": &"shop"},
+	# The lake up on the eastern shoulder and the shop above it: the two things
+	# a child in that quarter of the valley has come for, and a path between
+	# them is what says the pair belong together.
+	#
+	# It is not a straight line and it is not in this list: see LAKE_WALK.
+]
+
+## The walk from the lake up to the shop, as a chain of corners.
+##
+## Every other route in this valley is a straight line between two places,
+## which works because both ends stand on the valley floor. These two do not:
+## the shop is on a plateau and the lake lies under its cliff, so a straight
+## line between them — from any point on the lake's shore, in any direction —
+## climbs ground at a gradient of one. A path painted up a wall is worse than
+## no path, because it tells a child to go somewhere they cannot go.
+##
+## So this one winds. It follows the shore away from the water, swings out
+## north-west onto the open shoulder, and climbs back east along the contour to
+## the shop's door — thirty-five metres of height gained at a gradient never
+## past a third, which is a walk rather than a scramble. The corners come from
+## searching the hillside itself for the cheapest line that never exceeds it;
+## a check walks the whole chain and fails if any of it is too steep to use.
+const LAKE_WALK: Array[Vector3] = [
+	Vector3(284.0, 0.0, 274.0),
+	Vector3(268.0, 0.0, 282.0),
+	Vector3(236.0, 0.0, 316.0),
+	Vector3(252.0, 0.0, 338.0),
+	Vector3(290.0, 0.0, 336.0),
+	Vector3(316.0, 0.0, 326.0),
+	Vector3(340.0, 0.0, 313.5),
 ]
 
 ## Everything the paths touch, as a box around the camp. Checked before any
@@ -91,6 +117,13 @@ const ARRIVES_AT := {
 const LAKE_POND := 1
 const LAKE_SHORE := 1.12
 
+## Where the path turns, measured from the lake's landing: out onto the open
+## shoulder north-west of the water, where the ground rises at a third rather
+## than at one. Chosen by walking every bearing round the lake and every corner
+## of the ground beyond it, and held to by the check that every route is
+## walkable end to end.
+const LAKE_BEND := Vector3(-70.0, 0.0, 70.0)
+
 ## Every route as four flat numbers: ax, az, bx, bz.
 ##
 ## `influence` is called several million times during a world build, and the
@@ -108,7 +141,12 @@ const SEGMENTS: Array[float] = [
 	0.0, 18.0, -3.5, 86.0,
 	-360.0, 268.0, -3.5, 86.0,
 	0.0, 18.0, 440.0, 58.0,
-	284.0, 274.0, 340.0, 313.5,
+	284.0, 274.0, 268.0, 282.0,
+	268.0, 282.0, 236.0, 316.0,
+	236.0, 316.0, 252.0, 338.0,
+	252.0, 338.0, 290.0, 336.0,
+	290.0, 336.0, 316.0, 326.0,
+	316.0, 326.0, 340.0, 313.5,
 ]
 
 ## Whether any route comes near this box at all, so a caller working over a
@@ -217,6 +255,24 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 		if strongest >= 0.999:
 			return 1.0
 
+	# The winding walk from the lake up to the shop, corner by corner.
+	for corner in LAKE_WALK.size() - 1:
+		var a := LAKE_WALK[corner]
+		var b := LAKE_WALK[corner + 1]
+		var reach := HALF_WIDTH + FEATHER
+		if x < minf(a.x, b.x) - reach or x > maxf(a.x, b.x) + reach:
+			continue
+		if z < minf(a.z, b.z) - reach or z > maxf(a.z, b.z) + reach:
+			continue
+		var along := _distance_to_segment(x, z, a.x, a.z, b.x, b.z)
+		if along > reach:
+			continue
+		strongest = maxf(
+			strongest, 1.0 - smoothstep(HALF_WIDTH, HALF_WIDTH + FEATHER, along)
+		)
+		if strongest >= 0.999:
+			return 1.0
+
 	# The walk to the archery butts.
 	var butts := camp + BUTTS_OFFSET
 	var to_butts := _distance_to_segment(x, z, camp.x, camp.z, butts.x, butts.z)
@@ -236,6 +292,8 @@ static func end_of(place: StringName, camp: Vector3) -> Vector3:
 		return camp
 	if place == &"lake":
 		return lake_landing(camp)
+	if place == &"lake_bend":
+		return lake_landing(camp) + LAKE_BEND
 	return PlaceSpec.centre_of(place, camp) + ARRIVES_AT.get(place, Vector3.ZERO)
 
 ## Where a path meets the lake: on its shore, on the side facing the shop, just

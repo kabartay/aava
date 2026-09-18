@@ -238,6 +238,18 @@ func _show_neighbours() -> void:
 		marker.position = Vector3(beside.x, beside.y + 0.05, beside.z)
 		marker.visible = true
 
+## Would anything go up here? Asked by the checks: the rule about wet ground is
+## easy to get wrong in a valley where the water is not all at one height, and
+## the way it was wrong let a ladder stand in the middle of a lake.
+func would_build_at(at: Vector3) -> bool:
+	if field.is_pond(at.x, at.z):
+		return false
+	if at.y < field.water_level_at(at.x, at.z) + 0.15:
+		return false
+	if field.steepness_at(at.x, at.z) > MAX_SLOPE:
+		return false
+	return not PlaceSpec.reserved(at.x, at.z, field.camp_centre())
+
 func _evaluate() -> void:
 	var cost := _cost_of(selected)
 	_valid = true
@@ -246,7 +258,14 @@ func _evaluate() -> void:
 	if not inventory.can_afford(cost):
 		_valid = false
 		_reason = Text.format("why_need", [_cost_text(cost)])
-	elif _target.y < HeightField.WATER_LEVEL + 0.15:
+	elif field.is_pond(_target.x, _target.z):
+		# A pond, whatever height its water stands at. The test below compares
+		# against the world's waterline, and a raised pond's bed is well above
+		# that — so a ladder could be stood in the middle of a lake, which is
+		# how it was found.
+		_valid = false
+		_reason = Text.of("why_wet")
+	elif _target.y < field.water_level_at(_target.x, _target.z) + 0.15:
 		_valid = false
 		_reason = Text.of("why_wet")
 	elif field.steepness_at(_target.x, _target.z) > MAX_SLOPE:

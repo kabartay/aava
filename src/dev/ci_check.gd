@@ -4529,6 +4529,113 @@ func _check_paths_lead_somewhere() -> void:
 
 	# And the middle of a route must be worn too, or it is two patches rather
 	# than a path.
+	# And a route has to be walkable. A path painted up a cliff is worse than no
+	# path at all: it tells a child to go somewhere they cannot go, which is
+	# what the first path from the lake to the shop did — the shop stands on a
+	# plateau above a cliff, and every straight line to it from anywhere on the
+	# lake's shore climbed ground at a gradient of one.
+	var steepest := 0.0
+	var steepest_route := ""
+	var legs: Array[Array] = []
+	for route in Paths.ROUTES:
+		legs.append([
+			Paths.end_of(route["from"], camp), Paths.end_of(route["to"], camp),
+			"%s to %s" % [
+				"camp" if route["from"] == &"" else route["from"],
+				"camp" if route["to"] == &"" else route["to"],
+			]
+		])
+	for corner in Paths.LAKE_WALK.size() - 1:
+		legs.append([
+			Paths.LAKE_WALK[corner], Paths.LAKE_WALK[corner + 1],
+			"the lake walk, leg %d" % (corner + 1)
+		])
+	for leg in legs:
+		for step in 80:
+			var at: Vector3 = (leg[0] as Vector3).lerp(leg[1] as Vector3, float(step) / 79.0)
+			var here := field.steepness_at(at.x, at.z)
+			if here > steepest:
+				steepest = here
+				steepest_route = String(leg[2])
+	# Three quarters, not a half: the walk from the playground to the pool
+	# crosses a shoulder at 0.63 and has always been fine. What is being caught
+	# is ground at a gradient of one and more, which the player's own controller
+	# will not climb — it slides off anything past 52 degrees, and long before
+	# that a child simply gives up.
+	_expect(
+		steepest < 0.75,
+		"every route is walkable: the steepest ground on any of them is %.2f, on the one from %s" % [
+			steepest, steepest_route
+		]
+	)
+
+	# No animal stands in a lake. A cat walked into the eastern pond and stayed
+	# there up to its neck: they wade rivers, which are shallow and have two
+	# banks, and nothing told them a pond is different.
+	var herd_field := field
+	var beasts := Animals.new(herd_field, 20260903)
+	get_root().add_child(beasts)
+	var in_the_lake := Vector3(
+		Lakes.at(1, Lakes.POND_X), 0.0, Lakes.at(1, Lakes.POND_Z)
+	)
+	in_the_lake.y = herd_field.height_at(in_the_lake.x, in_the_lake.z)
+	var stranded := beasts.put_one_at(AnimalKinds.CAT, in_the_lake)
+	_expect(not stranded.is_empty(), "a cat can be stood in the middle of the lake for the test")
+	for _frame in 600:
+		beasts._process(1.0 / 60.0)
+	var walked_to: Vector3 = (stranded["node"] as Node3D).position
+	_expect(
+		not herd_field.is_pond(walked_to.x, walked_to.z),
+		"and it walks out of the water rather than standing in it"
+	)
+	beasts.queue_free()
+
+	# Nothing is built in a lake. The test for wet ground compared against the
+	# world's waterline, and a raised pond's bed is well above it — so a ladder
+	# could be stood in the middle of one.
+	var builder := BuildMode.new(field, Structures.new(field), Inventory.new())
+	get_root().add_child(builder)
+	var open_water := Vector3(
+		Lakes.at(1, Lakes.POND_X), 0.0, Lakes.at(1, Lakes.POND_Z)
+	)
+	open_water.y = field.height_at(open_water.x, open_water.z)
+	_expect(
+		not builder.would_build_at(open_water),
+		"nothing is built in the middle of a lake"
+	)
+	var bank := open_water + Vector3(Lakes.at(1, Lakes.POND_LONG) + 12.0, 0.0, 0.0)
+	bank.y = field.height_at(bank.x, bank.z)
+	_expect(builder.would_build_at(bank), "but the bank beside it is ordinary ground")
+	builder.queue_free()
+
+	# The lake walk has to start at the lake and end at the shop's door, however
+	# it wanders in between.
+	var walk_start: Vector3 = Paths.LAKE_WALK[0]
+	var walk_end: Vector3 = Paths.LAKE_WALK[Paths.LAKE_WALK.size() - 1]
+	_expect(
+		walk_start.distance_to(Paths.end_of(&"lake", camp)) < 2.0,
+		"the lake walk begins on the lake's own shore"
+	)
+	_expect(
+		walk_end.distance_to(Paths.end_of(&"shop", camp)) < 2.0,
+		"and ends at the shop's door"
+	)
+	# And it is a walk, not a line: a straight one between those two points is
+	# a cliff, which is the whole reason it winds.
+	var straight := walk_start.distance_to(walk_end)
+	var wandered := 0.0
+	for corner in Paths.LAKE_WALK.size() - 1:
+		wandered += Paths.LAKE_WALK[corner].distance_to(Paths.LAKE_WALK[corner + 1])
+	_expect(
+		wandered > straight * 1.5,
+		"it winds %.0f m to cover %.0f m as the crow flies" % [wandered, straight]
+	)
+	var crow := 0.0
+	for step in 40:
+		var at := walk_start.lerp(walk_end, float(step) / 39.0)
+		crow = maxf(crow, field.steepness_at(at.x, at.z))
+	_expect(crow > 0.75, "because the straight line climbs ground at %.2f, which nobody gets up" % crow)
+
 	# A route may be interrupted by water — that is a ford, and it is on purpose
 	# — but it must be worn everywhere it is on land, or it is two patches
 	# rather than a path.
