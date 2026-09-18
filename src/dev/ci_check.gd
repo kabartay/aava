@@ -2305,6 +2305,15 @@ func _check_a_child_can_get_out_of_every_pond() -> void:
 			water.tarn_level(i) > HeightField.WATER_LEVEL,
 			"and it stands at %.1f m rather than at the sea's level" % water.tarn_level(i)
 		)
+		# It hangs from the sheet of water that follows the player about. A
+		# lake does not follow anybody: wherever the sheet has gone, the lake
+		# is still on its own hill, or a child finds the dry bowl it was dug
+		# out of.
+		var where := water.tarn_world_position(i)
+		water.follow(Vector3(600.0, 0.0, -450.0))
+		var moved := water.tarn_world_position(i).distance_to(where)
+		_expect(moved < 0.01, "and stays on its hill when the child walks away (%.2f m of drift)" % moved)
+		water.follow(Vector3.ZERO)
 	water.queue_free()
 
 	# Swimming works up there: a child in the middle of a raised pond is in

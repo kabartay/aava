@@ -234,15 +234,27 @@ func _raise_the_tarns() -> void:
 		pane.position = Vector3(centre.x, level, centre.y)
 		add_child(pane)
 		_tarns.append(pane)
+		# Where it belongs in the world. It is a child of this sheet, and the
+		# sheet travels with the player — so without this the lake sailed
+		# along behind them and what a child found on the hill was the dry
+		# bowl it had been dug out of.
+		_tarn_places.append(Vector3(centre.x, level, centre.y))
 
-## The still surface of every raised pond. For the checks.
+## The still surface of every raised pond, and where in the world each one
+## stands. For the checks, and to hold them still while the sheet moves.
 var _tarns: Array[MeshInstance3D] = []
+var _tarn_places: Array[Vector3] = []
 
 func tarn_count() -> int:
 	return _tarns.size()
 
 func tarn_level(index: int) -> float:
-	return _tarns[index].position.y
+	return _tarn_places[index].y
+
+## Where a raised pond's surface actually is in the world, wherever the sheet
+## it hangs from has wandered to. For the checks.
+func tarn_world_position(index: int) -> Vector3:
+	return _tarns[index].position + position
 
 ## The colour a still pond takes: the pool's blue, which is what water away
 ## from the river already looks like here.
@@ -254,3 +266,7 @@ func follow(world_position: Vector3) -> void:
 	position.x = snappedf(world_position.x, SNAP)
 	position.z = snappedf(world_position.z, SNAP)
 	position.y = HeightField.WATER_LEVEL
+	# A pond up a hill does not travel with anybody. Put each one back where it
+	# belongs, in this sheet's new frame.
+	for i in _tarns.size():
+		_tarns[i].position = _tarn_places[i] - position
