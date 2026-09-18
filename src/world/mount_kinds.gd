@@ -83,6 +83,14 @@ static func body_box(kind: StringName) -> Array:
 		_:
 			return [Vector3(0.5, 1.0, 1.9), 0.55]
 
+## Half the width of a mount, and nothing at all on foot. What the world uses
+## to decide how much room the thing being ridden needs — a tree is as wide as
+## the horse walking into it.
+static func girth(kind: StringName) -> float:
+	if kind == &"":
+		return 0.0
+	return (body_box(kind)[0] as Vector3).x * 0.5
+
 const INFO := {
 	HORSE: {
 		# Fast, but the real reason to ride one is that it fords the river and

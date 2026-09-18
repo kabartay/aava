@@ -421,6 +421,9 @@ func _process(delta: float) -> void:
 		riding != &"" and not world.mounts.afloat(riding, player.global_position),
 		world.field, delta
 	)
+	# The world takes its cue from what is being ridden: a tree is as wide as
+	# the horse walking into it.
+	world.riding = riding
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.
 	if riding != &"":

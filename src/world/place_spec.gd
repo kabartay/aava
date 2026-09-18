@@ -227,6 +227,23 @@ const POOL_HALF_X := 14.0
 const POOL_HALF_Z := 9.0
 const POOL_HALF := POOL_HALF_Z
 
+## How far out the pool's fence stands from the water, so that one place can
+## answer "is this inside the pool's enclosure" without depending on Places —
+## the height field and the mounts both ask, and neither may.
+const POOL_FENCE_MARGIN := 3.0
+
+## Is this point inside the pool's fence? The poolside is ordinary ground, so
+## nothing but this rectangle tells a horse that it is standing among the
+## loungers of a place that charges at the gate.
+static func inside_the_pool_fence(x: float, z: float, camp: Vector3) -> bool:
+	if absf(x - camp.x) > BOUNDS_HALF or absf(z - camp.z) > BOUNDS_HALF:
+		return false
+	var centre: Vector3 = camp + OFFSETS[&"pool"]
+	return (
+		absf(x - centre.x) < POOL_HALF_X + POOL_FENCE_MARGIN
+		and absf(z - centre.z) < POOL_HALF_Z + POOL_FENCE_MARGIN
+	)
+
 ## How much the ground is cut away at a point, in metres. Zero everywhere but
 ## inside the pool.
 ##

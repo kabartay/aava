@@ -82,10 +82,24 @@ var is_carried := false
 var water_depth := 0.0
 
 ## A height the body is held at, whatever the water or the ground would do —
-## a rider sitting in the saddle of a swimming horse. Left at this sentinel
-## when nothing is holding them, which is nearly always.
+## a rider sitting in the saddle of a swimming horse, or one following the
+## ground their horse is walking on. Left at this sentinel when nothing is
+## holding them, which is nearly always.
 const NOT_HELD := -1e9
 var held_at_height := NOT_HELD
+
+## How hard the body is pulled to the height it is held at, and how far it may
+## drift before it is simply put there.
+##
+## A gentle spring is right for climbing into a boat and wrong for galloping
+## downhill: the ground under a horse at full pace drops several metres a
+## second, a spring this soft lags by half of one, and the rider hangs that far
+## above the saddle — reported from the phone as being torn off the horse on a
+## slope. The clamp is what actually fixes it; the spring only smooths what is
+## left.
+const HOLD_SPRING := 8.0
+const HOLD_SLACK := 0.12
+var held_spring := HOLD_SPRING
 var is_swimming := false
 
 ## Multiplies the next jump. 1.0 everywhere but on the trampoline, where the
@@ -254,8 +268,13 @@ func _physics_process(delta: float) -> void:
 		_buffered_jump = JUMP_BUFFER
 
 	if held:
-		# Sprung to the saddle, for the same reason the boat's seat is.
-		velocity.y = (held_at_height - global_position.y) * 8.0
+		# Sprung to the saddle, for the same reason the boat's seat is — but
+		# never allowed to drift far from it, however fast the ground moves.
+		var off := held_at_height - global_position.y
+		if absf(off) > HOLD_SLACK:
+			global_position.y = held_at_height - signf(off) * HOLD_SLACK
+			off = signf(off) * HOLD_SLACK
+		velocity.y = off * held_spring
 	elif boating:
 		# Sprung to the seat rather than snapped, so getting in reads as
 		# climbing in and a wave of the pond's surface would read as a wave.

@@ -63,8 +63,8 @@ const POOL_HALF_Z := PlaceSpec.POOL_HALF_Z
 ## turnstile on the side facing the pitch, a ticket booth beside it, and what
 ## a ticket costs. Coins come from looking after the animals, so a swim is
 ## something a child earns.
-const POOL_FENCE_X := POOL_HALF_X + 3.0
-const POOL_FENCE_Z := POOL_HALF_Z + 3.0
+const POOL_FENCE_X := POOL_HALF_X + PlaceSpec.POOL_FENCE_MARGIN
+const POOL_FENCE_Z := POOL_HALF_Z + PlaceSpec.POOL_FENCE_MARGIN
 const POOL_GATE_HALF := 0.8
 const POOL_TICKET := 5
 ## How long the turnstile stays open once paid, and how near a child must be

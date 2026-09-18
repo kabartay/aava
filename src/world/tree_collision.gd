@@ -32,6 +32,34 @@ const REFRESH_STEP := 1.5
 ## being solid, while clipping into the bark before stopping reads as a bug.
 const TRUNK_RADIUS := 0.34
 
+## How much wider a trunk is to somebody riding.
+##
+## What the world can touch is the child's own body — a capsule a third of a
+## metre across — and on a horse that was still all it could touch. So a rider
+## passed a hand's breadth to one side of a trunk while the horse under them,
+## three metres long and nearly one wide, went straight through it. From the
+## saddle the forest simply was not there, which is how it was reported.
+##
+## Widening the trunk rather than the rider is what fixes it without touching
+## the character controller at all: a body shaped like a horse would plough
+## into every hillside it climbed, because its front corner reaches a metre
+## and a half up the slope ahead. A tree that is as wide as the horse is has
+## the same effect where it matters — you have to ride around it — and none of
+## the risk.
+var _girth := 0.0
+
+## Set the girth of whatever is walking here: half the width of the mount being
+## ridden, or nothing on foot. One shared shape, so this is one assignment.
+func set_girth(half_width: float) -> void:
+	if is_equal_approx(half_width, _girth):
+		return
+	_girth = half_width
+	_shape.radius = TRUNK_RADIUS + half_width
+
+## How wide a trunk is standing right now. For the checks.
+func trunk_radius() -> float:
+	return _shape.radius
+
 ## How tall the collider is. Only has to cover a child, and a shorter cylinder
 ## is a cheaper one.
 const TRUNK_HEIGHT := 4.0
@@ -44,6 +72,8 @@ const PARKED := Vector3(0.0, -10000.0, 0.0)
 var vegetation: Vegetation
 
 var _bodies: Array[StaticBody3D] = []
+## The one cylinder every trunk body wears, kept so its girth can be changed.
+var _shape: CylinderShape3D
 var _last_refresh := Vector3(1e9, 1e9, 1e9)
 
 func _init(forest: Vegetation) -> void:
@@ -52,9 +82,9 @@ func _init(forest: Vegetation) -> void:
 
 	# Built here rather than in _ready for the usual reason: a headless check
 	# uses this without ever starting the scene tree.
-	var shape := CylinderShape3D.new()
-	shape.radius = TRUNK_RADIUS
-	shape.height = TRUNK_HEIGHT
+	_shape = CylinderShape3D.new()
+	_shape.radius = TRUNK_RADIUS
+	_shape.height = TRUNK_HEIGHT
 
 	for _i in BODIES:
 		var body := StaticBody3D.new()
@@ -62,7 +92,7 @@ func _init(forest: Vegetation) -> void:
 		# One shape resource shared by every body: they are all the same
 		# cylinder, and a copy each would be twenty times the memory for no
 		# difference anyone can walk into.
-		collider.shape = shape
+		collider.shape = _shape
 		collider.position = Vector3(0.0, TRUNK_HEIGHT * 0.5, 0.0)
 		body.add_child(collider)
 		body.position = PARKED

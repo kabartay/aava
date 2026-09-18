@@ -152,6 +152,10 @@ func _on_ground_changed() -> void:
 
 var _last_centre := Vector3.ZERO
 
+## What the child is riding, so the world knows how much room they take up.
+## Set by the game each frame; empty on foot.
+var riding := &""
+
 func follow(world_position: Vector3) -> void:
 	_last_centre = world_position
 	# Each step timed for the perf log, which names the slowest of a window:
@@ -165,6 +169,7 @@ func follow(world_position: Vector3) -> void:
 	PerfLog.note("forest follow", stamp)
 	stamp = PerfLog.stamp()
 	tree_collision.follow(world_position)
+	tree_collision.set_girth(MountKinds.girth(riding))
 	PerfLog.note("trunks", stamp)
 	stamp = PerfLog.stamp()
 	pickups.follow(world_position)

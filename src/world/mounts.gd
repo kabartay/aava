@@ -577,10 +577,17 @@ func is_solid(kind: StringName) -> bool:
 func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	if MountKinds.floats(kind):
 		return field.height_at(at.x, at.z) < HeightField.WATER_LEVEL - MountKinds.BOAT_DRAFT
-	# Not into the swimming pool. A horse fords a river, but the pool is a
-	# hole with walls: one ridden into it stuck in the excavation while its
-	# rider floated free of it.
-	if PlaceSpec.excavation(at.x, at.z, field.camp_centre()) > 0.4:
+	# Not into the swimming pool, and not inside its fence either. A horse
+	# fords a river, but the pool is a hole with walls: one ridden into it
+	# stuck in the excavation while its rider floated free of it. Stopping at
+	# the water's edge was not enough — the poolside inside the fence is
+	# ordinary ground, so a horse could be ridden in through the gate and stand
+	# among the loungers, and a rider who got in that way was never asked for a
+	# ticket.
+	var camp := field.camp_centre()
+	if PlaceSpec.excavation(at.x, at.z, camp) > 0.4:
+		return false
+	if PlaceSpec.inside_the_pool_fence(at.x, at.z, camp):
 		return false
 	if MountKinds.fords_water(kind):
 		return field.steepness_at(at.x, at.z) <= MountKinds.max_slope(kind)

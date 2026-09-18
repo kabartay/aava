@@ -62,6 +62,7 @@ func _initialize() -> void:
 	_check_a_horse_swims()
 	_check_the_horses_are_spread_and_grazing()
 	_check_the_swing_is_pumped()
+	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_range_is_clear()
 	_check_the_bow_can_be_aimed()
 	_check_swimming_looks_like_swimming()
@@ -2028,6 +2029,66 @@ func _check_the_swing_is_pumped() -> void:
 	places.step_off_swing()
 	_expect(not places.swinging(), "and a child who steps off is walking, not riding")
 	places.queue_free()
+
+## A ridden horse has to go round a tree, the same as a child on foot.
+##
+## What the world could touch was the child's own capsule, a third of a metre
+## across, whatever they were sitting on. So a rider passed neatly to one side
+## of a trunk while the horse under them — three metres long, nearly one wide —
+## went straight through it: from the saddle the forest was not there.
+func _check_a_horse_cannot_walk_through_a_wood() -> void:
+	print("a horse cannot walk through a wood")
+	var field := HeightField.new(20260903)
+	var trees := TreeCollision.new(null)
+	get_root().add_child(trees)
+	_expect(is_equal_approx(trees.trunk_radius(), TreeCollision.TRUNK_RADIUS), "on foot a trunk is %.2f m across" % trees.trunk_radius())
+
+	# Mounted, a trunk stands as wide as the mount, so the drawn animal clears
+	# it rather than sliding through it.
+	trees.set_girth(MountKinds.girth(MountKinds.HORSE))
+	var mounted := trees.trunk_radius()
+	var horse_half: float = (MountKinds.body_box(MountKinds.HORSE)[0] as Vector3).x * 0.5
+	_expect(mounted > TreeCollision.TRUNK_RADIUS, "on a horse it stands %.2f m across" % mounted)
+	_expect(
+		mounted - TreeCollision.TRUNK_RADIUS >= horse_half - 0.001,
+		"which keeps the horse's flank (%.2f m out) clear of the bark" % horse_half
+	)
+	_expect(
+		mounted + Player.RADIUS - horse_half > TreeCollision.TRUNK_RADIUS,
+		"a rider stopped at that distance has the whole animal outside the trunk"
+	)
+
+	# A bicycle is narrower than a horse, and on foot the world goes back to
+	# being the size it was.
+	trees.set_girth(MountKinds.girth(MountKinds.BICYCLE))
+	var cycling := trees.trunk_radius()
+	_expect(cycling < mounted, "a bicycle needs less room than a horse (%.2f m against %.2f m)" % [cycling, mounted])
+	_expect(cycling > TreeCollision.TRUNK_RADIUS, "but more than a child on foot")
+	trees.set_girth(MountKinds.girth(&""))
+	_expect(is_equal_approx(trees.trunk_radius(), TreeCollision.TRUNK_RADIUS), "and off the bicycle the wood is a wood again")
+	trees.queue_free()
+
+	# Nothing is ridden into the pool — not into the water, and not inside the
+	# fence either. The poolside is ordinary ground, so a horse could be ridden
+	# in through the gate and stand among the loungers, and a rider who got in
+	# that way was never asked for a ticket.
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var camp := field.camp_centre()
+	var pool := PlaceSpec.centre_of(&"pool", camp)
+	_expect(not mounts.can_ride_over(MountKinds.HORSE, pool), "a horse cannot be ridden into the water")
+	var poolside := pool + Vector3(PlaceSpec.POOL_HALF_X + 1.5, 0.0, 0.0)
+	_expect(
+		PlaceSpec.excavation(poolside.x, poolside.z, camp) <= 0.4,
+		"the poolside inside the fence is ordinary ground, not a hole"
+	)
+	_expect(not mounts.can_ride_over(MountKinds.HORSE, poolside), "and cannot be ridden onto the poolside inside the fence")
+	var outside := pool + Vector3(Places.POOL_FENCE_X + 3.0, 0.0, 0.0)
+	_expect(mounts.can_ride_over(MountKinds.HORSE, outside), "but rides happily past the fence outside it")
+	mounts.queue_free()
+
+	# And a rider is never lifted far off the saddle, whatever the ground does.
+	_expect(Player.HOLD_SLACK < 0.2, "a held rider is never more than %.2f m off where they are held" % Player.HOLD_SLACK)
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")
