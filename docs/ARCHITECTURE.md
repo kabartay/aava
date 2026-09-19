@@ -13,7 +13,7 @@ back whether running is still allowed.
 
 **`src/world/animals.gd`** — streaming, wandering, shyness, and the care
 transaction. Animals are `Dictionary` records rather than a class, which is
-adequate at four species and will not be at ten (see ROADMAP.md, Known debt).
+adequate at six species and will not be at ten (see ROADMAP.md, Known debt).
 
 **`src/shop/`** — `wallet.gd` holds coins and what has been bought;
 `shop_stock.gd` is a dependency-free leaf listing prices. The split follows the

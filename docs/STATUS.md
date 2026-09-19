@@ -3,7 +3,7 @@
 What exists in the game today, and how finished each part is. Written so that
 someone returning after a month knows what they can play and what they cannot.
 
-Last updated: 2026-09-06.
+Last updated: 2026-09-20.
 
 ## Legend
 
@@ -21,11 +21,11 @@ Last updated: 2026-09-06.
 | Mountains | Done | Rise on a curve, not a wall: ~2° near the valley, steepening to a real 33–35° flank well beyond it. Start far enough out that the walkable kilometre stays a valley rather than a foothill. |
 | Inner valley shape | Done | Hills inside the valley itself, so the playable ground has relief of its own rather than being flat with peaks on the horizon. |
 | River | Done | A meander from two sine waves, longer than the first version; carves its own bed through the height field. Fordable on a horse, swimmable on foot. |
-| Lakes | Done | Two carved basins away from the river, shelving at the edge like a beach rather than a step. A second kind of water to swim in, not just cross. |
+| Lakes | Done | Two of them, each holding its own water at its own height — the eastern one stands thirteen metres up a hillside, which is a lake rather than a hole dug to sea level. Twenty-five metres of level beach half a metre above the water right round, so a child who swims to any side walks out; two metres deep, and swimming starts three strides from the shore. |
 | Water surface | Done | Custom shader. Does not use `DEPTH_TEXTURE`, which 4.7 removed. |
 | Sky and light | Done | Procedural sky, AGX tonemapping, depth fog, a full day/night cycle rather than a fixed time of day. |
-| Snow line | Done | Blends in above the treeline by height and steepness, so peaks read as peaks rather than the same green as the valley floor. |
-| Paths | Done | Worn routes between camp, playground, pool, café and the archery butts. Read purely by colour and no grass growth — an earlier sunk version cost more than it was worth to see. |
+| Snow line | Done | By height and steepness together, from one rule the streamed ground and the far mountains both ask. Snow holds on anything up to about forty degrees and slides off past fifty: 69% of the ground above the snowline is white, 29% of it carries glacier ice, and no cliff is white — which is the contrast a mountain is made of. |
+| Paths | Done | Worn routes between camp, playground, pool, café and the archery butts, and a winding one from the lake up to the shop — a hundred and eighty-five metres to cover sixty-nine, because the straight line is a cliff. A check walks every route and fails if any of it is too steep to use. Read purely by colour and no grass growth — an earlier sunk version cost more than it was worth to see. |
 | Vegetation | Done | Plants per view via `MultiMeshInstance3D`, tiled so culling works; density falls off with altitude and stops at the treeline. |
 | Boulders | Done | The jumpable ones award points. |
 | Birds | Done | Ambient, drawn from the same vertex-colour material as everything else. |
@@ -38,7 +38,14 @@ Last updated: 2026-09-06.
 | Camera | Done | `SpringArm3D` with a top-level camera and exponential smoothing; excludes the player's own capsule; snaps back quickly when a wall pushes it in but still eases pulling back out. |
 | Zoom | Done | Distance only — the aim point does not move, so zooming never disorients. |
 | Boats | Done | Five boats, each its own colour, wait round the shore of the big pond in wading depth. A boat is a mount that rides only on water: it carries a child across at twice swimming speed and puts them down where the bed comes up, leaving the boat floating at the far shore. |
-| Horses | Done | Five, turned out across the valley — one near the spawn, the rest spread by bearing on dry, gentle ground — each its own colour, grazing with their heads down until somebody rides one. A horse swims deep water with its rider in the saddle, trots and gallops with the stick, and is solid where it stands. |
+| Horses | Done | Twenty, turned out across the valley on the golden angle — one near the spawn, the rest on dry, gentle, unreserved ground — five coats between them, grazing with their heads down until somebody rides one. A horse swims deep water with its rider in the saddle, trots and gallops with the stick, and is solid where it stands. |
+| Shop | Done | A place you walk to, north-east and 455 m out: a green-boarded gabled barn with a porch, display windows, a shingled roof and a weather vane. Five bicycles and two motorcycles standing on the floor, the small goods on stands and on four shelves behind the counter, somebody in an apron behind it, and five lamps on the ceiling. Its shelf is pictures and prices with no words: tap for what a thing is, press buy to buy it. What you buy is left standing outside the door. |
+| Shop stock | Done | Nine things, in price order: chocolate 1, bottle 19, axe 29, shears 39, lantern 49, whistle 59, saddle 79, bicycle 99, motorcycle 299. Chocolate is the one thing that is used up rather than owned. The shop also buys wool, at four a fleece — the first thing it has ever bought. |
+| Sheep and cows | Done | A hundred sheep and fifty cows in the meadows. A sheep offers itself only to somebody carrying shears and gives a fleece worth four coins; a cow gives milk, drunk where you stand, worth a third of your energy. Both take a minute or two to be ready again, and neither pays coins. |
+| Ducks | Done | Five on each pond, paddling about and turning back at the bank. They give nothing and want nothing, which is the point of them. |
+| Motorcycle | Done | The fastest thing in the valley and the best climber — steeper than a saddled horse. Everything within thirty metres leaves while the engine is running. A racing engine synthesised from nothing: fifty-four firings a second, three gears, rising in pitch and loudness as it pulls away. |
+| Saddle | Done | Bought at the shop; a horse under one takes ground it would otherwise slide off. The one purchase that makes the map bigger rather than the journey shorter. |
+| Population | Done | Written down rather than fallen into: squirrels 300, sheep 100, cows 50, cats 50, dogs 50, beavers 30, horses 20, ducks 10. A check counts the whole map and fails if it drifts. |
 | Minimap | Done | Three sizes, cycled by tapping: small, large, and the whole valley. Baked on a worker thread, so opening it no longer freezes the game. Every destination is a picture on every size — a place off the map sits on the rim pointing at itself — and the worn paths are drawn between them. |
 | Football pitch | Done | Levelled inside the height field itself, so the ground is flat by construction rather than by flattening afterwards. |
 | Balls and kicking | Done | `RigidBody3D` with continuous collision detection. Kick sets velocity directly. |

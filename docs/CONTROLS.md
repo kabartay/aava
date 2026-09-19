@@ -15,22 +15,26 @@ a control a child has to be told about is a control he forgets.
 | Build | **build**, then a tab and a piece, then `+` | same |
 | Remove | `−` next to a piece | same |
 | Care for an animal | **feed** / **pet** when one is close | same |
+| Shear a sheep | the same button, once the shears are bought: a fleece goes into the bag | same |
+| Milk a cow | the same button again — the milk is drunk where you stand | same |
 | Drink | **drink**, shown only when the bottle has water | same |
 | Fill the bottle | walk into the shallows | same |
 | Swim | walk into the water | same |
 | Swing, eat | **swing** / **eat** at the playground or café | same |
 | Shoot | hold **shoot** at the range, release to loose; the bow draws and a dotted arc shows where the arrow will go | hold `E` |
-| Ride / get off | **ride** when a horse or bicycle is close | same |
+| Ride / get off | **ride** when something to ride is close — the button shows which: a horse, a bicycle, a motorcycle or an oar | same |
 | Cross deep water | ride the horse in: it swims, and you stay in the saddle | same |
 | Swing | **swing** at a seat, again and again to go higher; push the stick to get off | same |
 | Row | **row** beside a boat at the big pond; it stops at the far shore | same |
 | Pool ticket | **ticket** at the pool's turnstile: five coins to go in; going out is free | same |
 | Chop a tree | **chop**, once the axe is bought | same |
+| Eat chocolate | **chocolate**, wherever you are, whenever there is a bar in the bag | same |
+| Lantern on and off | **lantern**, once it is bought; it still lights itself at dusk | same |
 | Call animals | **whistle**, once bought | same |
 | Feed a fire | **feed fire**, when a log is in the bag | same |
 | Sleep | **sleep**, at a bed after dark | same |
 | Talk | hold **talk**, when someone else is in the valley | same |
-| Shop | the coin count, top right | same |
+| Shop | walk into the shop, north-east of the camp, and press **shop** at the counter | same |
 | Map | tap to cycle small, large, then the whole valley | click it |
 | Language, reset | `≡` top left | same |
 
@@ -55,6 +59,21 @@ says which floor the piece will land on.
 
 **Removing gives everything back.** There is no penalty for trying something and
 changing your mind — that is the point.
+
+**Sheep and cows give things, not coins.** A sheep offers itself only to
+somebody carrying shears, and a fleece is worth four coins at the shop — the
+one thing the shop buys rather than sells. A cow gives milk, drunk on the spot,
+which puts back a third of your legs. Both take a while to be ready again.
+
+**The shop is a place you walk to.** It is north-east, about as far out as the
+playground. Its shelf is pictures and prices and no words: tap a picture and it
+says what the thing is and what it is for, press **buy** to buy it. A bicycle
+or a motorcycle bought there is left standing outside the door.
+
+**A motorcycle is the fastest thing here and empties the meadow.** Everything
+within thirty metres leaves while the engine is running, tame or not. It also
+climbs steeper ground than anything else, and a horse with a saddle on it
+climbs more than one without.
 
 **Animals want different things.** A cat wants stroking and asks for nothing. A
 dog and a beaver want a stick, a squirrel wants a cone. Anything living far from

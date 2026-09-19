@@ -78,19 +78,22 @@ is judged by the eye, not by a number.
 
 ## Known debt
 
-- `main.gd` is 1,096 lines and doing too much: the process loop, the save
-  format, and every handler. Worth splitting once the handler count grows
-  again.
-- `src/ui/hud.gd` is 1,125 lines for the same reason — every on-screen
+- `main.gd` is 1,469 lines and doing too much: the process loop, the save
+  format, and every handler. It was 1,096 when this entry was written and the
+  handler count has grown twice since, which was the condition for splitting
+  it.
+- `src/ui/hud.gd` is 1,391 lines for the same reason — every on-screen
   control, its layout, and its state, in one file.
-- `src/dev/ci_check.gd` is over 3,000 lines. This is the project's whole
-  safety net and every line of it earns its keep, but it is long enough now
-  that finding one check among the others takes a moment — worth splitting
-  by subject (world, building, animals, networking) if it keeps growing.
+- `src/dev/ci_check.gd` is 6,578 lines. This is the project's whole safety net
+  and every line of it earns its keep, but it is twice the length it was when
+  this entry first said it was too long — worth splitting by subject (world,
+  building, animals, networking).
 - The capture tool duplicates a little of the game's own setup despite shared
   wiring. Each divergence has produced a screenshot of a game nobody plays.
-- Animals are `Dictionary` records rather than a typed class. This is fine at
-  four species and will not be at ten.
+- Animals are `Dictionary` records rather than a typed class. This was written
+  when there were four species; there are six now, each with more to remember
+  — a fleece to regrow, a gift to hand over — and the entry's own prediction
+  is coming due.
 - The map/world/player save-path plumbing has been verified end-to-end by a
   scripted probe, but never by two actual devices sharing an invitation over
   a real evening.

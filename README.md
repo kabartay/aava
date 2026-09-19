@@ -12,14 +12,17 @@ becomes somewhere to actually spend the night rather than a shape standing in a
 field. Creation is the engine of the game, not its decoration.
 
 Since the first line of this file was written, the valley has grown mountains
-you can see rising on a real slope, a river long enough to be worth following,
-two lakes, a day/night cycle with a lantern for the dark, a bow range, a horse
-and a bicycle, a shop, an economy where felling a tree costs what growing one
-paid, campfires that need feeding and beds worth sleeping in, animals that
-speak on their own terms, a whole ambient soundscape synthesised from nothing
-but code, and a way for a brother to invite the other into his own copy of the
-valley over the family Wi-Fi and talk to him while they play. None of it is
-loaded from disk — see *Every world is one integer*, below.
+with snow on their shoulders and ice in their hollows, a river long enough to
+be worth following, two lakes — one of them up a hillside, holding its own
+water at its own height — a day/night cycle with a lantern for the dark, a bow
+range, a herd of twenty horses and a shop you walk into to buy a bicycle or a
+motorcycle, a flock of sheep to shear and cows to milk, an economy where
+felling a tree costs what growing one paid, campfires that need feeding and
+beds worth sleeping in, animals that speak on their own terms, a whole ambient
+soundscape synthesised from nothing but code, and a way for a brother to invite
+the other into his own copy of the valley over the family Wi-Fi and talk to him
+while they play. None of it is loaded from disk — see *Every world is one
+integer*, below.
 
 ## Running it
 
@@ -49,6 +52,14 @@ are full trees the place becomes a grove and birds arrive. That loop — build,
 and the world answers — is what the whole game is for. The stick is Godot 4.7's native
 `VirtualJoystick`, so both fingers work at once without any index bookkeeping:
 the viewport keeps routing each finger to the control it first landed on.
+
+Walk north-east and there is a shop: a green-boarded barn with a porch, with
+five bicycles and two motorcycles standing on its floor and somebody behind
+the counter. Its shelf is pictures and prices, because a shop of words excludes
+the child most likely to be saving up; tap a picture and it says what the thing
+is, tap *buy* and it is yours. The coins come from looking after animals, and
+from the wool you cut off the sheep — the one thing the shop buys rather than
+sells.
 
 Build a house, feed its campfire, and sleep in its bed after dark to wake up
 rested at dawn — the reason to have built the house at all rather than a shape
@@ -200,13 +211,19 @@ src/
     pickups.gd         sticks, stones, reeds, seeds and cones, gathered by walking
     birds.gd           the world answering: birds over feeders and groves
     pitch.gd           where the football pitch is, and how it levels the ground
-    lakes.gd           two carved basins away from the river
+    lakes.gd           two lakes, each holding its own water at its own height
+    distant_land.gd    the far country: one coarse ring out to the mountains
     paths.gd           worn routes between the places worth going
-    place_spec.gd      where the playground, pool, café and butts stand
-    places.gd          swimming, the swing, the slide, the café's meal
+    place_spec.gd      where the playground, pool, café, shop and butts stand
+    places.gd          the buildings and what they offer: the swing, the slide,
+                       the café's meal, the pool's turnstile, the shop's counter
     dam_spec.gd, dams.gd     a beaver dam site, and what it does to the river
-    animal_kinds.gd, animals.gd   the four species: habitat, shyness, care
-    mount_kinds.gd, mounts.gd     the horse and the bicycle
+    animal_kinds.gd, animals.gd   six species: habitat, shyness, and what each
+                       one gives — coins, or wool from a sheep and milk from a cow
+    animal_collision.gd, tree_collision.gd   what is solid near you, in a small
+                       pool of bodies that follows the player about
+    ducks.gd           ducks on the ponds, which give nothing and are the point
+    mount_kinds.gd, mounts.gd     the horse, the bicycle, the motorcycle, the boats
     hearths.gd         campfires: fuel, warmth, the flame itself
     boulders.gd        the jumpable rocks
     felled.gd          stumps left behind by the axe
@@ -214,6 +231,7 @@ src/
     ball.gd            a football, with physics rather than an animation
     goal.gd            posts you can hit and netting that kills the ball
     football_ground.gd goals, balls, scoring, and fetching strays
+    kick_preview.gd    where the ball will go, drawn while you wind up
   archery/
     archery.gd         the range, the butts, and the bow itself
   player/
@@ -248,7 +266,10 @@ src/
   ui/
     camera_pad.gd      the look-around touch layer
     hud.gd             every on-screen control
-    minimap.gd, map_arrow.gd    the map, and the arrow that shows which way you face
+    minimap.gd, map_arrow.gd, place_glyph.gd   the map, the arrow that shows
+                       which way you face, and the picture for each destination
+    action_icon.gd, item_chip.gd   every button's picture, and every item's,
+                       drawn in code rather than loaded as art
     backpack.gd, vitals_gauge.gd, part_icon.gd, shop_icon.gd   the rest of the interface
     together_panel.gd  hosting, joining, and the join-code keypad
   i18n/
@@ -258,6 +279,7 @@ src/
     capture.gd         screenshot tool
     probe.gd           headless numeric probe
     ci_check.gd        the numeric check suite CI runs on every push
+    perf_log.gd        which step of the frame was slowest, named in the log
 ```
 
 `height_field.gd` is the single source of truth for where the ground is.
@@ -274,4 +296,10 @@ See [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Licence
 
-GPL-3.0. See [LICENSE](LICENSE).
+**Code: AGPL-3.0.** See [LICENSE](LICENSE). Read it, change it, build it, play
+it; a changed version you pass on has to stay open too.
+
+**The name and the look are reserved.** "Aava", the icon and the visual
+identity that goes with them are not covered by that licence — see
+[NOTICE.md](NOTICE.md). Fork it under your own name and your own icon and you
+are welcome.
