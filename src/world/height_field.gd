@@ -61,6 +61,48 @@ const TREELINE := 118.0
 const MIXED_TOP := 48.0
 const CONIFER_TOP := 92.0
 const PASTURE_TOP := 150.0
+
+## How much snow lies here, and how much glacier ice, from the height and the
+## steepness — one answer, used by the ground a child walks on and by the far
+## mountains behind it alike.
+##
+## It lived in two places, written out twice: terrain_chunk.gd painted the
+## valley and distant_land.gd painted the range beyond it, and the two had
+## different numbers in them. The join between the streamed ground and the far
+## ring runs across the middle distance, and a mountain with more snow on one
+## side of that line than the other is a seam a child can see.
+##
+## The steepness band is the whole of it. Snow holds on anything up to about
+## forty degrees and slides off anything much past fifty — and the high ground
+## in this valley averages 0.85, which is inside that. Cutting it off at 0.42,
+## which is what this did, left five sixths of every mountain bare: from the
+## meadow the peaks read as grey rock with a dusting, when what a child should
+## see is white shoulders with dark crags between them.
+static func snow_at(height: float, steep: float) -> float:
+	return clampf(
+		smoothstep(SNOWLINE - 10.0, SNOWLINE + 8.0, height)
+		* (1.0 - smoothstep(SNOW_HOLDS_TO, SNOW_SLIDES_AT, steep)),
+		0.0, 1.0
+	)
+
+## Glacier ice: it gathers where it can lie, so this wants height *and*
+## gentleness — unlike the snow above it, which only asks not to be a cliff.
+## Painted over the snow rather than instead of it, so a summit reads as white
+## with blue ice in its hollows and along its shoulders.
+static func ice_at(height: float, steep: float) -> float:
+	return clampf(
+		smoothstep(SNOWLINE + 4.0, SNOWLINE + 34.0, height)
+		* (1.0 - smoothstep(ICE_GATHERS_TO, ICE_SLIDES_AT, steep)),
+		0.0, 1.0
+	)
+
+## Where snow stops holding, and where ice does. Gradients, on the same scale
+## steepness_at answers with: 0.85 is about forty degrees and 1.35 about
+## fifty-four, which is where a slope stops keeping anything at all.
+const SNOW_HOLDS_TO := 0.85
+const SNOW_SLIDES_AT := 1.35
+const ICE_GATHERS_TO := 0.45
+const ICE_SLIDES_AT := 0.95
 const SNOWLINE := 138.0
 
 ## How much of the trees are spruce at a height: a third down in the warm

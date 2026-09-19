@@ -326,21 +326,11 @@ static func _tint(
 	# holds on anything gentle and slides off anything steep, and that
 	# contrast between white shoulders and dark crags is most of what a
 	# mountain looks like.
-	var snow := (
-		smoothstep(HeightField.SNOWLINE - 22.0, HeightField.SNOWLINE + 14.0, height)
-		* (1.0 - smoothstep(0.42, 0.78, steep))
-	)
-	color = color.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
-
-	# Glaciers: ice gathers where it can lie, so this wants height *and*
-	# gentleness, unlike the snow above it which only asks not to be a cliff.
-	# Painted over the snow rather than instead of it, so a summit reads as
-	# white with blue ice in its hollows and shoulders.
-	var ice := (
-		smoothstep(HeightField.SNOWLINE + 10.0, HeightField.SNOWLINE + 46.0, height)
-		* (1.0 - smoothstep(0.16, 0.38, steep))
-	)
-	color = color.lerp(TerrainSpec.COLOR_ICE, clampf(ice, 0.0, 1.0))
+	# Both from the height field, which owns the rule: this file and the far
+	# mountains behind it used to answer it separately, with different numbers,
+	# and the join between them runs across the middle distance.
+	color = color.lerp(TerrainSpec.COLOR_SNOW, HeightField.snow_at(height, steep))
+	color = color.lerp(TerrainSpec.COLOR_ICE, HeightField.ice_at(height, steep))
 
 	return color
 

@@ -64,6 +64,8 @@ func _initialize() -> void:
 	_check_the_swing_is_pumped()
 	_check_the_motorcycle_is_heard()
 	_check_the_icon_is_the_valley()
+	_check_the_valley_is_populated()
+	_check_snow_lies_on_the_shoulders()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
 	_check_the_shop_is_somewhere_you_walk_to()
@@ -1495,7 +1497,12 @@ func _check_snow_lies_where_snow_lies() -> void:
 	var field := HeightField.new(20260903)
 	var high := HeightField.SNOWLINE + 30.0
 	var gentle := _snow_in(field, high, 0.1)
-	var cliff := _snow_in(field, high, 0.9)
+	# A genuine cliff, not merely a steep hillside. This asked about a
+	# steepness of 0.9 — about forty-two degrees — which is ground snow holds
+	# on perfectly well, and the high ground in this valley averages 0.85. The
+	# line is where a slope stops keeping anything, and the height field owns
+	# it now.
+	var cliff := _snow_in(field, high, HeightField.SNOW_SLIDES_AT + 0.3)
 	var valley := _snow_in(field, 20.0, 0.1)
 	# High and gentle is white — snow, and above it the blue of glacier ice,
 	# which is a shade darker than snow and still nothing like rock.
@@ -2743,6 +2750,118 @@ func _check_the_icon_is_the_valley() -> void:
 			"%s reaches %.0f units from the middle, inside the safe %.0f" % [object[0], out, safe]
 		)
 	_expect(scene.contains("cx=\"80\" cy=\"40\""), "and the sun is where this check thinks it is")
+
+## Somebody of every kind lives here.
+##
+## The animals are spawned tile by tile from rules about the ground, which is
+## the right way round — they live where they would live — and it means a rule
+## that contradicts itself does not fail, it just quietly produces nothing. The
+## beavers were exactly that: theirs asked for ground within fourteen metres of
+## a river thirty-two metres across, so every point it accepted was riverbed,
+## and the riverbed is under water and thrown away one line earlier. One beaver
+## lived in the whole valley, and the dam they exist for needs them.
+func _check_the_valley_is_populated() -> void:
+	print("the valley is populated")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+
+	var tally := {}
+	var reach := 10
+	var tiles := 0
+	for tx in range(-reach, reach + 1):
+		for tz in range(-reach, reach + 1):
+			tiles += 1
+			var rng := RandomNumberGenerator.new()
+			rng.seed = hash(Vector3i(20260903 + 331, tx, tz))
+			for _index in Animals.CANDIDATES_PER_TILE:
+				var x := float(tx * Animals.TILE_SIZE) + rng.randf() * Animals.TILE_SIZE
+				var z := float(tz * Animals.TILE_SIZE) + rng.randf() * Animals.TILE_SIZE
+				var kind: StringName = animals._kind_at(x, z, rng)
+				if kind != &"":
+					tally[kind] = int(tally.get(kind, 0)) + 1
+
+	for kind in AnimalKinds.ALL:
+		var many := int(tally.get(kind, 0))
+		_expect(
+			many >= tiles / 100,
+			"%d %ss live in %d tiles of valley" % [many, kind, tiles]
+		)
+	animals.queue_free()
+
+	# And the things that are placed rather than spawned.
+	_expect(World.HORSES == 5, "%d horses are turned out" % World.HORSES)
+	_expect(
+		Lakes.count() * Ducks.PER_POND >= 6,
+		"%d ducks are on the ponds" % (Lakes.count() * Ducks.PER_POND)
+	)
+
+## Snow lies on the shoulders of the mountains and slides off their cliffs.
+##
+## It was cut off at a steepness of 0.42, and the high ground in this valley
+## averages 0.85 — so five sixths of every mountain was bare, and from the
+## meadow the peaks read as grey rock with a dusting on top. What a child
+## should see is white shoulders with dark crags between them.
+func _check_snow_lies_on_the_shoulders() -> void:
+	print("snow lies on the shoulders")
+	var field := HeightField.new(20260903)
+	var above := 0
+	var white := 0
+	var icy := 0
+	var cliffs := 0
+	var white_cliffs := 0
+	for gx in range(-80, 81, 2):
+		for gz in range(-80, 81, 2):
+			var x := float(gx) * 8.0
+			var z := float(gz) * 8.0
+			var height := field.height_at(x, z)
+			if height < HeightField.SNOWLINE:
+				continue
+			above += 1
+			var steep := field.steepness_at(x, z)
+			if HeightField.snow_at(height, steep) > 0.6:
+				white += 1
+			if HeightField.ice_at(height, steep) > 0.35:
+				icy += 1
+			if steep > HeightField.SNOW_SLIDES_AT:
+				cliffs += 1
+				if HeightField.snow_at(height, steep) > 0.5:
+					white_cliffs += 1
+	_expect(above > 100, "there is high ground to put snow on (%d samples)" % above)
+	var share := float(white) / maxf(float(above), 1.0)
+	_expect(
+		share > 0.6,
+		"%.0f%% of the ground above the snowline is under snow" % (share * 100.0)
+	)
+	_expect(
+		float(icy) / maxf(float(above), 1.0) > 0.1,
+		"and %.0f%% of it carries glacier ice" % (100.0 * float(icy) / maxf(float(above), 1.0))
+	)
+	_expect(
+		white_cliffs == 0,
+		"while none of its %d cliffs is white: snow slides off anything past %.2f" % [
+			cliffs, HeightField.SNOW_SLIDES_AT
+		]
+	)
+
+	# The near ground and the far mountains have to agree, or the line where
+	# the streamed valley ends and the painted range begins is a seam a child
+	# can see. They each had their own copy of this, with different numbers.
+	var land := DistantLand.new(field)
+	get_root().add_child(land)
+	var mismatched := 0
+	for step in 40:
+		var at := Vector3(float(step) * 21.0 - 420.0, 0.0, 380.0)
+		var height := field.height_at(at.x, at.z)
+		if height < HeightField.SNOWLINE - 30.0:
+			continue
+		var steep := field.steepness_at(at.x, at.z)
+		var near := TerrainChunk._tint(field, at.x, at.z, height, steep, false, false, false)
+		var far := land._colour(height, at.x, at.z)
+		if absf(near.r - far.r) > 0.35:
+			mismatched += 1
+	_expect(mismatched == 0, "the far mountains are the colour the near ones are")
+	land.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

@@ -221,8 +221,16 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	if Pitch.is_levelled(x, z):
 		return &""
 
+	# Beavers on the bank, which is where a beaver is — not in the river.
+	#
+	# This asked for ground within fourteen metres of the river, and the river
+	# is thirty-two metres across: everything that close to it is the bed, and
+	# the bed is under water, so the test above had already thrown every such
+	# point away. One beaver spawned in the whole valley, and the dam they are
+	# there for needs them. The band is the bank now: outside the water, within
+	# a short waddle of it, and low.
 	var to_river := field.distance_to_river(x, z)
-	if to_river < 14.0 and height < HeightField.WATER_LEVEL + 3.0:
+	if to_river < BEAVER_BANK and height < HeightField.WATER_LEVEL + 3.0:
 		return AnimalKinds.BEAVER if rng.randf() < 0.6 else &""
 
 	if field.forest_density_at(x, z) > 0.3:
@@ -503,6 +511,10 @@ func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionar
 ## Thirst is separate from hunger: an animal far from the river wants a drink,
 ## and that is what makes carrying a bottle worth the twelve coins. Animals that
 ## live in the water are never thirsty, which is the joke and also the rule.
+## How far from the river a beaver will settle. Past the water's own width, or
+## the answer is the riverbed.
+const BEAVER_BANK := 34.0
+
 const THIRSTY_DISTANCE := 60.0
 
 func is_thirsty(animal: Dictionary) -> bool:

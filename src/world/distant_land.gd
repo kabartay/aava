@@ -143,16 +143,11 @@ func _colour(height: float, x: float, z: float) -> Color:
 		smoothstep(HeightField.PASTURE_TOP - 26.0, HeightField.PASTURE_TOP, height)
 	)
 	colour = colour.lerp(TerrainSpec.COLOR_ROCK, clampf(bare, 0.0, 1.0))
-	var snow := (
-		smoothstep(HeightField.SNOWLINE - 22.0, HeightField.SNOWLINE + 14.0, height)
-		* (1.0 - smoothstep(0.42, 0.78, steep))
-	)
-	colour = colour.lerp(TerrainSpec.COLOR_SNOW, clampf(snow, 0.0, 1.0))
-	var ice := (
-		smoothstep(HeightField.SNOWLINE + 10.0, HeightField.SNOWLINE + 46.0, height)
-		* (1.0 - smoothstep(0.16, 0.38, steep))
-	)
-	return colour.lerp(TerrainSpec.COLOR_ICE, clampf(ice, 0.0, 1.0))
+	# The same rule the streamed ground uses, from the height field, so the
+	# mountains do not change colour across the line where one ends and the
+	# other begins.
+	colour = colour.lerp(TerrainSpec.COLOR_SNOW, HeightField.snow_at(height, steep))
+	return colour.lerp(TerrainSpec.COLOR_ICE, HeightField.ice_at(height, steep))
 
 ## Take a finished ring, if there is one.
 func _collect() -> void:
