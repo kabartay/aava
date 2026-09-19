@@ -63,6 +63,7 @@ func _initialize() -> void:
 	_check_the_horses_are_spread_and_grazing()
 	_check_the_swing_is_pumped()
 	_check_the_motorcycle_is_heard()
+	_check_the_icon_is_the_valley()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
 	_check_the_shop_is_somewhere_you_walk_to()
@@ -2411,6 +2412,27 @@ func _check_a_child_can_get_out_of_every_pond() -> void:
 		# the height alone it looked like dry hillside.
 		_expect(field.is_pond(cx, cz), "and the world knows pond %d is water" % (pond + 1))
 
+		# It is painted as water, too. The terrain's colouring measured the
+		# ground against the sea, so the bed of a pond eleven metres up came
+		# out meadow green — green sand under blue water, and no beach at all
+		# round the one lake a child swims in.
+		var bed := TerrainChunk._tint(
+			field, cx, cz, field.height_at(cx, cz), 0.0, false, false, false
+		)
+		_expect(
+			bed.b > bed.g * 0.85,
+			"the bed of pond %d is painted as a bed rather than as a meadow" % (pond + 1)
+		)
+		var beach_at := Vector3(cx + long_axis * 1.02, 0.0, cz)
+		var beach := TerrainChunk._tint(
+			field, beach_at.x, beach_at.z, field.height_at(beach_at.x, beach_at.z),
+			0.0, false, false, false
+		)
+		_expect(
+			beach.r > beach.g * 0.9,
+			"and there is sand along its shore rather than grass to the water's edge"
+		)
+
 		# You walk in and you are swimming. The bed used to start climbing a
 		# third of the way out, so a child waded a long way down a slope in
 		# knee-deep water and never got off their feet — reported from the
@@ -2575,6 +2597,37 @@ func _check_the_motorcycle_is_heard() -> void:
 	sound.engine(1.0)
 	_expect(sound._engine.pitch_scale > idle, "it rises in pitch as the machine pulls away")
 	_expect(sound._engine.volume_db > idle_db, "and in loudness with it")
+
+	# Through the gears: the note climbs, drops as it changes up, and climbs
+	# again. A single ramp from idle to flat out is a siren.
+	var notes := PackedFloat32Array()
+	for step in 31:
+		sound.engine(float(step) / 30.0)
+		notes.append(sound._engine.pitch_scale)
+	var drops := 0
+	for i in range(1, notes.size()):
+		if notes[i] < notes[i - 1] - 0.05:
+			drops += 1
+	_expect(
+		drops == Ambience.GEARS - 1,
+		"it changes up %d times between a standstill and full pelt" % drops
+	)
+
+	# The waveform loops without a click: every part of it has to complete a
+	# whole number of cycles, or the end does not meet the beginning and the
+	# join is heard once a second for ever.
+	var wave := sound._engine.stream as AudioStreamWAV
+	var bytes := wave.data
+	var last := bytes[bytes.size() - 2] | (bytes[bytes.size() - 1] << 8)
+	if last >= 32768:
+		last -= 65536
+	var first := bytes[0] | (bytes[1] << 8)
+	if first >= 32768:
+		first -= 65536
+	_expect(
+		absi(first - last) < 4000,
+		"and its ends meet, within %d of 32768, so the loop does not click" % absi(first - last)
+	)
 	sound.engine(-1.0)
 	_expect(not sound.engine_is_running(), "and stops when the rider gets off")
 
@@ -2613,6 +2666,83 @@ func _check_the_motorcycle_is_heard() -> void:
 	)
 	_expect(Animals.RACKET_RANGE > Animals.NOTICE * 3.0, "and it is heard %.0f m off, long before it is seen" % Animals.RACKET_RANGE)
 	beasts.queue_free()
+
+## The icon: four files that have to agree with each other and with the game.
+##
+## An icon is the one picture of this game most people ever see, and it is also
+## the easiest thing in the project to break silently — the PNGs the exporter
+## ships are rasterised from the SVGs by hand, so an edited drawing with a
+## stale PNG beside it looks perfectly fine in the repository and ships the old
+## picture.
+func _check_the_icon_is_the_valley() -> void:
+	print("the icon is the valley")
+	for path: String in [
+		"res://icon.svg",
+		"res://android/icons/foreground.svg",
+		"res://android/icons/background.svg",
+		"res://android/icons/monochrome.svg",
+	]:
+		_expect(FileAccess.file_exists(path), "%s is there" % path)
+
+	# Each shipped PNG is the size the exporter asks for, and each is what its
+	# own SVG draws right now rather than what it drew last week.
+	for job: Array in [
+		["res://android/icons/foreground.svg", "res://android/icons/foreground_432.png", 432],
+		["res://android/icons/background.svg", "res://android/icons/background_432.png", 432],
+		["res://android/icons/monochrome.svg", "res://android/icons/monochrome_432.png", 432],
+		["res://icon.svg", "res://android/icons/main_192.png", 192],
+	]:
+		var shipped := Image.load_from_file(job[1])
+		_expect(shipped != null, "%s is a picture" % job[1])
+		if shipped == null:
+			continue
+		_expect(
+			shipped.get_width() == int(job[2]) and shipped.get_height() == int(job[2]),
+			"%s is %d by %d" % [job[1], shipped.get_width(), shipped.get_height()]
+		)
+		var drawn := Image.new()
+		drawn.load_svg_from_string(
+			FileAccess.get_file_as_string(job[0]), float(int(job[2])) / 128.0
+		)
+		var differs := 0
+		for y in range(0, shipped.get_height(), 7):
+			for x in range(0, shipped.get_width(), 7):
+				if shipped.get_pixel(x, y).is_equal_approx(drawn.get_pixel(x, y)):
+					continue
+				differs += 1
+		_expect(
+			differs == 0,
+			"%s matches the drawing it comes from" % job[1].get_file()
+		)
+
+	# The themed icon has to be a picture rather than a blank or a slab: the
+	# launcher tints every pixel the same colour, so it is the gaps that carry
+	# the drawing.
+	var mono := Image.load_from_file("res://android/icons/monochrome_432.png")
+	var covered := 0
+	for y in range(0, mono.get_height(), 3):
+		for x in range(0, mono.get_width(), 3):
+			if mono.get_pixel(x, y).a > 0.5:
+				covered += 1
+	var samples := (mono.get_height() / 3) * (mono.get_width() / 3)
+	var share := float(covered) / float(samples)
+	_expect(
+		share > 0.15 and share < 0.75,
+		"the themed icon covers %.0f%% of its square: a drawing, not a blank or a slab" % (share * 100.0)
+	)
+
+	# Nothing that reads as its own object may sit outside the safe circle an
+	# adaptive icon guarantees — two thirds of the half-width — or a round mask
+	# cuts it in half. The sun was moved once for exactly this.
+	var safe := 128.0 * 0.667 * 0.5
+	var scene := FileAccess.get_file_as_string("res://android/icons/foreground.svg")
+	for object: Array in [["the sun", 80.0, 40.0, 11.0], ["the horse", 52.0, 89.0, 13.0]]:
+		var out := Vector2(float(object[1]) - 64.0, float(object[2]) - 64.0).length() + float(object[3])
+		_expect(
+			out < safe,
+			"%s reaches %.0f units from the middle, inside the safe %.0f" % [object[0], out, safe]
+		)
+	_expect(scene.contains("cx=\"80\" cy=\"40\""), "and the sun is where this check thinks it is")
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

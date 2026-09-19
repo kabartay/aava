@@ -1,10 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!--
+    Sky, in the colours atmosphere.gd actually puts overhead: deep blue at the
+    top, pale at the horizon, with the warmth of a low sun along the bottom of
+    it. Full bleed and square — the launcher applies its own mask, so rounding
+    the corners here would only show through as a double edge.
+  -->
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3a7bd5"/><stop offset="1" stop-color="#cfe8f5"/>
+      <stop offset="0" stop-color="#2f5fbe"/>
+      <stop offset="0.45" stop-color="#6c9fd8"/>
+      <stop offset="0.78" stop-color="#c9e3f7"/>
+      <stop offset="1" stop-color="#f6dcc0"/>
     </linearGradient>
   </defs>
-  <!-- Full bleed and square: the launcher applies its own mask, so rounding
-       the corners here would only show through as a double edge. -->
   <rect width="128" height="128" fill="url(#sky)"/>
 </svg>

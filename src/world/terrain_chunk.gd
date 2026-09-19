@@ -265,7 +265,12 @@ static func _tint(
 
 	# A beach follows the water line wherever it goes — above it. Below it the
 	# ground is the bed of the water, and is silt.
-	var above := height - HeightField.WATER_LEVEL
+	#
+	# The water line here, not the world's. A pond up a hill stands eleven
+	# metres above the sea, so measuring against the sea painted its bed and
+	# its shore as ordinary meadow: green sand under blue water, and no beach
+	# at all round the one lake a child swims in.
+	var above := height - field.water_level_at(x, z)
 	var shore := 1.0 - smoothstep(0.05, 1.15, above)
 	color = color.lerp(TerrainSpec.COLOR_SAND, clampf(shore, 0.0, 1.0))
 	var under := 1.0 - smoothstep(-0.75, 0.1, above)

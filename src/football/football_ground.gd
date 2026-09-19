@@ -96,13 +96,16 @@ func _check_goal(ball: Ball) -> bool:
 func _recover_stray(ball: Ball) -> void:
 	var at := ball.position
 	var centre := Pitch.centre()
+	# The water here, not the world's: a ball kicked into the lake up the hill
+	# is eleven metres above the sea and was counted as perfectly dry.
+	var wet_at := _field.water_level_at(at.x, at.z) + 0.1
 	var strayed := (
 		Vector2(at.x - centre.x, at.z - centre.z).length() > STRAY_DISTANCE
-		or at.y < HeightField.WATER_LEVEL + 0.1
+		or at.y < wet_at
 	)
 	if not strayed:
 		return
-	if not ball.at_rest() and at.y > HeightField.WATER_LEVEL + 0.1:
+	if not ball.at_rest() and at.y > wet_at:
 		# Still travelling and still dry: let the child watch it fly.
 		return
 	var spot := ball.home

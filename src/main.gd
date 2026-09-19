@@ -447,7 +447,8 @@ func _process(delta: float) -> void:
 			Vector2(player.velocity.x, player.velocity.z).length()
 			/ MountKinds.speed(MountKinds.MOTORCYCLE),
 			0.0, 1.0
-		) if on_the_motorcycle else -1.0
+		) if on_the_motorcycle else -1.0,
+		delta
 	)
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.

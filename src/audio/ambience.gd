@@ -102,12 +102,32 @@ var _engine: AudioStreamPlayer
 ## machine standing still to 1 for one at full pelt, and -1 for no engine at
 ## all. It rises in pitch as well as in volume, because an engine that only
 ## gets louder reads as a volume knob rather than as an engine.
-func engine(effort: float) -> void:
+func engine(effort: float, delta := 0.0) -> void:
 	if effort < 0.0:
 		_apply(_engine, 0.0, ENGINE_DB)
+		_revs = 0.0
 		return
-	_engine.pitch_scale = ENGINE_PITCH + ENGINE_PITCH_RANGE * clampf(effort, 0.0, 1.0)
-	_apply(_engine, 0.35 + 0.65 * clampf(effort, 0.0, 1.0), ENGINE_DB)
+	# Smoothed, because the number handed in is worked out from the machine's
+	# speed and that jitters from frame to frame — an engine note wobbling at
+	# the frame rate sounds broken rather than fast.
+	var weight := 1.0 if delta <= 0.0 else clampf(delta * 6.0, 0.0, 1.0)
+	_revs = lerpf(_revs, clampf(effort, 0.0, 1.0), weight)
+
+	# Gears. The note climbs, drops as it changes up, and climbs again: three
+	# of them across the machine's range. A single ramp from idle to flat out
+	# is a siren, and a child knows what a gearbox sounds like long before
+	# they know what one is.
+	var gear := mini(int(_revs * float(GEARS)), GEARS - 1)
+	var through := _revs * float(GEARS) - float(gear)
+	var note := 0.30 + 0.70 * through
+	_engine.pitch_scale = ENGINE_PITCH + ENGINE_PITCH_RANGE * note
+	# Loudness follows the pace rather than the note, so changing up does not
+	# make the machine quieter.
+	_apply(_engine, 0.35 + 0.65 * _revs, ENGINE_DB)
+
+## How many gears the note climbs through between a standstill and full pelt.
+const GEARS := 3
+var _revs := 0.0
 
 ## Is the engine running? For the checks.
 func engine_is_running() -> bool:
@@ -167,7 +187,13 @@ func _make_engine() -> AudioStreamWAV:
 		wail /= 3.4
 		# Gear whine, well above everything else and quiet, which is what makes
 		# a racing engine sound expensive.
-		var whine := sin(TAU * firings * 9.0 * t + sin(t * 3.0)) * 0.12
+		#
+		# Every part of this waveform has to complete a whole number of cycles
+		# in the loop, or the end does not meet the beginning and the join is a
+		# click — once a second, for ever. The wobble on the whine was three
+		# radians a second, which is not a whole cycle of anything, and that
+		# click was the bug: two cycles a second is.
+		var whine := sin(TAU * firings * 9.0 * t + sin(TAU * 2.0 * t) * 0.8) * 0.12
 		# Induction roar: noise, gated by the pulse, so it breathes with it.
 		var roar := (randf() * 2.0 - 1.0) * 0.18 * maxf(pulse, 0.0)
 		var value := pulse * 0.55 + wail * 0.42 + whine + roar

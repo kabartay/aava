@@ -1,9 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Android 13+ themed icons: one flat colour on transparency, which the
-       launcher tints to match the wallpaper. Everything is drawn in white and
-       the shapes are separated by gaps rather than by colour, because tinting
-       collapses every fill to the same value. -->
-  <path d="M0 96 L34 58 L58 82 L84 46 L128 96 Z" fill="#ffffff"/>
-  <path d="M0 128 L0 104 L40 82 L74 104 L104 86 L128 104 L128 128 Z" fill="#ffffff"/>
-  <circle cx="86" cy="34" r="12" fill="#ffffff"/>
+  <!--
+    Android 13+ themed icons: one flat colour on transparency, which the
+    launcher tints to match the wallpaper. Everything is white, and the shapes
+    are held apart by gaps rather than by colour, because tinting collapses
+    every fill to the same value — so this is not the foreground with its
+    colour taken away, it is the same scene drawn again with everything that
+    would merge left out.
+  -->
+  <circle cx="80" cy="36" r="10" fill="#ffffff"/>
+  <path d="M0 64 L16 46 L27 53 L42 31 L54 46 L66 39 L78 52 L96 38 L116 56 L128 50 L128 68 L0 68 Z"
+        fill="#ffffff"/>
+  <path d="M0 80 L6 74 L12 79 L18 72 L24 78 L30 71 L36 77 L42 72 L48 78
+           L54 71 L60 77 L66 70 L72 77 L78 72 L84 78 L90 71 L96 77 L102 72
+           L108 78 L114 72 L120 78 L128 74 L128 86 L0 86 Z"
+        fill="#ffffff"/>
+  <path d="M0 96 L62 96 C60 106 68 114 62 128 L0 128 Z" fill="#ffffff"/>
+  <path d="M79 96 L128 96 L128 128 L70 128 C76 114 81 106 79 96 Z" fill="#ffffff"/>
 </svg>
