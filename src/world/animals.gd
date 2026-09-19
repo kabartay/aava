@@ -38,6 +38,11 @@ const RACKET_FLIGHT := 1.4
 ## Set by the game: something loud is being ridden nearby.
 var racket := false
 
+## Set by the game: whether the child owns a pair of shears. A sheep with a
+## full fleece offers nothing to somebody who cannot cut it, and offering it
+## anyway would teach a child to press a button that does nothing.
+var has_shears := false
+
 ## How quickly an animal comes round to face where it is going, how quickly
 ## it gets up to speed, and how far ahead it looks for things to walk round.
 ## Turning was instant and speed was constant, and every animal moved like a
@@ -47,10 +52,12 @@ const TURN_RATE := 5.0
 ## flows, a beaver lumbers.
 const TURN_RATES := {
 	AnimalKinds.CAT: 4.0, AnimalKinds.DOG: 6.0, AnimalKinds.SQUIRREL: 8.5, AnimalKinds.BEAVER: 3.5,
+	AnimalKinds.SHEEP: 2.6, AnimalKinds.COW: 2.0,
 }
 ## How far the legs swing at a walk, per kind, and how the body bounces.
 const LEG_SWINGS := {
 	AnimalKinds.CAT: 0.42, AnimalKinds.DOG: 0.55, AnimalKinds.SQUIRREL: 0.5, AnimalKinds.BEAVER: 0.35,
+	AnimalKinds.SHEEP: 0.3, AnimalKinds.COW: 0.26,
 }
 const ACCEL := 3.5
 const LOOK_AHEAD := 3.2
@@ -221,6 +228,16 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	if Pitch.is_levelled(x, z):
 		return &""
 
+	# Which kinds could live at this spot at all, and then how likely each of
+	# them is to be here.
+	#
+	# It used to be a ladder of chances written straight into the code — 0.6
+	# for a beaver, 0.7 for a squirrel, 0.35 for a dog — and what fell out of
+	# it was five hundred squirrels and two hundred dogs: so many that a child
+	# tripped over coins and the shop stopped being something to save for. The
+	# numbers come from AnimalKinds.WANTED now, through CHANCE below, and a
+	# check counts the valley against them.
+
 	# Beavers on the bank, which is where a beaver is — not in the river.
 	#
 	# This asked for ground within fourteen metres of the river, and the river
@@ -231,21 +248,44 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	# a short waddle of it, and low.
 	var to_river := field.distance_to_river(x, z)
 	if to_river < BEAVER_BANK and height < HeightField.WATER_LEVEL + 3.0:
-		return AnimalKinds.BEAVER if rng.randf() < 0.6 else &""
+		return AnimalKinds.BEAVER if rng.randf() < CHANCE[AnimalKinds.BEAVER] else &""
 
 	if field.forest_density_at(x, z) > 0.3:
-		return AnimalKinds.SQUIRREL if rng.randf() < 0.7 else &""
+		return AnimalKinds.SQUIRREL if rng.randf() < CHANCE[AnimalKinds.SQUIRREL] else &""
 
 	if field.steepness_at(x, z) > 0.35 or height > 60.0:
 		return &""
 
-	# Open meadow near the middle of the world is where the tame ones are.
+	# Open meadow near the middle of the world: the tame ones, and the flocks
+	# and herds that make a meadow worth walking across.
 	var roll := rng.randf()
-	if roll < 0.35:
-		return AnimalKinds.DOG
-	if roll < 0.6:
-		return AnimalKinds.CAT
+	var reached := 0.0
+	for kind: StringName in MEADOW:
+		reached += float(CHANCE[kind])
+		if roll < reached:
+			return kind
 	return &""
+
+## Who lives on open ground, in the order the roll walks through them.
+const MEADOW: Array[StringName] = [
+	AnimalKinds.SHEEP, AnimalKinds.COW, AnimalKinds.DOG, AnimalKinds.CAT,
+]
+
+## How likely each kind is at a candidate spot of its own habitat.
+##
+## Worked back from AnimalKinds.WANTED and the amount of ground of each kind
+## the valley has, both measured rather than guessed: the forest offers about
+## 730 candidates over the whole map, the meadows about 700, and the river
+## bank about 60. Change a wanted number and these have to be recomputed —
+## the check that counts the population is what says so.
+const CHANCE := {
+	AnimalKinds.SQUIRREL: 0.41,
+	AnimalKinds.SHEEP: 0.15,
+	AnimalKinds.COW: 0.083,
+	AnimalKinds.DOG: 0.095,
+	AnimalKinds.CAT: 0.071,
+	AnimalKinds.BEAVER: 0.43,
+}
 
 func _step(animal: Dictionary, delta: float) -> void:
 	var node: Node3D = animal["node"]
@@ -499,7 +539,13 @@ func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionar
 		# An animal we cannot feed may still be one we can water, and the caller
 		# decides which. Filtering on food alone hid every thirsty squirrel from
 		# a player who had a full bottle but no cones.
-		var wanted := AnimalKinds.want(animal["kind"])
+		var kind: StringName = animal["kind"]
+		# Livestock gives a thing rather than coins: wool from a sheep, milk
+		# from a cow. A sheep is no use without shears, so it does not offer
+		# itself to a child who has none.
+		if AnimalKinds.gives(kind) == ItemKinds.WOOL and not has_shears:
+			continue
+		var wanted := AnimalKinds.want(kind)
 		if wanted != &"" and inventory.count(wanted) <= 0 and not is_thirsty(animal):
 			continue
 		var distance := node.position.distance_to(player_position)
@@ -513,7 +559,7 @@ func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionar
 ## live in the water are never thirsty, which is the joke and also the rule.
 ## How far from the river a beaver will settle. Past the water's own width, or
 ## the answer is the riverbed.
-const BEAVER_BANK := 34.0
+const BEAVER_BANK := 46.0
 
 const THIRSTY_DISTANCE := 60.0
 
@@ -562,6 +608,9 @@ func care_for(animal: Dictionary, inventory: Inventory) -> int:
 
 	animal["cooldown"] = AnimalKinds.cooldown(kind)
 	var coins := AnimalKinds.coins(kind)
+	# What livestock hands over. The caller takes it from here rather than
+	# from the coins, which are zero for these.
+	last_gift = AnimalKinds.gives(kind)
 	var node: Node3D = animal["node"]
 	cared_for.emit(kind, coins, node.position)
 
@@ -569,6 +618,10 @@ func care_for(animal: Dictionary, inventory: Inventory) -> int:
 		friends[kind] = true
 		befriended.emit(kind)
 	return coins
+
+## What the last animal cared for handed over — an item rather than coins, for
+## the sheep and the cow — or nothing.
+var last_gift := &""
 
 func to_data() -> Array:
 	return friends.keys()

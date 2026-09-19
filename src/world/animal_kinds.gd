@@ -17,8 +17,31 @@ const CAT := &"cat"
 const DOG := &"dog"
 const SQUIRREL := &"squirrel"
 const BEAVER := &"beaver"
+## Livestock, which is a different thing from the wild animals above: they are
+## not shy, they do not want anything brought to them, and what they give is
+## not coins. A sheep gives wool to whoever has shears; a cow gives milk to
+## whoever is thirsty. Both make the meadows worth crossing on their own
+## account rather than as the space between two woods.
+const SHEEP := &"sheep"
+const COW := &"cow"
 
-const ALL: Array[StringName] = [CAT, DOG, SQUIRREL, BEAVER]
+const ALL: Array[StringName] = [CAT, DOG, SQUIRREL, BEAVER, SHEEP, COW]
+
+## How many of each the valley holds, over the whole of it.
+##
+## Written down as a wanted number rather than left to fall out of a chance per
+## candidate, which is how it used to work and gave five hundred squirrels —
+## so many that a child tripped over coins and the shop stopped meaning
+## anything. The chances are worked back from these, and a check counts the
+## valley and fails if the population drifts.
+const WANTED := {
+	SQUIRREL: 300,
+	SHEEP: 100,
+	COW: 50,
+	CAT: 50,
+	DOG: 50,
+	BEAVER: 30,
+}
 
 ## What each one wants, where it lives, and what caring for it is worth.
 ##
@@ -51,7 +74,28 @@ const INFO := {
 		"colour": Color(0.34, 0.26, 0.30), "size": 0.54,
 		"home": "water", "shy": 0.2,
 	},
+	# A sheep gives wool rather than coins, and only to somebody carrying
+	# shears. Big and slow and entirely unbothered by children.
+	SHEEP: {
+		"want": &"", "coins": 0, "cooldown": 90.0,
+		"colour": Color(0.92, 0.90, 0.85), "size": 0.66,
+		"home": "meadow", "shy": 0.0,
+		"gives": &"wool",
+	},
+	# A cow gives milk, drunk on the spot. The cooldown is what stops a meadow
+	# of cows being an endless larder.
+	COW: {
+		"want": &"", "coins": 0, "cooldown": 120.0,
+		"colour": Color(0.94, 0.93, 0.90), "size": 0.86,
+		"home": "meadow", "shy": 0.0,
+		"gives": &"milk",
+	},
 }
+
+## What an animal hands over when it is cared for, or nothing — in which case
+## it pays coins like the rest.
+static func gives(kind: StringName) -> StringName:
+	return INFO[kind].get("gives", &"")
 
 static func want(kind: StringName) -> StringName:
 	return INFO[kind]["want"]
@@ -106,6 +150,14 @@ static func _shape(kind: StringName) -> Dictionary:
 		SQUIRREL:
 			# Sitting up: short front legs held high on the chest, the body tall.
 			return {"long": 1.1, "tall": 1.1, "slim": 0.95, "leg": 0.9, "leg_slim": 1.1, "front_leg": 0.55, "hip_lift": 0.35}
+		SHEEP:
+			# A barrel on short legs: a sheep is mostly fleece, and the fleece
+			# is what the silhouette is.
+			return {"long": 1.5, "tall": 1.05, "slim": 1.1, "leg": 0.72, "leg_slim": 0.8, "front_leg": 1.0, "hip_lift": 0.0}
+		COW:
+			# Long, deep and level, on legs that reach: the outline of a cow is
+			# a rectangle with corners, and nothing else here is that shape.
+			return {"long": 1.7, "tall": 0.95, "slim": 1.05, "leg": 1.15, "leg_slim": 1.1, "front_leg": 1.0, "hip_lift": 0.0}
 		_:
 			return {"long": 1.45, "tall": 0.92, "slim": 1.05, "leg": 0.85, "leg_slim": 1.2, "front_leg": 1.0, "hip_lift": 0.0}
 
@@ -296,6 +348,60 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 			inner.radial_segments = 4
 			inner.rings = 1
 			_add(tool, inner, Transform3D(Basis(), Vector3(side * scale * 0.36, head_lift + scale * 0.78, head_forward + scale * 0.02)), Color(0.86, 0.60, 0.62))
+
+	# A fleece: lumps all over the body, which is the whole of what a sheep
+	# looks like. A smooth ellipsoid in cream is a pebble.
+	if kind == SHEEP:
+		for lump in 14:
+			var curl := SphereMesh.new()
+			curl.radius = scale * 0.34
+			curl.height = scale * 0.6
+			curl.radial_segments = 7
+			curl.rings = 4
+			var around := TAU * float(lump) * 0.618
+			var along := (float(lump) / 13.0 - 0.5) * 1.7
+			_add(tool, curl, Transform3D(Basis(), Vector3(
+				cos(around) * scale * slim * 0.62,
+				scale * (1.05 + sin(around) * 0.42),
+				along * scale * long
+			)), colour.lightened(0.04 if lump % 2 == 0 else 0.0))
+
+	# A cow's markings, horns and udder. The patches are what a child names it
+	# by, and they have to be separate lumps because one mesh carries one
+	# colour per vertex and a cow is two colours in blotches.
+	if kind == COW:
+		for patch in 5:
+			var blot := SphereMesh.new()
+			blot.radius = scale * 0.42
+			blot.height = scale * 0.5
+			blot.radial_segments = 8
+			blot.rings = 4
+			var around := TAU * float(patch) * 0.618 + 0.7
+			var along := (float(patch) / 4.0 - 0.5) * 1.5
+			_add(tool, blot, Transform3D(
+				Basis().scaled(Vector3(1.0, 0.7, 1.2)),
+				Vector3(
+					cos(around) * scale * slim * 0.78,
+					scale * (1.05 + sin(around) * 0.5),
+					along * scale * long
+				)
+			), Color(0.20, 0.18, 0.18))
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			var horn := CylinderMesh.new()
+			horn.top_radius = scale * 0.02
+			horn.bottom_radius = scale * 0.07
+			horn.height = scale * 0.44
+			horn.radial_segments = 5
+			_add(tool, horn, Transform3D(
+				Basis(Vector3.FORWARD, deg_to_rad(side * 52.0)),
+				Vector3(side * scale * 0.34, head_lift + scale * 0.42, head_forward + scale * 0.1)
+			), Color(0.90, 0.86, 0.74))
+		var udder := SphereMesh.new()
+		udder.radius = scale * 0.3
+		udder.height = scale * 0.42
+		udder.radial_segments = 8
+		udder.rings = 4
+		_add(tool, udder, Transform3D(Basis(), Vector3(0.0, scale * 0.52, scale * long * 0.42)), Color(0.94, 0.78, 0.76))
 
 	if with_legs:
 		var points := hips(kind)

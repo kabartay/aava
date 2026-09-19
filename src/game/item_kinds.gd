@@ -16,8 +16,12 @@ const CONE := &"cone"
 ## in this list so the bag can draw it and name it like everything else; the
 ## scattering skips it, because chocolate does not grow under trees.
 const CHOCOLATE := &"chocolate"
+## Cut from a sheep by anybody with shears, and worth something at the shop.
+## The one thing in this valley that is earned by hand and sold rather than
+## found and used — which is why it is worth having a flock.
+const WOOL := &"wool"
 
-const ALL: Array[StringName] = [STICK, STONE, REED, SEED, CONE, CHOCOLATE]
+const ALL: Array[StringName] = [STICK, STONE, REED, SEED, CONE, CHOCOLATE, WOOL]
 
 ## What is found lying about the valley. Chocolate is not.
 const SCATTERED: Array[StringName] = [STICK, STONE, REED, SEED, CONE]
@@ -31,6 +35,7 @@ const INFO := {
 	SEED: {"label": "seed", "icon": "*", "color": Color(0.86, 0.74, 0.36)},
 	CONE: {"label": "cone", "icon": "A", "color": Color(0.52, 0.34, 0.20)},
 	CHOCOLATE: {"label": "chocolate", "icon": "=", "color": Color(0.36, 0.22, 0.14)},
+	WOOL: {"label": "wool", "icon": "@", "color": Color(0.94, 0.92, 0.87)},
 }
 
 ## The name shown to the player, in whatever language is set. The English in

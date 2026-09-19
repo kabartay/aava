@@ -333,6 +333,9 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 ## cluster, and a child who walks half an hour in one direction should find
 ## one there rather than four behind them.
 func turn_out_horses(count: int, camp: Vector3, near: Vector3) -> void:
+	# Spread over the whole valley rather than round one ring: with five of
+	# them a single ring read as a spread, and with twenty it reads as a fence.
+	# Two rings and a drift outwards, each horse on its own bearing.
 	for i in count:
 		var spot: Vector3
 		if i == 0:
@@ -342,8 +345,9 @@ func turn_out_horses(count: int, camp: Vector3, near: Vector3) -> void:
 			# noticed because nothing checked.
 			spot = _nearby_grazing_spot(camp, near)
 		else:
-			var bearing := TAU * float(i - 1) / float(maxi(count - 1, 1)) + 0.6
-			spot = _grazing_spot(camp, bearing, 140.0 + 60.0 * float(i % 3))
+			# The golden angle, so however many there are they never line up.
+			var bearing := TAU * float(i) * 0.618 + 0.6
+			spot = _grazing_spot(camp, bearing, 110.0 + 24.0 * float(i % 7))
 		# Facing worked out from where it stands rather than drawn at random:
 		# two children on two phones share a valley, and a horse cannot be
 		# facing two ways at once.
@@ -370,13 +374,23 @@ func _nearby_grazing_spot(camp: Vector3, near: Vector3) -> Vector3:
 func _grazing_spot(camp: Vector3, bearing: float, wanted: float) -> Vector3:
 	var out := Vector3(cos(bearing), 0.0, sin(bearing))
 	var walked := wanted
-	var fallback := camp + out * wanted
 	while walked < wanted + 220.0:
 		var at := camp + out * walked
 		if _stands_here(camp, at):
 			return at
 		walked += 12.0
-	return fallback
+	# Nothing along that bearing: cast about round the spot it should have
+	# been. The old answer was to give up and return the point anyway, which
+	# stood horses in the river and in the lake — with five of them the bearing
+	# nearly always found somewhere, and with twenty it does not.
+	for ring in 8:
+		var radius := 20.0 + 25.0 * float(ring)
+		for step in 16:
+			var around := TAU * float(step) / 16.0 + float(ring)
+			var at := camp + out * wanted + Vector3(cos(around), 0.0, sin(around)) * radius
+			if _stands_here(camp, at):
+				return at
+	return _nearby_grazing_spot(camp, camp + out * (wanted * 0.4))
 
 ## Would a horse stand here? Dry and well clear of the river, gentle enough to
 ## graze on, below the trees, out of the fenced places and not in a thicket.

@@ -437,6 +437,7 @@ func _process(delta: float) -> void:
 	# the horse walking into it, and an engine going past empties the meadow.
 	world.riding = riding
 	world.mounts.saddled = wallet.has(ShopStock.SADDLE)
+	world.animals.has_shears = wallet.has(ShopStock.SHEARS)
 	var on_the_motorcycle := MountKinds.kind_of(riding) == MountKinds.MOTORCYCLE
 	world.animals.racket = on_the_motorcycle and player.is_moving
 	# The engine, under the rider and nobody else. How hard it is working comes
@@ -500,6 +501,11 @@ func _process(delta: float) -> void:
 	world.places.roofs_follow(at)
 
 	hud.set_lantern(lantern.owned, lantern.switched_on)
+
+	# What the shop would pay for, so its shelf can say whether there is
+	# anything to sell.
+	for sellable in ShopStock.BUYS:
+		hud.set_carried_for_sale(sellable, inventory.count(sellable))
 
 	# Chocolate can be eaten anywhere, which is the point of carrying it.
 	hud.set_snack_offer(inventory.count(ItemKinds.CHOCOLATE) > 0)
@@ -693,6 +699,12 @@ func _standing_in_water() -> bool:
 ## How much wood a tree is worth, and how far you must be to reach it.
 const CHOP_REACH := 3.4
 const WOOD_PER_TREE := 4
+
+## What a fleece comes to, and how much of a child's legs a cow's milk gives
+## back. The fleece grows again on its own clock, so this is a wage rather than
+## a prize.
+const WOOL_PER_SHEEP := 3
+const MILK_RESTORE := 0.3
 
 ## How close to the shooting line a child must stand to draw a bow.
 const SHOOTING_LINE_REACH := 6.0
@@ -1060,6 +1072,25 @@ func _on_care() -> void:
 			return
 
 	var coins := world.animals.care_for(animal, inventory)
+	# Livestock hands over a thing rather than coins: wool into the bag, milk
+	# drunk where it stands.
+	var gift := world.animals.last_gift
+	if gift != &"":
+		world.animals.last_gift = &""
+		if gift == ItemKinds.WOOL:
+			inventory.add(ItemKinds.WOOL, WOOL_PER_SHEEP)
+			sounds.play(Sounds.Sound.PICKUP, 1.1)
+			hud.announce(Text.format("say_sheared", [WOOL_PER_SHEEP]), 2.0)
+		else:
+			vitals.energy = minf(
+				Vitals.MAX_ENERGY, vitals.energy + Vitals.MAX_ENERGY * MILK_RESTORE
+			)
+			_refresh_vitals()
+			sounds.play(Sounds.Sound.SPLASH, 1.3)
+			hud.announce(Text.of("say_milk"), 2.0)
+		journal.record(Journal.CARED)
+		today.record(Today.CARE)
+		return
 	if coins <= 0:
 		return
 	# The one voice that is never automatic: a cat purrs because it is being
@@ -1103,6 +1134,22 @@ func _outside_the_shop(offset: Vector3) -> Vector3:
 func _on_buy(item: StringName) -> void:
 	# A bar of chocolate is used up rather than owned, so it goes through the
 	# purse rather than the ledger: buy as many as you like, one at a time.
+	# Selling: the shop buys wool, and nothing else. Handled here rather than
+	# in the shop panel because the coins and the bag both live on this side.
+	if ShopStock.pays_for(item) > 0:
+		var carried := inventory.count(item)
+		if carried <= 0:
+			sounds.play(Sounds.Sound.REFUSE)
+			return
+		if not inventory.spend({item: carried}):
+			return
+		var paid := carried * ShopStock.pays_for(item)
+		wallet.earn(paid)
+		journal.record(Journal.COINS, paid)
+		sounds.play(Sounds.Sound.CHIME, 1.2)
+		hud.announce(Text.format("say_sold", [carried, paid]), 2.4)
+		hud.set_shop_open(true, wallet.coins, wallet.owned)
+		return
 	if ShopStock.is_consumable(item):
 		if not wallet.spend(ShopStock.price(item)):
 			sounds.play(Sounds.Sound.REFUSE)

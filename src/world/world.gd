@@ -20,7 +20,7 @@ var distant_land: DistantLand
 var ducks: Ducks
 
 ## How many horses are turned out in the valley.
-const HORSES := 5
+const HORSES := 20
 var pickups: Pickups
 var boulders: Boulders
 var animals: Animals

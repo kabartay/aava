@@ -65,6 +65,7 @@ func _initialize() -> void:
 	_check_the_motorcycle_is_heard()
 	_check_the_icon_is_the_valley()
 	_check_the_valley_is_populated()
+	_check_a_flock_is_worth_keeping()
 	_check_snow_lies_on_the_shoulders()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
@@ -1909,7 +1910,7 @@ func _check_the_horses_are_spread_and_grazing() -> void:
 		for j in range(i + 1, spots.size()):
 			closest_pair = minf(closest_pair, spots[i].distance_to(spots[j]))
 		furthest = maxf(furthest, Vector2(spots[i].x - camp.x, spots[i].z - camp.z).length())
-	_expect(closest_pair > 60.0, "no two are within %.0f m of each other" % closest_pair)
+	_expect(closest_pair > 18.0, "no two are within %.0f m of each other" % closest_pair)
 	_expect(furthest > 120.0, "and the furthest grazes %.0f m out" % furthest)
 
 	# Each stands somewhere a horse would: dry, gentle, out of the places.
@@ -1930,10 +1931,15 @@ func _check_the_horses_are_spread_and_grazing() -> void:
 
 	# And no two are the same colour: five identical horses read as one horse
 	# drawn five times.
+	# Not every horse can have a coat to itself once there is a herd of twenty,
+	# but no two standing together should share one.
 	var coats := {}
 	for i in World.HORSES:
 		coats[MountKinds.colour(MountKinds.horse_id(i))] = true
-	_expect(coats.size() == World.HORSES, "each horse has its own coat (%d of them)" % coats.size())
+	_expect(
+		coats.size() == mini(World.HORSES, MountKinds.HORSE_COATS.size()),
+		"the herd wears %d different coats" % coats.size()
+	)
 
 	# Grazing: head down, up now and then. Measured at the nose rather than at
 	# the joint — the first version had the angle right and the sign wrong, and
@@ -2790,7 +2796,10 @@ func _check_the_valley_is_populated() -> void:
 	animals.queue_free()
 
 	# And the things that are placed rather than spawned.
-	_expect(World.HORSES == 5, "%d horses are turned out" % World.HORSES)
+	_expect(
+		World.HORSES == int(AnimalKinds.WANTED.get(&"horse", World.HORSES)),
+		"%d horses are turned out" % World.HORSES
+	)
 	_expect(
 		Lakes.count() * Ducks.PER_POND >= 6,
 		"%d ducks are on the ponds" % (Lakes.count() * Ducks.PER_POND)
@@ -2862,6 +2871,70 @@ func _check_snow_lies_on_the_shoulders() -> void:
 			mismatched += 1
 	_expect(mismatched == 0, "the far mountains are the colour the near ones are")
 	land.queue_free()
+
+## Sheep and cows: the two animals that give a thing rather than coins.
+##
+## Everything else in this valley pays in coins on a cooldown, which makes the
+## meadows a place to collect money. A fleece has to be cut, carried and sold,
+## and milk is drunk where it stands — so the flock is a trade and the herd is
+## a larder, and neither is another coin dispenser.
+func _check_a_flock_is_worth_keeping() -> void:
+	print("a flock is worth keeping")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+
+	# A sheep gives wool, and only to somebody with shears. Offering it to a
+	# child who has none would teach them to press a button that does nothing.
+	var sheep := animals.put_one_at(AnimalKinds.SHEEP, spot + Vector3(2.0, 0.0, 0.0))
+	var bag := Inventory.new()
+	animals.has_shears = false
+	_expect(
+		animals.nearest_caring(spot, bag).is_empty(),
+		"a sheep offers nothing to a child with no shears"
+	)
+	animals.has_shears = true
+	_expect(
+		not animals.nearest_caring(spot, bag).is_empty(),
+		"and offers itself to one who has them"
+	)
+	_expect(AnimalKinds.gives(AnimalKinds.SHEEP) == ItemKinds.WOOL, "what it gives is wool")
+	_expect(AnimalKinds.coins(AnimalKinds.SHEEP) == 0, "and not coins")
+	_expect(animals.care_for(sheep, bag) == 0, "shearing pays no coins")
+	_expect(animals.last_gift == ItemKinds.WOOL, "it hands over a fleece")
+	_expect(
+		float(sheep["cooldown"]) > 60.0,
+		"and grows the next one over %.0f seconds" % float(sheep["cooldown"])
+	)
+
+	# A cow gives milk, which is drunk rather than carried.
+	var cow := animals.put_one_at(AnimalKinds.COW, spot + Vector3(-2.0, 0.0, 0.0))
+	animals.last_gift = &""
+	_expect(animals.care_for(cow, bag) == 0, "milking pays no coins either")
+	_expect(animals.last_gift == &"milk", "what a cow gives is milk")
+	_expect(
+		AnimalKinds.cooldown(AnimalKinds.COW) > AnimalKinds.cooldown(AnimalKinds.SHEEP),
+		"and a cow is ready again less often than a sheep"
+	)
+	animals.queue_free()
+
+	# The shop buys the fleece. It is the first thing this shop has ever bought
+	# rather than sold, and the reason the shears are worth twenty-five coins.
+	_expect(ShopStock.pays_for(ItemKinds.WOOL) > 0, "the shop pays %d a fleece" % ShopStock.pays_for(ItemKinds.WOOL))
+	_expect(ShopStock.pays_for(ItemKinds.STICK) == 0, "and buys nothing else")
+	var fleeces := ShopStock.price(ShopStock.SHEARS) / ShopStock.pays_for(ItemKinds.WOOL)
+	_expect(
+		fleeces > 3 and fleeces < 20,
+		"the shears pay for themselves in %d fleeces: worth doing, not free money" % fleeces
+	)
+
+	# And wool is a thing the bag can draw and name, like everything else in
+	# it. An item with no picture is an item a child cannot find.
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(not ItemKinds.label(ItemKinds.WOOL).begins_with("?"), "wool is named in %s" % code)
+	Text.set_language(Text.EN)
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

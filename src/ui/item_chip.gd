@@ -36,8 +36,24 @@ func _draw() -> void:
 			_cone(box)
 		ItemKinds.CHOCOLATE:
 			_chocolate(box)
+		ItemKinds.WOOL:
+			_wool(box)
 		_:
 			draw_circle(box.get_center(), minf(box.size.x, box.size.y) * 0.32, tint)
+
+## A fleece: a heap of curls. Drawn as overlapping discs rather than one
+## circle, because one circle is a snowball.
+func _wool(box: Rect2) -> void:
+	var centre := box.get_center()
+	var unit := minf(box.size.x, box.size.y)
+	for curl in 6:
+		var around := TAU * float(curl) / 6.0
+		draw_circle(centre + Vector2(cos(around), sin(around)) * unit * 0.16, unit * 0.15, tint)
+	draw_circle(centre, unit * 0.17, tint)
+	# A shadow between the curls, or at one flat colour it is a cloud.
+	for curl in 3:
+		var around := TAU * float(curl) / 3.0 + 0.5
+		draw_arc(centre + Vector2(cos(around), sin(around)) * unit * 0.16, unit * 0.15, 0.0, TAU, 10, tint.darkened(0.25), maxf(1.0, unit * 0.03))
 
 ## A bar of chocolate: a block scored into squares.
 func _chocolate(box: Rect2) -> void:

@@ -54,6 +54,16 @@ const CONSUMABLE := {CHOCOLATE: true}
 static func is_consumable(item: StringName) -> bool:
 	return CONSUMABLE.has(item)
 
+## What the shop buys, and for how much.
+##
+## The first thing this shop has ever bought rather than sold. A fleece grows
+## back, so a flock is an income rather than a windfall — which is the point of
+## the shears and the reason the sheep are worth walking out to.
+const BUYS := {ItemKinds.WOOL: 4}
+
+static func pays_for(item: StringName) -> int:
+	return int(BUYS.get(item, 0))
+
 ## How much of a child's energy a bar puts back. Less than a meal at the café,
 ## which costs three times as much and sits you down for it.
 const CHOCOLATE_RESTORE := 0.22

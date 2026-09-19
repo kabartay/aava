@@ -16,7 +16,7 @@ extends Node3D
 
 ## How many are on each pond. Four reads as "some ducks"; one reads as a duck
 ## that has lost the others.
-const PER_POND := 4
+const PER_POND := 5
 
 ## How fast they paddle and how sharply they turn. Slow: a duck that moves like
 ## a fish reads as a bath toy being pushed about.

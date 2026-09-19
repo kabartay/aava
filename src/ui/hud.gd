@@ -540,7 +540,14 @@ func _build_shop() -> PanelContainer:
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_shop_shelf.add_child(grid)
 
-	for item in ShopStock.ALL:
+	# What the shop buys sits on the same shelf as what it sells, at the end:
+	# a child with wool in their bag should find the place that turns it into
+	# coins without being told where to look.
+	var shelf: Array[StringName] = []
+	shelf.append_array(ShopStock.ALL)
+	for buying in ShopStock.BUYS:
+		shelf.append(buying)
+	for item in shelf:
 		var tile := Button.new()
 		tile.custom_minimum_size = Vector2(BUTTON * 1.5, BUTTON * 1.62)
 		tile.focus_mode = Control.FOCUS_NONE
@@ -564,10 +571,16 @@ func _build_shop() -> PanelContainer:
 		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tile.add_child(stack)
 
-		var icon := ShopIcon.new(item)
-		icon.custom_minimum_size = Vector2(BUTTON * 1.0, BUTTON * 1.0)
-		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		stack.add_child(icon)
+		if ShopStock.pays_for(item) > 0:
+			var chip := ItemChip.new(item)
+			chip.custom_minimum_size = Vector2(BUTTON * 1.0, BUTTON * 1.0)
+			chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			stack.add_child(chip)
+		else:
+			var icon := ShopIcon.new(item)
+			icon.custom_minimum_size = Vector2(BUTTON * 1.0, BUTTON * 1.0)
+			icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			stack.add_child(icon)
 
 		var price := Label.new()
 		price.add_theme_font_size_override("font_size", 19)
@@ -576,7 +589,7 @@ func _build_shop() -> PanelContainer:
 		price.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		stack.add_child(price)
 
-		_shop_rows[item] = {"button": tile, "price": price, "icon": icon}
+		_shop_rows[item] = {"button": tile, "price": price}
 
 	# What the chosen thing is, under the shelf: its name, and one line saying
 	# what it is for. Empty until a child taps something.
@@ -617,6 +630,12 @@ func _build_shop() -> PanelContainer:
 ## buys it.
 func _shop_tapped(item: StringName) -> void:
 	_shop_chosen = item
+	if ShopStock.pays_for(item) > 0:
+		_shop_name.text = ItemKinds.label(item)
+		_shop_note.text = Text.format("shop_buys", [ShopStock.pays_for(item)])
+		_refresh_shop_buy()
+		_shop_mark_chosen()
+		return
 	_shop_name.text = ShopStock.label(item)
 	if bool(_shop_owned.get(item, false)):
 		_shop_name.text += " ✓"
@@ -632,7 +651,13 @@ func _refresh_shop_buy() -> void:
 		_shop_buy_button.visible = false
 		return
 	_shop_buy_button.visible = true
-	if bool(_shop_owned.get(_shop_chosen, false)):
+	if ShopStock.pays_for(_shop_chosen) > 0:
+		var many: int = int(_shop_carried.get(_shop_chosen, 0))
+		_shop_buy_button.text = "%s  %d ●" % [
+			Text.of("ui_sell"), many * ShopStock.pays_for(_shop_chosen)
+		]
+		_shop_buy_button.disabled = many <= 0
+	elif bool(_shop_owned.get(_shop_chosen, false)):
 		_shop_buy_button.text = Text.of("ui_owned")
 		_shop_buy_button.disabled = true
 	else:
@@ -658,6 +683,13 @@ func _shop_mark_chosen() -> void:
 		tile.add_theme_stylebox_override("normal", mark)
 
 ## Show or hide the shop, and refresh every row against the current purse.
+## What the child is carrying of the things the shop buys, so a row can say
+## whether there is anything to sell.
+var _shop_carried: Dictionary = {}
+
+func set_carried_for_sale(item: StringName, many: int) -> void:
+	_shop_carried[item] = many
+
 func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 	var opening := open and not _shop.visible
 	_shop.visible = open
@@ -670,10 +702,17 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 		_shop_mark_chosen()
 	if open:
 		_shop_coins = coins
-		for item in ShopStock.ALL:
+		for item in _shop_rows:
 			var parts: Dictionary = _shop_rows[item]
 			var row: Button = parts["button"]
 			var price_label: Label = parts["price"]
+			# The things the shop buys read the other way round: what it pays,
+			# and how many you have to sell.
+			if ShopStock.pays_for(item) > 0:
+				price_label.text = "+%d ●" % ShopStock.pays_for(item)
+				price_label.add_theme_color_override("font_color", Color(0.62, 0.92, 0.66))
+				row.modulate = Color.WHITE if _shop_carried.get(item, 0) > 0 else Color(1.0, 1.0, 1.0, 0.45)
+				continue
 			var price := ShopStock.price(item)
 			var mine: bool = owned.has(item)
 			if mine:

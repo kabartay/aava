@@ -41,6 +41,8 @@ const STRINGS := {
 	"item_seed": {EN: "seed", FR: "graine", RU: "семечко"},
 	"item_cone": {EN: "cone", FR: "pomme de pin", RU: "шишка"},
 	"item_chocolate": {EN: "chocolate", FR: "chocolat", RU: "шоколадка"},
+	"item_wool": {EN: "wool", FR: "laine", RU: "шерсть"},
+	"item_wool_object": {EN: "wool", FR: "de la laine", RU: "шерсть"},
 	"item_chocolate_object": {EN: "chocolate", FR: "du chocolat", RU: "шоколадку"},
 	# The same items as the object of a verb — "wants a stick" — which in
 	# Russian is a different form of the word. English and French do not
@@ -192,6 +194,8 @@ const STRINGS := {
 	"animal_cat": {EN: "cat", FR: "chat", RU: "кошка"},
 	"animal_dog": {EN: "dog", FR: "chien", RU: "собака"},
 	"animal_squirrel": {EN: "squirrel", FR: "écureuil", RU: "белка"},
+	"animal_sheep": {EN: "sheep", FR: "mouton", RU: "овца"},
+	"animal_cow": {EN: "cow", FR: "vache", RU: "корова"},
 	"animal_beaver": {EN: "beaver", FR: "castor", RU: "бобр"},
 	"wish_stroke": {EN: "wants a stroke", FR: "veut une caresse", RU: "хочет, чтобы её погладили"},
 	# The item goes in as its object form — Russian declines it: "хочет палку".
@@ -369,6 +373,16 @@ const STRINGS := {
 	},
 	"say_lantern_on": {EN: "the lantern is lit", FR: "la lanterne est allumée", RU: "фонарь зажжён"},
 	"say_lantern_off": {EN: "the lantern is out", FR: "la lanterne est éteinte", RU: "фонарь погашен"},
+	"say_sheared": {
+		EN: "sheared: +%d wool", FR: "tondu : +%d laine", RU: "острижена: +%d шерсти",
+	},
+	"say_milk": {
+		EN: "fresh milk", FR: "du lait frais", RU: "парное молоко",
+	},
+	"say_sold": {
+		EN: "sold %d for %d coins", FR: "%d vendus pour %d pièces",
+		RU: "продано %d за %d монет",
+	},
 	"say_chocolate": {
 		EN: "that is better",
 		FR: "ça va mieux",
@@ -455,6 +469,12 @@ const STRINGS := {
 	},
 	"ui_shop": {EN: "shop", FR: "boutique", RU: "магазин"},
 	"ui_buy": {EN: "buy", FR: "acheter", RU: "купить"},
+	"ui_sell": {EN: "sell", FR: "vendre", RU: "продать"},
+	"shop_buys": {
+		EN: "the shop buys it, %d a piece",
+		FR: "la boutique l'achète, %d pièce",
+		RU: "магазин берёт по %d монете",
+	},
 	"place_shop": {EN: "the shop", FR: "la boutique", RU: "магазин"},
 	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
 	"ui_owned": {EN: "yours", FR: "à toi", RU: "твоё"},
