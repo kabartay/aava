@@ -66,6 +66,7 @@ func _initialize() -> void:
 	_check_the_icon_is_the_valley()
 	_check_the_valley_is_populated()
 	_check_a_flock_is_worth_keeping()
+	_check_every_animal_is_finished()
 	_check_snow_lies_on_the_shoulders()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
@@ -2935,6 +2936,54 @@ func _check_a_flock_is_worth_keeping() -> void:
 		Text.set_language(code)
 		_expect(not ItemKinds.label(ItemKinds.WOOL).begins_with("?"), "wool is named in %s" % code)
 	Text.set_language(Text.EN)
+
+## Every animal has everything an animal here needs.
+##
+## Adding a kind means touching half a dozen tables in five files, and missing
+## one of them fails silently: the sheep arrived with no voice — a hundred of
+## them standing about the meadows in complete silence — and with a prompt over
+## their heads saying they wanted stroking. Neither broke anything, and neither
+## would ever have shown up in a check that only asked whether sheep exist.
+func _check_every_animal_is_finished() -> void:
+	print("every animal is finished")
+	var voices := AnimalVoices.new()
+	get_root().add_child(voices)
+	voices.bake_now()
+
+	for kind in AnimalKinds.ALL:
+		# A body, of a believable size.
+		var box := AnimalKinds.build_mesh(kind).get_aabb().size
+		_expect(
+			box.x > 0.2 and box.y > 0.2 and box.z > 0.3,
+			"a %s is %.1f by %.1f by %.1f m" % [kind, box.x, box.y, box.z]
+		)
+		# A name, in every language, and a prompt that says what to do with it
+		# rather than what to do with some other animal.
+		for code: StringName in [Text.EN, Text.FR, Text.RU]:
+			Text.set_language(code)
+			_expect(not AnimalKinds.label(kind).begins_with("?"), "%s is named in %s" % [kind, code])
+			_expect(not AnimalKinds.wish(kind).begins_with("?"), "and says what it wants in %s" % code)
+		Text.set_language(Text.EN)
+		# A voice, and a gap between one cry and the next.
+		_expect(voices.voices().has(kind), "a %s has a voice" % kind)
+		_expect(
+			AnimalVoices.GAPS.has(kind),
+			"and a gap between one cry and the next"
+		)
+		# Something to do with it: coins, or a thing it hands over.
+		_expect(
+			AnimalKinds.coins(kind) > 0 or AnimalKinds.gives(kind) != &"",
+			"and something to give: %s" % (
+				"%d coins" % AnimalKinds.coins(kind) if AnimalKinds.coins(kind) > 0
+				else String(AnimalKinds.gives(kind))
+			)
+		)
+		# How it moves.
+		_expect(Animals.TURN_RATES.has(kind), "%s turns at its own rate" % kind)
+		_expect(Animals.LEG_SWINGS.has(kind), "and swings its legs its own way")
+		# And a number of them the valley is meant to hold.
+		_expect(AnimalKinds.WANTED.has(kind), "and there is a wanted number of them")
+	voices.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

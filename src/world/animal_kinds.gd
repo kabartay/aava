@@ -123,6 +123,11 @@ static func label(kind: StringName) -> String:
 
 ## What it wants, in words, for the prompt over its head.
 static func wish(kind: StringName) -> String:
+	# Livestock is not stroked. A sheep said "wants a stroke" and gave wool,
+	# which is two different animals in one prompt.
+	var given := gives(kind)
+	if given != &"":
+		return Text.of("wish_shear" if given == &"wool" else "wish_milk")
 	var wanted := want(kind)
 	if wanted == &"":
 		return Text.of("wish_stroke")

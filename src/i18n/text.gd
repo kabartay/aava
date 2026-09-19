@@ -197,6 +197,8 @@ const STRINGS := {
 	"animal_sheep": {EN: "sheep", FR: "mouton", RU: "овца"},
 	"animal_cow": {EN: "cow", FR: "vache", RU: "корова"},
 	"animal_beaver": {EN: "beaver", FR: "castor", RU: "бобр"},
+	"wish_shear": {EN: "can be sheared", FR: "peut être tondu", RU: "можно постричь"},
+	"wish_milk": {EN: "has milk to spare", FR: "a du lait", RU: "можно подоить"},
 	"wish_stroke": {EN: "wants a stroke", FR: "veut une caresse", RU: "хочет, чтобы её погладили"},
 	# The item goes in as its object form — Russian declines it: "хочет палку".
 	"wish_give": {EN: "wants a %s", FR: "veut %s", RU: "хочет %s"},

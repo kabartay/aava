@@ -35,6 +35,11 @@ const GAPS := {
 	# cat; but a cat that never makes a sound until touched reads as a statue,
 	# and the person watching asked for the occasional meow back.
 	&"cat": [28.0, 65.0],
+	# Sheep answer each other, so they speak oftener than anything else here:
+	# a flock of a hundred that says nothing is a field of statues. Cows are
+	# rarer and much further apart, which is what makes one carry.
+	&"sheep": [13.0, 30.0],
+	&"cow": [24.0, 58.0],
 }
 
 ## How many can be speaking at once. Beyond a handful it is a chorus.
@@ -82,6 +87,8 @@ func _bake_all() -> void:
 		&"squirrel": _chatter(),
 		&"beaver": _grunt(),
 		&"cat": _meow(true),
+		&"sheep": _baa(),
+		&"cow": _moo(),
 		&"cat_short": _meow(false),
 		&"cat_purr": _purr(),
 	}
@@ -279,6 +286,70 @@ func _grunt() -> AudioStreamWAV:
 		carried = lerpf(carried, noise.randf_range(-1.0, 1.0), 0.28)
 		var tone := sin(TAU * (150.0 - 40.0 * progress) * float(i) / float(RATE))
 		values[i] = (carried * 0.4 + tone * 0.6) * envelope * 0.7
+	return _to_stream(values)
+
+## A baa. The whole of a sheep is the wobble: a bleat is a tone at about three
+## hundred cycles with a hard tremolo on it, seven or eight times a second, and
+## without that tremolo it is a duck. Nasal, too — sheep sing through the nose,
+## so the harmonics above the second are thin.
+func _baa() -> AudioStreamWAV:
+	var seconds := 0.62
+	var samples := int(RATE * seconds)
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 4417
+	var phase := 0.0
+	for i in samples:
+		var progress := float(i) / float(samples)
+		# Opens quickly, holds, and falls away at the end.
+		var envelope := minf(progress * 9.0, 1.0) * pow(1.0 - progress, 0.8)
+		# The bleat: the pitch itself shakes, which is the tremolo, and the
+		# note falls a little across the cry.
+		var wobble := sin(TAU * 7.5 * float(i) / float(RATE))
+		var pitch := (330.0 - 60.0 * progress) * (1.0 + wobble * 0.05)
+		phase += TAU * pitch / float(RATE)
+		# Nasal: a strong second harmonic and very little above it.
+		var tone := (
+			sin(phase) * 0.62 + sin(phase * 2.0) * 0.3 + sin(phase * 3.0) * 0.1
+		)
+		# And the loudness shakes with the pitch, which is what makes it read
+		# as a bleat rather than as a vibrato singer.
+		var shake := 0.78 + 0.22 * wobble
+		var breath := noise.randf_range(-1.0, 1.0) * 0.08 * progress
+		values[i] = (tone * shake + breath) * envelope * 0.62
+	return _to_stream(values)
+
+## A moo. Low, long and two-part: it climbs a little, holds, and falls away —
+## and it is the length that says cow. Everything else in this valley speaks in
+## a third of a second.
+func _moo() -> AudioStreamWAV:
+	var seconds := 1.35
+	var samples := int(RATE * seconds)
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 7731
+	var phase := 0.0
+	var rumble := 0.0
+	for i in samples:
+		var progress := float(i) / float(samples)
+		var envelope := minf(progress * 6.0, 1.0) * pow(1.0 - progress, 1.1)
+		# Up over the first third, then down and away: the shape of a moo.
+		var bend := (
+			progress * 3.0 if progress < 0.33
+			else 1.0 - (progress - 0.33) * 0.9
+		)
+		var pitch := 108.0 + 26.0 * clampf(bend, 0.0, 1.0)
+		phase += TAU * pitch / float(RATE)
+		# A chest full of air: the low harmonics carry it, the high ones are
+		# barely there.
+		var tone := (
+			sin(phase) * 0.6 + sin(phase * 2.0) * 0.24
+			+ sin(phase * 3.0) * 0.1 + sin(phase * 4.0) * 0.05
+		)
+		rumble = lerpf(rumble, noise.randf_range(-1.0, 1.0), 0.12)
+		values[i] = (tone * 0.9 + rumble * 0.12) * envelope * 0.7
 	return _to_stream(values)
 
 ## A meow. A cat's cry is a buzz rich in harmonics — the same buzz throughout
