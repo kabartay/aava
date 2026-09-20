@@ -93,6 +93,21 @@ const SHOP_MOTORCYCLES := 2
 const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
 ## How many shelves run along the wall behind the counter.
 const SHOP_SHELVES := 4
+## The roof's pitch, and how far it overhangs the walls. Everything else about
+## the roof — where the ridge is, how tall the gable is, where the round window
+## sits — is worked out from these two, because a roof is a pitch and a span
+## and nothing else. Writing the ridge's height down separately is what let the
+## slopes stand at one angle while the line they were supposed to lie on
+## climbed at another.
+const SHOP_ROOF_PITCH := 26.0
+const SHOP_ROOF_OVERHANG := 0.45
+
+## Where the eave and the ridge are, from that pitch. For the checks.
+static func shop_eave_height() -> float:
+	return SHOP_HEIGHT + 0.18
+
+static func shop_ridge_height() -> float:
+	return shop_eave_height() + (SHOP_WIDTH * 0.5 + SHOP_ROOF_OVERHANG) * tan(deg_to_rad(SHOP_ROOF_PITCH))
 ## Where the lights hang, across the room and along it. Relative to the middle
 ## of the building.
 const SHOP_LIGHTS: Array[Vector3] = [
@@ -827,12 +842,19 @@ func _build_shop(at: Vector3) -> void:
 	# courses from the eave *through* the ridge and out over the other slope:
 	# the two sides crossed, and what a child saw was a roof folded inside out.
 	# Two points and a line between them cannot do that.
-	var pitch := deg_to_rad(34.0)
-	var overhang := 0.45
-	var ridge_height := h + 1.35
-	var courses := 9
+	# The ridge's height comes from the pitch and the width, because those two
+	# are what a pitch *is*. It was a number typed in beside the angle, and the
+	# two disagreed: the line from eave to ridge climbed at seven and a half
+	# degrees while every board on it was tilted at thirty-four, so the slopes
+	# stood at an angle to their own roof and did not meet at the top.
+	var pitch := deg_to_rad(SHOP_ROOF_PITCH)
+	var overhang := SHOP_ROOF_OVERHANG
+	var half_span := w * 0.5 + overhang
+	var eave_height := shop_eave_height()
+	var ridge_height := shop_ridge_height()
+	var courses := 11
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		var eave_at := Vector3(side * (w * 0.5 + overhang), h + 0.18, mid)
+		var eave_at := Vector3(side * half_span, eave_height, mid)
 		var ridge_at := Vector3(0.0, ridge_height, mid)
 		var lean := Basis(Vector3.FORWARD, side * pitch)
 		var slope_length := eave_at.distance_to(ridge_at)
@@ -856,7 +878,7 @@ func _build_shop(at: Vector3) -> void:
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			# Down the edge of the same slope the courses are on, between the
 			# same two points.
-			var barge_eave := Vector3(side * (w * 0.5 + overhang), h + 0.18, mid + end * (d * 0.5 + 0.85))
+			var barge_eave := Vector3(side * half_span, eave_height, mid + end * (d * 0.5 + 0.85))
 			var barge_ridge := Vector3(0.0, ridge_height, mid + end * (d * 0.5 + 0.85))
 			var barge := BoxMesh.new()
 			barge.size = Vector3(barge_eave.distance_to(barge_ridge), 0.16, 0.18)
@@ -865,12 +887,19 @@ func _build_shop(at: Vector3) -> void:
 			), timber.lightened(0.15))
 		# The gable wall itself, in boards laid the other way, so the end of the
 		# building is not a blank triangle.
-		for course in 6:
+		# The gable wall: boards filling the triangle under the ridge, each one
+		# as wide as the roof is at its height. Worked out from the same pitch,
+		# so the gable ends exactly where the slopes meet rather than standing
+		# proud of them — which it did, by a quarter of a metre.
+		var gable_courses := 9
+		var gable_rise := (ridge_height - eave_height) / float(gable_courses)
+		for course in gable_courses:
+			var up := (float(course) + 0.5) / float(gable_courses)
 			var band := BoxMesh.new()
-			var width := w * (1.0 - float(course) * 0.16)
-			band.size = Vector3(width, 0.24, 0.16)
+			band.size = Vector3(w * (1.0 - up) + 0.2, gable_rise + 0.02, 0.16)
 			_add(lid, band, Transform3D(
-				Basis(), Vector3(0.0, h + 0.18 + float(course) * 0.24, mid + end * (d * 0.5 + 0.02))
+				Basis(),
+				Vector3(0.0, eave_height + up * (ridge_height - eave_height), mid + end * (d * 0.5 + 0.02))
 			), timber if course % 2 == 0 else timber.lightened(0.08))
 		# A round window high in the gable, which is what makes a gable worth
 		# looking at.
@@ -881,7 +910,7 @@ func _build_shop(at: Vector3) -> void:
 		eye.radial_segments = 12
 		_add(lid, eye, Transform3D(
 			Basis(Vector3.RIGHT, deg_to_rad(90.0)),
-			Vector3(0.0, h + 0.85, mid + end * (d * 0.5 + 0.06))
+			Vector3(0.0, eave_height + (ridge_height - eave_height) * 0.42, mid + end * (d * 0.5 + 0.06))
 		), glass)
 		var eye_ring := TorusMesh.new()
 		eye_ring.inner_radius = 0.34
@@ -890,7 +919,7 @@ func _build_shop(at: Vector3) -> void:
 		eye_ring.ring_segments = 5
 		_add(lid, eye_ring, Transform3D(
 			Basis(Vector3.RIGHT, deg_to_rad(90.0)),
-			Vector3(0.0, h + 0.85, mid + end * (d * 0.5 + 0.08))
+			Vector3(0.0, eave_height + (ridge_height - eave_height) * 0.42, mid + end * (d * 0.5 + 0.08))
 		), timber.lightened(0.15))
 	# The ridge cap, in short lengths so it reads as tiles rather than a pipe.
 	for length in 10:

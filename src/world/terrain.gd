@@ -179,9 +179,17 @@ func _process(_delta: float) -> void:
 func is_idle() -> bool:
 	return _queue.is_empty() and _baking.is_empty() and _finished.is_empty()
 
-## True once the ground the player is standing on is guaranteed to exist.
+## True once the ground the player is standing on is guaranteed to hold them up.
+##
+## This asked only whether the chunk existed, and a chunk exists from the
+## moment it is put in the list — its collision arrives later, from the worker
+## that bakes it, and only the two nearest rings get any at all. So the game
+## let go of the player over ground that was drawn and not yet solid, and they
+## fell through it: a save was found at minus seventy thousand metres, twice in
+## one evening, on a phone slow enough for the gap to matter.
 func has_ground_at(world_position: Vector3) -> bool:
-	return _chunks.has(TerrainSpec.chunk_at(world_position))
+	var chunk: TerrainChunk = _chunks.get(TerrainSpec.chunk_at(world_position))
+	return chunk != null and chunk.has_collision
 
 ## Rebuild the chunks within `radius` of a point, because the ground there has
 ## changed. Used when a dam is finished — the only thing in the game that edits

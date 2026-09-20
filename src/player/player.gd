@@ -59,6 +59,20 @@ const MAX_RISE := 3.4
 const HEIGHT := 1.55
 const RADIUS := 0.34
 
+## How far under the ground a child has to be before the game puts them back on
+## top of it.
+##
+## The world builds its collision around wherever the player is, and the player
+## is put down before any of it exists — so on a slow phone there are a few
+## seconds at the start of every session with nothing under their feet. Usually
+## the ground arrives first. When it does not they fall, and they keep falling:
+## a save was found at minus seventy thousand metres, with a child turning on
+## the spot in the dark wondering where the game had gone.
+##
+## Four metres, because the deepest water here is two and the deepest hole a
+## child can stand in is the swimming pool at 1.9.
+const CAUGHT_BELOW := 4.0
+
 ## The steepest ground a child gets up on their own feet. Anything past this is
 ## a slope they slide off, and it is what every mount's own limit is measured
 ## against — a machine that climbs better than legs would be a strange thing to

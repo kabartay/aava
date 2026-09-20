@@ -68,6 +68,7 @@ func _initialize() -> void:
 	_check_a_flock_is_worth_keeping()
 	_check_every_animal_is_finished()
 	_check_the_forest_is_asked_once()
+	_check_nobody_falls_out_of_the_world()
 	_check_snow_lies_on_the_shoulders()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
@@ -2229,6 +2230,19 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	)
 	_expect(Places.SHOP_STAND_Z.size() >= 2, "and the small goods are out on stands")
 
+	# Everything the shop has is on the shelf at once. A tile is a button and a
+	# button eats the drag before the scrolling shelf sees it, so anything
+	# below the fold is unreachable — the bicycle was, and there was nothing to
+	# say it existed.
+	var on_the_shelf := ShopStock.ALL.size() + ShopStock.BUYS.size()
+	var rows := ceili(float(on_the_shelf) / float(Hud.SHOP_COLUMNS))
+	_expect(
+		rows <= 2,
+		"%d things stand %d across in %d rows, which fits without scrolling" % [
+			on_the_shelf, Hud.SHOP_COLUMNS, rows
+		]
+	)
+
 	# The way in is a way in. Nothing stands in the aisle between the door and
 	# the counter: a shop with the stock down the middle of it is a shop laid
 	# out by somebody who never had to carry anything through one.
@@ -2284,6 +2298,25 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 			stands.z < Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5,
 			"on the door's side of it, where a child walking out will see it"
 		)
+
+	# The roof is a roof: the line from the eave to the ridge climbs at the same
+	# angle the boards on it are tilted. It climbed at seven and a half degrees
+	# while every board was tilted at thirty-four, because the ridge's height
+	# was a number written down beside the pitch rather than worked out from
+	# it — so the slopes stood at an angle to their own roof and never met.
+	var eave_y := Places.shop_eave_height()
+	var ridge_y := Places.shop_ridge_height()
+	var half_span := Places.SHOP_WIDTH * 0.5 + Places.SHOP_ROOF_OVERHANG
+	var climbs := rad_to_deg(atan((ridge_y - eave_y) / half_span))
+	_expect(
+		absf(climbs - Places.SHOP_ROOF_PITCH) < 0.01,
+		"the roof climbs at %.1f degrees, which is the pitch its boards are laid at" % climbs
+	)
+	_expect(ridge_y > eave_y + 2.0, "the ridge stands %.1f m above the eaves" % (ridge_y - eave_y))
+	_expect(
+		ridge_y < Places.SHOP_HEIGHT * 2.2,
+		"and %.1f m above the floor, which is a barn rather than a spire" % ridge_y
+	)
 
 	# The shop is lit. A tall room with a roof on it is a dark room, and what a
 	# child saw walking in was a shed full of shapes.
@@ -3055,6 +3088,59 @@ func _check_the_forest_is_asked_once() -> void:
 		"a felled tree is gone from the answer (%d, was %d)" % [after.size(), trees.size()]
 	)
 	forest.queue_free()
+
+## A child who falls through the ground is put back on it.
+##
+## The world builds its collision around wherever the player is, and the player
+## is put down before any of it exists. Usually the ground arrives first; on a
+## phone, twice in one evening, it did not — and a save was found at minus
+## seventy thousand metres, with a child turning on the spot in the dark
+## wondering where the game had gone. Nothing was broken, nothing was logged,
+## and there was no way back.
+func _check_nobody_falls_out_of_the_world() -> void:
+	print("nobody falls out of the world")
+	var field := HeightField.new(20260903)
+	var spot := field.find_spawn_point()
+	var ground := field.height_at(spot.x, spot.z)
+
+	# The game holds the player still until the ground under them will hold
+	# them up. "Exists" is not enough: a chunk is in the list from the moment
+	# it is asked for, and its collision comes later from the worker that bakes
+	# it — which is the gap they fell through.
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	_expect(not terrain.has_ground_at(spot), "before anything is built, there is no ground to stand on")
+	terrain.follow(spot)
+	while not terrain.is_idle():
+		terrain._process(1.0 / 60.0)
+	_expect(terrain.has_ground_at(spot), "once the chunks are baked, there is")
+	var chunk: TerrainChunk = terrain._chunks.get(TerrainSpec.chunk_at(spot))
+	_expect(chunk != null and chunk.has_collision, "and the chunk under the player carries collision, not merely a mesh")
+	terrain.queue_free()
+
+	# The margin has to clear everything a child can legitimately be under.
+	_expect(
+		Player.CAUGHT_BELOW > Lakes.DEPTH,
+		"the catch is %.1f m down, below the %.1f m of the deepest pond" % [
+			Player.CAUGHT_BELOW, Lakes.DEPTH
+		]
+	)
+	_expect(
+		Player.CAUGHT_BELOW > PlaceSpec.POOL_DEPTH,
+		"and below the swimming pool's %.1f m" % PlaceSpec.POOL_DEPTH
+	)
+	# Standing on the bottom of the pool is not falling out of the world.
+	var pool := PlaceSpec.centre_of(&"pool", field.camp_centre())
+	var pool_floor := field.height_at(pool.x, pool.z)
+	_expect(
+		pool_floor > field.height_at(pool.x, pool.z) - Player.CAUGHT_BELOW,
+		"a child standing on the floor of the pool is not caught"
+	)
+	# But one below the ground by more than that is.
+	_expect(
+		ground - 20.0 < ground - Player.CAUGHT_BELOW,
+		"and one twenty metres under the meadow is"
+	)
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

@@ -497,6 +497,8 @@ func _process(delta: float) -> void:
 		not bed.is_empty() and bed.get("kind", &"") == HouseParts.BED
 	)
 
+	_catch_a_fall(at)
+
 	# A roof comes off while you are under it, or the camera looks at tiles.
 	world.places.roofs_follow(at)
 
@@ -1109,7 +1111,18 @@ func _on_care() -> void:
 func _on_shop() -> void:
 	hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
 
-## The ground a mount is standing on: the mean of the height at each end of it,
+## Put somebody who has fallen out of the world back on top of it.
+func _catch_a_fall(at: Vector3) -> void:
+	var ground := world.field.height_at(at.x, at.z)
+	if at.y > ground - Player.CAUGHT_BELOW:
+		return
+	player.velocity = Vector3.ZERO
+	player.global_position = Vector3(at.x, ground + 0.5, at.z)
+	# Told, not silently mended: a child who has just watched the world vanish
+	# deserves to know they are back rather than wondering what happened.
+	hud.announce(Text.of("say_caught"), 2.4)
+
+## Where a machine bought at the shop is left standing it,
 ## along the way it is pointing. A horse two and a half metres long rides out
 ## the stones between its front and back feet, and so should its rider.
 func _ground_under_the_mount(kind: StringName, at: Vector3, facing: float) -> float:

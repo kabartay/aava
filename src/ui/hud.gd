@@ -104,7 +104,12 @@ var _shop: PanelContainer
 ## The shelf the stock sits on, which scrolls when there is more of it than
 ## fits, and how many pictures stand across it.
 var _shop_shelf: ScrollContainer
-const SHOP_COLUMNS := 3
+## Five across. Three was two rows of pictures and a third row that would not
+## come into view: the shelf scrolls, but a tile is a button and a button eats
+## the drag before the shelf sees it, so the bottom row was unreachable and the
+## bicycle could not be bought. Five columns puts ten things in two rows, and
+## the question of scrolling does not arise.
+const SHOP_COLUMNS := 5
 ## The picture a child has tapped, the two lines that answer them, and what is
 ## already theirs.
 var _shop_chosen := &""
@@ -1324,6 +1329,8 @@ func _layout() -> void:
 		# fleece could not find where to sell it.
 		var rows := ceili(float(_shop_rows.size()) / float(SHOP_COLUMNS))
 		var tile_height := BUTTON * 1.62 + 10.0
+		# Always room for every row there is. A shelf that clips its last row
+		# hides things a child has no way of knowing are there.
 		# What is left of the screen after everything that has to be on it with
 		# the shelf: the heading above, and the chosen thing's name, the line
 		# about it, the buying button and the way out below. Measured generously
@@ -1332,7 +1339,7 @@ func _layout() -> void:
 		var shelf_room := safe.size.y - BUTTON * 4.6
 		_shop_shelf.custom_minimum_size = Vector2(
 			float(SHOP_COLUMNS) * (BUTTON * 1.5 + 10.0),
-			minf(float(rows) * tile_height + 12.0, maxf(shelf_room, BUTTON * 2.0))
+			maxf(float(rows) * tile_height + 12.0, BUTTON * 2.0)
 		)
 	_shop.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _shop.size.x * 0.5,
