@@ -7274,6 +7274,19 @@ func _check_the_roads_have_names() -> void:
 		"while the highest is below the plaque on top"
 	)
 
+	# The square's own name is one plaque with a front and a back, turned to
+	# face the way a child arrives. It used to be two plates crossed at right
+	# angles so the name faced all four roads, which is not a thing anybody
+	# builds: a street plaque goes on a wall, and four of them back to back
+	# read as a lantern with writing on it.
+	var camp_bearing := atan2(
+		-(field.camp_centre().z - foot.z), field.camp_centre().x - foot.x
+	)
+	_expect(
+		absf(angle_difference(post.plaque_facing(), camp_bearing)) < deg_to_rad(1.0),
+		"the plaque faces the camp, which is the way a child comes home"
+	)
+
 	# It is drawn, and it is readable: a post with no mesh and no writing is
 	# the bug the bridge already taught us to check for.
 	var drawn := 0

@@ -16,22 +16,24 @@ extends Node3D
 ## Where each road actually goes is asked of Paths, not written down here, so a
 ## sign cannot end up pointing at a place its road no longer leads to.
 
-## Where the post stands, measured from the camp: a few paces east, in the open
-## ground between the camp and the river, which is where the roads fork.
-const OFFSET := Vector3(4.0, 0.0, 0.0)
+## Where the post stands, measured from the camp: a few paces west of its
+## middle, on the open ground of the square itself. Chosen by standing there.
+const OFFSET := Vector3(-5.2, 0.0, -0.2)
 
-const POLE_RADIUS := 0.075
-## Tall enough that the lowest plate clears a child walking under it, and that
-## four of them stack under the plaque.
-const POLE_HEIGHT := 4.6
+const POLE_RADIUS := 0.125
+## Tall enough to be a landmark rather than a notice: twice the height it was,
+## so the plates and the plaque are seen across the meadow and over whatever a
+## child builds around them. The plates grow with it — a sign twice as far up
+## and the same size is a sign nobody can read.
+const POLE_HEIGHT := 9.2
 
 ## The plates. Thickness is the enamel and its frame; the length of each one is
 ## worked out from the name on it, so a long name is a long sign rather than
 ## small writing.
-const PLATE_HEIGHT := 0.46
-const PLATE_DEPTH := 0.10
-const PLATE_PER_LETTER := 0.115
-const PLATE_MARGIN := 1.05
+const PLATE_HEIGHT := 0.66
+const PLATE_DEPTH := 0.13
+const PLATE_PER_LETTER := 0.165
+const PLATE_MARGIN := 1.45
 
 const BLUE := Color(0.10, 0.20, 0.38)
 const OFF_WHITE := Color(0.92, 0.93, 0.90)
@@ -143,7 +145,7 @@ func _build() -> void:
 ## How high the plate for one road is mounted. Stacked downwards from the top,
 ## far enough apart that no two of them touch when they cross.
 func _plate_height(road: int) -> float:
-	return POLE_HEIGHT - 0.75 - float(road) * (PLATE_HEIGHT + 0.09)
+	return POLE_HEIGHT - 1.15 - float(road) * (PLATE_HEIGHT + 0.14)
 
 ## How long a plate has to be to hold its name and its arrow.
 static func plate_length(road_name: String) -> float:
@@ -217,40 +219,118 @@ func bearing_to(toward: StringName) -> float:
 	return atan2(-(there.z - from.z), there.x - from.x)
 
 ## The plaque over the top: the name of the square itself, which wants no arrow
-## because a child reading it is standing in it. Green enamel with a white
-## keyline, the way a Paris street plaque is made.
+## because a child reading it is standing in it.
+##
+## It was two plates crossed at right angles, so the name faced all four roads.
+## That is not a thing anyone builds — a street plaque is one panel on one
+## wall, and four of them back to back reads as a lantern with writing on it.
+##
+## So it is a single plaque, made the way the enamel ones in Paris are made: a
+## green border with a round-topped arch, a white keyline inside it, a dark
+## blue field, four bosses at the corners where it would be screwed to a wall,
+## and the name broken across lines with the small words small. The arch
+## carries the valley's name the way a real one carries its arrondissement.
+##
+## One panel, two faces, turned square to the camp: a child coming home reads
+## it head-on, and a child leaving reads the back of it.
+const PLAQUE_WIDTH := 3.4
+const PLAQUE_BODY := 1.55
+const PLAQUE_ARCH := 0.58
+## What the arch says, above the name: the valley this square is in.
+const PLAQUE_ARCH_TEXT := "VALLÉE D'AAVA"
+
+## Which way the plaque looks: at the camp. One panel has a front, and the
+## front belongs to the direction a child arrives from.
+func plaque_facing() -> float:
+	var camp := _field.camp_centre()
+	var foot := where()
+	return atan2(-(camp.z - foot.z), camp.x - foot.x)
+
 func _build_plaque(tool: SurfaceTool) -> void:
-	var at := POLE_HEIGHT - 0.28
-	var length := PLATE_MARGIN * 0.9 + PLATE_PER_LETTER * 0.80 * float(PLACE_NAME.length())
-	var height := 0.62
-	# Two plaques back to back at right angles, so the name is readable from
-	# any of the four roads.
-	for quarter in 2:
-		var turn := Basis(Vector3.UP, PI * 0.5 * float(quarter))
-		var middle := turn * Vector3(0.0, at, 0.0)
+	var at := POLE_HEIGHT - PLAQUE_BODY * 0.5 - 0.30
+	# Square to the road from the camp, so the face a child meets first is the
+	# front of the plaque rather than its edge.
+	var toward_camp := plaque_facing()
+	var turn := Basis(Vector3.UP, toward_camp + PI * 0.5)
 
-		var green := BoxMesh.new()
-		green.size = Vector3(length, height, 0.09)
-		Signpost._add(tool, green, Transform3D(turn, middle), PLAQUE_GREEN)
+	# Three layers, each a little smaller across and a little prouder of the
+	# face: green enamel, a white keyline, and the blue field. That is how the
+	# real ones are painted, and drawing it any other way gives a flat board
+	# with a line on it.
+	var layers: Array = [
+		[PLAQUE_WIDTH, PLAQUE_BODY, PLAQUE_ARCH, 0.12, PLAQUE_GREEN],
+		[PLAQUE_WIDTH - 0.18, PLAQUE_BODY - 0.18, PLAQUE_ARCH - 0.06, 0.15, OFF_WHITE],
+		[PLAQUE_WIDTH - 0.34, PLAQUE_BODY - 0.34, PLAQUE_ARCH - 0.13, 0.18, BLUE],
+	]
+	for layer: Array in layers:
+		var wide := float(layer[0])
+		var tall := float(layer[1])
+		var arch := float(layer[2])
+		var deep := float(layer[3])
+		var colour: Color = layer[4]
 
-		var field := BoxMesh.new()
-		field.size = Vector3(length - 0.16, height - 0.15, 0.11)
-		Signpost._add(tool, field, Transform3D(turn, middle), BLUE)
+		var body := BoxMesh.new()
+		body.size = Vector3(wide, tall, deep)
+		Signpost._add(tool, body, Transform3D(turn, turn * Vector3(0.0, at, 0.0)), colour)
 
-		# The white keyline inside the green, which is the detail that makes
-		# one of these read as enamel rather than as a painted board.
-		var keyline := BoxMesh.new()
-		keyline.size = Vector3(length - 0.10, height - 0.09, 0.10)
-		Signpost._add(tool, keyline, Transform3D(turn, middle), OFF_WHITE)
+		# The round top: a disc, squashed, sitting on the body's top edge. A
+		# plaque with square corners is a notice board.
+		var cap := CylinderMesh.new()
+		cap.top_radius = wide * 0.5
+		cap.bottom_radius = wide * 0.5
+		cap.height = deep
+		cap.radial_segments = 20
+		cap.rings = 1
+		var lie := Basis(Vector3.RIGHT, PI * 0.5).scaled(
+			Vector3(1.0, 1.0, arch / (wide * 0.5))
+		)
+		Signpost._add(
+			tool, cap,
+			Transform3D(turn * lie, turn * Vector3(0.0, at + tall * 0.5, 0.0)),
+			colour
+		)
 
+	# The bosses: where a plaque like this is screwed to a wall. Four of them,
+	# in the green border, and they are most of why the thing reads as enamel
+	# on iron rather than as a painted rectangle.
+	for corner: Vector2 in [
+		Vector2(-1.0, -1.0), Vector2(1.0, -1.0), Vector2(-1.0, 1.0), Vector2(1.0, 1.0)
+	]:
 		for face: float in [1.0, -1.0]:
+			var boss := CylinderMesh.new()
+			boss.top_radius = 0.10
+			boss.bottom_radius = 0.10
+			boss.height = 0.04
+			boss.radial_segments = 10
+			boss.rings = 1
+			var lie := Basis(Vector3.RIGHT, PI * 0.5)
+			Signpost._add(
+				tool, boss,
+				Transform3D(turn * lie, turn * Vector3(
+					corner.x * (PLAQUE_WIDTH * 0.5 - 0.09),
+					at + corner.y * (PLAQUE_BODY * 0.5 - 0.09),
+					face * 0.10
+				)),
+				PLAQUE_GREEN.lightened(0.18)
+			)
+
+	# The name, broken across lines with the small word small, which is how a
+	# street plaque is set. Both faces.
+	var lines: Array = [
+		[PLAQUE_ARCH_TEXT, at + PLAQUE_BODY * 0.5 + PLAQUE_ARCH * 0.42, 0.0017],
+		["PLACE", at + 0.40, 0.0034],
+		["DES", at + 0.02, 0.0020],
+		["SPORTS", at - 0.42, 0.0040],
+	]
+	for face: float in [1.0, -1.0]:
+		for line: Array in lines:
 			var label := Label3D.new()
-			label.text = PLACE_NAME
+			label.text = str(line[0])
 			label.font_size = 96
-			label.pixel_size = 0.0020
+			label.pixel_size = float(line[2])
 			label.modulate = OFF_WHITE
-			label.rotation.y = PI * 0.5 * float(quarter) + (0.0 if face > 0.0 else PI)
-			label.position = middle + turn * Vector3(0.0, 0.0, face * 0.07)
+			label.rotation.y = toward_camp + PI * 0.5 + (0.0 if face > 0.0 else PI)
+			label.position = turn * Vector3(0.0, float(line[1]), face * 0.11)
 			add_child(label)
 
 static func _add(tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, colour: Color) -> void:
