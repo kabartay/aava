@@ -113,6 +113,7 @@ func _initialize() -> void:
 	_check_a_machine_backs_out_of_a_corner()
 	_check_the_bridge_carries_what_cannot_swim()
 	_check_the_bridge_is_walked_not_climbed()
+	_check_the_bridge_is_on_the_map()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -638,7 +639,12 @@ func _check_the_map_bakes_off_thread() -> void:
 	map.wait_for_bake()
 	map.track(camp, 0.0, [] as Array[Vector3])
 	_expect(map.is_drawn(), "and is once the bake is collected")
-	_expect(map._destinations.size() == 7, "%d destinations are marked, the shop among them" % map._destinations.size())
+	# One mark for every place a child might set out for, the crossing over the
+	# river included.
+	_expect(
+		map._destinations.size() == PlaceGlyph.Kind.size(),
+		"%d destinations are marked, one for every kind of place" % map._destinations.size()
+	)
 	var home: PlaceGlyph = map._destinations[0]["glyph"]
 	var playground: PlaceGlyph = map._destinations[1]["glyph"]
 	_expect(not home.pointing, "standing at the camp, home is on the map itself")
@@ -7145,3 +7151,37 @@ func _deck_line(field: HeightField, x: float) -> float:
 	if is_nan(deck):
 		return field.height_at(x, BridgeSpec.CENTRE_Z)
 	return deck
+
+## The bridge is marked on the map.
+##
+## It is the only way over the river on anything with wheels, and the river
+## looks the same for a kilometre in either direction: a child who has just
+## bought a bicycle cannot be expected to find it by walking the bank.
+func _check_the_bridge_is_on_the_map() -> void:
+	print("the bridge is on the map")
+	var field := HeightField.new(20260903)
+	var minimap := Minimap.new(field)
+	get_root().add_child(minimap)
+
+	var marked := Vector3.ZERO
+	var found := false
+	for destination in minimap._destinations:
+		if (destination["glyph"] as PlaceGlyph).kind == PlaceGlyph.Kind.BRIDGE:
+			marked = destination["at"]
+			found = true
+	_expect(found, "there is a mark for the crossing")
+	if found:
+		_expect(
+			field.is_on_the_bridge(
+				Vector3(marked.x, field.bridge_deck_at(marked.x, marked.z), marked.z)
+			),
+			"and it is where the bridge actually is"
+		)
+	# Every kind of place has a picture; a glyph with no picture is a blank
+	# disc, which is a colour to remember rather than a thing to recognise.
+	for kind: int in PlaceGlyph.Kind.values():
+		_expect(
+			PlaceGlyph.COLOURS.has(kind),
+			"every place on the map has a colour: %d" % kind
+		)
+	minimap.queue_free()

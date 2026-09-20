@@ -13,7 +13,7 @@ extends Control
 ## map's edge pointing at itself, so the answer to "which way" is on the
 ## small map too, where a child actually looks.
 
-enum Kind {HOME, PLAYGROUND, CAFE, POOL, PITCH, RANGE, SHOP}
+enum Kind {HOME, PLAYGROUND, CAFE, POOL, PITCH, RANGE, SHOP, BRIDGE}
 
 const SIZE := 28.0
 const INK := Color(0.10, 0.08, 0.06)
@@ -27,6 +27,8 @@ const COLOURS := {
 	Kind.PITCH: Color(0.46, 0.82, 0.44),
 	Kind.RANGE: Color(0.80, 0.64, 0.90),
 	Kind.SHOP: Color(1.0, 0.86, 0.36),
+	# Timber, against the blue of the river it stands over.
+	Kind.BRIDGE: Color(0.78, 0.58, 0.36),
 }
 
 var kind: Kind = Kind.HOME
@@ -115,6 +117,21 @@ func _draw() -> void:
 			draw_arc(centre, unit * 0.62, 0.0, TAU, 20, INK, maxf(1.5, unit * 0.14))
 			draw_arc(centre, unit * 0.34, 0.0, TAU, 14, INK, maxf(1.5, unit * 0.14))
 			draw_circle(centre, unit * 0.12, INK)
+		Kind.BRIDGE:
+			# An arch over water: the shape of the thing itself, seen from the
+			# bank. A child looking for a way across the river is looking for
+			# exactly this silhouette.
+			var w := maxf(1.5, unit * 0.15)
+			draw_arc(centre + Vector2(0.0, unit * 0.34), unit * 0.62, PI, TAU, 14, INK, w)
+			draw_line(
+				centre + Vector2(-unit * 0.62, unit * 0.34),
+				centre + Vector2(unit * 0.62, unit * 0.34), INK, w
+			)
+			# The water under it.
+			draw_line(
+				centre + Vector2(-unit * 0.5, unit * 0.66),
+				centre + Vector2(unit * 0.5, unit * 0.66), INK, w * 0.7
+			)
 		Kind.SHOP:
 			# An awning over a counter: the front of a shop, which is what you
 			# look for when you are trying to find one.

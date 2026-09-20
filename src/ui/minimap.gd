@@ -133,6 +133,15 @@ func _init(field: HeightField) -> void:
 	_add_destination(PlaceGlyph.Kind.PITCH, Pitch.centre())
 	_add_destination(PlaceGlyph.Kind.RANGE, camp + PlaceSpec.RANGE_OFFSET)
 	_add_destination(PlaceGlyph.Kind.SHOP, PlaceSpec.centre_of(&"shop", camp))
+	# The crossing. It is the only way over the river on anything with wheels,
+	# and a child who has just bought a bicycle has no way of guessing where it
+	# is — the river looks the same for a kilometre in both directions.
+	_add_destination(
+		PlaceGlyph.Kind.BRIDGE,
+		Vector3(
+			field.river_centre_x(BridgeSpec.CENTRE_Z), 0.0, BridgeSpec.CENTRE_Z
+		)
+	)
 
 	# The player is always at the centre of his own map, so this is a fixed
 	# marker rather than something that has to be positioned each frame. An
