@@ -121,6 +121,7 @@ func _initialize() -> void:
 	await _check_the_rides_are_solid()
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_coaster_runs_a_lap()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -7547,6 +7548,22 @@ func _check_the_fairground() -> void:
 		"and run opposite ways: %.1f and %.1f" % [north.z, south.z]
 	)
 
+	# You can step into a coaster car from the platform: it stands level with
+	# the car's floor, and the car is open at the sides. It had four walls and
+	# a platform a metre below it, so the ride could be looked at and never
+	# ridden.
+	var boards := park.coaster.point_at(park.coaster.circuit() * RollerCoaster.BOARDS_AT)
+	var platform := park.coaster.get_node("Platform") as StaticBody3D
+	_expect(platform != null, "the station has a platform")
+	if platform != null:
+		var deck := (platform.get_child(0) as CollisionShape3D)
+		var deck_top := deck.position.y + (deck.shape as BoxShape3D).size.y * 0.5
+		var car_floor := boards.y + RollerCoaster.CAR_FLOOR
+		_expect(
+			absf(deck_top - car_floor) < 0.25,
+			"and it stands level with the car floor: %.2f m against %.2f" % [deck_top, car_floor]
+		)
+
 	# The moving parts carry their passengers themselves rather than leaving it
 	# to the engine. Godot carries a character along a platform that slides and
 	# abandons them on one that turns, and where it does help it helps *as
@@ -7973,3 +7990,115 @@ func _check_the_animals_keep_off_the_playing_places() -> void:
 		"and the ground beside it is not"
 	)
 	animals.queue_free()
+
+## The coaster runs a lap under its own weight, stops to be boarded, and the
+## speed it does it at is the speed falling that far gives you.
+##
+## This is the only way to know. A profile that climbs higher than it fell
+## from stalls halfway up a hill and the train stands there for ever; brakes
+## that are too weak run the station; a dwell that never fires means a child
+## has to step into a moving car. None of it can be seen in a screenshot.
+func _check_the_coaster_runs_a_lap() -> void:
+	print("the coaster runs a lap")
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	var total := coaster.circuit()
+
+	# No crest is higher than the drop that feeds it, or the train stalls.
+	var top := coaster.height_at(RollerCoaster.LIFT_TOP)
+	var previous := top
+	var lowest_since := top
+	for step in 200:
+		var fraction := RollerCoaster.LIFT_TOP + (1.0 - RollerCoaster.LIFT_TOP) * float(step) / 200.0
+		var height := coaster.height_at(fraction)
+		lowest_since = minf(lowest_since, height)
+		if height > previous and height > top:
+			_fail("a crest at %.1f m stands over the lift's %.1f m" % [height, top])
+			break
+		previous = height
+
+	# Run it, a frame at a time, for three minutes of game time.
+	var tick := 1.0 / 60.0
+	var stood_still := 0.0
+	var longest_stand := 0.0
+	var stopped_at := -1.0
+	var fastest := 0.0
+	var slowest_running := 99.0
+	var laps := 0
+	var was := coaster.car_distance()
+	for step in int(180.0 / tick):
+		coaster._roll(tick)
+		var now := coaster.car_distance()
+		if now < was - total * 0.5:
+			laps += 1
+		was = now
+		if coaster.speed() < 0.01:
+			stood_still += tick
+			longest_stand = maxf(longest_stand, stood_still)
+			if stopped_at < 0.0:
+				stopped_at = now / total
+		else:
+			stood_still = 0.0
+			fastest = maxf(fastest, coaster.speed())
+			# Only while it is running free, which is where the interesting
+			# part of the speed is.
+			var fraction := now / total
+			if fraction > RollerCoaster.LIFT_TOP and fraction < RollerCoaster.BRAKES_FROM:
+				slowest_running = minf(slowest_running, coaster.speed())
+
+	_expect(laps >= 1, "it goes round: %d laps in three minutes" % laps)
+	_expect(
+		longest_stand > RollerCoaster.DWELL * 0.9 and longest_stand < RollerCoaster.DWELL * 1.6,
+		"and stands %.1f s at the platform against the %.1f it is meant to" % [
+			longest_stand, RollerCoaster.DWELL
+		]
+	)
+	_expect(
+		stopped_at >= 0.0 and absf(stopped_at - RollerCoaster.BOARDS_AT) < 0.02,
+		"it stops at the platform, not somewhere down the track: at %.3f" % stopped_at
+	)
+	_expect(
+		fastest > 7.0 and fastest <= RollerCoaster.TOP_SPEED + 0.01,
+		"the fastest it goes is %.1f m/s, which is a ride and not a bolt" % fastest
+	)
+	_expect(
+		slowest_running < fastest * 0.6,
+		"and it slows to %.1f over the crests: a coaster that runs at one speed is a train" % slowest_running
+	)
+
+	# The bends are banked and the straights are not, which is the difference
+	# between a coaster and a tram.
+	# In the middle of a straight, not at the end of one: the two sampled
+	# points must be a straight and a bend, and total * 0.5 falls exactly on
+	# the seam between them.
+	var straight_bank := absf(coaster.bank_at(
+		(RollerCoaster.HALF_LENGTH - RollerCoaster.HALF_WIDTH)
+	))
+	var bend_bank := absf(coaster.bank_at(
+		2.0 * (RollerCoaster.HALF_LENGTH - RollerCoaster.HALF_WIDTH)
+		+ PI * RollerCoaster.HALF_WIDTH * 0.5
+	))
+	_expect(straight_bank < deg_to_rad(2.0), "the straights lie flat: %.1f deg" % rad_to_deg(straight_bank))
+	_expect(
+		bend_bank > deg_to_rad(10.0),
+		"and the bends lay over into the turn: %.1f deg" % rad_to_deg(bend_bank)
+	)
+
+	# A car sits on its track, banked or not: its floor is a car's floor above
+	# the rail and not somewhere beside it.
+	for sample in 12:
+		var along := total * float(sample) / 12.0
+		var rail := coaster.point_at(along)
+		var seat := rail + coaster.frame_at(along) * Vector3(0.0, RollerCoaster.CAR_FLOOR, 0.0)
+		_expect(
+			absf(seat.distance_to(rail) - RollerCoaster.CAR_FLOOR) < 0.01,
+			"the car sits on the rail at %.2f round" % (along / total)
+		)
+
+	# Falling makes it faster and climbing makes it slower, which is the whole
+	# of it. Checked where the track actually falls and climbs.
+	var falling := coaster.gradient_at(0.36)
+	var climbing := coaster.gradient_at(0.45)
+	_expect(falling < 0.0, "the first drop falls")
+	_expect(climbing > 0.0, "and the camelback after it climbs")
+	coaster.queue_free()

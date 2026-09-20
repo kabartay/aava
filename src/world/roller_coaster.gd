@@ -22,25 +22,55 @@ const HALF_LENGTH := 68.0
 const HALF_WIDTH := 6.5
 
 ## The height profile, as [fraction of the circuit, metres above the ground].
-## The station is at the start; the chain lift takes it to the top by a third
-## of the way round.
+##
+## Station, chain lift, and then the ride spends what the lift gave it: a first
+## drop nearly to the sand, a big camelback, a second drop, a pair of small
+## hills taken fast enough to lift a child off the seat, and a long swooping
+## turn home into the brakes. Each crest is lower than the one before it,
+## because a coaster cannot climb higher than it has fallen from and a profile
+## that pretends otherwise is the one thing a ten-year-old will notice.
 const PROFILE: Array = [
-	[0.00, 1.30], [0.06, 1.30], [0.28, 20.0], [0.34, 19.4], [0.46, 3.2],
-	[0.58, 12.6], [0.68, 2.8], [0.80, 7.4], [0.90, 2.2], [1.00, 1.30],
+	[0.00, 1.30], [0.05, 1.30], [0.26, 20.0], [0.31, 19.2], [0.40, 2.6],
+	[0.50, 14.4], [0.57, 3.4], [0.64, 10.2], [0.70, 3.6], [0.76, 7.6],
+	[0.81, 3.2], [0.86, 5.6], [0.92, 2.0], [1.00, 1.30],
 ]
 
-## Where the station is, and where the chain lift ends.
-const STATION_END := 0.06
-const LIFT_TOP := 0.28
-## How fast the chain drags a car up, and the least speed a car ever has.
-const LIFT_SPEED := 3.2
-const CRAWL := 3.0
-## How much of the fall becomes speed. Not gravity: a car doing twenty metres
-## a second cannot be stood up in, and this is a ride for a six-year-old.
-const FALL_TO_SPEED := 3.1
+## Where the cars pull up, where the chain lift ends, and where the brakes
+## take hold on the way back in.
+const BOARDS_AT := 0.02
+const LIFT_FOOT := 0.05
+const LIFT_TOP := 0.26
+const BRAKES_FROM := 0.94
+
+## How long the cars stand at the platform. Long enough to walk the length of
+## it and step in without hurrying a six-year-old.
+const DWELL := 5.0
+
+## The physics.
+##
+## A real coaster is one number — how far it has fallen since the lift — and
+## everything else follows. This one integrates that properly instead of
+## reading a speed off the height: gravity along the track's own slope, a
+## little drag, the chain holding a steady pace up the hill, and brakes on the
+## way in. What that buys over reading the speed off the profile is the feel of
+## it — a car crests a hill still slowing, and picks up over the brow rather
+## than at it.
+##
+## Gravity is scaled down. At nine metres a second squared a twenty-metre drop
+## ends at eighteen metres a second, and a child cannot stand up in that.
+const GRAVITY := 3.2
+const DRAG := 0.035
+const LIFT_SPEED := 3.4
+const LIFT_PULL := 2.6
+const BRAKE := 4.5
+const CRAWL := 1.6
+const TOP_SPEED := 13.0
 
 ## How far the piles stand either side of the track's own line.
 const PILE_OFFSET := 0.78
+
+## How high a car's floor rides above the track's own line.
+const CAR_FLOOR := 0.55
 
 const CARS := 3
 const CAR_GAP := 3.4
@@ -55,6 +85,9 @@ const CAR_COLOURS: Array[Color] = [
 var _cars: Array[AnimatableBody3D] = []
 var _frame: StaticBody3D
 var _at_distance := 0.0
+var _speed := 0.0
+## How long is left of the wait at the platform.
+var _waiting := 0.0
 
 func _init(at: Vector3) -> void:
 	name = "RollerCoaster"
@@ -133,15 +166,64 @@ func height_at(fraction: float) -> float:
 			return lerpf(float(from[1]), float(to[1]), smoothstep(0.0, 1.0, along))
 	return float(PROFILE[0][1])
 
-## How fast a car is going at a fraction of the way round: the chain lift's own
-## pace while it is on the chain, and what it has fallen since the top
-## everywhere else.
+## How far the track is banked here, and which way.
+##
+## A coaster does not go round a bend flat — it lays over into it, and the
+## sight of the train tipped up on the turn is half of what makes one look
+## fast. The bends are the two half-circles at the ends of the stadium, so the
+## bank comes on where the straight ends and eases off where the next one
+## begins; which way it leans is worked out from the track itself, by asking
+## which way the tangent is swinging.
+const BANK := deg_to_rad(24.0)
+const BANK_EASE := 5.0
+
+func bank_at(distance: float) -> float:
+	var total := circuit()
+	var here := point_at(distance)
+	var ahead := point_at(distance + 2.0)
+	var behind := point_at(distance - 2.0)
+	var into := Vector2(ahead.x - here.x, ahead.z - here.z).normalized()
+	var out_of := Vector2(here.x - behind.x, here.z - behind.z).normalized()
+	# How far the heading swings over four metres: nothing on a straight, and
+	# a steady amount all the way round a bend.
+	var swing := out_of.angle_to(into)
+	var lean := clampf(swing / (4.0 / HALF_WIDTH), -1.0, 1.0)
+	return -lean * BANK
+
+## The way a car sits at a point on the track: pointed along it, pitched with
+## its slope, and laid over into its bend. Asked by the rails, the sleepers and
+## the cars alike, so none of them can disagree about which way is up.
+func frame_at(distance: float) -> Basis:
+	var here := point_at(distance)
+	var ahead := point_at(distance + 1.0)
+	var run := ahead - here
+	var turn := Basis(Vector3.UP, atan2(-run.z, run.x))
+	turn = turn * Basis(Vector3.BACK, atan2(run.y, Vector2(run.x, run.z).length()))
+	return turn * Basis(Vector3.RIGHT, bank_at(distance))
+
+## How steeply the track falls or rises here: metres of height per metre along
+## the rail, which is what gravity actually pulls on.
+func gradient_at(fraction: float) -> float:
+	var step := 1.0 / 600.0
+	return (height_at(fraction + step) - height_at(fraction - step)) / (2.0 * step * circuit())
+
+## How fast a car would be going at a fraction of the way round if it had come
+## straight from the top of the lift. Kept for the checks and for anything that
+## wants the shape of the ride without running it.
 func speed_at(fraction: float) -> float:
 	var f := fposmod(fraction, 1.0)
 	if f < LIFT_TOP:
 		return LIFT_SPEED
 	var fallen := height_at(LIFT_TOP) - height_at(f)
-	return maxf(CRAWL, sqrt(maxf(0.0, 2.0 * FALL_TO_SPEED * fallen)))
+	return clampf(sqrt(maxf(0.0, 2.0 * GRAVITY * fallen)), CRAWL, TOP_SPEED)
+
+## How fast the train is actually going, this moment.
+func speed() -> float:
+	return _speed
+
+## Is it standing at the platform?
+func boarding() -> bool:
+	return _waiting > 0.0
 
 func _build_track(tool: SurfaceTool) -> void:
 	var total := circuit()
@@ -152,8 +234,7 @@ func _build_track(tool: SurfaceTool) -> void:
 		var next := point_at(step * float(piece + 1))
 		var run := next - here
 		var middle := (here + next) * 0.5
-		var turn := Basis(Vector3.UP, atan2(-run.z, run.x))
-		turn = turn * Basis(Vector3.BACK, atan2(run.y, Vector2(run.x, run.z).length()))
+		var turn := frame_at(step * (float(piece) + 0.5))
 		var length := run.length()
 
 		# Two rails, and a sleeper under them.
@@ -244,7 +325,7 @@ func _build_track(tool: SurfaceTool) -> void:
 ## hears before they see, and the part that says which way the ride goes.
 func _build_lift(tool: SurfaceTool) -> void:
 	var total := circuit()
-	var from := total * STATION_END
+	var from := total * LIFT_FOOT
 	var to := total * LIFT_TOP
 	var teeth := int((to - from) / 1.1)
 	for tooth in teeth:
@@ -265,10 +346,12 @@ func _build_lift(tool: SurfaceTool) -> void:
 ## The station: a platform beside the track at the start, where the cars come
 ## slowly past and a child can step into one.
 func _build_station(tool: SurfaceTool) -> void:
-	var at := point_at(circuit() * STATION_END * 0.5)
+	var at := point_at(circuit() * BOARDS_AT)
+	# Beside where the cars stand, and level with their floors: a platform a
+	# metre below the car is one you cannot step across from.
 	var deck := BoxMesh.new()
-	deck.size = Vector3(3.0, 0.24, 14.0)
-	var where := Vector3(at.x + 3.0, at.y - 0.55, at.z)
+	deck.size = Vector3(3.2, 0.24, 16.0)
+	var where := Vector3(at.x + 2.6, at.y + CAR_FLOOR - 0.12, at.z)
 	Park._add(tool, deck, Transform3D(Basis(), where), TIMBER)
 
 	var body := StaticBody3D.new()
@@ -317,9 +400,11 @@ func _build_car(index: int) -> AnimatableBody3D:
 	floor_slab.size = Vector3(2.6, 0.18, 1.8)
 	Park._add(tool, floor_slab, Transform3D(Basis(), Vector3.ZERO), colour.darkened(0.4))
 	_solid(car, floor_slab.size, Vector3.ZERO)
+	# Walls at the ends only, and the sides open all the way down to the floor.
+	# A character body climbs slopes and steps over nothing at all, so even a
+	# low sill across the way in is a wall to a child trying to get aboard —
+	# which is why there was no way into these at all.
 	for wall: Array in [
-		[Vector3(2.6, 1.05, 0.16), Vector3(0.0, 0.53, 0.9)],
-		[Vector3(2.6, 1.05, 0.16), Vector3(0.0, 0.53, -0.9)],
 		[Vector3(0.16, 1.05, 1.8), Vector3(1.3, 0.53, 0.0)],
 		[Vector3(0.16, 1.05, 1.8), Vector3(-1.3, 0.53, 0.0)],
 	]:
@@ -329,6 +414,25 @@ func _build_car(index: int) -> AnimatableBody3D:
 		panel.size = size
 		Park._add(tool, panel, Transform3D(Basis(), where), colour)
 		_solid(car, size, where)
+
+	# A lap bar down each side: high enough to hold on to, high enough to walk
+	# under, and it says "sit down" without being a fence.
+	for side: float in [-1.0, 1.0]:
+		var bar := BoxMesh.new()
+		bar.size = Vector3(2.6, 0.12, 0.12)
+		Park._add(
+			tool, bar,
+			Transform3D(Basis(), Vector3(0.0, 0.94, side * 0.86)),
+			colour.darkened(0.25)
+		)
+		for post in 2:
+			var stanchion := BoxMesh.new()
+			stanchion.size = Vector3(0.12, 0.94, 0.12)
+			Park._add(
+				tool, stanchion,
+				Transform3D(Basis(), Vector3((float(post) - 0.5) * 2.2, 0.47, side * 0.86)),
+				colour.darkened(0.25)
+			)
 
 	tool.generate_normals()
 	var material := StandardMaterial3D.new()
@@ -353,19 +457,19 @@ func _place_cars() -> void:
 	for index in _cars.size():
 		var along := _at_distance - float(index) * CAR_GAP
 		var here := point_at(along)
-		var ahead := point_at(along + 1.0)
-		var run := ahead - here
-		var turn := Basis(Vector3.UP, atan2(-run.z, run.x))
-		turn = turn * Basis(Vector3.BACK, atan2(run.y, Vector2(run.x, run.z).length()))
-		_cars[index].transform = Transform3D(turn, here + Vector3(0.0, 0.55, 0.0))
+		var turn := frame_at(along)
+		# Lifted along the car's own up, so a car on a banked bend sits on its
+		# track rather than hovering beside it.
+		_cars[index].transform = Transform3D(
+			turn, here + turn * Vector3(0.0, CAR_FLOOR, 0.0)
+		)
 
 func _physics_process(delta: float) -> void:
 	var before: Array[Vector3] = []
 	for car in _cars:
 		before.append(car.position)
-	_at_distance = fposmod(
-		_at_distance + speed_at(_at_distance / circuit()) * delta, circuit()
-	)
+
+	_roll(delta)
 	_place_cars()
 	_moved.clear()
 	for index in _cars.size():
@@ -374,16 +478,64 @@ func _physics_process(delta: float) -> void:
 ## How far each car moved on the last frame, for whoever is riding in it.
 var _moved: Array[Vector3] = []
 
-## How far the ride moves whoever is aboard, this frame. The same arrangement
-## the wheel uses, and for the same reason.
+## How far the ride moves whoever is aboard, this frame.
+##
+## Godot leaves a character standing in a body that is moved by hand: the car
+## goes out from under them and they drop back onto its floor, over and over.
+## So the ride says how far it has taken them and the game moves them by that.
 func carry(at: Vector3, _delta: float) -> Vector3:
 	for index in _cars.size():
 		if index >= _moved.size():
 			break
 		var local := _cars[index].global_transform.affine_inverse() * at
-		if absf(local.x) < 1.3 and absf(local.z) < 0.9 and local.y > -0.4 and local.y < 2.0:
+		if absf(local.x) < 1.3 and absf(local.z) < 0.95 and local.y > -0.4 and local.y < 2.0:
 			return _moved[index]
 	return Vector3.ZERO
+
+## Move the train along by one frame of physics.
+##
+## Four regimes, and the whole ride is in them: standing at the platform, being
+## dragged up the chain at a steady pace, running free under gravity and drag,
+## and being brought to a stand by the brakes on the way in.
+func _roll(delta: float) -> void:
+	var total := circuit()
+	if _waiting > 0.0:
+		_waiting -= delta
+		_speed = 0.0
+		return
+
+	var fraction := _at_distance / total
+	if fraction < LIFT_TOP:
+		# Out of the station and up the chain: a steady pull, whatever the
+		# hill does. This has to cover the station itself as well as the lift,
+		# or the brakes that stopped the train there hold it there for ever —
+		# which is exactly what they did.
+		_speed = move_toward(_speed, LIFT_SPEED, LIFT_PULL * delta)
+	elif fraction >= BRAKES_FROM:
+		# In the brakes on the run home. Down to a crawl rather than to a
+		# stand: it has to reach the platform to stop at it.
+		_speed = move_toward(_speed, CRAWL, BRAKE * delta)
+	else:
+		# Free running: gravity along the slope, and a little drag. A crest
+		# taken slowly is a car still slowing as it goes over, which is the
+		# part of a coaster that makes a child hold their breath.
+		var grade := gradient_at(fraction)
+		_speed += (-GRAVITY * grade - DRAG * _speed) * delta
+		_speed = clampf(_speed, CRAWL * 0.4, TOP_SPEED)
+
+	var was := _at_distance
+	_at_distance = fposmod(_at_distance + _speed * delta, total)
+
+	# Pull up at the platform once a lap, on the way past it.
+	var stop_at := total * BOARDS_AT
+	var passed := was < stop_at and _at_distance >= stop_at
+	if was > _at_distance:
+		# Round the end of the lap.
+		passed = passed or stop_at >= was or stop_at <= _at_distance
+	if passed:
+		_at_distance = stop_at
+		_speed = 0.0
+		_waiting = DWELL
 
 ## How high the ride goes, and where the leading car is. For the checks.
 func highest() -> float:
