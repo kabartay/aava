@@ -112,6 +112,7 @@ func _initialize() -> void:
 	_check_the_valley_loops_without_a_tick()
 	_check_a_machine_backs_out_of_a_corner()
 	_check_the_bridge_carries_what_cannot_swim()
+	_check_the_bridge_is_walked_not_climbed()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -5473,14 +5474,26 @@ func _check_paths_lead_somewhere() -> void:
 
 	# The valley away from the camp must be untouched, or the whole world is a
 	# path and none of it is a signal.
-	var open_valley := true
+	# Sampled on rings round the camp. A route crossing a ring will sometimes
+	# land on one of these points — the sports ground's road to the playground
+	# does — and that is a road doing its job, not the valley being paved. What
+	# is being guarded against is paint everywhere, so the test is how many of
+	# the two dozen samples are on a path rather than whether any of them is.
+	var on_a_path := 0
+	var samples := 0
 	for distance: float in [80.0, 160.0, 320.0]:
 		for step in 8:
 			var angle := TAU * float(step) / 8.0
 			var at := camp + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
+			samples += 1
 			if field.path_at(at.x, at.z, field.height_at(at.x, at.z)) > 0.0:
-				open_valley = false
-	_expect(open_valley, "the open valley has no paths in it")
+				on_a_path += 1
+	_expect(
+		on_a_path <= samples / 8,
+		"the open valley is open: %d of %d points round the camp are on a path" % [
+			on_a_path, samples
+		]
+	)
 
 	# Nothing grows on a path. Grass coming up through a route is what made the
 	# football pitch look painted on before it was fixed the same way.
@@ -6995,3 +7008,140 @@ func _lamp_extent(lantern: Lantern) -> AABB:
 		else:
 			box = box.merge(here)
 	return box
+
+## Nothing on the bridge stands above the deck.
+##
+## The planks each carried their own collider, tilted to their own piece of the
+## arch and made a little long so the joins would not gape — and two tilted
+## boxes that overlap cannot be flush: the upper corner of each stands proud of
+## its neighbour. What that makes is not a ramp but twenty-eight low steps, and
+## a child had to jump up every one of them the whole way over.
+##
+## So: the deck a foot meets is one swept surface, no part of it is above the
+## line `bridge_deck_at` reports, and nothing else bolted to the bridge —
+## handrail, post, trestle — reaches down into that line either.
+func _check_the_bridge_is_walked_not_climbed() -> void:
+	print("the bridge is walked, not climbed")
+	var field := HeightField.new(20260903)
+	var bridge := Bridge.new(field)
+	get_root().add_child(bridge)
+	var body := bridge.get_node("Solid") as StaticBody3D
+	_expect(body != null, "the bridge is solid")
+
+	# The walking corridor: the part of the deck a child or a machine actually
+	# travels along, inside the handrails.
+	var surfaces := 0
+	var boxes := 0
+	var highest_in_the_way := -INF
+	var lowest_rail := INF
+	for child in body.get_children():
+		var collider := child as CollisionShape3D
+		if collider == null:
+			continue
+		if collider.shape is BoxShape3D:
+			boxes += 1
+			continue
+		var sweep := collider.shape as ConcavePolygonShape3D
+		if sweep == null:
+			continue
+		surfaces += 1
+		# Which surface this is, judged by where it lies across the crossing
+		# rather than by which vertex is being looked at: the deck runs under
+		# the middle, a handrail runs entirely off to one side. Judging it
+		# vertex by vertex called the deck's own outer edge a handrail.
+		var nearest := INF
+		var furthest := -INF
+		for point in sweep.get_faces():
+			var z := (collider.transform * point).z
+			nearest = minf(nearest, z)
+			furthest = maxf(furthest, z)
+		# The deck is the surface that spans the middle of the crossing; a
+		# handrail lies wholly to one side of it. Its own strip of planks has
+		# no vertex in the middle at all — they are all out at the edges — so
+		# asking whether any single point is near the centre line called the
+		# deck a handrail and failed on its own underside.
+		var walked := nearest <= BridgeSpec.CENTRE_Z and furthest >= BridgeSpec.CENTRE_Z
+		for point in sweep.get_faces():
+			var at := collider.transform * point
+			var line := _deck_line(field, at.x)
+			if walked:
+				# The deck: no part of it may stand above the walking line.
+				highest_in_the_way = maxf(highest_in_the_way, at.y - line)
+			else:
+				# A handrail: no part of it may reach down through the planks.
+				lowest_rail = minf(lowest_rail, at.y - line)
+
+	_expect(surfaces == 3, "the deck and its two rails are three swept surfaces, not a row of boxes")
+	_expect(boxes == 0, "and nothing on the bridge is a tilted box, which cannot be laid flush")
+	_expect(
+		highest_in_the_way < 0.001,
+		"nothing stands above the walking line: highest is %.3f m" % highest_in_the_way
+	)
+	_expect(
+		lowest_rail > -0.001,
+		"and the handrails sit on the planks rather than through them: %.3f m" % lowest_rail
+	)
+
+	# The tilt itself. Every piece of the bridge — plank, beam, rail — is a box
+	# turned to its own bit of the arch, and the turn was made about
+	# Vector3.FORWARD, which is the *negative* Z axis: each piece leaned
+	# against the slope instead of along it. The deck came out a sawtooth that
+	# had to be jumped up board by board, and the handrail came apart into
+	# separate sticks.
+	_expect(
+		(Bridge._slope(1.0, 1.0) * Vector3.RIGHT).y > 0.0,
+		"a rising piece of the arch actually rises"
+	)
+
+	# And the drawn bridge agrees: nothing a child sees underfoot stands above
+	# the line their feet are held at. This reads the committed mesh, because
+	# the sawtooth was in what was drawn rather than in what was computed.
+	var planking := BridgeSpec.HALF_WIDTH - BridgeSpec.RAIL_INSET - 0.3
+	var proud := -INF
+	for child in bridge.get_children():
+		var drawn := child as MeshInstance3D
+		if drawn == null:
+			continue
+		var faces := drawn.mesh.get_faces()
+		for point in faces:
+			if absf(point.z - BridgeSpec.CENTRE_Z) > planking:
+				continue
+			var line := _deck_line(field, point.x)
+			# Only the deck itself: the beams and trestles under it are
+			# supposed to be below the line, and are.
+			if point.y < line - 0.5:
+				continue
+			proud = maxf(proud, point.y - line)
+	_expect(
+		proud < 0.02,
+		"no board is drawn standing above the deck: worst is %.3f m" % proud
+	)
+
+	# Walked end to end, there is no step anywhere — over the arch, and across
+	# the seam where the planks meet the bank at either end.
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	var step := 0.25
+	var biggest := 0.0
+	var at_x := river_x - BridgeSpec.HALF_SPAN - 2.0
+	while at_x < river_x + BridgeSpec.HALF_SPAN + 2.0:
+		var rise := absf(_deck_line(field, at_x + step) - _deck_line(field, at_x))
+		biggest = maxf(biggest, rise)
+		at_x += step
+	# What the arch itself asks of a stride, doubled to leave room for the
+	# bank at either end. A character body here has no step-up at all — it
+	# climbs slopes and nothing else — so anything much beyond the arch's own
+	# rise is a thing that has to be jumped.
+	var allowed := BridgeSpec.LIFT * PI / (BridgeSpec.HALF_SPAN * 2.0) * step * 2.0
+	_expect(
+		biggest < allowed,
+		"the biggest step in a quarter-metre stride is %.3f m against %.3f m allowed" % [biggest, allowed]
+	)
+	bridge.queue_free()
+
+## The height of the walking surface at a point on the crossing: the deck where
+## there is a deck, and the ground where the deck has run out.
+func _deck_line(field: HeightField, x: float) -> float:
+	var deck := field.bridge_deck_at(x, BridgeSpec.CENTRE_Z)
+	if is_nan(deck):
+		return field.height_at(x, BridgeSpec.CENTRE_Z)
+	return deck

@@ -44,9 +44,17 @@ const ROUTES: Array[Dictionary] = [
 	{"from": &"", "to": &"playground"},
 	{"from": &"", "to": &"cafe"},
 	{"from": &"", "to": &"pool"},
-	# One that does not touch the camp, so it is not the only hub and the far
-	# side of the valley is worth crossing.
-	{"from": &"playground", "to": &"pool"},
+	# The sports ground — the pitch and the pool together — joined to the café
+	# and to the playground. These do not touch the camp, so it is not the only
+	# hub and the far side of the valley is worth crossing.
+	#
+	# There used to be a path from the pool to the playground, and the pitch sat
+	# beside it with its own worn ground, so that quarter read as two separate
+	# places each sending a road off to the swings. They are one place: you go
+	# there to play sport. One road leaves it, and it forks to the café and to
+	# the playground.
+	{"from": &"sports", "to": &"playground"},
+	{"from": &"sports", "to": &"cafe"},
 	# The lake up on the eastern shoulder and the shop above it: the two things
 	# a child in that quarter of the valley has come for, and a path between
 	# them is what says the pair belong together.
@@ -139,7 +147,8 @@ const SEGMENTS: Array[float] = [
 	0.0, 18.0, -360.0, 268.0,
 	0.0, 18.0, -370.0, -282.0,
 	0.0, 18.0, -3.5, 86.0,
-	-360.0, 268.0, -3.5, 86.0,
+	-34.0, 60.0, -360.0, 268.0,
+	-34.0, 60.0, -370.0, -282.0,
 	0.0, 18.0, 440.0, 58.0,
 	284.0, 274.0, 268.0, 282.0,
 	268.0, 282.0, 236.0, 316.0,
@@ -290,11 +299,22 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 static func end_of(place: StringName, camp: Vector3) -> Vector3:
 	if place == &"":
 		return camp
+	if place == &"sports":
+		return sports_ground(camp)
 	if place == &"lake":
 		return lake_landing(camp)
 	if place == &"lake_bend":
 		return lake_landing(camp) + LAKE_BEND
 	return PlaceSpec.centre_of(place, camp) + ARRIVES_AT.get(place, Vector3.ZERO)
+
+## The sports ground: halfway between the football pitch and the swimming pool,
+## which is where a child crossing from one to the other already walks.
+##
+## Worked out from the two of them rather than written down as a third place,
+## so moving either moves the junction with it.
+static func sports_ground(camp: Vector3) -> Vector3:
+	var pool := PlaceSpec.centre_of(&"pool", camp)
+	return (pool + Pitch.CENTRE) * 0.5
 
 ## Where a path meets the lake: on its shore, on the side facing the shop, just
 ## outside the water. Computed from the pond and the shop so that moving either
