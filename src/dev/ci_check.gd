@@ -2230,6 +2230,24 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	)
 	_expect(Places.SHOP_STAND_Z.size() >= 2, "and the small goods are out on stands")
 
+	# What is in the purse is on the screen at all times, in its own panel
+	# between the bag and the health. It was a bare number in warm type over
+	# whatever the sky was doing, and it was missed — which matters, because
+	# knowing what you have is what decides whether to look after another
+	# animal before walking four hundred metres to the shop.
+	var screen := Hud.new()
+	get_root().add_child(screen)
+	screen.set_coins(0)
+	_expect(screen._purse != null, "there is a purse on the screen")
+	_expect(screen._purse.visible, "and it is there before the first coin is earned")
+	screen.set_coins(766)
+	_expect(screen._coins_label.text == "766", "it says %s" % screen._coins_label.text)
+	var purse_at := screen._purse.position.y
+	var bag_at := screen._backpack.position.y
+	_expect(purse_at > bag_at, "it sits below the bag")
+	_expect(screen._vitals.position.y > purse_at, "and above the health")
+	screen.queue_free()
+
 	# Everything the shop has is on the shelf at once. A tile is a button and a
 	# button eats the drag before the scrolling shelf sees it, so anything
 	# below the fold is unreachable — the bicycle was, and there was nothing to

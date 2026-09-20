@@ -85,6 +85,7 @@ var _storey_label: Label
 var _task_label: Label
 var _care_button: Button
 var _coins_label: Label
+var _purse: PanelContainer
 var _vitals: VitalsGauge
 var _drink_button: Button
 var _whistle_button: Button
@@ -246,8 +247,41 @@ func _init() -> void:
 	add_child(_care_button)
 
 	# Coins sit beside the bag, because they are the other thing you have.
-	_coins_label = _label(26, Color(1.0, 0.90, 0.52))
-	_coins_label.visible = false
+	# The purse: a slab like the bag above it, with a coin drawn on it and the
+	# number beside it.
+	#
+	# It was a bare number in warm type floating over whatever the sky happened
+	# to be doing, and it was missed — which matters, because knowing what you
+	# have is what makes a child decide to go and look after another animal
+	# before walking four hundred metres to the shop to find out they cannot
+	# afford the thing. It is always there now, from the first coin and before
+	# it, in the same kind of panel as everything else that says what you have.
+	_purse = PanelContainer.new()
+	var purse_style := StyleBoxFlat.new()
+	purse_style.bg_color = Color(0.07, 0.09, 0.12, 0.62)
+	purse_style.set_corner_radius_all(14)
+	purse_style.content_margin_left = 14.0
+	purse_style.content_margin_right = 14.0
+	purse_style.content_margin_top = 6.0
+	purse_style.content_margin_bottom = 6.0
+	purse_style.border_color = Color(1.0, 0.90, 0.52, 0.30)
+	purse_style.set_border_width_all(1)
+	_purse.add_theme_stylebox_override("panel", purse_style)
+	_purse.custom_minimum_size = Vector2(Backpack.WIDTH, 0.0)
+	_purse.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var purse_line := HBoxContainer.new()
+	purse_line.add_theme_constant_override("separation", 10)
+	purse_line.alignment = BoxContainer.ALIGNMENT_CENTER
+	purse_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_purse.add_child(purse_line)
+	var coin := CoinIcon.new()
+	coin.custom_minimum_size = Vector2(28.0, 28.0)
+	purse_line.add_child(coin)
+	_coins_label = _label(26, Color(1.0, 0.92, 0.60))
+	_coins_label.text = "0"
+	_coins_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_coins_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	purse_line.add_child(_coins_label)
 
 	_vitals = VitalsGauge.new()
 	add_child(_vitals)
@@ -327,7 +361,7 @@ func _init() -> void:
 	_sleep_button.visible = false
 	_sleep_button.pressed.connect(func() -> void: slept.emit())
 	add_child(_sleep_button)
-	add_child(_coins_label)
+	add_child(_purse)
 
 	_shop = _build_shop()
 	add_child(_shop)
@@ -711,7 +745,10 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 		_shop_mark_chosen()
 	if open:
 		_shop_coins = coins
-		_shop_heading.text = "%s      %d ●" % [Text.of("ui_shop"), coins]
+		# Just the name. What is in the purse is on the screen at all times now,
+		# in its own panel beside the bag, which is where a child needs it —
+		# before the four-hundred-metre walk, not after it.
+		_shop_heading.text = Text.of("ui_shop")
 		for item in _shop_rows:
 			var parts: Dictionary = _shop_rows[item]
 			var row: Button = parts["button"]
@@ -888,9 +925,7 @@ func set_animal_in_reach(wish: String) -> void:
 	_layout()
 
 func set_coins(total: int) -> void:
-	_coins_label.text = "%d ●" % total
-	if not _coins_label.visible and total > 0:
-		_coins_label.visible = true
+	_coins_label.text = str(total)
 	_layout()
 
 func _toggle_map() -> void:
@@ -1244,18 +1279,18 @@ func _layout() -> void:
 	_task_label.position = Vector2(0.0, safe.position.y + MARGIN + 44.0)
 
 	# Under the bag, aligned to its right edge.
-	_coins_label.size.x = Backpack.WIDTH
-	_coins_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_coins_label.position = Vector2(
+	# The purse sits between the bag and the health, at the same right edge.
+	_purse.size = Vector2(Backpack.WIDTH, _purse.get_combined_minimum_size().y)
+	_purse.position = Vector2(
 		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
 		_backpack.position.y + _backpack.size.y + 8.0
 	)
 
-	# Under the coins, at the same right edge as the bag above it.
+	# Under the purse, at the same right edge as the bag above it.
 	_vitals.size = _vitals.custom_minimum_size
 	_vitals.position = Vector2(
 		safe.position.x + safe.size.x - VitalsGauge.WIDTH - MARGIN,
-		_coins_label.position.y + _coins_label.size.y + 10.0
+		_purse.position.y + _purse.size.y + 10.0
 	)
 
 	_drink_button.position = Vector2(
