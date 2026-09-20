@@ -240,11 +240,12 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		post.height = TRAMPOLINE_TOP
 		post.radial_segments = 7
 		post.rings = 1
-		Park._add(
-			tool, post,
-			Transform3D(Basis(), at + Vector3(spot.x, TRAMPOLINE_TOP * 0.5, spot.y)),
-			Color(0.24, 0.26, 0.30)
+		var stand := Transform3D(
+			Basis(), at + Vector3(spot.x, TRAMPOLINE_TOP * 0.5, spot.y)
 		)
+		Park._add(tool, post, stand, Color(0.24, 0.26, 0.30))
+		# Solid, like the legs of anything else a child walks up to.
+		Park._solid(solid, Vector3(0.24, TRAMPOLINE_TOP, 0.24), stand)
 
 ## Finish a surface and hang it on a node. Every ride builds its still parts
 ## and its moving parts into separate tools and then calls this, so the whole

@@ -72,6 +72,11 @@ const PILE_OFFSET := 0.78
 ## How high a car's floor rides above the track's own line.
 const CAR_FLOOR := 0.55
 
+## The steps up onto the platform: how many treads, and how far the flight
+## reaches out along the sand.
+const STEPS := 6
+const STEPS_RUN := 4.2
+
 const CARS := 3
 const CAR_GAP := 3.4
 
@@ -359,13 +364,59 @@ func _build_station(tool: SurfaceTool) -> void:
 	Park._solid(body, deck.size, Transform3D(Basis(), where))
 	add_child(body)
 
+	# The legs under it, and they are solid: a child walked through the ones
+	# holding up the platform they were about to stand on.
 	for post in 5:
 		var leg := BoxMesh.new()
-		leg.size = Vector3(0.22, where.y, 0.22)
+		leg.size = Vector3(0.26, where.y, 0.26)
 		var spot := Vector3(
 			where.x + 1.2, where.y * 0.5, where.z - 6.0 + 3.0 * float(post)
 		)
 		Park._add(tool, leg, Transform3D(Basis(), spot), TIMBER_DARK)
+		Park._solid(_frame, leg.size, Transform3D(Basis(), spot))
+
+	# Steps up at each end. The platform stands level with the car floor, which
+	# is nearly two metres over the sand, and there was no way up onto it.
+	#
+	# Drawn as a flight and walked as a ramp. A character body climbs slopes
+	# and stops dead at a riser, however shallow, so a staircase built out of
+	# boxes is a wall with a pattern on it: the treads are what a child sees
+	# and the ramp under them is what they walk up.
+	for end: float in [-1.0, 1.0]:
+		var foot := where + Vector3(0.0, 0.0, end * (deck.size.z * 0.5 + STEPS_RUN * 0.5))
+		var rise := where.y + deck.size.y * 0.5
+		for tread in STEPS:
+			var up := rise * float(tread + 1) / float(STEPS)
+			var along := STEPS_RUN * (0.5 - (float(tread) + 0.5) / float(STEPS))
+			var step := BoxMesh.new()
+			step.size = Vector3(deck.size.x * 0.55, 0.16, STEPS_RUN / float(STEPS) + 0.04)
+			Park._add(
+				tool, step,
+				Transform3D(Basis(), Vector3(where.x, up, foot.z + end * along)),
+				TIMBER
+			)
+			# The riser under each tread, so the flight is not a row of
+			# floating boards.
+			var riser := BoxMesh.new()
+			riser.size = Vector3(deck.size.x * 0.55, up, 0.10)
+			Park._add(
+				tool, riser,
+				Transform3D(
+					Basis(),
+					Vector3(where.x, up * 0.5, foot.z + end * (along + STEPS_RUN / float(STEPS) * 0.5))
+				),
+				TIMBER_DARK
+			)
+		# The ramp a child actually walks on, hidden inside the flight.
+		var slope := atan2(rise, STEPS_RUN)
+		Park._solid(
+			_frame,
+			Vector3(deck.size.x * 0.55, 0.24, Vector2(STEPS_RUN, rise).length()),
+			Transform3D(
+				Basis(Vector3.RIGHT, end * slope),
+				Vector3(where.x, rise * 0.5 - 0.06, foot.z)
+			)
+		)
 
 	# A roof over it, because a station is a shelter and because it is what
 	# tells a child from across the fairground that this is where you get on.
@@ -377,11 +428,11 @@ func _build_station(tool: SurfaceTool) -> void:
 	for post in 4:
 		var mast := BoxMesh.new()
 		mast.size = Vector3(0.18, 3.2, 0.18)
-		Park._add(
-			tool, mast,
-			Transform3D(Basis(), where + Vector3(1.3, 1.6, -6.0 + 4.0 * float(post))),
-			TIMBER_DARK
+		var stand := Transform3D(
+			Basis(), where + Vector3(1.3, 1.6, -6.0 + 4.0 * float(post))
 		)
+		Park._add(tool, mast, stand, TIMBER_DARK)
+		Park._solid(_frame, mast.size, stand)
 
 func _build_car(index: int) -> AnimatableBody3D:
 	var car := AnimatableBody3D.new()

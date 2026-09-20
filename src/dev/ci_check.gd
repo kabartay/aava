@@ -7698,6 +7698,30 @@ func _check_the_rides_carry_a_child() -> void:
 		"a child on the northbound belt is carried %.1f m up it" % -along
 	)
 
+	# And onto the coaster's platform, which stands level with the car floor
+	# and nearly two metres over the sand: the steps are drawn as a flight and
+	# walked as a ramp, because a character body stops dead at a riser.
+	var station := park.coaster.position + park.coaster.point_at(
+		park.coaster.circuit() * RollerCoaster.BOARDS_AT
+	)
+	var stair_foot := Vector3(
+		station.x + 2.6, park.coaster.position.y + 0.6, station.z + 16.0 * 0.5 + RollerCoaster.STEPS_RUN + 1.0
+	)
+	rider.global_position = stair_foot
+	rider.velocity = Vector3.ZERO
+	for step in 180:
+		rider.velocity.y -= 24.0 * (1.0 / 60.0)
+		rider.velocity.z = -Player.WALK_SPEED
+		rider.global_position += park.carry(rider.global_position, 1.0 / 60.0)
+		rider.move_and_slide()
+		await physics_frame
+	_expect(
+		rider.global_position.y > station.y + RollerCoaster.CAR_FLOOR - 0.4,
+		"a child who walks at the station's steps ends up on the platform: %.2f m against %.2f" % [
+			rider.global_position.y, station.y + RollerCoaster.CAR_FLOOR
+		]
+	)
+
 	# And a child can get onto a belt by walking at it, which is the whole
 	# question: the ramps used to be scenery and the ride was unreachable.
 	var approach := park.walkway.position + Vector3(
@@ -7847,6 +7871,20 @@ func _check_the_rides_are_solid() -> void:
 			coaster + Vector3(0.0, waist, RollerCoaster.HALF_LENGTH * 0.4)
 		),
 		"and you can walk under it between them"
+	)
+
+	# The legs under the station platform, which a child walked through on
+	# their way to the ride the platform is for.
+	var boards := park.coaster.position + park.coaster.point_at(
+		park.coaster.circuit() * RollerCoaster.BOARDS_AT
+	)
+	_expect(
+		_blocked(
+			space,
+			Vector3(boards.x + 3.8, park.coaster.position.y + 0.5, boards.z - 6.0),
+			Vector3(boards.x + 3.8, park.coaster.position.y + 0.5, boards.z + 6.0)
+		),
+		"the station's legs stop you"
 	)
 
 	# The carousel's middle column, and the sides of the belts.
