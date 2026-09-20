@@ -7287,6 +7287,22 @@ func _check_the_roads_have_names() -> void:
 		"the plaque faces the camp, which is the way a child comes home"
 	)
 
+	# The plaque stands clear above the topmost plate. It did not: the plates
+	# were measured down from the top of the post and the plaque was too, so
+	# the highest street sign came out through the middle of the square's own
+	# name.
+	var plaque_bottom := post._plaque_centre() - Signpost.PLAQUE_BODY * 0.5
+	var highest_plate := post._plate_height(0) + Signpost.PLATE_HEIGHT * 0.5
+	_expect(
+		plaque_bottom > highest_plate + 0.2,
+		"the plaque hangs %.2f m clear of the highest plate" % (plaque_bottom - highest_plate)
+	)
+	_expect(
+		post._plaque_centre() + Signpost.PLAQUE_BODY * 0.5 + Signpost.PLAQUE_ARCH
+		<= Signpost.POLE_HEIGHT + 0.2,
+		"and sits at the top of the post rather than over the end of it"
+	)
+
 	# Nobody is left standing inside it. The post went up exactly where a child
 	# was standing, and they loaded back in within its collision and could not
 	# walk out — a solid thing that appears around somebody traps them.

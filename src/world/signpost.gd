@@ -170,10 +170,24 @@ func _build() -> void:
 	body.add_child(collider)
 	add_child(body)
 
-## How high the plate for one road is mounted. Stacked downwards from the top,
-## far enough apart that no two of them touch when they cross.
+## How high the plate for one road is mounted: hung under the plaque and
+## stacked downwards, far enough apart that no two of them touch when they
+## cross.
+##
+## Measured from the plaque rather than from the top of the post, because that
+## is the thing they must not run into. Written from the post's top, the
+## topmost plate came out through the middle of the plaque — the square's name
+## had a street sign growing out of it.
 func _plate_height(road: int) -> float:
-	return POLE_HEIGHT - 1.15 - float(road) * (PLATE_HEIGHT + 0.14)
+	return (
+		_plaque_centre() - PLAQUE_BODY * 0.5 - PLAQUE_GAP - PLATE_HEIGHT * 0.5
+		- float(road) * (PLATE_HEIGHT + 0.14)
+	)
+
+## The middle of the plaque: at the very top of the post, its arch level with
+## the cap.
+func _plaque_centre() -> float:
+	return POLE_HEIGHT - PLAQUE_ARCH - PLAQUE_BODY * 0.5 + 0.10
 
 ## How long a plate has to be to hold its name and its arrow.
 static func plate_length(road_name: String) -> float:
@@ -264,6 +278,9 @@ func bearing_to(toward: StringName) -> float:
 const PLAQUE_WIDTH := 3.4
 const PLAQUE_BODY := 1.55
 const PLAQUE_ARCH := 0.58
+## The clear air between the plaque and the topmost street plate. A plaque
+## resting on the signs reads as one more sign.
+const PLAQUE_GAP := 0.60
 ## What the arch says, above the name: the valley this square is in.
 const PLAQUE_ARCH_TEXT := "VALLÉE D'AAVA"
 
