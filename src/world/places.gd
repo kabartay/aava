@@ -820,39 +820,48 @@ func _build_shop(at: Vector3) -> void:
 	# Laid in courses of shingles rather than as one tilted slab. A slab is a
 	# ramp; courses catch the light in lines, which is what a roof looks like
 	# from below and the only thing about a roof anybody sees.
+	# Each slope runs from its eave up to the ridge, and the courses are laid
+	# between those two points rather than measured out from the middle.
+	#
+	# Measured from the middle is how it was, and the arithmetic ran the
+	# courses from the eave *through* the ridge and out over the other slope:
+	# the two sides crossed, and what a child saw was a roof folded inside out.
+	# Two points and a line between them cannot do that.
 	var pitch := deg_to_rad(34.0)
-	var slope_length := (w * 0.5) / cos(pitch) + 0.5
+	var overhang := 0.45
+	var ridge_height := h + 1.35
 	var courses := 9
 	for side in PackedFloat32Array([-1.0, 1.0]):
+		var eave_at := Vector3(side * (w * 0.5 + overhang), h + 0.18, mid)
+		var ridge_at := Vector3(0.0, ridge_height, mid)
 		var lean := Basis(Vector3.FORWARD, side * pitch)
+		var slope_length := eave_at.distance_to(ridge_at)
 		for course in courses:
 			var up := (float(course) + 0.5) / float(courses)
-			# Along the slope from the eaves to the ridge, in the roof's own
-			# frame, then turned with it.
-			var on_slope := Vector3(side * (0.5 - up) * slope_length, 0.0, 0.0)
 			var board := BoxMesh.new()
-			board.size = Vector3(slope_length / float(courses) + 0.14, 0.11, d + 1.7)
+			board.size = Vector3(slope_length / float(courses) + 0.16, 0.11, d + 1.7)
 			var shade: Color = roof if course % 2 == 0 else roof.lightened(0.07)
+			# Up the slope, and each course standing a little proud of the one
+			# above it, which is what makes courses read as courses.
 			_add(lid, board, Transform3D(
-				lean,
-				lean * (on_slope + Vector3(0.0, 0.02 * float(course % 2), 0.0))
-				+ Vector3(0.0, h + 0.62, mid)
+				lean, eave_at.lerp(ridge_at, up) + Vector3(0.0, 0.03 * float(course % 2), 0.0)
 			), shade)
-		# The eaves: a board along the bottom edge, overhanging, and a gutter
-		# under it. A roof that stops flush with the wall reads as a lid.
+		# The eaves: a board along the bottom edge, overhanging. A roof that
+		# stops flush with the wall reads as a lid.
 		var eave := BoxMesh.new()
-		eave.size = Vector3(0.3, 0.2, d + 1.8)
-		_add(lid, eave, Transform3D(
-			lean, lean * Vector3(side * slope_length * 0.5, 0.0, 0.0) + Vector3(0.0, h + 0.62, mid)
-		), roof.darkened(0.25))
+		eave.size = Vector3(0.34, 0.22, d + 1.8)
+		_add(lid, eave, Transform3D(lean, eave_at), roof.darkened(0.25))
 	# Barge boards down the gable ends, closing the courses off.
 	for end in PackedFloat32Array([-1.0, 1.0]):
 		for side in PackedFloat32Array([-1.0, 1.0]):
+			# Down the edge of the same slope the courses are on, between the
+			# same two points.
+			var barge_eave := Vector3(side * (w * 0.5 + overhang), h + 0.18, mid + end * (d * 0.5 + 0.85))
+			var barge_ridge := Vector3(0.0, ridge_height, mid + end * (d * 0.5 + 0.85))
 			var barge := BoxMesh.new()
-			barge.size = Vector3(slope_length, 0.16, 0.18)
+			barge.size = Vector3(barge_eave.distance_to(barge_ridge), 0.16, 0.18)
 			_add(lid, barge, Transform3D(
-				Basis(Vector3.FORWARD, side * pitch),
-				Vector3(side * w * 0.25, h + 0.62 + sin(pitch) * slope_length * 0.25, mid + end * (d * 0.5 + 0.85))
+				Basis(Vector3.FORWARD, side * pitch), barge_eave.lerp(barge_ridge, 0.5)
 			), timber.lightened(0.15))
 		# The gable wall itself, in boards laid the other way, so the end of the
 		# building is not a blank triangle.
@@ -886,10 +895,10 @@ func _build_shop(at: Vector3) -> void:
 	# The ridge cap, in short lengths so it reads as tiles rather than a pipe.
 	for length in 10:
 		var cap := BoxMesh.new()
-		cap.size = Vector3(0.34, 0.2, (d + 1.7) / 10.0 - 0.04)
+		cap.size = Vector3(0.38, 0.22, (d + 1.7) / 10.0 - 0.04)
 		_add(lid, cap, Transform3D(
 			Basis(Vector3.UP, deg_to_rad(2.0 * float(length % 2) - 1.0)),
-			Vector3(0.0, h + 1.5, mid - (d + 1.7) * 0.5 + (d + 1.7) * (float(length) + 0.5) / 10.0)
+			Vector3(0.0, ridge_height + 0.08, mid - (d + 1.7) * 0.5 + (d + 1.7) * (float(length) + 0.5) / 10.0)
 		), roof.darkened(0.2))
 	# A weather vane on the ridge: the one flourish, and what a child looks for
 	# from a distance to know which building this is.
@@ -898,11 +907,11 @@ func _build_shop(at: Vector3) -> void:
 	mast.bottom_radius = 0.045
 	mast.height = 0.9
 	mast.radial_segments = 6
-	_add(lid, mast, Transform3D(Basis(), Vector3(0.0, h + 2.0, mid - d * 0.3)), Color(0.28, 0.26, 0.24))
+	_add(lid, mast, Transform3D(Basis(), Vector3(0.0, ridge_height + 0.55, mid - d * 0.3)), Color(0.28, 0.26, 0.24))
 	var flag := BoxMesh.new()
 	flag.size = Vector3(0.5, 0.26, 0.04)
 	_add(lid, flag, Transform3D(
-		Basis(Vector3.UP, deg_to_rad(24.0)), Vector3(0.22, 2.3 + h, mid - d * 0.3)
+		Basis(Vector3.UP, deg_to_rad(24.0)), Vector3(0.22, ridge_height + 0.85, mid - d * 0.3)
 	), Color(0.86, 0.36, 0.30))
 
 	# A deep porch across the front: posts, a floor and a shallow roof. This is

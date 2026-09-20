@@ -232,11 +232,42 @@ func _search_tree(world_position: Vector3, reach: float) -> Array:
 	return [best, found]
 
 ## Every standing tree in one tile, from the one generator that also draws them.
+## Where the trees are in one tile, remembered.
+##
+## This generated the whole tile afresh on every call: forty-six candidates,
+## each asking the height field for its ground, its forest density and whether
+## it stands in a pond. `trees_near` asks for nine tiles, and the solid-trunk
+## pool asks `trees_near` every four metres a child walks — so walking across
+## the valley regenerated four hundred candidates several times a second, on
+## the main thread, for ever. On a phone that was 600 ms in a frame and the
+## game ran at one frame a second; the perf log named it `trunks` and it was
+## the largest single cost in the game.
+##
+## The answer is simply to keep the answer. A tile's trees do not change unless
+## one is felled, and `_generation` already counts that.
+var _tree_cache: Dictionary = {}
+var _tree_cache_generation := -1
+
 func _trees_in(coord: Vector2i) -> Array[Vector3]:
+	if _tree_cache_generation != _generation:
+		_tree_cache.clear()
+		_tree_cache_generation = _generation
+	var remembered = _tree_cache.get(coord)
+	if remembered != null:
+		return remembered
 	var out: Array[Vector3] = []
 	for tree in VegetationTile.generate_trees(field, coord, TILE_SIZE, world_seed, felled):
 		out.append(tree["position"])
+	# A cap, so walking the whole valley does not remember all of it: the pool
+	# only ever looks at nine tiles, and a few dozen is already generous.
+	if _tree_cache.size() > TREE_CACHE_TILES:
+		_tree_cache.clear()
+	_tree_cache[coord] = out
 	return out
+
+## How many tiles' worth of tree positions to keep. Nine are in use at any
+## moment; this is room for a good walk around before it is thrown away.
+const TREE_CACHE_TILES := 48
 
 ## Rebuild every tile now, because a tree has been felled and the forest as
 ## drawn no longer matches the forest as recorded.

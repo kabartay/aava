@@ -381,6 +381,11 @@ const STRINGS := {
 	"say_milk": {
 		EN: "fresh milk", FR: "du lait frais", RU: "парное молоко",
 	},
+	"say_waiting_outside": {
+		EN: "your %s is waiting outside the door",
+		FR: "ton %s t'attend devant la porte",
+		RU: "твой %s ждёт снаружи у двери",
+	},
 	"say_sold": {
 		EN: "sold %d for %d coins", FR: "%d vendus pour %d pièces",
 		RU: "продано %d за %d монет",

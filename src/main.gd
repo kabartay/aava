@@ -1165,14 +1165,16 @@ func _on_buy(item: StringName) -> void:
 			_refresh_vitals()
 		if item == ShopStock.LANTERN:
 			lantern.owned = true
+		# A machine is left outside, so it has to say so: a child who buys a
+		# bicycle at a counter looks around the room for it.
 		if item == ShopStock.MOTORCYCLE:
 			world.mounts.place(MountKinds.MOTORCYCLE, _outside_the_shop(Places.MOTORCYCLE_STANDS_AT))
+			hud.announce(Text.format("say_waiting_outside", [MountKinds.label(MountKinds.MOTORCYCLE)]), 4.0)
 		if item == ShopStock.BICYCLE:
 			# At the camp, not underfoot: a bicycle that appears wherever you
 			# happen to stand feels like a cheat rather than something you own.
-			world.mounts.place(
-				MountKinds.BICYCLE, world.field.find_spawn_point() + Vector3(-4.0, 0.0, 3.0)
-			)
+			world.mounts.place(MountKinds.BICYCLE, _outside_the_shop(Places.BICYCLE_STANDS_AT))
+			hud.announce(Text.format("say_waiting_outside", [MountKinds.label(MountKinds.BICYCLE)]), 4.0)
 		hud.set_owned(wallet.owned)
 		sounds.play(Sounds.Sound.GOAL)
 		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 3.0)

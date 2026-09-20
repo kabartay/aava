@@ -67,6 +67,7 @@ func _initialize() -> void:
 	_check_the_valley_is_populated()
 	_check_a_flock_is_worth_keeping()
 	_check_every_animal_is_finished()
+	_check_the_forest_is_asked_once()
 	_check_snow_lies_on_the_shoulders()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
@@ -2704,7 +2705,6 @@ func _check_the_icon_is_the_valley() -> void:
 		["res://android/icons/foreground.svg", "res://android/icons/foreground_432.png", 432],
 		["res://android/icons/background.svg", "res://android/icons/background_432.png", 432],
 		["res://android/icons/monochrome.svg", "res://android/icons/monochrome_432.png", 432],
-		["res://icon.svg", "res://android/icons/main_192.png", 192],
 	]:
 		var shipped := Image.load_from_file(job[1])
 		_expect(shipped != null, "%s is a picture" % job[1])
@@ -2728,6 +2728,22 @@ func _check_the_icon_is_the_valley() -> void:
 			differs == 0,
 			"%s matches the drawing it comes from" % job[1].get_file()
 		)
+
+	# The plain icon — the one a launcher falls back to — is the two adaptive
+	# layers flattened, square and full bleed. Rounding its corners here shows
+	# up as a small rounded picture sitting inside the launcher's own shape,
+	# which is how it looked on the phone.
+	var legacy := Image.load_from_file("res://android/icons/main_192.png")
+	_expect(legacy != null, "there is a plain icon for launchers that want one")
+	if legacy != null:
+		_expect(legacy.get_width() == 192, "%d px square" % legacy.get_width())
+		var corners_filled := true
+		for corner: Vector2i in [
+			Vector2i(1, 1), Vector2i(190, 1), Vector2i(1, 190), Vector2i(190, 190)
+		]:
+			if legacy.get_pixelv(corner).a < 0.99:
+				corners_filled = false
+		_expect(corners_filled, "and painted right into its corners, not rounded")
 
 	# The themed icon has to be a picture rather than a blank or a slab: the
 	# launcher tints every pixel the same colour, so it is the gaps that carry
@@ -2984,6 +3000,61 @@ func _check_every_animal_is_finished() -> void:
 		# And a number of them the valley is meant to hold.
 		_expect(AnimalKinds.WANTED.has(kind), "and there is a wanted number of them")
 	voices.queue_free()
+
+## Asking where the trees are does not rebuild the forest.
+##
+## The pool of solid trunks asks for every tree within fourteen metres each
+## time a child walks four, and that question generated nine whole tiles from
+## scratch — forty-six candidates apiece, each asking the height field for its
+## ground, its density and whether it stands in a pond. On a phone it came to
+## 600 ms inside one frame and the game ran at one frame a second: the largest
+## single cost in the game, spent working out an answer it had just worked out.
+func _check_the_forest_is_asked_once() -> void:
+	print("the forest is asked once")
+	var field := HeightField.new(20260903)
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+
+	# In the middle of a wood, where there is most to generate.
+	var at := Vector3(-200.0, 0.0, -200.0)
+	var first := Time.get_ticks_usec()
+	var trees := forest.trees_near(at, TreeCollision.REACH)
+	var cold := Time.get_ticks_usec() - first
+
+	var again := Time.get_ticks_usec()
+	for _repeat in 20:
+		forest.forget_tree_query()
+		forest.trees_near(at, TreeCollision.REACH)
+	var warm := float(Time.get_ticks_usec() - again) / 20.0
+
+	_expect(trees.size() > 0, "%d trees stand within reach there" % trees.size())
+	_expect(
+		warm < float(cold) * 0.25,
+		"asking again costs %.0f µs against %d the first time" % [warm, cold]
+	)
+	_expect(warm < 3000.0, "which is %.1f ms, not a frame" % (warm / 1000.0))
+
+	# And the answer is the same answer: a cache that lies is worse than none.
+	var remembered := forest.trees_near(at, TreeCollision.REACH)
+	var identical := remembered.size() == trees.size()
+	if identical:
+		for i in trees.size():
+			if trees[i].distance_to(remembered[i]) > 0.001:
+				identical = false
+	_expect(identical, "and it is the same forest both times")
+
+	# Felling a tree throws it away, or the felled tree stands there for ever.
+	var felled := Felled.new()
+	felled.fell(trees[0])
+	forest.felled = felled
+	forest.rebuild_all()
+	forest.forget_tree_query()
+	var after := forest.trees_near(at, TreeCollision.REACH)
+	_expect(
+		after.size() < trees.size(),
+		"a felled tree is gone from the answer (%d, was %d)" % [after.size(), trees.size()]
+	)
+	forest.queue_free()
 
 func _check_trees_are_solid() -> void:
 	print("a tree stops you")

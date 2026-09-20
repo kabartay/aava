@@ -113,6 +113,7 @@ var _shop_buy_button: Button
 ## What is in the purse, so the buying button can grey itself out.
 var _shop_coins := 0
 var _shop_name: Label
+var _shop_heading: Label
 var _shop_note: Label
 var _shop_rows: Dictionary = {}
 
@@ -510,11 +511,14 @@ func _build_shop() -> PanelContainer:
 	column.add_theme_constant_override("separation", 10)
 	panel.add_child(column)
 
-	var heading := Label.new()
-	heading.text = Text.of("ui_shop")
-	heading.add_theme_font_size_override("font_size", 24)
-	heading.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
-	column.add_child(heading)
+	# The shop's name and, beside it, what is in the purse. The coin count
+	# lives at the top right of the screen and the panel covers it, so a child
+	# standing at the counter could not see what they had to spend.
+	_shop_heading = Label.new()
+	_shop_heading.add_theme_font_size_override("font_size", 24)
+	_shop_heading.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
+	_shop_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_shop_heading)
 
 	# Pictures and prices, three to a row, and no words at all.
 	#
@@ -702,6 +706,7 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 		_shop_mark_chosen()
 	if open:
 		_shop_coins = coins
+		_shop_heading.text = "%s      %d ●" % [Text.of("ui_shop"), coins]
 		for item in _shop_rows:
 			var parts: Dictionary = _shop_rows[item]
 			var row: Button = parts["button"]
@@ -1313,12 +1318,21 @@ func _layout() -> void:
 	# the first version asked for nine rows' worth of room, ran off the bottom
 	# of the screen, and hid its own last row behind the way out.
 	if _shop_shelf != null:
-		var rows := ceili(float(ShopStock.ALL.size()) / float(SHOP_COLUMNS))
+		# Everything on the shelf, not everything for sale: the things the shop
+		# buys stand there too, and counting only the stock left the wool below
+		# the fold with nothing to say it was there. A child who had just cut a
+		# fleece could not find where to sell it.
+		var rows := ceili(float(_shop_rows.size()) / float(SHOP_COLUMNS))
 		var tile_height := BUTTON * 1.62 + 10.0
-		var shelf_room := safe.size.y - BUTTON * 3.6
+		# What is left of the screen after everything that has to be on it with
+		# the shelf: the heading above, and the chosen thing's name, the line
+		# about it, the buying button and the way out below. Measured generously
+		# — the bottom row was being clipped by a hair, which reads as a row
+		# that is not there.
+		var shelf_room := safe.size.y - BUTTON * 4.6
 		_shop_shelf.custom_minimum_size = Vector2(
 			float(SHOP_COLUMNS) * (BUTTON * 1.5 + 10.0),
-			minf(float(rows) * tile_height + 6.0, maxf(shelf_room, BUTTON * 2.0))
+			minf(float(rows) * tile_height + 12.0, maxf(shelf_room, BUTTON * 2.0))
 		)
 	_shop.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _shop.size.x * 0.5,
