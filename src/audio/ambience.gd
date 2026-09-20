@@ -291,6 +291,21 @@ func levels() -> Dictionary:
 		"hush": 1.0 - _swim_level * HUSHED_IN_WATER,
 	}
 
+## The waveform behind a voice, for the checks: they measure the loop's seam
+## and its length, and neither is visible from outside otherwise.
+func _stream_of(voice: String) -> AudioStreamWAV:
+	match voice:
+		"wind":
+			return _wind.stream as AudioStreamWAV
+		"leaves":
+			return _leaves.stream as AudioStreamWAV
+		"water":
+			return _water.stream as AudioStreamWAV
+		"birds":
+			return _birds.stream as AudioStreamWAV
+		_:
+			return _swimming.stream as AudioStreamWAV
+
 ## Whether a voice is actually sounding. Also for the checks.
 func is_sounding(voice: String) -> bool:
 	match voice:
@@ -400,74 +415,171 @@ func _make_wind() -> AudioStreamWAV:
 		data.encode_s16(i * 2, int(clampf(value, -1.0, 1.0) * 32767.0))
 	return _wrap(data)
 
-## Leaves: light, fast, dry noise. The part of wind that only happens where
-## there is something for it to happen in.
+## Leaves: a wood in a breeze, which is thousands of small dry collisions and
+## not a band of noise.
+##
+## The old version was one differenced noise band with a gust on it. That is
+## the *average* of a wood, and an average sounds like surf: there is no grain
+## in it, nothing the ear can pick out as a single leaf. Two things fix that.
+##
+## **The band is shaped like a leaf, not like a hiss.** Damped once to take the
+## top off, differenced to take the body out, then damped again — a band around
+## the middle rather than everything above it. A leaf is a small dry object and
+## small dry objects have no bottom end and no sizzle either.
+##
+## **The grain is put back by hand.** A few hundred individual ticks, each a
+## handful of milliseconds long, scattered through the loop and louder while
+## the gust is up. Those are single leaves, and they are what make a wood sound
+## close rather than recorded from across a field.
+##
+## The gust never falls to nothing: a wood between gusts is quiet, not silent,
+## and clamping it at zero left holes in the loop that a child hears as the
+## sound cutting out.
 func _make_leaves() -> AudioStreamWAV:
-	var samples := int(RATE * LOOP_SECONDS)
-	var data := PackedByteArray()
-	data.resize(samples * 2)
+	var seconds := 6.0
+	var samples := int(RATE * seconds)
+	var fade := int(RATE * FADE_SECONDS)
 	var noise := RandomNumberGenerator.new()
 	noise.seed = 313131
+
+	var values := PackedFloat32Array()
+	values.resize(samples + fade)
+
 	var carried := 0.0
 	var previous := 0.0
-	for i in samples:
-		var t := float(i) / float(RATE)
-		carried = lerpf(carried, noise.randf_range(-1.0, 1.0), 0.24)
+	var softened := 0.0
+	for i in values.size():
+		var phase := float(i) / float(samples)
+		carried = lerpf(carried, noise.randf_range(-1.0, 1.0), 0.30)
 		# Differenced, to take the body out and leave the dry papery part.
 		var dry := carried - previous
 		previous = carried
-		# Leaves answer a gust and then settle, faster than the air does.
-		var gust := 0.35 + 0.4 * sin(t * 0.83 + 0.4) + 0.25 * sin(t * 2.11)
-		data.encode_s16(i * 2, int(clampf(dry * maxf(gust, 0.0) * 2.6, -1.0, 1.0) * 32767.0))
-	return _wrap(data)
+		# Then damped again, which rolls the sizzle off the top. What is left
+		# is a band, and a band is a leaf.
+		softened = lerpf(softened, dry, 0.55)
+		# Gusts on three whole numbers of cycles per loop, so the loop joins,
+		# with a floor under them so the wood is never dead.
+		var gust := 0.30 + 0.34 * sin(TAU * phase * 2.0 + 0.4)
+		gust += 0.22 * sin(TAU * phase * 5.0) + 0.14 * sin(TAU * phase * 11.0 + 1.7)
+		values[i] = softened * maxf(gust, 0.14) * 3.4
 
-## Water: a broad hiss with burbles moving through it.
+	# Single leaves. Short, dry, and more of them while the gust is up — which
+	# is what a breeze coming through a crown actually sounds like.
+	var ticks := RandomNumberGenerator.new()
+	ticks.seed = 515151
+	for _tick in 420:
+		var start := ticks.randi_range(0, samples - 1)
+		var phase := float(start) / float(samples)
+		var gust := 0.30 + 0.34 * sin(TAU * phase * 2.0 + 0.4)
+		gust += 0.22 * sin(TAU * phase * 5.0) + 0.14 * sin(TAU * phase * 11.0 + 1.7)
+		if ticks.randf() > clampf(gust, 0.1, 1.0):
+			continue
+		var length := int(RATE * ticks.randf_range(0.002, 0.009))
+		var loudness := ticks.randf_range(0.05, 0.20) * maxf(gust, 0.2)
+		var voice := 0.0
+		var last := 0.0
+		for i in length:
+			var fall := 1.0 - float(i) / float(length)
+			voice = lerpf(voice, ticks.randf_range(-1.0, 1.0), 0.6)
+			var edge := voice - last
+			last = voice
+			values[(start + i) % samples] += edge * fall * fall * loudness * 4.0
+
+	return _wrap(_join_ends(values, samples, fade))
+
+## Water: a river, which is three sounds at once rather than one.
 ##
-## A high-passed hiss on its own is a tap running. What makes a stream is that
-## the sound is not even: little runs of it well up and fall away as water goes
-## over one stone and then another. Those are the burbles here — short bands of
-## noise that come and go at their own irregular rate over the steady sheet.
+## The first version was a bright hiss with burbles on it, and it sounded like
+## a tap left running — because a tap is exactly that, one narrow band of noise
+## that never changes. A river heard from the bank has a body to it: a low
+## rush you feel under the brightness, a middle where most of the water is, and
+## the bright sheet only on top. Take the low end away and what is left is
+## plumbing.
+##
+## Three things make it sound like water rather than like noise:
+##
+## * **Three bands, swelling separately.** The low rush and the bright top do
+##   not rise and fall together in a river, so they are given slow swells on
+##   different periods and the colour of the sound wanders.
+## * **Gurgles with a pitch in them.** A burble is not a burst of noise, it is
+##   a bubble, and a bubble has a note that rises as it collapses. That rising
+##   note is the single most recognisable thing about running water.
+## * **A longer loop, joined seamlessly.** Four seconds of water with two dozen
+##   audible events in it is heard as a repeat within half a minute. Eight
+##   seconds, crossfaded end to beginning, is not.
 func _make_water() -> AudioStreamWAV:
-	var samples := int(RATE * LOOP_SECONDS)
-	var data := PackedByteArray()
-	data.resize(samples * 2)
+	var seconds := 8.0
+	var samples := int(RATE * seconds)
+	var fade := int(RATE * FADE_SECONDS)
 	var noise := RandomNumberGenerator.new()
 	noise.seed = 909090
 
 	var values := PackedFloat32Array()
-	values.resize(samples)
+	values.resize(samples + fade)
 
-	# The sheet: bright, even, quiet.
-	var carried := 0.0
-	var previous := 0.0
-	for i in samples:
-		carried = lerpf(carried, noise.randf_range(-1.0, 1.0), 0.34)
-		var bright := carried - previous
-		previous = carried
-		values[i] = bright * 1.9
+	var deep := 0.0
+	var middle := 0.0
+	var middle_last := 0.0
+	var bright := 0.0
+	var bright_last := 0.0
+	for i in values.size():
+		var source := noise.randf_range(-1.0, 1.0)
+		# The rush: heavily damped noise, the weight of the water.
+		deep = lerpf(deep, source, 0.045)
+		# The middle: damped, then differenced, which leaves a band rather than
+		# either a rumble or a hiss.
+		middle = lerpf(middle, source, 0.17)
+		var band := middle - middle_last
+		middle_last = middle
+		# The sheet on top: the part that carries over stones.
+		bright = lerpf(bright, source, 0.36)
+		var sheet := bright - bright_last
+		bright_last = bright
 
-	# The burbles: twenty-odd short swells at random places, each a narrow band
-	# of noise rising and falling inside a fifth of a second.
-	for _burble in 26:
-		var start := noise.randi_range(0, samples - int(RATE * 0.3))
-		var length := int(RATE * noise.randf_range(0.06, 0.22))
-		var damping := noise.randf_range(0.10, 0.45)
-		var loudness := noise.randf_range(0.35, 0.9)
-		var voice := 0.0
-		var last := 0.0
+		# Swells on whole numbers of cycles per loop, so the end still meets
+		# the beginning, and on different numbers for each band, so the water
+		# never settles into one colour.
+		var phase := float(i) / float(samples)
+		var low_swell := 0.80 + 0.20 * sin(TAU * phase * 2.0)
+		var top_swell := 0.72 + 0.28 * sin(TAU * phase * 3.0 + 1.3)
+		values[i] = deep * 1.15 * low_swell + band * 1.25 + sheet * 1.05 * top_swell
+
+	# Gurgles: a bubble rising through the water and collapsing. The note
+	# climbs as it goes — which is the physics of a shrinking bubble, and the
+	# thing the ear recognises as water without being told.
+	for _gurgle in 54:
+		var start := noise.randi_range(0, samples - 1)
+		var length := int(RATE * noise.randf_range(0.03, 0.13))
+		var pitch := noise.randf_range(260.0, 1500.0)
+		var climb := noise.randf_range(1.25, 2.6)
+		var loudness := noise.randf_range(0.10, 0.34)
+		var wander := 0.0
+		var wander_last := 0.0
 		for i in length:
 			var progress := float(i) / float(length)
-			var envelope := sin(progress * PI)
-			voice = lerpf(voice, noise.randf_range(-1.0, 1.0), damping)
-			var band := voice - last
-			last = voice
-			var at := start + i
-			if at < samples:
-				values[at] += band * envelope * loudness * 2.2
+			var t := float(i) / float(RATE)
+			# Quick to speak, slow to die: a bubble does not fade in.
+			var envelope := minf(progress * 12.0, 1.0) * pow(1.0 - progress, 1.6)
+			var note := pitch * (1.0 + (climb - 1.0) * progress)
+			wander = lerpf(wander, noise.randf_range(-1.0, 1.0), 0.40)
+			var edge := wander - wander_last
+			wander_last = wander
+			# Wrapped round the end of the loop rather than cut off there, so
+			# the last second of water is as busy as the first.
+			values[(start + i) % samples] += (sin(TAU * note * t) * 0.7 + edge * 0.5) * envelope * loudness
 
-	for i in samples:
-		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 32767.0))
-	return _wrap(data)
+	# Glugs: the deeper, rarer knock of water folding over itself in a hollow.
+	for _glug in 9:
+		var start := noise.randi_range(0, samples - 1)
+		var length := int(RATE * noise.randf_range(0.10, 0.20))
+		var pitch := noise.randf_range(90.0, 190.0)
+		for i in length:
+			var progress := float(i) / float(length)
+			var t := float(i) / float(RATE)
+			var envelope := minf(progress * 8.0, 1.0) * pow(1.0 - progress, 2.2)
+			values[(start + i) % samples] += sin(TAU * pitch * (1.0 + 0.5 * progress) * t) * envelope * 0.22
+
+	return _wrap(_join_ends(values, samples, fade))
 
 ## Birds: a few short whistles scattered through the loop, on the same scale the
 ## rest of the game's sounds use so they belong to it.
@@ -507,6 +619,32 @@ func _make_birds() -> AudioStreamWAV:
 	for i in samples:
 		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 32767.0))
 	return _wrap(data)
+
+## How much of the end of a loop is folded back over its beginning.
+const FADE_SECONDS := 0.30
+
+## Turn a run of samples into a loop with no seam in it.
+##
+## Every one of these voices is built by running a filter over noise, and a
+## filter has a memory: the last sample of the loop knows nothing about the
+## first, so the join is a step, and a step is a tick — once every few seconds,
+## for ever. It is the one artificial thing in an otherwise natural sound, and
+## once heard it cannot be unheard.
+##
+## So a little extra is generated past the end, and folded back over the start:
+## the beginning of the loop is the beginning and the continuation mixed, which
+## means the end now runs smoothly into it. `values` must hold `samples + fade`
+## entries; the result holds `samples`.
+func _join_ends(values: PackedFloat32Array, samples: int, fade: int) -> PackedByteArray:
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		var value := values[i]
+		if i < fade:
+			var weight := float(i) / float(fade)
+			value = values[i] * weight + values[i + samples] * (1.0 - weight)
+		data.encode_s16(i * 2, int(clampf(value, -1.0, 1.0) * 32767.0))
+	return data
 
 ## A looping stream. Without the loop points these play once and the valley goes
 ## quiet again four seconds later.
