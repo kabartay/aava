@@ -310,7 +310,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		camera_rig.yaw = float(save["camera_yaw"])
 	player.add_child(camera_rig)
 	# Carried by the child, so the light moves with them.
-	player.add_child(lantern)
+	player.hold(lantern)
 
 	build_mode = BuildMode.new(world.field, structures, inventory)
 	build_mode.name = "BuildMode"

@@ -28,6 +28,24 @@ const COLOUR := Color(1.0, 0.86, 0.56)
 ## screen; easing it reads as a flame catching.
 const FADE := 1.6
 
+## The metal it is built out of: the lid, the base, the uprights and the bail.
+## Bronze rather than grey steel: the light in it is warm, and cold metal round
+## a warm flame reads as a camping lamp from a supermarket.
+const METAL := Color(0.38, 0.29, 0.17)
+
+## The flame inside the glass, which is brighter and yellower than the glass
+## itself. A lantern lit evenly all through is a bulb; a lantern with a bright
+## point in a softer body is a flame in a case.
+const FLAME := Color(1.0, 0.95, 0.72)
+
+## Where it hangs: out at the child's side and below the shoulder, in a hand,
+## rather than up beside the face. It is carried on the body itself, so it
+## swings round as the child turns and goes down with them into the water —
+## parented to the character body instead, it stayed at standing height while
+## the swimmer sank, and a lit ball hanging beside a half-submerged head is the
+## bug that sent us looking.
+const HELD_AT := Vector3(0.32, 0.80, -0.06)
+
 ## Below this much darkness the lantern is not worth lighting.
 const THRESHOLD := 0.22
 
@@ -38,7 +56,9 @@ var owned := false
 var switched_on := true
 
 var _light: OmniLight3D
+var _lamp: Node3D
 var _glass: MeshInstance3D
+var _flame: MeshInstance3D
 var _lit := 0.0
 
 func _init() -> void:
@@ -52,29 +72,119 @@ func _init() -> void:
 	# thousand grass instances costs more than the rest of the frame put
 	# together, and buys nothing a child would notice.
 	_light.shadow_enabled = false
-	_light.position = Vector3(0.0, 1.1, 0.0)
 	add_child(_light)
 
-	# The lamp itself, so the light has a visible source rather than emanating
-	# from the child's chest.
-	var body := SphereMesh.new()
-	body.radius = 0.11
-	body.height = 0.26
-	body.radial_segments = 8
-	body.rings = 5
+	# The lamp itself. It was a glowing ball floating beside the child's ear,
+	# which at night — swimming, with the body low in the water and the ball
+	# staying where it was — read as a face coming off. So it is built like a
+	# lantern: a glass body between a lid and a base, with a bail over the top
+	# and a ring to hang it from, and it is carried in the hand.
+	_lamp = Node3D.new()
+	_lamp.visible = false
+	add_child(_lamp)
+
+	# The glass is half see-through and glows gently; the flame inside it does
+	# the bright work. That is the whole trick of making a lamp look like a lamp
+	# rather than a lit marble.
 	var glow := StandardMaterial3D.new()
-	glow.albedo_color = COLOUR
+	glow.albedo_color = Color(COLOUR.r, COLOUR.g, COLOUR.b, 0.55)
+	glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glow.emission_enabled = true
 	glow.emission = COLOUR
-	glow.emission_energy_multiplier = 2.2
+	glow.emission_energy_multiplier = 1.5
 	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
+	var metal := StandardMaterial3D.new()
+	metal.albedo_color = METAL
+	metal.roughness = 0.42
+	metal.metallic = 0.7
+
+	# The glass: a squat barrel, the lit part and the only part that carries
+	# any distance at night.
+	var glass := CylinderMesh.new()
+	glass.top_radius = 0.085
+	glass.bottom_radius = 0.095
+	glass.height = 0.20
+	glass.radial_segments = 10
+	glass.rings = 1
 	_glass = MeshInstance3D.new()
-	_glass.mesh = body
+	_glass.mesh = glass
 	_glass.material_override = glow
-	_glass.position = Vector3(0.26, 0.95, 0.0)
-	_glass.visible = false
-	add_child(_glass)
+	_lamp.add_child(_glass)
+
+	var flame_glow := StandardMaterial3D.new()
+	flame_glow.albedo_color = FLAME
+	flame_glow.emission_enabled = true
+	flame_glow.emission = FLAME
+	flame_glow.emission_energy_multiplier = 3.4
+	flame_glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var wick := SphereMesh.new()
+	wick.radius = 0.035
+	wick.height = 0.085
+	wick.radial_segments = 8
+	wick.rings = 5
+	_flame = MeshInstance3D.new()
+	_flame.mesh = wick
+	_flame.material_override = flame_glow
+	_flame.position.y = -0.02
+	_lamp.add_child(_flame)
+
+	# Lid and base, in metal, so the glass reads as being held between them.
+	for cap: Array in [[0.125, 0.045, 0.105, 0.075], [-0.115, 0.035, 0.105, 0.105]]:
+		var plate := CylinderMesh.new()
+		plate.top_radius = float(cap[2])
+		plate.bottom_radius = float(cap[3])
+		plate.height = float(cap[1])
+		plate.radial_segments = 10
+		plate.rings = 1
+		var piece := MeshInstance3D.new()
+		piece.mesh = plate
+		piece.material_override = metal
+		piece.position.y = float(cap[0])
+		_lamp.add_child(piece)
+
+	# Three uprights round the glass, which is what a storm lantern has and
+	# what stops the lit part reading as a bare bulb.
+	for post in 3:
+		var bar := BoxMesh.new()
+		bar.size = Vector3(0.018, 0.21, 0.018)
+		var upright := MeshInstance3D.new()
+		upright.mesh = bar
+		upright.material_override = metal
+		var angle := TAU * float(post) / 3.0
+		upright.position = Vector3(sin(angle) * 0.092, 0.005, cos(angle) * 0.092)
+		_lamp.add_child(upright)
+
+	# The bail: the half hoop you carry it by.
+	var hoop := TorusMesh.new()
+	hoop.inner_radius = 0.072
+	hoop.outer_radius = 0.084
+	hoop.rings = 10
+	hoop.ring_segments = 6
+	var bail := MeshInstance3D.new()
+	bail.mesh = hoop
+	bail.material_override = metal
+	bail.position.y = 0.175
+	bail.rotation.x = PI * 0.5
+	_lamp.add_child(bail)
+
+	# A small ring at the top of the bail — what a lantern hangs from, and the
+	# detail that makes the silhouette read as one at a glance.
+	var eyelet := TorusMesh.new()
+	eyelet.inner_radius = 0.016
+	eyelet.outer_radius = 0.028
+	eyelet.rings = 8
+	eyelet.ring_segments = 5
+	var ring := MeshInstance3D.new()
+	ring.mesh = eyelet
+	ring.material_override = metal
+	ring.position.y = 0.255
+	_lamp.add_child(ring)
+
+	_lamp.position = HELD_AT
+	# The light sits inside the glass, so what is lit and what glows are the
+	# same thing rather than two things a hand apart.
+	_light.position = HELD_AT
 
 ## Called every frame with how dark it is. The lantern decides for itself.
 func follow(darkness: float, delta: float) -> void:
@@ -84,11 +194,14 @@ func follow(darkness: float, delta: float) -> void:
 	# dusk falls rather than switching on at a threshold.
 	var strength := _lit * smoothstep(THRESHOLD, 0.6, darkness)
 	_light.light_energy = ENERGY * strength
-	_glass.visible = strength > 0.02
-	if _glass.visible:
+	_lamp.visible = strength > 0.02
+	if _lamp.visible:
 		# A slight flicker, because a steady point of light reads as electric.
 		var flicker := 1.0 + sin(float(Time.get_ticks_msec()) * 0.006) * 0.05
 		_light.light_energy *= flicker
+		# The flame moves with the flicker too. A light that wavers over a
+		# perfectly still flame is two lamps in one place.
+		_flame.scale = Vector3(1.0, flicker * flicker, 1.0)
 
 func is_lit() -> bool:
 	return _light.light_energy > 0.01

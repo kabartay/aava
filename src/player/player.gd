@@ -199,8 +199,12 @@ func _init() -> void:
 	add_child(collider)
 
 func _ready() -> void:
-	_visual = _build_visual()
-	add_child(_visual)
+	# Only if nothing has needed it sooner. Handing the child something to
+	# carry builds the body early, and building it twice leaves one of them
+	# standing in the other.
+	if _visual == null:
+		_visual = _build_visual()
+		add_child(_visual)
 
 ## A placeholder body, built from primitives. It exists so that movement can be
 ## judged now; CC0 character models replace it without touching the controller.
@@ -547,6 +551,23 @@ func _swim_bob() -> float:
 	if _swim_sink < 0.01:
 		return 0.0
 	return sin(float(Time.get_ticks_msec()) * 0.0022) * SWIM_BOB * (_swim_sink / SWIM_SINK)
+
+## Carry something: a lantern, and anything else a child holds.
+##
+## It goes on the body rather than on the character itself, so it turns when
+## the child turns and sinks when they swim. Hung on the character, a lit
+## lantern stayed at standing height while the swimmer went down, and a glowing
+## lamp floating beside a half-submerged head looks like the head coming off —
+## which is exactly how it was reported.
+func hold(thing: Node3D) -> void:
+	if _visual == null:
+		_visual = _build_visual()
+		add_child(_visual)
+	_visual.add_child(thing)
+
+## Is this being carried on the body? For the checks.
+func is_held(thing: Node3D) -> bool:
+	return _visual != null and thing.get_parent() == _visual
 
 ## Lean with the slope while riding: down the hill going down, back going
 ## up, the way a rider does. The body alone leans — the collider stays

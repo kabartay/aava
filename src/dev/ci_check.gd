@@ -107,6 +107,7 @@ func _initialize() -> void:
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
 	_check_nothing_is_used_before_it_exists()
+	_check_the_lantern_is_carried()
 	await _check_the_open_bag_moves_nothing()
 	_check_the_valley_loops_without_a_tick()
 	_check_a_machine_backs_out_of_a_corner()
@@ -6940,3 +6941,57 @@ func _check_the_bridge_carries_what_cannot_swim() -> void:
 		"nothing grows up through the planks"
 	)
 	mounts.queue_free()
+
+## The lantern is carried on the body, and looks like a lantern.
+##
+## It was a glowing ball parented to the character rather than to the body, so
+## it never turned, never leaned and — the way it was found — never went down
+## with a swimmer: the child sank to their chin and the light stayed at
+## standing height beside their ear, which reads as a face coming off.
+func _check_the_lantern_is_carried() -> void:
+	print("the lantern is carried")
+	var player := Player.new()
+	get_root().add_child(player)
+	var before := player.get_child_count()
+	var lantern := Lantern.new()
+	player.hold(lantern)
+	_expect(player.is_held(lantern), "it hangs on the body rather than on the character")
+	_expect(
+		player.get_child_count() == before,
+		"and asking for it built no second body to hang it on"
+	)
+
+	# Below the shoulder and out to one side: in a hand, not in front of a face.
+	var head := Player.HEIGHT * 0.79
+	_expect(
+		Lantern.HELD_AT.y < head - 0.25,
+		"it is carried at %.2f m, well under the head at %.2f m" % [Lantern.HELD_AT.y, head]
+	)
+	_expect(absf(Lantern.HELD_AT.x) > Player.RADIUS * 0.7, "and out at arm's length, clear of the chest")
+
+	# And it is built like one: a lit part, and metal above and below it.
+	lantern.owned = true
+	lantern.follow(1.0, 10.0)
+	_expect(lantern.is_lit(), "it lights when the night is dark")
+	var box: AABB = _lamp_extent(lantern)
+	_expect(box.size.y > box.size.x * 1.3, "the lamp stands taller than it is wide, as a lantern does")
+	_expect(box.size.y > 0.2 and box.size.y < 0.5, "and is %.2f m tall, a thing a child carries" % box.size.y)
+	_expect(lantern._lamp.get_child_count() >= 6, "and is built of parts rather than being one glowing ball")
+	player.queue_free()
+
+## How much room the lamp's parts take up together.
+func _lamp_extent(lantern: Lantern) -> AABB:
+	var box := AABB()
+	var first := true
+	for part in lantern._lamp.get_children():
+		var mesh := part as MeshInstance3D
+		if mesh == null:
+			continue
+		var here := mesh.get_aabb()
+		here.position += mesh.position
+		if first:
+			box = here
+			first = false
+		else:
+			box = box.merge(here)
+	return box
