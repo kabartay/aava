@@ -168,6 +168,12 @@ func _build_track(tool: SurfaceTool) -> void:
 		var sleeper := BoxMesh.new()
 		sleeper.size = Vector3(length * 0.5, 0.10, 1.7)
 		Park._add(tool, sleeper, Transform3D(turn, middle), TIMBER)
+		# The track is solid too, not only the piles under it: where it runs
+		# low — through the station, and over the last hill — a child walked
+		# straight through the rails.
+		Park._solid(
+			_frame, Vector3(length * 1.02, 0.36, 1.7), Transform3D(turn, middle)
+		)
 
 		# The trestle under it, where there is any height to hold up.
 		#

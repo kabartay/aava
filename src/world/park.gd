@@ -18,7 +18,9 @@ extends Node3D
 ## fairground's plan can be read in one place — and checked against the fence
 ## and against one another.
 const CAROUSEL_AT := Vector3(84.0, 0.0, 2.0)
-const WALKWAY_AT := Vector3(78.0, 0.0, -22.0)
+## Away from the coaster, over towards the eastern fence: the belts stood five
+## metres off the track's own piles and read as part of it.
+const WALKWAY_AT := Vector3(85.0, 0.0, -24.0)
 const TRAMPOLINE_AT := Vector3(86.0, 0.0, -48.0)
 const WHEEL_AT := Vector3(82.0, 0.0, -84.0)
 ## The coaster runs down the western side, along the river, the whole length of

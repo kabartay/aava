@@ -44,6 +44,14 @@ func _init(at: Vector3) -> void:
 
 	_rim = Node3D.new()
 	_rim.name = "Rim"
+	# At the hub, not at the wheel's feet.
+	#
+	# The rim was built at its true height and then hung on a node standing on
+	# the ground, and turning that node swung the whole wheel about a point in
+	# the sand: half a turn put the rim under the fairground. It looked like
+	# the wheel had come off its axle, because that is exactly what it was
+	# doing. A thing that spins must be built about the point it spins on.
+	_rim.position = Vector3(0.0, HUB_HEIGHT, 0.0)
 	add_child(_rim)
 
 	# Two A-frames carrying the axle, one on each side of the wheel.
@@ -161,9 +169,7 @@ func _init(at: Vector3) -> void:
 		hoop.ring_segments = 6
 		Park._add(
 			turning, hoop,
-			Transform3D(
-				Basis(Vector3.BACK, PI * 0.5), Vector3(face * 1.9, HUB_HEIGHT, 0.0)
-			),
+			Transform3D(Basis(Vector3.BACK, PI * 0.5), Vector3(face * 1.9, 0.0, 0.0)),
 			STEEL
 		)
 	for spoke in GONDOLAS * 2:
@@ -176,7 +182,7 @@ func _init(at: Vector3) -> void:
 				turning, bar,
 				Transform3D(
 					Basis(Vector3.RIGHT, -angle),
-					Vector3(face * 1.9, HUB_HEIGHT, 0.0) + out * (RADIUS * 0.5)
+					Vector3(face * 1.9, 0.0, 0.0) + out * (RADIUS * 0.5)
 				),
 				STEEL
 			)
@@ -186,10 +192,7 @@ func _init(at: Vector3) -> void:
 		brace.size = Vector3(3.8, 0.10, 0.10)
 		Park._add(
 			turning, brace,
-			Transform3D(
-				Basis(Vector3.RIGHT, -angle),
-				Vector3(0.0, HUB_HEIGHT, 0.0) + out * RADIUS
-			),
+			Transform3D(Basis(Vector3.RIGHT, -angle), out * RADIUS),
 			STEEL
 		)
 		if spoke % 2 == 0:
@@ -200,7 +203,7 @@ func _init(at: Vector3) -> void:
 			lamp.rings = 5
 			Park._add(
 				turning, lamp,
-				Transform3D(Basis(), Vector3(0.0, HUB_HEIGHT, 0.0) + out * (RADIUS + 0.5)),
+				Transform3D(Basis(), out * (RADIUS + 0.5)),
 				LAMP
 			)
 
@@ -240,12 +243,16 @@ func _build_car(index: int) -> AnimatableBody3D:
 
 	# Waist-high sides, and open above them: a gondola is a thing you look out
 	# of. High enough that nobody steps out over the side of something twenty
-	# metres up.
+	# metres up — except on one side, which is the doorway.
+	#
+	# It had four walls and no way in: a child could stand on the roof of one
+	# and never sit in it. The open side faces along the axle, which is the
+	# side you walk up to the wheel from; the other three are closed, because
+	# those are the sides that are over nothing.
 	for wall: Array in [
 		[Vector3(2.4, 1.10, 0.14), Vector3(0.0, 0.55, 1.0)],
 		[Vector3(2.4, 1.10, 0.14), Vector3(0.0, 0.55, -1.0)],
 		[Vector3(0.14, 1.10, 2.0), Vector3(1.2, 0.55, 0.0)],
-		[Vector3(0.14, 1.10, 2.0), Vector3(-1.2, 0.55, 0.0)],
 	]:
 		var size: Vector3 = wall[0]
 		var where: Vector3 = wall[1]
@@ -253,6 +260,29 @@ func _build_car(index: int) -> AnimatableBody3D:
 		panel.size = size
 		Park._add(tool, panel, Transform3D(Basis(), where), STEEL)
 		_solid(car, size, where)
+
+	# The doorway: a sill across the floor and a post at each jamb, so the way
+	# in reads as a way in rather than as a missing wall.
+	var sill := BoxMesh.new()
+	sill.size = Vector3(0.14, 0.22, 2.0)
+	Park._add(tool, sill, Transform3D(Basis(), Vector3(-1.2, 0.11, 0.0)), HUB_COLOUR)
+	_solid(car, sill.size, Vector3(-1.2, 0.11, 0.0))
+	for jamb: float in [-1.0, 1.0]:
+		var post := BoxMesh.new()
+		post.size = Vector3(0.16, 1.10, 0.18)
+		Park._add(
+			tool, post, Transform3D(Basis(), Vector3(-1.2, 0.55, jamb * 0.91)), STEEL
+		)
+		_solid(car, post.size, Vector3(-1.2, 0.55, jamb * 0.91))
+
+	# A bench across the back, which is what you came up here to sit on.
+	var bench := BoxMesh.new()
+	bench.size = Vector3(1.0, 0.16, 1.7)
+	Park._add(tool, bench, Transform3D(Basis(), Vector3(0.62, 0.52, 0.0)), HUB_COLOUR)
+	_solid(car, bench.size, Vector3(0.62, 0.52, 0.0))
+	var back := BoxMesh.new()
+	back.size = Vector3(0.14, 0.52, 1.7)
+	Park._add(tool, back, Transform3D(Basis(), Vector3(1.06, 0.86, 0.0)), HUB_COLOUR)
 
 	# Corner posts and a roof, which is what turns a box into a car.
 	for corner: Vector2 in [
@@ -369,6 +399,11 @@ func top_of_the_ride() -> float:
 
 func turned() -> float:
 	return _turned
+
+## Where a point on the rim is, once the wheel has turned. For the checks:
+## this is the thing that was wrong, and it cannot be seen from the constants.
+func rim_point(angle: float) -> Vector3:
+	return _rim.transform * Vector3(0.0, cos(angle) * RADIUS, sin(angle) * RADIUS)
 
 func gondola(index: int) -> Node3D:
 	return _cars[index]

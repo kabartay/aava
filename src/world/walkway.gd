@@ -13,11 +13,17 @@ extends Node3D
 ## How long each belt is, how far apart they stand, and how fast they run. Two
 ## metres a second is a brisk walk — faster than that and a six-year-old cannot
 ## get off at the end.
-const LENGTH := 15.0
+## Half again as long as it was: fifteen metres of belt is over in seven
+## seconds, and the point of a moving walkway is the stretch where you are
+## being carried and doing nothing.
+const LENGTH := 22.5
 const WIDTH := 1.7
 const GAP := 0.9
 const SPEED := 2.0
 const TOP := 0.32
+## How long the ramp onto a belt is. Long enough that its slope is a walk: a
+## third of a metre over two is about one in six.
+const RAMP_LENGTH := 2.0
 
 const TREAD := Color(0.26, 0.28, 0.32)
 const SLAT := Color(0.34, 0.37, 0.42)
@@ -61,17 +67,25 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 	tread.size = Vector3(WIDTH, 0.18, LENGTH)
 	Park._add(tool, tread, Transform3D(Basis(), Vector3(offset, TOP - 0.09, 0.0)), TREAD)
 
+	# The ramps at each end, and they are solid.
+	#
+	# They were scenery: a painted slope with nothing behind it, and the belt
+	# itself a step a third of a metre high. A character body does not climb
+	# steps — it climbs slopes — so a child walked into the end of a walkway
+	# and stopped, and the ride could not be got onto at all.
 	for end: float in [-1.0, 1.0]:
+		var rise := atan2(TOP, RAMP_LENGTH)
 		var ramp := BoxMesh.new()
-		ramp.size = Vector3(WIDTH, 0.10, 1.4)
-		Park._add(
-			tool, ramp,
-			Transform3D(
-				Basis(Vector3.RIGHT, end * deg_to_rad(9.0)),
-				Vector3(offset, TOP * 0.45, end * (LENGTH * 0.5 + 0.7))
-			),
-			SIDE
+		ramp.size = Vector3(WIDTH, 0.12, Vector2(RAMP_LENGTH, TOP).length())
+		# Tipped so the outer end meets the sand and the inner end meets the
+		# belt. The sign was the other way round at first, which built a wedge
+		# rising away from the ride: a wall at the mouth of it.
+		var stand := Transform3D(
+			Basis(Vector3.RIGHT, end * rise),
+			Vector3(offset, TOP * 0.5 - 0.02, end * (LENGTH * 0.5 + RAMP_LENGTH * 0.5))
 		)
+		Park._add(tool, ramp, stand, SIDE)
+		Park._solid(_sides, ramp.size, stand)
 
 	# Slats across it, and a chevron every few metres pointing the way it
 	# runs: which belt goes which way has to be legible before you step on.

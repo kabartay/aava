@@ -135,6 +135,16 @@ func _ready() -> void:
 	park = Park.new(field)
 	add_child(park)
 
+	# What the animals must walk round: the signpost at the square and the
+	# rides on the fairground. The places keep their own list of such things,
+	# and everything built since had been walked straight through.
+	animals.keep_out = [
+		Vector3(signpost.where().x, 1.4, signpost.where().z),
+		Vector3(Park.CAROUSEL_AT.x, Carousel.RADIUS + 0.5, Park.CAROUSEL_AT.z),
+		Vector3(Park.WHEEL_AT.x, 4.5, Park.WHEEL_AT.z),
+		Vector3(Park.TRAMPOLINE_AT.x, Park.TRAMPOLINE_RADIUS, Park.TRAMPOLINE_AT.z),
+	]
+
 	# Ducks on the ponds. Decoration, and nothing else: they give no coins and
 	# want nothing, because a valley where everything that moves is an errand
 	# is a place to work rather than a place to be.

@@ -88,6 +88,44 @@ var friends: Dictionary = {}
 ## are. Optional: a check builds animals without places.
 var obstacles: Places = null
 
+## Things to walk round that the places know nothing about: the signpost at the
+## square, the rides on the fairground, the piers of the bridge. Each is a
+## circle — x, radius, z — and the world fills them in as it builds them.
+##
+## The places keep their own list, and everything built since has been walked
+## straight through: a sheep stood in the middle of the signpost's plinth,
+## which is the sort of thing that makes a valley feel like a diorama.
+var keep_out: Array[Vector3] = []
+
+## Ground that is kept for people. Nothing lives on the fairground, the
+## playground, the football pitch or inside the pool fence — except a cat or a
+## dog, which is exactly where a cat or a dog would be.
+func kept_for_people(x: float, z: float) -> bool:
+	if ParkSpec.inside(x, z):
+		return true
+	if Pitch.is_levelled(x, z):
+		return true
+	var camp := field.camp_centre()
+	if PlaceSpec.inside_the_pool_fence(x, z, camp):
+		return true
+	return PlaceSpec.influence_of(&"playground", x, z, camp) > 0.45
+
+## May this kind be here at all?
+static func belongs_at(kind: StringName, kept: bool) -> bool:
+	if not kept:
+		return true
+	return kind == AnimalKinds.CAT or kind == AnimalKinds.DOG
+
+## Is this spot blocked to an animal — by a place's own furniture, or by
+## something else the world has put there?
+func blocked_at(x: float, z: float, margin: float) -> bool:
+	if obstacles != null and obstacles.obstructed(x, z, margin):
+		return true
+	for circle in keep_out:
+		if Vector2(x - circle.x, z - circle.z).length() < circle.y + margin:
+			return true
+	return false
+
 var _material: StandardMaterial3D
 var _tiles: Dictionary = {}
 var _queue: Array[Vector2i] = []
@@ -223,6 +261,12 @@ func _footing(x: float, z: float) -> float:
 ## how a child learns that cones are a forest thing and beavers are a river one.
 func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	var height := field.height_at(x, z)
+	# Ground kept for people takes cats and dogs and nothing else. A sheep on
+	# the football pitch is funny once; twenty of them on the fairground, in
+	# the pool and under the swings is a valley nobody has charge of.
+	var kept := kept_for_people(x, z)
+	if kept and rng.randf() < 0.55:
+		return &""
 	if field.is_pond(x, z) or height < field.water_level_at(x, z) + 0.2:
 		return &""
 	if Pitch.is_levelled(x, z):
@@ -248,9 +292,13 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	# a short waddle of it, and low.
 	var to_river := field.distance_to_river(x, z)
 	if to_river < BEAVER_BANK and height < HeightField.WATER_LEVEL + 3.0:
+		if kept:
+			return &""
 		return AnimalKinds.BEAVER if rng.randf() < CHANCE[AnimalKinds.BEAVER] else &""
 
 	if field.forest_density_at(x, z) > 0.3:
+		if kept:
+			return &""
 		return AnimalKinds.SQUIRREL if rng.randf() < CHANCE[AnimalKinds.SQUIRREL] else &""
 
 	if field.steepness_at(x, z) > 0.35 or height > 60.0:
@@ -263,7 +311,7 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	for kind: StringName in MEADOW:
 		reached += float(CHANCE[kind])
 		if roll < reached:
-			return kind
+			return kind if Animals.belongs_at(kind, kept) else &""
 	return &""
 
 ## Who lives on open ground, in the order the roll walks through them.
@@ -329,7 +377,7 @@ func _step(animal: Dictionary, delta: float) -> void:
 		var wanted_speed := speed * (0.25 + 0.75 * aim) * clampf(distance / 1.5, 0.3, 1.0)
 		moving = move_toward(moving, wanted_speed, ACCEL * delta)
 		var next := node.position + forward * moving * delta
-		if obstacles != null and obstacles.obstructed(next.x, next.z, 0.15):
+		if blocked_at(next.x, next.z, 0.15):
 			# Up against something despite the steering: stand and keep
 			# turning — the heading is already swinging along its side — and
 			# only after a while of that want somewhere else instead.
@@ -399,7 +447,10 @@ func _pick_wander(animal: Dictionary) -> void:
 		var angle := randf() * TAU
 		var distance := randf() * ROAM
 		var spot := home + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
-		if obstacles != null and obstacles.obstructed(spot.x, spot.z, 0.4):
+		if blocked_at(spot.x, spot.z, 0.4):
+			continue
+		# And not onto ground kept for people, unless it is a cat or a dog.
+		if not Animals.belongs_at(animal["kind"], kept_for_people(spot.x, spot.z)):
 			continue
 		# Not into a pond. An animal wades a river, which is shallow and has
 		# two banks; a pond is deep still water, and a cat that walked into one

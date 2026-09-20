@@ -120,6 +120,7 @@ func _initialize() -> void:
 	_check_the_coaster_stands_on_the_ground()
 	await _check_the_rides_are_solid()
 	_check_the_wheel_stands_on_the_sand()
+	_check_the_animals_keep_off_the_playing_places()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -7525,7 +7526,20 @@ func _check_the_fairground() -> void:
 		RollerCoaster.HALF_LENGTH * 2.0 > ParkSpec.length() * 0.75,
 		"and runs %.0f m, most of the length of the ground" % (RollerCoaster.HALF_LENGTH * 2.0)
 	)
-	_expect(absf(Walkway.LENGTH - 15.0) < 0.01, "the walkways are fifteen metres")
+	_expect(
+		Walkway.LENGTH > 20.0,
+		"the walkways are %.1f m of belt, which is a ride rather than a step" % Walkway.LENGTH
+	)
+	# And they can be got onto: the ramp at each end is solid and gentle
+	# enough to walk up. They were painted slopes with nothing behind them,
+	# and the belt was a step a third of a metre high — a character body
+	# climbs slopes and not steps, so the whole ride was unreachable.
+	_expect(
+		Walkway.TOP / Walkway.RAMP_LENGTH < tan(Player.CLIMBS_TO),
+		"the ramp onto a belt rises one in %.1f, which is a walk" % (
+			Walkway.RAMP_LENGTH / Walkway.TOP
+		)
+	)
 	var north := park.walkway.carries(0)
 	var south := park.walkway.carries(1)
 	_expect(
@@ -7665,6 +7679,29 @@ func _check_the_rides_carry_a_child() -> void:
 	_expect(
 		along < -Walkway.SPEED * 0.4,
 		"a child on the northbound belt is carried %.1f m up it" % -along
+	)
+
+	# And a child can get onto a belt by walking at it, which is the whole
+	# question: the ramps used to be scenery and the ride was unreachable.
+	var approach := park.walkway.position + Vector3(
+		-(Walkway.WIDTH + Walkway.GAP) * 0.5,
+		0.6,
+		Walkway.LENGTH * 0.5 + Walkway.RAMP_LENGTH + 1.2
+	)
+	rider.global_position = approach
+	rider.velocity = Vector3.ZERO
+	for step in 150:
+		rider.velocity.y -= 24.0 * (1.0 / 60.0)
+		# Walking north, at the pace a child walks.
+		rider.velocity.z = -Player.WALK_SPEED
+		rider.global_position += park.carry(rider.global_position, 1.0 / 60.0)
+		rider.move_and_slide()
+		await physics_frame
+	_expect(
+		rider.global_position.y > park.walkway.position.y + Walkway.TOP - 0.15,
+		"a child who walks at a belt ends up on it: %.2f m against the belt at %.2f" % [
+			rider.global_position.y - park.walkway.position.y, Walkway.TOP
+		]
 	)
 
 	# In a gondola: lifted with it rather than left where they were.
@@ -7847,4 +7884,92 @@ func _check_the_wheel_stands_on_the_sand() -> void:
 		absf(wheel.top_of_the_ride() - 30.0) < 1.5,
 		"while the top of the ride is %.1f m" % wheel.top_of_the_ride()
 	)
+
+	# And it turns about its axle rather than about its feet.
+	#
+	# The rim was built at its true height and hung on a node standing on the
+	# ground, so turning that node swung the whole wheel about a point in the
+	# sand: half a turn put the rim under the fairground and the gondolas,
+	# which were placed properly, were left hanging in the air on their own. A
+	# thing that spins has to be built about the point it spins on, and this is
+	# the only way to see that it is.
+	for quarter in 8:
+		wheel._turned = TAU * float(quarter) / 8.0
+		wheel._rim.rotation.x = -wheel._turned
+		var top := wheel.rim_point(0.0)
+		# A point on the rim is a rim's radius from the hub, whichever way
+		# round the wheel has gone. Measured from the axle, not from the
+		# upright axis: the rim turns in a plane, so its distance from the
+		# tower is nothing like constant and asking for that was the check
+		# being wrong rather than the wheel.
+		var hub := Vector3(0.0, FerrisWheel.HUB_HEIGHT, 0.0)
+		_expect(
+			absf(top.distance_to(hub) - FerrisWheel.RADIUS) < 0.01 and absf(top.x) < 0.01,
+			"a point on the rim stays a rim's radius from the axle, a turn of %.2f in" % wheel._turned
+		)
+		_expect(
+			top.y > 1.5,
+			"and never goes into the sand: %.1f m at a turn of %.2f" % [top.y, wheel._turned]
+		)
 	wheel.queue_free()
+
+## Nothing lives on the ground kept for people, except a cat or a dog.
+##
+## Sheep on the football pitch, cows in the fairground, a squirrel in the
+## swimming pool: funny once, and then it is a valley nobody has charge of.
+## Cats and dogs are the exception, because that is exactly where a cat or a
+## dog would be.
+func _check_the_animals_keep_off_the_playing_places() -> void:
+	print("the animals keep off the playing places")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+
+	var camp := field.camp_centre()
+	var kept: Array[Vector3] = [
+		ParkSpec.centre(),
+		Pitch.CENTRE,
+		PlaceSpec.centre_of(&"pool", camp),
+		PlaceSpec.centre_of(&"playground", camp),
+	]
+	var strays := 0
+	var tried := 0
+	for spot in kept:
+		_expect(
+			animals.kept_for_people(spot.x, spot.z),
+			"the ground at %v is kept for people" % Vector2(spot.x, spot.z)
+		)
+		for step in 40:
+			var at := spot + Vector3(rng.randf_range(-8.0, 8.0), 0.0, rng.randf_range(-8.0, 8.0))
+			if not animals.kept_for_people(at.x, at.z):
+				continue
+			tried += 1
+			var kind := animals._kind_at(at.x, at.z, rng)
+			if kind == &"":
+				continue
+			if not Animals.belongs_at(kind, true):
+				strays += 1
+	_expect(tried > 40, "%d spots on that ground were tried" % tried)
+	_expect(strays == 0, "and nothing but cats and dogs was found on it: %d strays" % strays)
+	_expect(
+		Animals.belongs_at(AnimalKinds.CAT, true) and Animals.belongs_at(AnimalKinds.DOG, true),
+		"a cat and a dog may still be there"
+	)
+	_expect(
+		not Animals.belongs_at(AnimalKinds.SHEEP, true)
+		and not Animals.belongs_at(AnimalKinds.COW, true),
+		"and a sheep or a cow may not"
+	)
+
+	# And they walk round the signpost rather than through its plinth, which
+	# is what was reported: a sheep standing in the middle of it.
+	var post := Vector3(field.camp_centre().x, 0.0, field.camp_centre().z) + Signpost.OFFSET
+	animals.keep_out = [Vector3(post.x, 1.4, post.z)]
+	_expect(animals.blocked_at(post.x, post.z, 0.2), "the signpost is something to walk round")
+	_expect(
+		not animals.blocked_at(post.x + 6.0, post.z, 0.2),
+		"and the ground beside it is not"
+	)
+	animals.queue_free()
