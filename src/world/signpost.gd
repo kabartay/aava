@@ -25,7 +25,7 @@ const POLE_RADIUS := 0.125
 ## so the plates and the plaque are seen across the meadow and over whatever a
 ## child builds around them. The plates grow with it — a sign twice as far up
 ## and the same size is a sign nobody can read.
-const POLE_HEIGHT := 9.2
+const POLE_HEIGHT := 10.4
 
 ## The plates. Thickness is the enamel and its frame; the length of each one is
 ## worked out from the name on it, so a long name is a long sign rather than
@@ -292,91 +292,20 @@ func plaque_facing() -> float:
 	return atan2(-(camp.z - foot.z), camp.x - foot.x)
 
 func _build_plaque(tool: SurfaceTool) -> void:
-	var at := POLE_HEIGHT - PLAQUE_BODY * 0.5 - 0.30
+	var at := Vector3(0.0, _plaque_centre(), 0.0)
 	# Square to the road from the camp, so the face a child meets first is the
 	# front of the plaque rather than its edge.
-	var toward_camp := plaque_facing()
-	var turn := Basis(Vector3.UP, toward_camp + PI * 0.5)
-
-	# Three layers, each a little smaller across and a little prouder of the
-	# face: green enamel, a white keyline, and the blue field. That is how the
-	# real ones are painted, and drawing it any other way gives a flat board
-	# with a line on it.
-	var layers: Array = [
-		[PLAQUE_WIDTH, PLAQUE_BODY, PLAQUE_ARCH, 0.12, PLAQUE_GREEN],
-		[PLAQUE_WIDTH - 0.18, PLAQUE_BODY - 0.18, PLAQUE_ARCH - 0.06, 0.15, OFF_WHITE],
-		[PLAQUE_WIDTH - 0.34, PLAQUE_BODY - 0.34, PLAQUE_ARCH - 0.13, 0.18, BLUE],
-	]
-	for layer: Array in layers:
-		var wide := float(layer[0])
-		var tall := float(layer[1])
-		var arch := float(layer[2])
-		var deep := float(layer[3])
-		var colour: Color = layer[4]
-
-		var body := BoxMesh.new()
-		body.size = Vector3(wide, tall, deep)
-		Signpost._add(tool, body, Transform3D(turn, turn * Vector3(0.0, at, 0.0)), colour)
-
-		# The round top: a disc, squashed, sitting on the body's top edge. A
-		# plaque with square corners is a notice board.
-		var cap := CylinderMesh.new()
-		cap.top_radius = wide * 0.5
-		cap.bottom_radius = wide * 0.5
-		cap.height = deep
-		cap.radial_segments = 20
-		cap.rings = 1
-		var lie := Basis(Vector3.RIGHT, PI * 0.5).scaled(
-			Vector3(1.0, 1.0, arch / (wide * 0.5))
-		)
-		Signpost._add(
-			tool, cap,
-			Transform3D(turn * lie, turn * Vector3(0.0, at + tall * 0.5, 0.0)),
-			colour
-		)
-
-	# The bosses: where a plaque like this is screwed to a wall. Four of them,
-	# in the green border, and they are most of why the thing reads as enamel
-	# on iron rather than as a painted rectangle.
-	for corner: Vector2 in [
-		Vector2(-1.0, -1.0), Vector2(1.0, -1.0), Vector2(-1.0, 1.0), Vector2(1.0, 1.0)
-	]:
-		for face: float in [1.0, -1.0]:
-			var boss := CylinderMesh.new()
-			boss.top_radius = 0.10
-			boss.bottom_radius = 0.10
-			boss.height = 0.04
-			boss.radial_segments = 10
-			boss.rings = 1
-			var lie := Basis(Vector3.RIGHT, PI * 0.5)
-			Signpost._add(
-				tool, boss,
-				Transform3D(turn * lie, turn * Vector3(
-					corner.x * (PLAQUE_WIDTH * 0.5 - 0.09),
-					at + corner.y * (PLAQUE_BODY * 0.5 - 0.09),
-					face * 0.10
-				)),
-				PLAQUE_GREEN.lightened(0.18)
-			)
-
-	# The name, broken across lines with the small word small, which is how a
-	# street plaque is set. Both faces.
-	var lines: Array = [
-		[PLAQUE_ARCH_TEXT, at + PLAQUE_BODY * 0.5 + PLAQUE_ARCH * 0.42, 0.0017],
-		["PLACE", at + 0.40, 0.0034],
-		["DES", at + 0.02, 0.0020],
-		["SPORTS", at - 0.42, 0.0040],
-	]
-	for face: float in [1.0, -1.0]:
-		for line: Array in lines:
-			var label := Label3D.new()
-			label.text = str(line[0])
-			label.font_size = 96
-			label.pixel_size = float(line[2])
-			label.modulate = OFF_WHITE
-			label.rotation.y = toward_camp + PI * 0.5 + (0.0 if face > 0.0 else PI)
-			label.position = turn * Vector3(0.0, float(line[1]), face * 0.11)
-			add_child(label)
+	var yaw := plaque_facing() + PI * 0.5
+	Plaque.build(tool, yaw, at, PLAQUE_WIDTH, PLAQUE_BODY, PLAQUE_ARCH)
+	# The name broken across lines with the small word small, which is how a
+	# street plaque is set, and the valley's name in the arch where a real one
+	# carries its arrondissement.
+	Plaque.write(self, yaw, at, [
+		[PLAQUE_ARCH_TEXT, PLAQUE_BODY * 0.5 + PLAQUE_ARCH * 0.42, 0.0017],
+		["PLACE", 0.40, 0.0034],
+		["DES", 0.02, 0.0020],
+		["SPORTS", -0.42, 0.0040],
+	])
 
 static func _add(tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, colour: Color) -> void:
 	var arrays := source.get_mesh_arrays()

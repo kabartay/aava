@@ -7136,6 +7136,30 @@ func _check_the_bridge_is_walked_not_climbed() -> void:
 	# all walked a list of drawn pieces that was empty. A bridge you can cross
 	# and cannot see is worse than no bridge.
 	_expect(triangles > 200, "the bridge is drawn: %d triangles of timber" % triangles)
+
+	# The bridge wears its name, on the parapet at the near end, in the same
+	# enamel the square's plaque is made of.
+	var named := 0
+	var lowest_writing := INF
+	for child in bridge.get_children():
+		var label := child as Label3D
+		if label == null:
+			continue
+		named += 1
+		lowest_writing = minf(lowest_writing, label.position.y - _deck_line(field, label.position.x))
+		_expect(
+			absf(label.position.z - BridgeSpec.CENTRE_Z) > BridgeSpec.HALF_WIDTH - BridgeSpec.RAIL_INSET - 0.2,
+			"the name is on the parapet rather than across the roadway"
+		)
+	_expect(named >= 6, "the name is written on both faces of the plaque: %d lines" % named)
+	_expect(
+		lowest_writing > 0.0,
+		"and stands above the planks, not through them: lowest is %.2f m" % lowest_writing
+	)
+	_expect(
+		Bridge.NAME_WIDTH < BridgeSpec.HALF_SPAN,
+		"the plaque is a plaque and not a hoarding"
+	)
 	_expect(
 		proud < 0.02,
 		"no board is drawn standing above the deck: worst is %.3f m" % proud

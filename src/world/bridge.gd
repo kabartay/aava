@@ -218,6 +218,12 @@ func _build() -> void:
 					TIMBER
 				)
 
+	# The bridge's name, screwed to the parapet at the near end, facing the
+	# child walking onto it. The same enamel plaque the square wears, because
+	# a valley whose signs are all made the same way is a valley somebody
+	# looks after.
+	_build_name(tool, river_x)
+
 	# And the timber becomes one mesh.
 	#
 	# This step went missing when the deck was rewritten: the collision was
@@ -237,6 +243,32 @@ func _build() -> void:
 	timbers.name = "Timbers"
 	timbers.mesh = tool.commit()
 	add_child(timbers)
+
+## What the bridge is called, and how big its plaque is.
+const NAME_ARCH := "VALLÉE D'AAVA"
+const NAME_WIDTH := 2.7
+const NAME_BODY := 0.78
+const NAME_ARCH_RISE := 0.30
+
+## The name plaque, on the handrail at the western end — the camp's end, the
+## one a child arrives at. Turned square across the crossing, so it is read
+## from the bank and from the deck alike rather than edge-on.
+func _build_name(tool: SurfaceTool, river_x: float) -> void:
+	var at_x := river_x - BridgeSpec.HALF_SPAN + 2.6
+	var deck := _field.bridge_deck_at(at_x, BridgeSpec.CENTRE_Z)
+	var rail_z := BridgeSpec.CENTRE_Z + (BridgeSpec.HALF_WIDTH - BridgeSpec.RAIL_INSET)
+	var centre := Vector3(
+		at_x, deck + BridgeSpec.RAIL_HEIGHT * 0.5 + NAME_BODY * 0.28, rail_z + 0.16
+	)
+	# Facing outwards, across the river: flat on the parapet, the way a bridge
+	# carries its name.
+	var yaw := 0.0
+	Plaque.build(tool, yaw, centre, NAME_WIDTH, NAME_BODY, NAME_ARCH_RISE, 0.10)
+	Plaque.write(self, yaw, centre, [
+		[NAME_ARCH, NAME_BODY * 0.5 + NAME_ARCH_RISE * 0.45, 0.0013],
+		["PONT DU", 0.21, 0.0017],
+		["LAC MAGNIFIQUE", -0.10, 0.0026],
+	])
 
 ## The deck's collision: one continuous prism swept along the arch.
 ##
