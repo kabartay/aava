@@ -116,6 +116,8 @@ func _initialize() -> void:
 	_check_the_bridge_is_on_the_map()
 	_check_the_roads_have_names()
 	_check_the_fairground()
+	await _check_the_rides_carry_a_child()
+	_check_the_coaster_stands_on_the_ground()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -7529,12 +7531,23 @@ func _check_the_fairground() -> void:
 		"and run opposite ways: %.1f and %.1f" % [north.z, south.z]
 	)
 
-	# The moving parts are moving floors, which is what carries a child.
-	for moving: Node in [park.carousel.get_node("Turntable"), park.wheel.gondola(0)]:
-		var body := moving as AnimatableBody3D
-		_expect(body != null, "a ride a child stands on is a body that moves")
-		if body != null:
-			_expect(body.sync_to_physics, "and tells physics it is moving, or it leaves them behind")
+	# The moving parts carry their passengers themselves rather than leaving it
+	# to the engine. Godot carries a character along a platform that slides and
+	# abandons them on one that turns, and where it does help it helps *as
+	# well*, so a child went round half again as fast as the floor. So: the
+	# carousel's floor is a still disc (a disc turned about its middle is the
+	# same disc), and the gondolas are not moving platforms at all.
+	_expect(
+		park.carousel.get_node("Floor") is StaticBody3D,
+		"the carousel's floor is still, and only its paint goes round"
+	)
+	var gondola := park.wheel.gondola(0) as AnimatableBody3D
+	_expect(gondola != null, "a gondola is a body a child can stand in")
+	if gondola != null:
+		_expect(
+			not gondola.sync_to_physics,
+			"and is not also carried by the engine, which would double the ride"
+		)
 
 	# They actually move, and the coaster is slow over the top and fast at the
 	# bottom, which is the whole feeling of a coaster.
@@ -7568,3 +7581,159 @@ func _check_the_fairground() -> void:
 				triangles += drawn.mesh.get_faces().size() / 3
 	_expect(triangles > 2000, "the fairground is drawn: %d triangles" % triangles)
 	park.queue_free()
+
+## The rides actually carry somebody.
+##
+## Everything else about the fairground can be read off the geometry; this
+## cannot. A turning floor that does not take a child round with it, a belt
+## that does not push, a gondola that rises out from under its passenger —
+## each of those looks perfectly right in a screenshot and is the whole ride
+## being broken. So a body is stood on each of them and the physics is run.
+func _check_the_rides_carry_a_child() -> void:
+	print("the rides carry a child")
+	var field := HeightField.new(20260903)
+	var park := Park.new(field)
+	get_root().add_child(park)
+	# The ground under the fairground, so a body has something to fall onto
+	# rather than falling for ever.
+	var floor_body := StaticBody3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(400.0, 2.0, 400.0)
+	var floor_shape := CollisionShape3D.new()
+	floor_shape.shape = slab
+	floor_shape.position = Vector3(
+		ParkSpec.centre().x, ParkSpec.LEVEL - 1.0, ParkSpec.centre().z
+	)
+	floor_body.add_child(floor_shape)
+	get_root().add_child(floor_body)
+
+	# On the carousel, a stride out from the middle: after a few seconds of
+	# turning, a passenger has gone round with it.
+	var rider := CharacterBody3D.new()
+	var shape := CapsuleShape3D.new()
+	shape.radius = Player.RADIUS
+	shape.height = Player.HEIGHT
+	var body_shape := CollisionShape3D.new()
+	body_shape.shape = shape
+	body_shape.position = Vector3(0.0, Player.HEIGHT * 0.5, 0.0)
+	rider.add_child(body_shape)
+	get_root().add_child(rider)
+
+	var deck := park.carousel.position + Vector3(
+		3.0, Carousel.FLOOR_HEIGHT + 0.7, 0.0
+	)
+	rider.global_position = deck
+	var turned_before := park.carousel.turned()
+	for step in 90:
+		rider.velocity.y -= 24.0 * (1.0 / 60.0)
+		rider.global_position += park.carry(rider.global_position, 1.0 / 60.0)
+		rider.move_and_slide()
+		await physics_frame
+	var swept := park.carousel.turned() - turned_before
+	var moved := Vector2(
+		rider.global_position.x - park.carousel.position.x,
+		rider.global_position.z - park.carousel.position.z
+	)
+	# Measured the way the floor turns: a point on a floor rotating about the
+	# upright axis sweeps the other way round in the x/z plane.
+	var swept_by_rider := -moved.angle()
+	_expect(
+		rider.global_position.y > park.carousel.position.y + Carousel.FLOOR_HEIGHT,
+		"a child on the carousel stands on its floor rather than sinking through it"
+	)
+	_expect(
+		swept_by_rider > swept * 0.6 and swept_by_rider < swept * 1.4,
+		"and is carried round with it: %.2f rad against the floor's %.2f" % [
+			swept_by_rider, swept
+		]
+	)
+
+	# On a belt: carried along it, and the other belt carries the other way.
+	var belt := park.walkway.position + Vector3(
+		-(Walkway.WIDTH + Walkway.GAP) * 0.5, Walkway.TOP + 0.9, 0.0
+	)
+	rider.global_position = belt
+	rider.velocity = Vector3.ZERO
+	for step in 60:
+		rider.velocity.y -= 24.0 * (1.0 / 60.0)
+		rider.global_position += park.carry(rider.global_position, 1.0 / 60.0)
+		rider.move_and_slide()
+		await physics_frame
+	var along := rider.global_position.z - belt.z
+	_expect(
+		along < -Walkway.SPEED * 0.4,
+		"a child on the northbound belt is carried %.1f m up it" % -along
+	)
+
+	# In a gondola: lifted with it rather than left where they were.
+	var car := park.wheel.gondola(0)
+	rider.global_position = car.global_position + Vector3(0.0, 0.2, 0.0)
+	rider.velocity = Vector3.ZERO
+	# Let them settle onto the floor before measuring, or the drop into the car
+	# is counted as the ride failing to lift them.
+	for settle in 30:
+		rider.velocity.y -= 24.0 * (1.0 / 60.0)
+		rider.global_position += park.carry(rider.global_position, 1.0 / 60.0)
+		rider.move_and_slide()
+		await physics_frame
+	var lifted_from := rider.global_position.y
+	var car_from := car.global_position.y
+	for step in 120:
+		rider.velocity.y -= 24.0 * (1.0 / 60.0)
+		rider.global_position += park.carry(rider.global_position, 1.0 / 60.0)
+		rider.move_and_slide()
+		await physics_frame
+	var car_rose := car.global_position.y - car_from
+	var rider_rose := rider.global_position.y - lifted_from
+	_expect(
+		absf(rider_rose - car_rose) < 0.6,
+		"a child in a gondola goes with it: the car moved %.2f m and they moved %.2f" % [
+			car_rose, rider_rose
+		]
+	)
+
+	rider.queue_free()
+	floor_body.queue_free()
+	park.queue_free()
+
+## Every pile under the coaster reaches the sand.
+##
+## They did not: the legs were turned with the track and offset in the track's
+## own frame, so on a slope they leaned with the rails and their feet stopped
+## in mid-air. Read off the drawn mesh, because that is the thing a child
+## looks at.
+func _check_the_coaster_stands_on_the_ground() -> void:
+	print("the coaster stands on the ground")
+	var field := HeightField.new(20260903)
+	var coaster := RollerCoaster.new(ParkSpec.centre())
+	get_root().add_child(coaster)
+	var drawn := coaster.get_node("Track") as MeshInstance3D
+	_expect(drawn != null, "the track is drawn")
+
+	var feet: Array[Vector2] = []
+	var lowest := INF
+	for point in drawn.mesh.get_faces():
+		lowest = minf(lowest, point.y)
+		if point.y < 0.30:
+			feet.append(Vector2(point.x, point.z))
+	_expect(lowest > -0.6, "nothing is buried: the lowest timber is at %.2f m" % lowest)
+	_expect(feet.size() > 50, "and %d pieces of it meet the sand" % feet.size())
+
+	# Wherever the track is high, there is a foot on the ground near it.
+	var unsupported := 0
+	var total := coaster.circuit()
+	var step := total / 60.0
+	for piece in 60:
+		var here := coaster.point_at(step * float(piece))
+		if here.y < 4.0:
+			continue
+		var nearest := INF
+		for foot in feet:
+			nearest = minf(nearest, foot.distance_to(Vector2(here.x, here.z)))
+		if nearest > 6.0:
+			unsupported += 1
+	_expect(
+		unsupported == 0,
+		"every high piece of track has a pile under it: %d without" % unsupported
+	)
+	coaster.queue_free()

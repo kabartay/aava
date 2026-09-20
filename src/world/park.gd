@@ -85,6 +85,23 @@ func _init(height_field: HeightField) -> void:
 func _at(spot: Vector3) -> Vector3:
 	return Vector3(spot.x, ParkSpec.LEVEL, spot.z)
 
+## How far the fairground moves somebody standing on one of its rides, this
+## frame. The game adds this to wherever they are.
+##
+## Godot carries a character along a platform that slides and abandons them on
+## one that turns or that is moved by hand, so every ride here says for itself
+## how far it has taken its passengers. It also means the answer can be tested
+## without a screen, which is the only way any of this was ever going to be
+## known to work.
+func carry(at: Vector3, delta: float) -> Vector3:
+	if not ParkSpec.inside(at.x, at.z):
+		return Vector3.ZERO
+	for ride: Node in [carousel, walkway, wheel, coaster]:
+		var moved: Vector3 = ride.call("carry", at, delta)
+		if moved != Vector3.ZERO:
+			return moved
+	return Vector3.ZERO
+
 ## Where the big trampoline's mat is.
 func trampoline_mat() -> Vector3:
 	return _at(TRAMPOLINE_AT) + Vector3(0.0, TRAMPOLINE_TOP, 0.0)

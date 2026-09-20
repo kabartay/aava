@@ -59,6 +59,7 @@ func _init(at: Vector3) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_build_track(tool)
+	_build_lift(tool)
 	_build_station(tool)
 
 	tool.generate_normals()
@@ -158,26 +159,81 @@ func _build_track(tool: SurfaceTool) -> void:
 		sleeper.size = Vector3(length * 0.5, 0.10, 1.7)
 		Park._add(tool, sleeper, Transform3D(turn, middle), TIMBER)
 
-		# The trestle under it, where there is any height to hold up. Timber
-		# cross-braced, which is what makes a wooden coaster look like one.
+		# The trestle under it, where there is any height to hold up.
+		#
+		# Upright, and measured from the ground. They used to be turned with
+		# the track and offset in the track's own frame, so on every slope the
+		# legs leaned with the rails and their feet stopped short of the sand:
+		# a coaster standing on piles that touch nothing. A post holds a track
+		# up; it does not lie along it.
 		if piece % 4 != 0 or middle.y < 1.6:
 			continue
+		var across := Vector3(-run.z, 0.0, run.x).normalized() * 0.78
+		var foot_height := middle.y
 		for side: float in [-1.0, 1.0]:
 			var leg := BoxMesh.new()
-			leg.size = Vector3(0.20, middle.y, 0.20)
+			leg.size = Vector3(0.22, foot_height, 0.22)
 			Park._add(
 				tool, leg,
-				Transform3D(turn, middle + turn * Vector3(0.0, -middle.y * 0.5, side * 0.72)),
+				Transform3D(
+					Basis(),
+					Vector3(middle.x, foot_height * 0.5, middle.z) + across * side
+				),
 				TIMBER_DARK
 			)
-		var brace := BoxMesh.new()
-		brace.size = Vector3(0.12, 0.12, 1.5)
-		for rung in maxi(1, int(middle.y / 3.0)):
+		# Rungs across the bent, and a diagonal in every bay: the lattice is
+		# most of what a wooden coaster looks like from the ground.
+		var bays := maxi(1, int(foot_height / 3.0))
+		for rung in bays + 1:
+			var at := foot_height * float(rung) / float(bays + 1)
+			var rail_across := BoxMesh.new()
+			rail_across.size = Vector3(0.14, 0.14, across.length() * 2.0 + 0.2)
 			Park._add(
-				tool, brace,
-				Transform3D(turn, middle + turn * Vector3(0.0, -float(rung) * 3.0, 0.0)),
+				tool, rail_across,
+				Transform3D(
+					Basis(Vector3.UP, atan2(across.x, across.z)),
+					Vector3(middle.x, at, middle.z)
+				),
 				TIMBER_DARK
 			)
+		for bay in bays:
+			var low := foot_height * float(bay) / float(bays + 1)
+			var high := foot_height * float(bay + 1) / float(bays + 1)
+			var rise := high - low
+			var diagonal := BoxMesh.new()
+			diagonal.size = Vector3(0.12, sqrt(rise * rise + across.length() * across.length() * 4.0), 0.12)
+			Park._add(
+				tool, diagonal,
+				Transform3D(
+					Basis(Vector3.UP, atan2(across.x, across.z))
+					* Basis(Vector3.RIGHT, atan2(across.length() * 2.0, rise)),
+					Vector3(middle.x, (low + high) * 0.5, middle.z)
+				),
+				TIMBER
+			)
+
+## The chain lift: the ratchet strip a car is dragged up on, laid between the
+## rails from the station to the top. It is the one part of a coaster a child
+## hears before they see, and the part that says which way the ride goes.
+func _build_lift(tool: SurfaceTool) -> void:
+	var total := circuit()
+	var from := total * STATION_END
+	var to := total * LIFT_TOP
+	var teeth := int((to - from) / 1.1)
+	for tooth in teeth:
+		var along := lerpf(from, to, float(tooth) / float(teeth))
+		var here := point_at(along)
+		var next := point_at(along + 0.6)
+		var run := next - here
+		var turn := Basis(Vector3.UP, atan2(-run.z, run.x))
+		turn = turn * Basis(Vector3.BACK, atan2(run.y, Vector2(run.x, run.z).length()))
+		var rung := BoxMesh.new()
+		rung.size = Vector3(0.14, 0.16, 0.5)
+		Park._add(
+			tool, rung,
+			Transform3D(turn, here + turn * Vector3(0.0, 0.16, 0.0)),
+			TIMBER_DARK
+		)
 
 ## The station: a platform beside the track at the start, where the cars come
 ## slowly past and a child can step into one.
@@ -220,7 +276,10 @@ func _build_station(tool: SurfaceTool) -> void:
 func _build_car(index: int) -> AnimatableBody3D:
 	var car := AnimatableBody3D.new()
 	car.name = "Car%d" % index
-	car.sync_to_physics = true
+	# Not a moving platform as far as physics is concerned: the ride moves its
+	# passengers itself, and letting Godot move them as well carried them half
+	# again as far as the car they were standing in.
+	car.sync_to_physics = false
 	add_child(car)
 
 	var tool := SurfaceTool.new()
@@ -274,10 +333,30 @@ func _place_cars() -> void:
 		_cars[index].transform = Transform3D(turn, here + Vector3(0.0, 0.55, 0.0))
 
 func _physics_process(delta: float) -> void:
+	var before: Array[Vector3] = []
+	for car in _cars:
+		before.append(car.position)
 	_at_distance = fposmod(
 		_at_distance + speed_at(_at_distance / circuit()) * delta, circuit()
 	)
 	_place_cars()
+	_moved.clear()
+	for index in _cars.size():
+		_moved.append(_cars[index].position - before[index])
+
+## How far each car moved on the last frame, for whoever is riding in it.
+var _moved: Array[Vector3] = []
+
+## How far the ride moves whoever is aboard, this frame. The same arrangement
+## the wheel uses, and for the same reason.
+func carry(at: Vector3, _delta: float) -> Vector3:
+	for index in _cars.size():
+		if index >= _moved.size():
+			break
+		var local := _cars[index].global_transform.affine_inverse() * at
+		if absf(local.x) < 1.3 and absf(local.z) < 0.9 and local.y > -0.4 and local.y < 2.0:
+			return _moved[index]
+	return Vector3.ZERO
 
 ## How high the ride goes, and where the leading car is. For the checks.
 func highest() -> float:

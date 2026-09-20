@@ -119,6 +119,23 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 	belt.add_child(collider)
 	add_child(belt)
 
+## How far a belt moves whoever is standing on it, this frame.
+##
+## The static body's constant velocity does half the job — Godot pushes a
+## character that is standing on it, but only while they are pressed into it,
+## so a child who merely stands still creeps along at a third of the speed.
+## The belt says plainly how far it has moved them instead.
+func carry(at: Vector3, delta: float) -> Vector3:
+	var local := at - global_position
+	if absf(local.z) > LENGTH * 0.5 or local.y < TOP - 0.3 or local.y > TOP + 2.4:
+		return Vector3.ZERO
+	for side in 2:
+		var offset := (WIDTH + GAP) * (float(side) - 0.5)
+		if absf(local.x - offset) > WIDTH * 0.5:
+			continue
+		return carries(side) * delta
+	return Vector3.ZERO
+
 ## How fast a belt carries a child, and which way. For the checks. Found by
 ## name rather than by position among the children, which is a fact about the
 ## order things were built in and changes the day something else is added.

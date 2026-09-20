@@ -354,6 +354,21 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		SaveGame.absolute_path(profiles.current_save_path())
 	])
 
+## The fairground's moving floors carry whoever is standing on them.
+##
+## Godot does this itself for a platform that slides, and not for one that
+## turns or that is moved by hand — a child on the carousel was left standing
+## while it went round under them, and one in a gondola was dropped back onto
+## its floor every frame as it rose. So each ride says how far it has taken its
+## passengers and the child is moved by that much, here, in step with the
+## physics that moved the ride.
+func _physics_process(delta: float) -> void:
+	if player == null or _waiting_for_ground or world.park == null:
+		return
+	var carried := world.park.carry(player.global_position, delta)
+	if carried != Vector3.ZERO:
+		player.global_position += carried
+
 func _process(delta: float) -> void:
 	if player == null:
 		return

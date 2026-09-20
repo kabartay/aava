@@ -23,7 +23,7 @@ const POLE := Color(0.86, 0.80, 0.52)
 const CANOPY_A := Color(0.84, 0.26, 0.24)
 const CANOPY_B := Color(0.96, 0.92, 0.84)
 
-var _turntable: AnimatableBody3D
+var _turntable: Node3D
 var _turned := 0.0
 
 func _init(at: Vector3) -> void:
@@ -35,12 +35,21 @@ func _init(at: Vector3) -> void:
 	var turning := SurfaceTool.new()
 	turning.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	_turntable = AnimatableBody3D.new()
+	# What turns is what is drawn. What a child stands on is a plain static
+	# disc that never moves — and cannot be told apart from a turning one,
+	# because a disc turned about its own middle is the same disc.
+	#
+	# This matters: an AnimatableBody3D floor is a moving platform, and Godot
+	# gives a character standing on one some of the platform's motion. With the
+	# ride also moving its passengers by hand, a child went round half again as
+	# fast as the floor they were standing on.
+	_turntable = Node3D.new()
 	_turntable.name = "Turntable"
-	# Moved by hand every frame, and physics is told so: without this a child
-	# standing on it is left behind by the floor under their feet.
-	_turntable.sync_to_physics = true
 	add_child(_turntable)
+
+	var footing := StaticBody3D.new()
+	footing.name = "Floor"
+	add_child(footing)
 
 	# The floor, and the step up onto it.
 	var deck := CylinderMesh.new()
@@ -64,7 +73,7 @@ func _init(at: Vector3) -> void:
 	var collider := CollisionShape3D.new()
 	collider.shape = pad
 	collider.position = Vector3(0.0, FLOOR_HEIGHT, 0.0)
-	_turntable.add_child(collider)
+	footing.add_child(collider)
 
 	# The middle column, and the canopy over it: stripes, because a roundabout
 	# without stripes is a platform.
@@ -141,6 +150,23 @@ func _init(at: Vector3) -> void:
 func _physics_process(delta: float) -> void:
 	_turned = fmod(_turned + TURN_RATE * delta, TAU)
 	_turntable.transform = Transform3D(Basis(Vector3.UP, _turned), Vector3.ZERO)
+
+## How far the floor moves whoever is standing on it, this frame.
+##
+## Godot will not do this for us. A character body standing on a body that is
+## being *rotated* is not taken round with it — the engine carries a passenger
+## along a platform that slides, and leaves them where they are on one that
+## turns. So the ride says how far it has swept its floor and the game moves
+## the child by that much, which is the same answer and one we can test.
+func carry(at: Vector3, delta: float) -> Vector3:
+	var out := Vector2(at.x - global_position.x, at.z - global_position.z)
+	if out.length() > RADIUS:
+		return Vector3.ZERO
+	var floor_at := global_position.y + FLOOR_HEIGHT
+	if at.y < floor_at - 0.2 or at.y > floor_at + 2.4:
+		return Vector3.ZERO
+	var swept := out.rotated(-TURN_RATE * delta) - out
+	return Vector3(swept.x, 0.0, swept.y)
 
 ## How far round it has turned. For the checks.
 func turned() -> float:
