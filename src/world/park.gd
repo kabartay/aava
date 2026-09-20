@@ -17,11 +17,13 @@ extends Node3D
 ## Where each ride stands. Written here rather than inside the rides, so the
 ## fairground's plan can be read in one place — and checked against the fence
 ## and against one another.
-const CAROUSEL_AT := Vector3(84.0, 0.0, 2.0)
+const CAROUSEL_AT := Vector3(84.0, 0.0, 1.0)
 ## Away from the coaster, over towards the eastern fence: the belts stood five
 ## metres off the track's own piles and read as part of it.
-const WALKWAY_AT := Vector3(85.0, 0.0, -24.0)
-const TRAMPOLINE_AT := Vector3(86.0, 0.0, -48.0)
+const WALKWAY_AT := Vector3(85.0, 0.0, -25.0)
+## Up beside the big wheel: the two things a child does standing up, together
+## at the far end of the ground.
+const TRAMPOLINE_AT := Vector3(85.0, 0.0, -62.0)
 const WHEEL_AT := Vector3(82.0, 0.0, -84.0)
 ## The coaster runs down the western side, along the river, the whole length of
 ## the ground.
@@ -42,7 +44,9 @@ const FENCE_CAP := Color(0.62, 0.24, 0.22)
 
 ## The kiosk: where rides are paid for. On the right hand as you walk in,
 ## just inside the fence, because that is where a ticket office is.
-const BOOTH_OFFSET := Vector3(6.4, 0.0, -3.4)
+## A metre further in than it stood: the kiosk had a stride of sand between it
+## and the fence behind it, which is not room to walk round a building.
+const BOOTH_OFFSET := Vector3(6.4, 0.0, -4.4)
 const BOOTH_WIDTH := 3.0
 const BOOTH_DEPTH := 2.4
 const BOOTH_HEIGHT := 2.9
@@ -153,7 +157,7 @@ func ride_under(at: Vector3) -> StringName:
 	for index in coaster.car_count():
 		var seat := coaster.car_at(index)
 		var inside := seat.global_transform.affine_inverse() * at
-		if absf(inside.x) < 0.85 and absf(inside.z) < 0.95 and inside.y > -0.4 and inside.y < 2.0:
+		if absf(inside.x) < 0.95 and absf(inside.z) < 0.65 and inside.y > -0.4 and inside.y < 2.0:
 			return &"coaster"
 	return &""
 
@@ -216,10 +220,51 @@ func _build_booth(tool: SurfaceTool, solid: StaticBody3D) -> void:
 	)
 	# And the price, on a plate over the window, in the valley's own enamel.
 	var board := at + Vector3(0.0, BOOTH_HEIGHT + 1.0, BOOTH_DEPTH * 0.5 - 0.1)
-	Plaque.build(tool, 0.0, board, 2.6, 0.78, 0.0, 0.10)
+	Plaque.build(tool, 0.0, board, 3.0, 0.92, 0.0, 0.10)
+	# A coaster drawn on the plate rather than the word for one: a hump of
+	# track with a train going over it, which a six-year-old reads without
+	# reading. The price goes beside it, where a price goes.
+	var drawn_at := board + Vector3(-0.78, -0.02, 0.09)
+	for piece in 14:
+		var along := float(piece) / 13.0
+		var hump := sin(along * PI) * 0.26
+		var next := sin((float(piece) + 1.0) / 13.0 * PI) * 0.26
+		var rail := BoxMesh.new()
+		rail.size = Vector3(0.11, 0.05, 0.04)
+		Park._add(
+			tool, rail,
+			Transform3D(
+				Basis(Vector3.BACK, atan2(next - hump, 0.1)),
+				drawn_at + Vector3(-0.55 + along * 1.1, hump - 0.16, 0.0)
+			),
+			Plaque.OFF_WHITE
+		)
+		# The piers under it, every few pieces.
+		if piece % 4 != 1:
+			continue
+		var pier := BoxMesh.new()
+		pier.size = Vector3(0.04, hump + 0.22, 0.03)
+		Park._add(
+			tool, pier,
+			Transform3D(Basis(), drawn_at + Vector3(-0.55 + along * 1.1, (hump - 0.16) * 0.5 - 0.14, 0.0)),
+			Plaque.OFF_WHITE
+		)
+	# The train, three little cars over the crown of the hump.
+	for car in 3:
+		var along := 0.42 + float(car) * 0.1
+		var hump := sin(along * PI) * 0.26
+		var box := BoxMesh.new()
+		box.size = Vector3(0.09, 0.09, 0.05)
+		Park._add(
+			tool, box,
+			Transform3D(
+				Basis(Vector3.BACK, 0.35 - float(car) * 0.35),
+				drawn_at + Vector3(-0.55 + along * 1.1, hump - 0.08, 0.01)
+			),
+			FENCE_CAP
+		)
 	Plaque.write(self, 0.0, board, [
-		[Text.of("ui_rides"), 0.20, 0.0018],
-		["%d" % RIDE_PRICE, -0.14, 0.0032],
+		["%d" % RIDE_PRICE, -0.02, 0.0042],
 	])
 
 ## Where the big trampoline's mat is.

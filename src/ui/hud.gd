@@ -43,6 +43,9 @@ signal shoot_released()
 signal place_used()
 ## The turnstile at the pool: pay and go in.
 signal ticket_pressed()
+## A question answered: the tick, or the cross.
+signal confirmed()
+signal refused()
 signal dam_stick()
 signal fire_fed()
 signal slept()
@@ -94,6 +97,8 @@ var _ride_button: Button
 var _shoot_button: Button
 var _visit_button: Button
 var _ticket_button: Button
+var _asking: PanelContainer
+var _question: Label
 var _dam_button: Button
 var _fire_button: Button
 var _snack_button: Button
@@ -165,6 +170,8 @@ func _init() -> void:
 
 	_status = _label(22, Color(1.0, 0.86, 0.55))
 	add_child(_status)
+
+	_build_asking()
 
 	_message = _label(30, Color(1.0, 1.0, 1.0))
 	_message.modulate.a = 0.0
@@ -1018,6 +1025,55 @@ func _icon_button(which: ActionIcon.Kind) -> Button:
 	button.add_child(icon)
 	return button
 
+## The panel that asks a question: the words, a cross and a tick.
+func _build_asking() -> void:
+	_asking = PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.07, 0.09, 0.12, 0.88)
+	style.set_corner_radius_all(16)
+	style.content_margin_left = 20.0
+	style.content_margin_right = 20.0
+	style.content_margin_top = 16.0
+	style.content_margin_bottom = 16.0
+	style.border_color = Color(1.0, 1.0, 1.0, 0.18)
+	style.set_border_width_all(1)
+	_asking.add_theme_stylebox_override("panel", style)
+	_asking.visible = false
+	add_child(_asking)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 14)
+	_asking.add_child(column)
+
+	_question = Label.new()
+	_question.add_theme_font_size_override("font_size", 26)
+	_question.add_theme_color_override("font_color", Color(1.0, 0.97, 0.90))
+	_question.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_question)
+
+	var answers := HBoxContainer.new()
+	answers.add_theme_constant_override("separation", 26)
+	answers.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_child(answers)
+
+	answers.add_child(_answer_button("✗", Color(0.92, 0.36, 0.32), func() -> void:
+		stop_asking()
+		refused.emit()))
+	answers.add_child(_answer_button("✓", Color(0.42, 0.82, 0.46), func() -> void:
+		stop_asking()
+		confirmed.emit()))
+
+func _answer_button(face: String, colour: Color, pressed: Callable) -> Button:
+	var button := Button.new()
+	button.text = face
+	button.custom_minimum_size = Vector2(BUTTON * 1.5, BUTTON)
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_font_size_override("font_size", 40)
+	button.add_theme_color_override("font_color", colour)
+	button.add_theme_color_override("font_hover_color", colour.lightened(0.2))
+	button.pressed.connect(pressed)
+	return button
+
 ## The drawn face of a button made by _icon_button.
 func _face_of(button: Button) -> ActionIcon:
 	for child in button.get_children():
@@ -1154,6 +1210,27 @@ func set_score(goals: int) -> void:
 		_layout()
 
 ## A short, centred announcement. Used for the things the world does in reply.
+## Ask a yes-or-no question, with a cross and a tick under it.
+##
+## Nothing here takes a child's coins without being asked. Money is the record
+## of everything they have done — fed an animal, sheared a sheep, grown a tree
+## — and a ride that helps itself to a ticket because somebody walked too near
+## it is the game taking that away by accident. So it asks, and it asks in
+## pictures: a red cross and a green tick, which need no reading.
+func ask(question: String) -> void:
+	_question.text = question
+	_asking.visible = true
+	_layout()
+
+func stop_asking() -> void:
+	if not _asking.visible:
+		return
+	_asking.visible = false
+	_layout()
+
+func is_asking() -> bool:
+	return _asking.visible
+
 func announce(text: String, seconds := 3.2) -> void:
 	_message.text = text
 	_message_timer = seconds
@@ -1230,6 +1307,15 @@ func _layout() -> void:
 		safe.position.x + maxf(room.x, 0.0) * 0.5,
 		safe.position.y + maxf(room.y, 0.0) * 0.5
 	)
+
+	# The question, in the middle of the screen and a little above centre:
+	# where a child is already looking, and clear of both thumbs.
+	if _asking.visible:
+		_asking.size = _asking.get_combined_minimum_size()
+		_asking.position = Vector2(
+			safe.position.x + (safe.size.x - _asking.size.x) * 0.5,
+			safe.position.y + safe.size.y * 0.42 - _asking.size.y * 0.5
+		)
 
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
 	_danger.position = _menu.position

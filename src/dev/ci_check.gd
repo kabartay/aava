@@ -7565,6 +7565,43 @@ func _check_the_fairground() -> void:
 			"and it stands level with the car floor: %.2f m against %.2f" % [deck_top, car_floor]
 		)
 
+	# The belts look like they are moving, and their arrows point the way they
+	# actually go. The arrows were built from the belt's own heading and came
+	# out pointing back up it, which is worse than no arrow at all: a child
+	# reads it, steps on, and is carried the other way.
+	for side in 2:
+		var carries := park.walkway.carries(side)
+		var treads := park.walkway.get_node(
+			"Treads%s" % ("North" if side == 0 else "South")
+		) as MultiMeshInstance3D
+		_expect(treads != null, "belt %d has treads on it" % side)
+		if treads == null:
+			continue
+		var apex := Vector3.ZERO
+		for point in treads.multimesh.mesh.get_faces():
+			if absf(point.z) > absf(apex.z):
+				apex = point
+		_expect(
+			signf(apex.z) == signf(carries.z),
+			"and its arrow points the way it runs: arrow %.2f, belt %.2f" % [apex.z, carries.z]
+		)
+		# Asked of the belt rather than of the multimesh: instance transforms
+		# live on the rendering server, and there is no rendering server here,
+		# so a headless check reads nothing back from one however well it is
+		# working.
+		var before := park.walkway.tread_at(side, 0)
+		park.walkway._physics_process(0.25)
+		var after := park.walkway.tread_at(side, 0)
+		_expect(
+			absf(after - before) > 0.05,
+			"and its treads are seen to move: %.2f m in a quarter second" % absf(after - before)
+		)
+		# The right way: the treads go the way the belt carries you.
+		_expect(
+			signf(after - before) == signf(carries.z) or absf(after - before) > Walkway.LENGTH * 0.5,
+			"and they move the way it runs"
+		)
+
 	# The moving parts carry their passengers themselves rather than leaving it
 	# to the engine. Godot carries a character along a platform that slides and
 	# abandons them on one that turns, and where it does help it helps *as
@@ -8174,6 +8211,27 @@ func _check_the_rides_are_paid_for() -> void:
 		not park.at_the_booth(booth + Vector3(0.0, 0.0, -30.0)),
 		"and not from the middle of the fairground"
 	)
+
+	# The horses on the carousel face the way they are going, and they are
+	# solid. They faced straight out from the middle — a row of horses looking
+	# over a fence rather than a roundabout — and a child walked through them.
+	_expect(
+		park.carousel.get_node("Horses") is AnimatableBody3D,
+		"the carousel's horses are something you bump into"
+	)
+	var horse_shapes := 0
+	for child in (park.carousel.get_node("Horses") as Node).get_children():
+		if child is CollisionShape3D:
+			horse_shapes += 1
+	_expect(horse_shapes == Carousel.HORSES, "%d of them, one for each horse" % horse_shapes)
+	for horse in Carousel.HORSES:
+		var angle := TAU * float(horse) / float(Carousel.HORSES)
+		var spot := Vector3(cos(angle), 0.0, sin(angle))
+		var facing := Basis(Vector3.UP, PI * 0.5 - angle) * Vector3.RIGHT
+		_expect(
+			absf(facing.dot(spot)) < 0.01,
+			"horse %d faces along the circle rather than out of it" % horse
+		)
 
 	# A ticket is bought with coins and spent on a ride.
 	var purse := Wallet.new()

@@ -53,22 +53,26 @@ const HARNESS_TIME := 1.1
 ## The physics.
 ##
 ## A real coaster is one number — how far it has fallen since the lift — and
-## everything else follows. This one integrates that properly instead of
-## reading a speed off the height: gravity along the track's own slope, a
-## little drag, the chain holding a steady pace up the hill, and brakes on the
-## way in. What that buys over reading the speed off the profile is the feel of
-## it — a car crests a hill still slowing, and picks up over the brow rather
-## than at it.
+## everything else follows. This integrates it properly rather than reading a
+## speed off the height: gravity along the track's own slope, a little drag,
+## the chain holding a steady pace up the lift, and brakes on the run home.
+## What that buys is the feel of it — a car crests a hill still slowing and
+## picks up over the brow rather than at it.
 ##
-## Gravity is scaled down. At nine metres a second squared a twenty-metre drop
-## ends at eighteen metres a second, and a child cannot stand up in that.
-const GRAVITY := 3.2
-const DRAG := 0.035
+## Gravity is the real thing. It was scaled down to a third at first, out of a
+## worry that a child could not be carried at speed, and what that produced was
+## a train that ambled down a twenty-metre drop: the one moment the whole ride
+## exists for, and it felt like a pushchair. Nothing about carrying a passenger
+## cares how fast the car is going — the ride sets their position outright —
+## so the drops are as fast as the height says they are, which for this one is
+## about eighteen metres a second at the bottom of the first.
+const GRAVITY := 9.8
+const DRAG := 0.016
 const LIFT_SPEED := 3.4
 const LIFT_PULL := 2.6
-const BRAKE := 4.5
+const BRAKE := 7.5
 const CRAWL := 1.6
-const TOP_SPEED := 13.0
+const TOP_SPEED := 21.0
 
 ## How far the piles stand either side of the track's own line.
 const PILE_OFFSET := 0.78
@@ -240,6 +244,21 @@ func speed_at(fraction: float) -> float:
 ## How fast the train is actually going, this moment.
 func speed() -> float:
 	return _speed
+
+## Told by the game: somebody has paid and is standing at the platform, and
+## somebody is sitting in a car.
+func clear_to_board(paid: bool) -> void:
+	_cleared_to_board = paid
+
+func rider_aboard(aboard: bool) -> void:
+	_rider_aboard = aboard
+
+## Is a child standing close enough to a car to get into it?
+func car_within(at: Vector3, reach: float) -> bool:
+	for car in _cars:
+		if car.global_position.distance_to(at) < reach:
+			return true
+	return false
 
 ## How far down the harnesses are: nought at the platform, one on the ride.
 ## For the checks.
@@ -467,22 +486,26 @@ func _build_car(index: int) -> AnimatableBody3D:
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var colour: Color = CAR_COLOURS[index % CAR_COLOURS.size()]
 
+	# Longer along the track than across it, and the seat faces the way the car
+	# is going. It was the other way about: a rider sat sideways, looking out
+	# of the doorway, which is how a funfair carriage is built and not how a
+	# coaster is — the whole point of a coaster is the drop coming at you.
 	var floor_slab := BoxMesh.new()
-	floor_slab.size = Vector3(1.7, 0.18, 1.8)
+	floor_slab.size = Vector3(1.9, 0.18, 1.3)
 	Park._add(tool, floor_slab, Transform3D(Basis(), Vector3.ZERO), colour.darkened(0.4))
 	_solid(car, floor_slab.size, Vector3.ZERO)
-	# Closed at the ends and down the far side, and open down the side the
-	# platform is on — which is the local +z, because at the station the track
-	# runs north and a car's own left hand faces the boards.
+
+	# Closed at both ends and down the far side; the doorway is the near side,
+	# which is the local +z — at the station the track runs north and a car's
+	# own left hand faces the boards.
 	#
-	# The doorway is open all the way down to the floor. A character body
-	# climbs slopes and steps over nothing at all, so even a low sill across
-	# the way in is a wall to a child trying to get aboard — which is why
-	# there was no way into these at all.
+	# The doorway is open all the way to the floor. A character body climbs
+	# slopes and steps over nothing at all, so even a low sill across the way
+	# in is a wall to a child trying to get aboard.
 	for wall: Array in [
-		[Vector3(0.16, 1.05, 1.8), Vector3(0.85, 0.53, 0.0)],
-		[Vector3(0.16, 1.05, 1.8), Vector3(-0.85, 0.53, 0.0)],
-		[Vector3(1.7, 1.05, 0.16), Vector3(0.0, 0.53, -0.9)],
+		[Vector3(0.16, 1.05, 1.3), Vector3(0.95, 0.53, 0.0)],
+		[Vector3(0.16, 1.05, 1.3), Vector3(-0.95, 0.53, 0.0)],
+		[Vector3(1.9, 1.05, 0.16), Vector3(0.0, 0.53, -0.65)],
 	]:
 		var size: Vector3 = wall[0]
 		var where: Vector3 = wall[1]
@@ -491,47 +514,35 @@ func _build_car(index: int) -> AnimatableBody3D:
 		Park._add(tool, panel, Transform3D(Basis(), where), colour)
 		_solid(car, size, where)
 
-	# A rail along the top of the open side, which is what you hold while you
-	# step in. It stands clear of the doorway itself.
+	# A rail over the doorway, which is what you hold while you step in.
 	var rail := BoxMesh.new()
-	rail.size = Vector3(1.7, 0.12, 0.12)
+	rail.size = Vector3(1.9, 0.12, 0.12)
 	Park._add(
-		tool, rail, Transform3D(Basis(), Vector3(0.0, 1.02, 0.86)), colour.darkened(0.25)
+		tool, rail, Transform3D(Basis(), Vector3(0.0, 1.02, 0.61)), colour.darkened(0.25)
 	)
 	for post in 2:
 		var stanchion := BoxMesh.new()
 		stanchion.size = Vector3(0.12, 1.02, 0.12)
 		Park._add(
 			tool, stanchion,
-			Transform3D(Basis(), Vector3((float(post) - 0.5) * 1.5, 0.51, 0.86)),
+			Transform3D(Basis(), Vector3((float(post) - 0.5) * 1.7, 0.51, 0.61)),
 			colour.darkened(0.25)
 		)
 
-	# Two seats, side by side, facing the way the car is going: a cushion, a
-	# back, and a bolster between them.
-	for seat in SEATS:
-		var across := 0.0
+	# The seat: back to the rear of the car, facing forward.
+	for _seat in SEATS:
 		var cushion := BoxMesh.new()
-		cushion.size = Vector3(0.95, 0.16, 1.0)
-		Park._add(
-			tool, cushion,
-			Transform3D(Basis(), Vector3(across, 0.52, 0.05)),
-			SEAT
-		)
+		cushion.size = Vector3(0.9, 0.16, 0.95)
+		Park._add(tool, cushion, Transform3D(Basis(), Vector3(0.06, 0.52, 0.0)), SEAT)
 		var back := BoxMesh.new()
-		back.size = Vector3(0.95, 1.05, 0.18)
-		Park._add(
-			tool, back,
-			Transform3D(Basis(), Vector3(across, 1.0, -0.48)),
-			SEAT
-		)
-		# The pedestal under the cushion, which is what a seat on a coaster
-		# actually stands on.
+		back.size = Vector3(0.18, 1.05, 0.95)
+		Park._add(tool, back, Transform3D(Basis(), Vector3(-0.52, 1.0, 0.0)), SEAT)
 		var plinth := BoxMesh.new()
-		plinth.size = Vector3(0.75, 0.44, 0.8)
+		plinth.size = Vector3(0.75, 0.44, 0.78)
 		Park._add(
-			tool, plinth, Transform3D(Basis(), Vector3(across, 0.30, 0.05)), colour.darkened(0.3)
+			tool, plinth, Transform3D(Basis(), Vector3(0.06, 0.30, 0.0)), colour.darkened(0.3)
 		)
+
 	tool.generate_normals()
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
@@ -546,33 +557,34 @@ func _build_car(index: int) -> AnimatableBody3D:
 	# head. Up while the train stands at the platform, and down as soon as it
 	# leaves — which is what makes a coaster feel like a coaster even before it
 	# moves, and is the one part of the ride a child recognises from real life.
-	for seat in SEATS:
-		var across := 0.0
+	for _seat in SEATS:
 		var hinge := Node3D.new()
-		hinge.name = "Harness%d" % seat
-		hinge.position = Vector3(across, 1.42, -0.42)
+		hinge.name = "Harness"
+		hinge.position = Vector3(-0.46, 1.42, 0.0)
 		car.add_child(hinge)
 		_harnesses.append(hinge)
 
 		var harness := SurfaceTool.new()
 		harness.begin(Mesh.PRIMITIVE_TRIANGLES)
-		# Two shoulder pads and the yoke across them, all hanging forward of
-		# the hinge so that lowering it brings them down over a rider.
+		# Two shoulder pads reaching forward over the seat, and the yoke across
+		# them: everything forward of the hinge, so that swinging it down
+		# brings the pads over whoever is sitting there.
 		for shoulder: float in [-1.0, 1.0]:
 			var pad := BoxMesh.new()
-			pad.size = Vector3(0.30, 0.22, 0.85)
+			pad.size = Vector3(0.85, 0.22, 0.30)
 			Park._add(
 				harness, pad,
-				Transform3D(Basis(), Vector3(shoulder * 0.30, -0.06, 0.42)),
+				Transform3D(Basis(), Vector3(0.42, -0.06, shoulder * 0.28)),
 				HARNESS
 			)
 		var yoke := BoxMesh.new()
-		yoke.size = Vector3(0.80, 0.18, 0.20)
-		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.0, -0.06, 0.06)), HARNESS)
+		yoke.size = Vector3(0.20, 0.18, 0.76)
+		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.06, -0.06, 0.0)), HARNESS)
 		var clasp := BoxMesh.new()
 		clasp.size = Vector3(0.20, 0.30, 0.20)
 		Park._add(
-			harness, clasp, Transform3D(Basis(), Vector3(0.0, -0.26, 0.80)), HARNESS.darkened(0.35)
+			harness, clasp,
+			Transform3D(Basis(), Vector3(0.80, -0.26, 0.0)), HARNESS.darkened(0.35)
 		)
 		Park.commit(harness, hinge, "Pads")
 	return car
@@ -609,7 +621,9 @@ func _physics_process(delta: float) -> void:
 	var wanted := 0.0 if boarding() else 1.0
 	_locked = move_toward(_locked, wanted, delta / HARNESS_TIME)
 	for hinge in _harnesses:
-		hinge.rotation.x = -HARNESS_DROP * _locked
+		# About the car's own across-axis, so the pads swing down in front of
+		# the rider rather than out of the side of the car.
+		hinge.rotation.z = -HARNESS_DROP * _locked
 	_moved.clear()
 	for index in _cars.size():
 		_moved.append(_cars[index].position - before[index])
@@ -619,7 +633,9 @@ var _moved: Array[Vector3] = []
 ## Every shoulder harness on the train, and how far down they are: nought at
 ## the platform, one on the ride.
 var _harnesses: Array[Node3D] = []
-var _locked := 0.0
+var _locked := 1.0
+var _cleared_to_board := false
+var _rider_aboard := false
 
 ## How far the ride moves whoever is aboard, this frame.
 ##
@@ -631,7 +647,7 @@ func carry(at: Vector3, _delta: float) -> Vector3:
 		if index >= _moved.size():
 			break
 		var local := _cars[index].global_transform.affine_inverse() * at
-		if absf(local.x) < 0.85 and absf(local.z) < 0.95 and local.y > -0.4 and local.y < 2.0:
+		if absf(local.x) < 0.95 and absf(local.z) < 0.65 and local.y > -0.4 and local.y < 2.0:
 			return _moved[index]
 	return Vector3.ZERO
 

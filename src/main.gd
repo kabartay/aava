@@ -337,6 +337,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# The interface exists from here and not one line earlier. These sat above,
 	# where `hud` was still null, so the game reached the tablet with its talk
 	# button and its entire play-together panel connected to nothing at all.
+	hud.confirmed.connect(_on_answered.bind(true))
+	hud.refused.connect(_on_answered.bind(false))
 	hud.fire_fed.connect(_on_feed_fire)
 	hud.slept.connect(_on_sleep)
 	hud.talk_started.connect(voice.start_talking)
@@ -365,6 +367,12 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 ## Which ride the child is aboard, and whether they got on it without paying.
 var _aboard: StringName = &""
 var _riding_without_a_ticket := false
+## Whether the ride at the coaster's platform has been paid for, and whether
+## the child has been told they need a ticket for it.
+var _coaster_paid := false
+var _coaster_told := false
+## What the game has just asked about: a ticket at the kiosk, or a ride.
+var _asked: StringName = &""
 
 func _physics_process(delta: float) -> void:
 	if player == null or _waiting_for_ground or world.park == null:
@@ -373,19 +381,56 @@ func _physics_process(delta: float) -> void:
 	# ticket is taken when they get on, not while they stay on: the carousel
 	# turns for a minute and a ride is a ride.
 	var aboard := world.park.ride_under(player.global_position)
+
+	# The coaster is paid for at the car rather than in it, because its
+	# restraints have to know: walk up to a car standing at the platform with a
+	# ticket and it is taken, the shoulder bars lift, and you get in. Without
+	# one they stay down and the seat is shut, which is what a ticket is for.
+	var coaster := world.park.coaster
+	var at_a_car := coaster.boarding() and coaster.car_within(player.global_position, 3.5)
+	if at_a_car and not _coaster_paid and aboard != &"coaster" and not _coaster_told:
+		if wallet.tickets > 0:
+			if _asked == &"":
+				_asked = &"ride"
+				hud.ask(Text.of("ask_use_ticket"))
+		else:
+			_coaster_told = true
+			sounds.play(Sounds.Sound.REFUSE)
+			hud.announce(Text.of("say_park_needs_ticket"), 2.4)
+	if not at_a_car and aboard != &"coaster":
+		_coaster_told = false
+		if _asked == &"ride":
+			# Walked away from the question, which is an answer.
+			_asked = &""
+			hud.stop_asking()
+	# The ticket stays good until it is used or the child walks away from the
+	# ride: paying and then missing the train should not cost a coin.
+	if not ParkSpec.inside(player.global_position.x, player.global_position.z):
+		_coaster_paid = false
+	coaster.clear_to_board(_coaster_paid)
+	# And the bars come down the moment somebody sits in a car, which is what
+	# being strapped in means — they are certainly down by the time it leaves.
+	coaster.rider_aboard(aboard == &"coaster")
+	if aboard == &"coaster":
+		_coaster_paid = false
+
 	if aboard != _aboard:
 		_aboard = aboard
-		if aboard != &"" and Park.charges_for(aboard):
-			if wallet.use_ticket():
-				sounds.play(Sounds.Sound.CHIME, 1.1)
-				hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
-				_riding_without_a_ticket = false
+		if aboard != &"" and aboard != &"coaster" and Park.charges_for(aboard):
+			if wallet.tickets > 0:
+				_asked = &"ride"
+				hud.ask(Text.of("ask_use_ticket"))
+				# Nothing carries them until they say yes.
+				_riding_without_a_ticket = true
 			else:
 				sounds.play(Sounds.Sound.REFUSE)
 				hud.announce(Text.of("say_park_needs_ticket"), 2.4)
 				_riding_without_a_ticket = true
 		else:
 			_riding_without_a_ticket = false
+			if _asked == &"ride":
+				_asked = &""
+				hud.stop_asking()
 
 	var carried := world.park.carry(player.global_position, delta)
 	# A ride nobody has paid for does not carry them. It still turns: what a
@@ -1346,6 +1391,30 @@ func _show_where_it_goes(ball: Ball) -> void:
 		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, ground
 	))
 
+## The tick or the cross under a question. Everything that spends a child's
+## coins comes through here.
+func _on_answered(yes: bool) -> void:
+	var asked := _asked
+	_asked = &""
+	if not yes:
+		sounds.play(Sounds.Sound.REFUSE, 0.9)
+		if asked == &"ride":
+			# Said no to the ride: it turns under them and does not carry them,
+			# and it does not ask again until they step off and back on.
+			_coaster_told = true
+		return
+	match asked:
+		&"buy":
+			if wallet.buy_ticket(Park.RIDE_PRICE):
+				sounds.play(Sounds.Sound.PICKUP, 1.2)
+				hud.announce(Text.format("say_park_bought", [wallet.tickets]), 2.0)
+		&"ride":
+			if wallet.use_ticket():
+				_coaster_paid = true
+				_riding_without_a_ticket = false
+				sounds.play(Sounds.Sound.CHIME, 1.1)
+				hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
+
 ## The pool's turnstile: a child outside is offered a ticket and told the
 ## price once; a child inside is simply let out.
 var _ticket_told := false
@@ -1400,12 +1469,14 @@ func _on_snack() -> void:
 func _on_ticket() -> void:
 	# At the fairground's kiosk this buys a ride rather than a swim.
 	if world.park.at_the_booth(player.global_position):
-		if not wallet.buy_ticket(Park.RIDE_PRICE):
+		if not wallet.can_afford(Park.RIDE_PRICE):
 			sounds.play(Sounds.Sound.REFUSE)
 			hud.announce(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
 			return
-		sounds.play(Sounds.Sound.PICKUP, 1.2)
-		hud.announce(Text.format("say_park_bought", [wallet.tickets]), 2.0)
+		# Asked, not taken. Coins are the record of everything a child has
+		# done, and nothing in this valley spends them without being told to.
+		_asked = &"buy"
+		hud.ask(Text.format("ask_buy_ride", [Park.RIDE_PRICE]))
 		return
 	if world.places.turnstile_open():
 		return

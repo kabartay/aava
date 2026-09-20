@@ -24,6 +24,7 @@ const CANOPY_A := Color(0.84, 0.26, 0.24)
 const CANOPY_B := Color(0.96, 0.92, 0.84)
 
 var _turntable: Node3D
+var _horses: AnimatableBody3D
 var _turned := 0.0
 
 func _init(at: Vector3) -> void:
@@ -50,6 +51,16 @@ func _init(at: Vector3) -> void:
 	var footing := StaticBody3D.new()
 	footing.name = "Floor"
 	add_child(footing)
+
+	# The horses are solid, and they go round: a child walked straight through
+	# them, which is the one thing on a roundabout you are supposed to be able
+	# to lean on. Not a moving platform as far as physics is concerned — the
+	# ride moves its passengers itself, and letting the engine do it as well
+	# carried them half again as far as the floor.
+	_horses = AnimatableBody3D.new()
+	_horses.name = "Horses"
+	_horses.sync_to_physics = false
+	add_child(_horses)
 
 	# The floor, and the step up onto it.
 	var deck := CylinderMesh.new()
@@ -135,7 +146,15 @@ func _init(at: Vector3) -> void:
 			Transform3D(Basis(), spot + Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT * 0.46, 0.0)),
 			POLE
 		)
-		var facing := Basis(Vector3.UP, -angle)
+		# Facing the way it is going, not out at the trees.
+		#
+		# A carousel horse stands along the circle, nose to tail with the one
+		# in front: that is the whole picture of a roundabout. These were
+		# turned to face straight out from the middle, which is a row of
+		# horses looking over a fence. The floor turns the way a point's angle
+		# *decreases*, so the tangent a horse faces is (sin a, 0, -cos a),
+		# which is this.
+		var facing := Basis(Vector3.UP, PI * 0.5 - angle)
 		var body := BoxMesh.new()
 		body.size = Vector3(1.5, 0.62, 0.42)
 		var ride_at := spot + Vector3(0.0, FLOOR_HEIGHT + 1.15, 0.0)
@@ -147,6 +166,14 @@ func _init(at: Vector3) -> void:
 			Transform3D(facing, ride_at + facing * Vector3(0.62, 0.42, 0.0)),
 			MountKinds.HORSE_COATS[horse % MountKinds.HORSE_COATS.size()]
 		)
+		# What a child bumps into: the barrel of the horse, turned with it.
+		var solid := BoxShape3D.new()
+		solid.size = Vector3(1.6, 1.15, 0.5)
+		var barrel := CollisionShape3D.new()
+		barrel.shape = solid
+		barrel.transform = Transform3D(facing, ride_at - Vector3(0.0, 0.2, 0.0))
+		_horses.add_child(barrel)
+
 		var head := BoxMesh.new()
 		head.size = Vector3(0.52, 0.30, 0.30)
 		Park._add(
@@ -155,12 +182,15 @@ func _init(at: Vector3) -> void:
 			MountKinds.HORSE_COATS[horse % MountKinds.HORSE_COATS.size()]
 		)
 
+	Park.commit(turning, _horses, "Horses")
 	Park.commit(turning, _turntable, "Turning")
 	Park.commit(still, self, "Still")
 
 func _physics_process(delta: float) -> void:
 	_turned = fmod(_turned + TURN_RATE * delta, TAU)
-	_turntable.transform = Transform3D(Basis(Vector3.UP, _turned), Vector3.ZERO)
+	var spin := Transform3D(Basis(Vector3.UP, _turned), Vector3.ZERO)
+	_turntable.transform = spin
+	_horses.transform = spin
 
 ## How far the floor moves whoever is standing on it, this frame.
 ##

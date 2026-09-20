@@ -16,7 +16,7 @@ extends Node3D
 ## Half again as long as it was: fifteen metres of belt is over in seven
 ## seconds, and the point of a moving walkway is the stretch where you are
 ## being carried and doing nothing.
-const LENGTH := 22.5
+const LENGTH := 30.0
 const WIDTH := 1.7
 const GAP := 0.9
 const SPEED := 2.0
@@ -31,6 +31,12 @@ const SIDE := Color(0.58, 0.55, 0.52)
 const ARROW := Color(0.95, 0.85, 0.35)
 
 var _sides: StaticBody3D
+## The scrolling treads of each belt.
+var _belts: Array[Dictionary] = []
+
+## How many treads a belt carries, and how far apart they lie.
+const TREAD_SPACING := 1.6
+const TREADS := int(LENGTH / TREAD_SPACING)
 
 func _init(at: Vector3) -> void:
 	name = "Walkway"
@@ -87,26 +93,27 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 		Park._add(tool, ramp, stand, SIDE)
 		Park._solid(_sides, ramp.size, stand)
 
-	# Slats across it, and a chevron every few metres pointing the way it
-	# runs: which belt goes which way has to be legible before you step on.
-	var slats := int(LENGTH / 0.55)
-	for slat in slats:
-		var along := -LENGTH * 0.5 + LENGTH * (float(slat) + 0.5) / float(slats)
-		var bar := BoxMesh.new()
-		bar.size = Vector3(WIDTH - 0.12, 0.04, 0.26)
-		Park._add(tool, bar, Transform3D(Basis(), Vector3(offset, TOP + 0.01, along)), SLAT)
-		if slat % 6 == 3:
-			for wing: float in [-1.0, 1.0]:
-				var chevron := BoxMesh.new()
-				chevron.size = Vector3(0.62, 0.03, 0.14)
-				Park._add(
-					tool, chevron,
-					Transform3D(
-						Basis(Vector3.UP, wing * heading * deg_to_rad(38.0)),
-						Vector3(offset + wing * 0.22, TOP + 0.04, along)
-					),
-					ARROW
-				)
+	# The treads, and an arrow every few metres pointing the way the belt runs.
+	#
+	# They move. A belt that carries a child while its slats stand still reads
+	# as a painted strip that happens to push you, and the first thing anybody
+	# asked about these was whether they were working at all. They are drawn
+	# as one multimesh each and scrolled along, which costs one draw call and
+	# is the whole difference between a machine and a floor.
+	#
+	# The arrows used to be built from the belt's own heading and came out
+	# pointing back up it, which is worse than no arrow: a child reads the
+	# arrow, steps on, and is carried the other way.
+	var treads := MultiMeshInstance3D.new()
+	treads.name = "Treads%s" % ("North" if heading > 0.0 else "South")
+	var pattern := MultiMesh.new()
+	pattern.transform_format = MultiMesh.TRANSFORM_3D
+	pattern.mesh = _tread_mesh(heading)
+	pattern.instance_count = TREADS
+	treads.multimesh = pattern
+	treads.position = Vector3(offset, TOP + 0.02, 0.0)
+	add_child(treads)
+	_belts.append({"node": treads, "heading": heading, "along": 0.0})
 
 	# The sides, which are what makes it read as a walkway rather than a strip
 	# of paint, and a handrail along each.
@@ -144,6 +151,67 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 	collider.position = Vector3(offset, TOP - 0.09, 0.0)
 	belt.add_child(collider)
 	add_child(belt)
+
+## One tread: a slat across the belt, and on every sixth one an arrowhead
+## pointing the way the belt is going.
+func _tread_mesh(heading: float) -> ArrayMesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var bar := BoxMesh.new()
+	bar.size = Vector3(WIDTH - 0.12, 0.04, 0.26)
+	Park._add(tool, bar, Transform3D(Basis(), Vector3.ZERO), SLAT)
+	var head := CylinderMesh.new()
+	head.top_radius = 0.0
+	head.bottom_radius = 0.42
+	head.height = 0.6
+	head.radial_segments = 3
+	head.rings = 1
+	# North is -z in this valley, so a belt with a heading of one runs -z and
+	# its arrow has to lie that way: the cylinder points along its own +y, and
+	# turning it a quarter about x lays it along z.
+	Park._add(
+		tool, head,
+		Transform3D(Basis(Vector3.RIGHT, heading * -PI * 0.5), Vector3(0.0, 0.02, 0.0)),
+		ARROW
+	)
+	tool.generate_normals()
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.vertex_color_is_srgb = true
+	material.roughness = 0.7
+	tool.set_material(material)
+	return tool.commit()
+
+func _physics_process(delta: float) -> void:
+	for belt in _belts:
+		var along := float(belt["along"]) + SPEED * delta
+		if along > TREAD_SPACING:
+			along -= TREAD_SPACING
+		belt["along"] = along
+		var node: MultiMeshInstance3D = belt["node"]
+		var heading: float = belt["heading"]
+		for tread in TREADS:
+			node.multimesh.set_instance_transform(
+				tread, Transform3D(Basis(), Vector3(0.0, 0.0, _tread_offset(along, heading, tread)))
+			)
+
+## Where one tread lies along its belt: laid out down it and scrolled along,
+## wrapping round the far end, so what a child sees is treads going under their
+## feet.
+##
+## Its own function because a multimesh cannot be read back without a screen —
+## the transforms live on the rendering server — so this is the only part of
+## the scroll a check can get at.
+static func _tread_offset(along: float, heading: float, index: int) -> float:
+	return -LENGTH * 0.5 + fposmod(
+		TREAD_SPACING * float(index) + along * -heading, LENGTH
+	)
+
+## Where a tread on one of the belts is now. For the checks.
+func tread_at(side: int, index: int) -> float:
+	if side >= _belts.size():
+		return 0.0
+	return _tread_offset(float(_belts[side]["along"]), float(_belts[side]["heading"]), index)
 
 ## How far a belt moves whoever is standing on it, this frame.
 ##

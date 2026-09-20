@@ -560,6 +560,14 @@ const STRINGS := {
 	# The pool's turnstile.
 	"say_ticket": {EN: "pool: %d coins to go in", FR: "piscine : %d pièces pour entrer", RU: "бассейн: вход %d монет"},
 	"ui_rides": {EN: "RIDES", FR: "MANÈGES", RU: "АТТРАКЦИОНЫ"},
+	"ask_buy_ride": {
+		EN: "buy a ride for %d coins?", FR: "acheter un tour pour %d pièces ?",
+		RU: "купить поездку за %d монет?"
+	},
+	"ask_use_ticket": {
+		EN: "use a ticket for this ride?", FR: "utiliser un billet pour ce manège ?",
+		RU: "потратить билет на этот аттракцион?"
+	},
 	"say_park_ticket": {
 		EN: "rides: %d coins each", FR: "manèges : %d pièces le tour",
 		RU: "аттракционы: %d монет за поездку"
