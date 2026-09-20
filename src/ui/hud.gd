@@ -153,6 +153,8 @@ func _init() -> void:
 	add_child(_stick)
 
 	_backpack = Backpack.new()
+	# The bag changes height as it is opened and shut, and everything down the
+	# right-hand edge is placed under it.
 	add_child(_backpack)
 
 	_palette = _build_palette()
@@ -1283,7 +1285,9 @@ func _layout() -> void:
 	_purse.size = Vector2(Backpack.WIDTH, _purse.get_combined_minimum_size().y)
 	_purse.position = Vector2(
 		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
-		_backpack.position.y + _backpack.size.y + 8.0
+		# Against the folded height, not the real one: the open bag is an overlay
+		# that covers the purse rather than something the purse moves for.
+		_backpack.position.y + _backpack.shut_height() + 8.0
 	)
 
 	# Under the purse, at the same right edge as the bag above it.
@@ -1293,32 +1297,35 @@ func _layout() -> void:
 		_purse.position.y + _purse.size.y + 10.0
 	)
 
-	_drink_button.position = Vector2(
-		safe.position.x + safe.size.x - _drink_button.size.x - MARGIN,
-		_vitals.position.y + _vitals.size.y + 10.0
-	)
-
-	# Below the drink button when both are shown, in its place when it is not.
-	var whistle_top := _vitals.position.y + _vitals.size.y + 10.0
-	if _drink_button.visible:
-		whistle_top = _drink_button.position.y + _drink_button.size.y + 10.0
-	_whistle_button.position = Vector2(
-		safe.position.x + safe.size.x - _whistle_button.size.x - MARGIN, whistle_top
-	)
-
-	var chop_top := whistle_top
-	if _whistle_button.visible:
-		chop_top = _whistle_button.position.y + _whistle_button.size.y + 10.0
-	_chop_button.position = Vector2(
-		safe.position.x + safe.size.x - _chop_button.size.x - MARGIN, chop_top
-	)
-
-	var ride_top := chop_top
-	if _chop_button.visible:
-		ride_top = _chop_button.position.y + _chop_button.size.y + 10.0
-	_ride_button.position = Vector2(
-		safe.position.x + safe.size.x - _ride_button.size.x - MARGIN, ride_top
-	)
+	# The things you carry, down the right-hand edge under the gauges.
+	#
+	# This was a hand-written chain: each button worked out its own top from
+	# whether the one above it happened to be showing. Adding a button meant
+	# adding a link, and the two newest — the chocolate and the lantern — were
+	# never given one, so they sat at the top left corner of the screen on top
+	# of everything else. It also had no idea where the bottom of the screen
+	# was, so a long column walked down into the jump and build buttons and the
+	# three drew on top of one another.
+	#
+	# Now the column lays itself out: every button that is showing takes the
+	# next slot, and when the next slot would reach the row along the bottom it
+	# starts a second column inwards instead.
+	var column_top := _vitals.position.y + _vitals.size.y + 10.0
+	var column_x := safe.position.x + safe.size.x - BUTTON - MARGIN
+	var floor_y := safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN
+	var next_y := column_top
+	for button: Button in [
+		_drink_button, _snack_button, _lantern_button,
+		_whistle_button, _chop_button, _ride_button,
+	]:
+		if not button.visible:
+			continue
+		if next_y + button.size.y > floor_y:
+			# Out of room downwards: start again at the top, one column in.
+			column_x -= BUTTON + 12.0
+			next_y = column_top
+		button.position = Vector2(column_x + BUTTON - button.size.x, next_y)
+		next_y += button.size.y + 10.0
 
 	# Low and centre-left of the kick button, since drawing a bow and striking a
 	# ball are the same gesture and never both apply.
