@@ -211,6 +211,8 @@ func _suits(x: float, z: float) -> bool:
 		return false
 	if Pitch.is_levelled(x, z):
 		return false
+	if ParkSpec.inside(x, z):
+		return false
 	# Not on a road, and not against the signpost. A rock sitting in the middle
 	# of a worn path is a rock somebody would have rolled aside years ago, and
 	# one at the foot of the signs is something a child on a bicycle hits while

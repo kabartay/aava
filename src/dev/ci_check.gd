@@ -115,6 +115,7 @@ func _initialize() -> void:
 	_check_the_bridge_is_walked_not_climbed()
 	_check_the_bridge_is_on_the_map()
 	_check_the_roads_have_names()
+	_check_the_fairground()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -167,8 +168,22 @@ func _check_every_script_loads() -> void:
 		_fail("no scripts found to check — is the path wrong?")
 		return
 	for path in scripts:
-		if ResourceLoader.load(path, "Script") == null:
+		var script := ResourceLoader.load(path, "Script") as GDScript
+		if script == null:
 			_fail("%s did not load" % path)
+			continue
+		# Loading is not enough. A script whose body names something that does
+		# not exist — a constant moved to another class, a function never
+		# written — still comes back from the loader as an object; it is only
+		# when it is compiled that the name is looked for. Two rides went into
+		# the game calling constants that were not there, the export built, and
+		# every check here passed.
+		# Except this file, which is the one running: reloading a script from
+		# inside itself fails on principle rather than on merit.
+		if path == get_script().resource_path:
+			continue
+		if script.reload() != OK:
+			_fail("%s did not compile" % path)
 	_ok("%d scripts" % scripts.size())
 
 func _find_scripts(directory: String) -> PackedStringArray:
@@ -7390,3 +7405,166 @@ func _check_the_roads_have_names() -> void:
 	# Both faces of four plates, and both faces of the two plaques.
 	_expect(writing >= Signpost.ROADS.size() * 2 + 2, "and carries %d pieces of writing" % writing)
 	post.queue_free()
+
+## The fairground: its ground, its fence and its five rides.
+##
+## Everything here is a thing that would be wrong on the phone and cannot be
+## seen from a desk: a ride standing outside its own fence, a wheel that is
+## thirty metres to its axle rather than to its top, a park levelled into the
+## river, grass growing up through the sand.
+func _check_the_fairground() -> void:
+	print("the fairground")
+	var field := HeightField.new(20260903)
+
+	# The ground under it is flat, at the height the rides are built to.
+	var roughest := 0.0
+	var steepest := 0.0
+	var x := ParkSpec.WEST
+	while x <= ParkSpec.EAST:
+		var z := ParkSpec.NORTH
+		while z <= ParkSpec.SOUTH:
+			roughest = maxf(roughest, absf(field.height_at(x, z) - ParkSpec.LEVEL))
+			steepest = maxf(steepest, field.steepness_at(x, z))
+			z += 6.0
+		x += 4.0
+	_expect(roughest < 0.05, "the fairground is level to %.3f m" % roughest)
+	_expect(steepest < 0.05, "and flat underfoot: steepest %.3f" % steepest)
+
+	# It is dry ground, clear of the river it stands beside.
+	var nearest_water := INF
+	var zz := ParkSpec.NORTH
+	while zz <= ParkSpec.SOUTH:
+		nearest_water = minf(
+			nearest_water, field.distance_to_river(ParkSpec.WEST, zz)
+		)
+		zz += 6.0
+	_expect(
+		nearest_water > HeightField.RIVER_HALF_WIDTH + 4.0,
+		"and stands %.1f m from the middle of the river, clear of the water" % nearest_water
+	)
+
+	# The gate is a few paces off the road east, which is how a child finds it.
+	var road_z := 18.0 + (ParkSpec.gate().x / 440.0) * 40.0
+	_expect(
+		absf(ParkSpec.SOUTH - road_z) < 12.0,
+		"the gate stands %.1f m from the road east" % absf(ParkSpec.SOUTH - road_z)
+	)
+
+	# Nothing grows or lies about on it.
+	_expect(
+		field.forest_density_at(ParkSpec.centre().x, ParkSpec.centre().z) == 0.0,
+		"no trees on the fairground"
+	)
+	var rocks := Boulders.new(field, 20260903)
+	get_root().add_child(rocks)
+	_expect(not rocks._suits(ParkSpec.centre().x, ParkSpec.centre().z), "and no boulders")
+	rocks.queue_free()
+
+	var park := Park.new(field)
+	get_root().add_child(park)
+
+	# Every ride stands inside the fence, with the verge to spare.
+	# Each one measured across the ground and along it separately: the coaster
+	# is six metres wide and a hundred and thirty long, and one number for both
+	# puts it out through the fence in the direction it is not.
+	for ride: Array in [
+		["carousel", Park.CAROUSEL_AT, Carousel.RADIUS, Carousel.RADIUS],
+		["walkway", Park.WALKWAY_AT, Walkway.WIDTH + Walkway.GAP, Walkway.LENGTH * 0.5 + 1.5],
+		["trampoline", Park.TRAMPOLINE_AT, Park.TRAMPOLINE_RADIUS, Park.TRAMPOLINE_RADIUS],
+		["wheel", Park.WHEEL_AT, 3.5, FerrisWheel.RADIUS],
+		["coaster", Park.COASTER_AT, RollerCoaster.HALF_WIDTH + 1.0, RollerCoaster.HALF_LENGTH],
+	]:
+		var at: Vector3 = ride[1]
+		var across: float = ride[2]
+		var along: float = ride[3]
+		for corner: Vector2 in [
+			Vector2(across, 0.0), Vector2(-across, 0.0),
+			Vector2(0.0, along), Vector2(0.0, -along)
+		]:
+			_expect(
+				ParkSpec.inside(at.x + corner.x, at.z + corner.y),
+				"the %s stands inside the fence" % ride[0]
+			)
+
+	# And no two of them are in the same place.
+	var rides: Array = [
+		[Park.CAROUSEL_AT, Carousel.RADIUS], [Park.WALKWAY_AT, Walkway.LENGTH * 0.5],
+		[Park.TRAMPOLINE_AT, Park.TRAMPOLINE_RADIUS], [Park.WHEEL_AT, FerrisWheel.RADIUS],
+	]
+	for first in rides.size():
+		for second in range(first + 1, rides.size()):
+			var a: Vector3 = rides[first][0]
+			var b: Vector3 = rides[second][0]
+			var apart := Vector2(a.x - b.x, a.z - b.z).length()
+			_expect(
+				apart > float(rides[first][1]) + float(rides[second][1]),
+				"two rides %.1f m apart do not share ground" % apart
+			)
+
+	# The rides are what was asked for: a big trampoline, thirty metres of
+	# wheel, twenty of coaster, fifteen of walkway each way.
+	_expect(
+		Park.TRAMPOLINE_RADIUS > Places.TRAMPOLINE_RADIUS * 1.9,
+		"the trampoline is twice the playground's: %.1f m against %.1f" % [
+			Park.TRAMPOLINE_RADIUS, Places.TRAMPOLINE_RADIUS
+		]
+	)
+	_expect(
+		absf(park.wheel.top_of_the_ride() - 30.0) < 1.5,
+		"the wheel carries a child to %.1f m" % park.wheel.top_of_the_ride()
+	)
+	_expect(
+		park.coaster.highest() > 18.0 and park.coaster.highest() <= 20.5,
+		"the coaster climbs to %.1f m" % park.coaster.highest()
+	)
+	_expect(
+		RollerCoaster.HALF_LENGTH * 2.0 > ParkSpec.length() * 0.75,
+		"and runs %.0f m, most of the length of the ground" % (RollerCoaster.HALF_LENGTH * 2.0)
+	)
+	_expect(absf(Walkway.LENGTH - 15.0) < 0.01, "the walkways are fifteen metres")
+	var north := park.walkway.carries(0)
+	var south := park.walkway.carries(1)
+	_expect(
+		north.dot(south) < 0.0 and absf(north.z) > 0.5,
+		"and run opposite ways: %.1f and %.1f" % [north.z, south.z]
+	)
+
+	# The moving parts are moving floors, which is what carries a child.
+	for moving: Node in [park.carousel.get_node("Turntable"), park.wheel.gondola(0)]:
+		var body := moving as AnimatableBody3D
+		_expect(body != null, "a ride a child stands on is a body that moves")
+		if body != null:
+			_expect(body.sync_to_physics, "and tells physics it is moving, or it leaves them behind")
+
+	# They actually move, and the coaster is slow over the top and fast at the
+	# bottom, which is the whole feeling of a coaster.
+	var before := park.carousel.turned()
+	park.carousel._physics_process(1.0)
+	_expect(park.carousel.turned() > before, "the carousel goes round")
+	var wheel_before := park.wheel.turned()
+	park.wheel._physics_process(1.0)
+	_expect(park.wheel.turned() > wheel_before, "the wheel goes round")
+	_expect(
+		park.coaster.speed_at(0.46) > park.coaster.speed_at(0.30) * 1.5,
+		"the coaster runs %.1f m/s at the bottom against %.1f over the top" % [
+			park.coaster.speed_at(0.46), park.coaster.speed_at(0.30)
+		]
+	)
+	# And the track is a loop: it comes back to where it started, at the height
+	# it started, or a car falls off the end of it.
+	var start := park.coaster.point_at(0.0)
+	var round_again := park.coaster.point_at(park.coaster.circuit())
+	_expect(
+		start.distance_to(round_again) < 0.01,
+		"the coaster's track closes on itself"
+	)
+
+	# It is all drawn.
+	var triangles := 0
+	for node: Node in [park, park.carousel, park.wheel, park.coaster, park.walkway]:
+		for child in node.get_children():
+			var drawn := child as MeshInstance3D
+			if drawn != null:
+				triangles += drawn.mesh.get_faces().size() / 3
+	_expect(triangles > 2000, "the fairground is drawn: %d triangles" % triangles)
+	park.queue_free()

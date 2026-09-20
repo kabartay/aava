@@ -301,7 +301,15 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		# Landing on the trampoline's mat throws some of the fall back up. Not
 		# all of it, so a child who simply steps on does not start bouncing
 		# for ever — jumping from the mat is what sends them high.
-		if world.places.on_trampoline(player.global_position):
+		if world.park.on_trampoline(player.global_position):
+			# The fairground's trampoline is twice the size and gives back
+			# more: it is the one a ten-year-old goes to the park for.
+			player.velocity.y = maxf(
+				speed * Park.TRAMPOLINE_REBOUND, Park.TRAMPOLINE_JUMP
+			)
+			sounds.play(Sounds.Sound.JUMP, 1.2)
+			return
+		elif world.places.on_trampoline(player.global_position):
 			player.velocity.y = clampf(speed * Places.TRAMPOLINE_REBOUND, 0.0, 9.0)
 			sounds.play(Sounds.Sound.JUMP, 0.8)
 			return

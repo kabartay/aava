@@ -31,6 +31,7 @@ var places: Places
 var dams: Dams
 var bridge: Bridge
 var signpost: Signpost
+var park: Park
 var hearths: Hearths
 var football: FootballGround
 var atmosphere: Atmosphere
@@ -127,6 +128,12 @@ func _ready() -> void:
 	# is a place rather than a crossing of worn earth.
 	signpost = Signpost.new(field)
 	add_child(signpost)
+
+	# The fairground on the east bank: fenced sandy ground with five rides on
+	# it. Its floor is levelled by the height field, the way the pitch's is;
+	# this is what stands on it.
+	park = Park.new(field)
+	add_child(park)
 
 	# Ducks on the ponds. Decoration, and nothing else: they give no coins and
 	# want nothing, because a valley where everything that moves is an errand

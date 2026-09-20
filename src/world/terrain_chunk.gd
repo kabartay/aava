@@ -257,6 +257,15 @@ static func _tint(
 		if pitch > 0.5 and Pitch.is_levelled(x, z):
 			return _pitch_tint(x, z)
 
+	# The fairground, like the pitch, takes no natural tinting: it is trodden
+	# sand from the fence in, and a beach gradient or a snow line across it
+	# would say the ground is something it is not.
+	var fair := ParkSpec.sand(x, z)
+	if fair > 0.0:
+		var ground := TerrainSpec.COLOR_SAND.lerp(TerrainSpec.COLOR_TRODDEN, 0.35)
+		if fair > 0.99:
+			return ground
+
 	var steep := slope
 	var color := TerrainSpec.COLOR_GRASS
 
@@ -298,6 +307,9 @@ static func _tint(
 		var worn := PlaceSpec.trodden(x, z, field.camp_centre())
 		if worn > 0.0:
 			color = color.lerp(TerrainSpec.COLOR_TRODDEN, clampf(worn * 0.85, 0.0, 0.85))
+
+	if fair > 0.0:
+		color = color.lerp(TerrainSpec.COLOR_SAND.lerp(TerrainSpec.COLOR_TRODDEN, 0.35), fair)
 
 	# A trodden path, over the natural tinting but under the snow: a route
 	# through the meadow is bare earth, and a route over a peak would still be

@@ -87,6 +87,9 @@ static func bake(
 			# Nothing grows on a mown pitch, on a trodden path, or in a lake:
 			# grass placed by its own rule comes straight up through anything
 			# the terrain painted or the water covers.
+			# Nor on the fairground, which is sand under a child's feet.
+			if ParkSpec.inside(world_x, world_z):
+				continue
 			if Pitch.is_levelled(world_x, world_z):
 				continue
 			if field.path_at(world_x, world_z, height) > 0.35:

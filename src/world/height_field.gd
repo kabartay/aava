@@ -250,6 +250,13 @@ func height_at(x: float, z: float) -> float:
 	if pitch > 0.0:
 		floor_height = lerpf(floor_height, PITCH_LEVEL, pitch)
 
+	# The fairground levels its own ground in exactly the same way, and for the
+	# same reason: the rides need a floor, and everything that reads a height
+	# has to agree there is one.
+	var park := ParkSpec.influence(x, z)
+	if park > 0.0:
+		floor_height = lerpf(floor_height, ParkSpec.LEVEL, park)
+
 	# The lakes are carved out of the ground rather than the water being raised
 	# to meet them, for the same reason the swimming pool is: the water surface
 	# is one flat plane across the whole world.
@@ -357,6 +364,7 @@ func fill_grid(
 	# Does anything at all reach into this square? A box against a box.
 	var margin := 8.0
 	var pitch_here := Pitch.touches_box(origin_x - margin, origin_z - margin, far_x + margin, far_z + margin)
+	var park_here := ParkSpec.touches_box(origin_x - margin, origin_z - margin, far_x + margin, far_z + margin)
 	var places_here := _box_near(origin_x, origin_z, far_x, far_z, camp, PlaceSpec.BOUNDS_HALF + margin)
 	var lakes_here := _box_near(origin_x, origin_z, far_x, far_z, Vector3.ZERO, Lakes.BOUNDS + margin)
 	var dams_here := not dams_built.is_empty()
@@ -371,6 +379,13 @@ func fill_grid(
 				var pitch := Pitch.influence(x, z)
 				if pitch > 0.0:
 					height = lerpf(height, PITCH_LEVEL, pitch)
+			# In the same order height_at does it, because these two are two
+			# code paths for one answer and the day they disagree the ground a
+			# child stands on is not the ground the game believes in.
+			if park_here:
+				var park := ParkSpec.influence(x, z)
+				if park > 0.0:
+					height = lerpf(height, ParkSpec.LEVEL, park)
 			# The lakes before the places, and in exactly the order height_at
 			# does it: shore cut first, then the basin dug below the pond's
 			# own water. This is the path that builds the ground a child
@@ -565,6 +580,10 @@ func forest_density_at(x: float, z: float) -> float:
 	# A clearing along the river. Rivers cut through forests in life, and here it
 	# also keeps the most walkable part of the world open for building.
 	density *= smoothstep(10.0, 34.0, distance_to_river(x, z))
+
+	# Nothing grows on the fairground: it is trodden sand from the fence in.
+	if ParkSpec.inside(x, z):
+		return 0.0
 
 	# And nothing at all at the crossing: a pine coming up through the deck is
 	# worse than a bare patch.
