@@ -218,6 +218,26 @@ func _build() -> void:
 					TIMBER
 				)
 
+	# And the timber becomes one mesh.
+	#
+	# This step went missing when the deck was rewritten: the collision was
+	# built, the boards were fed into the SurfaceTool, and then nothing
+	# committed the tool or put the result in the scene. What that makes is a
+	# bridge you can walk over and cannot see — and an invisible bridge is
+	# worse than no bridge, because a child stops believing what they are told
+	# about the valley.
+	tool.generate_normals()
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.vertex_color_is_srgb = true
+	material.roughness = 0.88
+	tool.set_material(material)
+
+	var timbers := MeshInstance3D.new()
+	timbers.name = "Timbers"
+	timbers.mesh = tool.commit()
+	add_child(timbers)
+
 ## The deck's collision: one continuous prism swept along the arch.
 ##
 ## A trimesh rather than a pile of boxes, because a pile of boxes cannot be

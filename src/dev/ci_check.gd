@@ -7113,6 +7113,7 @@ func _check_the_bridge_is_walked_not_climbed() -> void:
 	# the sawtooth was in what was drawn rather than in what was computed.
 	var planking := BridgeSpec.HALF_WIDTH - BridgeSpec.RAIL_INSET - 0.3
 	var proud := -INF
+	var triangles := 0
 	for child in bridge.get_children():
 		var drawn := child as MeshInstance3D
 		if drawn == null:
@@ -7127,6 +7128,13 @@ func _check_the_bridge_is_walked_not_climbed() -> void:
 			if point.y < line - 0.5:
 				continue
 			proud = maxf(proud, point.y - line)
+		triangles += faces.size() / 3
+	# There is something drawn at all. The rewrite that made the deck one
+	# swept surface also lost the few lines that committed the timber into a
+	# mesh and put it in the scene, and every check here still passed: they
+	# all walked a list of drawn pieces that was empty. A bridge you can cross
+	# and cannot see is worse than no bridge.
+	_expect(triangles > 200, "the bridge is drawn: %d triangles of timber" % triangles)
 	_expect(
 		proud < 0.02,
 		"no board is drawn standing above the deck: worst is %.3f m" % proud
