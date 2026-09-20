@@ -160,6 +160,13 @@ var may_run := true
 var is_running := false
 var is_moving := false
 
+## How much steering a standing machine gets while the throttle is held: enough
+## to paddle it round out of a corner, not enough to spin it on the spot.
+const PADDLE_BITE := 0.4
+
+## Reverse, as a share of what the machine does forwards.
+const REVERSE_SHARE := 0.32
+
 ## Which way a steered machine is pointing. Kept here rather than read back
 ## off the drawn body, because the body eases towards it and steering off an
 ## eased value compounds into a wobble.
@@ -361,15 +368,26 @@ func _physics_process(delta: float) -> void:
 	# takes time and ground — which is the whole difference between riding a
 	# motorcycle and carrying one.
 	var steering := riding != &"" and MountKinds.steers(riding)
+	var reversing := false
 	if steering:
 		var throttle := -input.y
 		var steer := input.x
 		var pace := Vector2(velocity.x, velocity.z).length()
 		var top_speed := MountKinds.speed(riding)
-		# How sharply it can be turned at this speed. At a standstill, not at
-		# all: a machine on two wheels is pushed round by hand, and a child who
-		# wants to turn on the spot can get off.
+		reversing = throttle < -0.05
+		# How sharply it can be turned at this speed. Moving, it leans into the
+		# turn; standing still it barely turns at all, because a machine on two
+		# wheels is pushed round by hand rather than spun on the spot.
 		var bite := clampf(pace / maxf(top_speed * 0.35, 0.01), 0.0, 1.0)
+		# But *barely* is not *never*. Ridden nose-first into a wood, the
+		# machine stops dead, and with no speed there was no bite, and with no
+		# bite it could not be pointed anywhere else: a child was wedged
+		# against a tree with the throttle open and nothing happening. So
+		# holding the throttle — either way — always buys enough steering to
+		# paddle the thing round, the way you walk a motorcycle out of a corner
+		# with your feet.
+		if absf(throttle) > 0.1:
+			bite = maxf(bite, PADDLE_BITE)
 		_ride_heading -= steer * MountKinds.turn_rate(riding) * bite * delta
 		var forward := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
 		wish = forward * throttle
@@ -381,9 +399,6 @@ func _physics_process(delta: float) -> void:
 	var push := clampf(wish.length(), 0.0, 1.0)
 	if push > 0.001:
 		wish /= wish.length()
-	# Reversing is a walking pace, whatever the machine would do forwards.
-	if steering and wish.dot(Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))) < 0.0:
-		push = minf(push, 0.3)
 
 	# Pushing past three quarters breaks into a run without touching sprint,
 	# which is how a thumbstick is expected to behave and means a six-year-old
@@ -405,6 +420,15 @@ func _physics_process(delta: float) -> void:
 		# the horse nor let it go.
 		var gait := smoothstep(0.0, 0.72, push) * 0.75 + smoothstep(0.72, 1.0, push) * 0.4
 		top = MountKinds.speed(riding) * gait
+		# Backing up is slow, but it is a pace rather than a crawl. It used to
+		# be capped by squashing the stick push — and the push is applied twice
+		# further down, once through the gait and once again to the target, so
+		# a third of a push came out as a tenth of the speed. Backing a
+		# motorcycle out of a wood at a twentieth of its speed is
+		# indistinguishable from being stuck. The cap belongs on the speed,
+		# where it means what it says.
+		if reversing:
+			top = MountKinds.speed(riding) * REVERSE_SHARE
 	elif not may_run:
 		# Too tired to run, but never too tired to walk. Energy shapes the pace
 		# of a day; it must not strand a child halfway up a hill.
@@ -412,7 +436,11 @@ func _physics_process(delta: float) -> void:
 	# Riding is not running: it must not drain the child's own energy.
 	is_running = riding == &"" and top > WALK_SPEED + 0.01 and wish.length_squared() > 0.01
 
-	var target := wish * top * minf(push, 1.0)
+	# How hard the stick is pushed has already been spent on a mount — it chose
+	# the gait — so it must not be spent a second time here, which quietly
+	# squared it and made every pace short of full throttle far slower than it
+	# looked.
+	var target := wish * top * (1.0 if riding != &"" else minf(push, 1.0))
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 
 	var rate := GROUND_ACCELERATION if grounded else AIR_ACCELERATION
