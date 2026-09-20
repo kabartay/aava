@@ -20,10 +20,20 @@ extends RefCounted
 ## class_name cycle hangs Godot's loader outright. Where it needs to know where
 ## the river is, it is told — exactly as DamSpec is.
 
-## Where along the river it crosses. The pitch is at z = 34 and the pool at
-## z = 86; the bridge sits between them, so it is opposite both and in the way
-## of neither.
-const CENTRE_Z := 60.0
+## Where along the river it crosses: at the camp, a few metres north of it.
+##
+## It stood between the football pitch and the swimming pool, which is a
+## sensible place for a bridge and the wrong place for *this* bridge: fifty
+## metres of meadow from the camp, round a shoulder of ground, with a river
+## that looks identical for a kilometre either side of it. A child who cannot
+## see the crossing from where they start does not believe there is one. It
+## begins where they stand instead, and the river is twenty-five metres east of
+## the camp — you walk out of the door and onto it.
+##
+## The number is the camp's own latitude plus a few metres, so the deck clears
+## the ground a child builds on; a check ties it back to the camp so the two
+## cannot drift apart.
+const CENTRE_Z := 26.0
 
 ## How far the deck reaches either side of the river's centre line. The water
 ## is sixteen metres of half-width and the bank climbs for another ten, so this

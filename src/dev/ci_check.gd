@@ -6889,12 +6889,21 @@ func _check_the_bridge_carries_what_cannot_swim() -> void:
 	var field := HeightField.new(20260903)
 	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
 
-	# Opposite the two places a child already knows, and between them.
-	var pool_z: float = field.camp_centre().z + PlaceSpec.OFFSETS[&"pool"].z
+	# In sight of where a child starts. It used to cross fifty metres away,
+	# between the pitch and the pool, and a crossing you cannot see from your
+	# own door is one you do not know exists.
+	var camp := field.camp_centre()
 	_expect(
-		BridgeSpec.CENTRE_Z > minf(Pitch.CENTRE.z, pool_z)
-		and BridgeSpec.CENTRE_Z < maxf(Pitch.CENTRE.z, pool_z),
-		"it crosses between the pitch at z=%.0f and the pool at z=%.0f" % [Pitch.CENTRE.z, pool_z]
+		absf(BridgeSpec.CENTRE_Z - camp.z) < 12.0,
+		"it crosses at the camp's own latitude: z=%.0f against the camp at z=%.0f" % [
+			BridgeSpec.CENTRE_Z, camp.z
+		]
+	)
+	_expect(
+		Vector2(river_x, BridgeSpec.CENTRE_Z).distance_to(Vector2(camp.x, camp.z)) < 60.0,
+		"and is %.0f m from the camp, which is a walk a child takes without deciding to" % (
+			Vector2(river_x, BridgeSpec.CENTRE_Z).distance_to(Vector2(camp.x, camp.z))
+		)
 	)
 
 	# Both ends meet the ground they land on, with no step to trip over.
