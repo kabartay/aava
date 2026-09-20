@@ -208,6 +208,37 @@ func river_centre_x(z: float) -> float:
 func distance_to_river(x: float, z: float) -> float:
 	return absf(x - river_centre_x(z))
 
+## Where the river runs under the bridge. Worked out once: it never moves, and
+## every board of the deck would otherwise ask for it again.
+var _crossing_x := NAN
+## The ground under each end of the bridge, in the same way.
+var _crossing_ends := Vector2.ZERO
+
+## How high the bridge deck is over this point, or NAN where there is no
+## bridge over it.
+##
+## This lives here rather than on the Bridge node because the node is the thing
+## that *draws* the bridge, and half the game needs to know where the deck is
+## without one being drawn: the mounts ask, so a bicycle may cross where it may
+## not swim, and the checks ask with no scene at all. A drawn bridge and a known
+## bridge in two places is how a deck ends up somewhere the planks are not.
+func bridge_deck_at(x: float, z: float) -> float:
+	if is_nan(_crossing_x):
+		_crossing_x = river_centre_x(BridgeSpec.CENTRE_Z)
+		_crossing_ends = Vector2(
+			height_at(_crossing_x - BridgeSpec.HALF_SPAN, BridgeSpec.CENTRE_Z),
+			height_at(_crossing_x + BridgeSpec.HALF_SPAN, BridgeSpec.CENTRE_Z)
+		)
+	if not BridgeSpec.on_deck(x, z, _crossing_x):
+		return NAN
+	return BridgeSpec.deck_height(x, _crossing_x, _crossing_ends.x, _crossing_ends.y)
+
+## Is this point on the bridge's deck, at the deck's own height? A rider
+## swimming under the arch is over the deck's footprint and not on it.
+func is_on_the_bridge(at: Vector3) -> bool:
+	var deck := bridge_deck_at(at.x, at.z)
+	return not is_nan(deck) and absf(at.y - deck) < BridgeSpec.ON_DECK_REACH
+
 func height_at(x: float, z: float) -> float:
 	var floor_height := _raw_height(x, z)
 
@@ -534,6 +565,11 @@ func forest_density_at(x: float, z: float) -> float:
 	# A clearing along the river. Rivers cut through forests in life, and here it
 	# also keeps the most walkable part of the world open for building.
 	density *= smoothstep(10.0, 34.0, distance_to_river(x, z))
+
+	# And nothing at all at the crossing: a pine coming up through the deck is
+	# worse than a bare patch.
+	if BridgeSpec.clear_of_trees(x, z, river_centre_x(BridgeSpec.CENTRE_Z)):
+		return 0.0
 
 	# Trees thin out as the ground steepens and stop where nothing could root.
 	density *= 1.0 - smoothstep(0.28, 0.62, steepness_at(x, z))

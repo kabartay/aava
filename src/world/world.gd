@@ -29,6 +29,7 @@ var mounts: Mounts
 var archery: Archery
 var places: Places
 var dams: Dams
+var bridge: Bridge
 var hearths: Hearths
 var football: FootballGround
 var atmosphere: Atmosphere
@@ -115,6 +116,11 @@ func _ready() -> void:
 	water = Water.new()
 	water.name = "Water"
 	add_child(water)
+
+	# The one crossing. A wheeled machine cannot ford the river, so without it
+	# half the valley is closed to anything a child buys in the shop.
+	bridge = Bridge.new(field)
+	add_child(bridge)
 
 	# Ducks on the ponds. Decoration, and nothing else: they give no coins and
 	# want nothing, because a valley where everything that moves is an errand

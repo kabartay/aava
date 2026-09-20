@@ -676,6 +676,13 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	# ordinary ground, so a horse could be ridden in through the gate and stand
 	# among the loungers, and a rider who got in that way was never asked for a
 	# ticket.
+	# The bridge. It is the one place a wheeled machine may be over water, and
+	# the one place the ground underneath it has nothing to say about whether
+	# it can be ridden: the deck is level enough for anything, and the bank it
+	# arches over is not.
+	if field.is_on_the_bridge(at):
+		return true
+
 	var camp := field.camp_centre()
 	if PlaceSpec.excavation(at.x, at.z, camp) > 0.4:
 		return false

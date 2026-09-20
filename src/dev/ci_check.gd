@@ -107,6 +107,10 @@ func _initialize() -> void:
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
 	_check_nothing_is_used_before_it_exists()
+	await _check_the_open_bag_moves_nothing()
+	_check_the_valley_loops_without_a_tick()
+	_check_a_machine_backs_out_of_a_corner()
+	_check_the_bridge_carries_what_cannot_swim()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -6766,3 +6770,173 @@ func _check_context_buttons_never_overlap() -> void:
 	_expect(distinct, "all four context buttons get their own position when every one applies")
 
 	hud.queue_free()
+
+## The bag folds open over what is under it rather than pushing it off the
+## screen. A child opened it and the purse, the gauges and half the buttons
+## walked down past the bottom edge.
+func _check_the_open_bag_moves_nothing() -> void:
+	print("the open bag moves nothing")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+
+	hud.set_item_count(ItemKinds.STICK, 3)
+	hud.set_item_count(ItemKinds.STONE, 2)
+	hud.set_item_count(ItemKinds.REED, 1)
+	hud._layout()
+	await process_frame
+	var purse_shut := hud._purse.position
+	var vitals_shut := hud._vitals.position
+	var bag := hud._backpack
+
+	_expect(not bag.is_open(), "the bag starts folded")
+	bag.toggle()
+	await process_frame
+	hud._layout()
+	await process_frame
+
+	_expect(bag.is_open(), "and opens when its title is tapped")
+	_expect(bag.size.y > bag.shut_height() + 1.0, "and is taller open than shut")
+	_expect(
+		hud._purse.position.is_equal_approx(purse_shut),
+		"but the purse has not moved: %s against %s" % [hud._purse.position, purse_shut]
+	)
+	_expect(hud._vitals.position.is_equal_approx(vitals_shut), "and neither have the gauges")
+	_expect(bag.z_index > hud._purse.z_index, "the list is drawn over them")
+	_expect(bag.modulate.a < 1.0, "and thinly enough to read them through it")
+	hud.queue_free()
+
+## Every looping voice joins its own end to its own beginning.
+##
+## These are filtered noise, and a filter has a memory: without folding the end
+## back over the start, the last sample knows nothing about the first and the
+## join is a step — a tick, every few seconds, for ever. The step is compared
+## against how big a step that waveform takes from one sample to the next
+## normally, because a hiss takes big steps and a rumble takes small ones and
+## there is no single number that suits both.
+func _check_the_valley_loops_without_a_tick() -> void:
+	print("the valley loops without a tick")
+	var ambience := Ambience.new()
+	for voice: String in ["water", "leaves"]:
+		var stream := ambience._stream_of(voice)
+		var data := stream.data
+		var count := data.size() / 2
+		var seam := absf(float(data.decode_s16(0) - data.decode_s16((count - 1) * 2)))
+		var usual := 0.0
+		for i in range(1, mini(count, 8000)):
+			usual += absf(float(data.decode_s16(i * 2) - data.decode_s16((i - 1) * 2)))
+		usual /= 7999.0
+		_expect(
+			seam < usual * 14.0,
+			"the %s joins with a step of %.0f against its usual %.0f" % [voice, seam, usual]
+		)
+		# And long enough that the repeat is not counted. Four seconds of river
+		# with two dozen audible gurgles in it is heard as a loop in half a
+		# minute.
+		_expect(
+			float(count) / float(Ambience.RATE) > 5.0,
+			"and runs for %.1f s before it repeats" % (float(count) / float(Ambience.RATE))
+		)
+	ambience.queue_free()
+
+## A machine ridden nose-first into a wood can be backed out of it again.
+##
+## It could not. Two things were wrong and they compounded: steering had no
+## bite below a walking pace, so a machine stopped dead against a trunk could
+## not be pointed anywhere else; and reverse was capped by squashing the stick
+## push, which is applied twice — once through the gait and once again to the
+## target speed — so a third of a push came out as a tenth of the speed.
+func _check_a_machine_backs_out_of_a_corner() -> void:
+	print("a machine backs out of a corner")
+	_expect(Player.PADDLE_BITE > 0.0, "a standing machine can still be turned while the throttle is held")
+	_expect(
+		Player.PADDLE_BITE < 1.0,
+		"but not as freely as one under way, or it spins on the spot"
+	)
+	var top := MountKinds.speed(MountKinds.MOTORCYCLE)
+	var reverse := top * Player.REVERSE_SHARE
+	_expect(reverse > Player.WALK_SPEED, "reverse is %.1f m/s, faster than walking away from it" % reverse)
+	_expect(reverse < top * 0.5, "and well under half what it does forwards")
+
+## The bridge: the one place a machine on wheels crosses the river.
+##
+## A bicycle cannot ford water, which is right, and that left everything east
+## of the river closed to anything bought in the shop. The deck has to land on
+## the ground at both ends, clear the water in the middle, and be ridable where
+## the bank beside it is not.
+func _check_the_bridge_carries_what_cannot_swim() -> void:
+	print("the bridge carries what cannot swim")
+	var field := HeightField.new(20260903)
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+
+	# Opposite the two places a child already knows, and between them.
+	var pool_z: float = field.camp_centre().z + PlaceSpec.OFFSETS[&"pool"].z
+	_expect(
+		BridgeSpec.CENTRE_Z > minf(Pitch.CENTRE.z, pool_z)
+		and BridgeSpec.CENTRE_Z < maxf(Pitch.CENTRE.z, pool_z),
+		"it crosses between the pitch at z=%.0f and the pool at z=%.0f" % [Pitch.CENTRE.z, pool_z]
+	)
+
+	# Both ends meet the ground they land on, with no step to trip over.
+	for side: float in [-1.0, 1.0]:
+		var at_x := river_x + side * BridgeSpec.HALF_SPAN
+		var deck := field.bridge_deck_at(at_x, BridgeSpec.CENTRE_Z)
+		_expect(
+			absf(deck - field.height_at(at_x, BridgeSpec.CENTRE_Z)) < 0.05,
+			"the deck meets the bank at x=%.0f rather than ending above it" % at_x
+		)
+
+	# And clears the water in between, or it is a causeway.
+	var middle := Vector3(river_x, 0.0, BridgeSpec.CENTRE_Z)
+	middle.y = field.bridge_deck_at(middle.x, middle.z)
+	_expect(
+		middle.y > field.water_level_at(middle.x, middle.z) + 1.0,
+		"and stands %.1f m over the water at the middle" % (middle.y - field.water_level_at(middle.x, middle.z))
+	)
+
+	# Gentle enough to ride up. The arch is a half sine, so the steepest part
+	# of it is at the ends, where a rider joins.
+	var steepest := 0.0
+	var step := 1.0
+	var x := river_x - BridgeSpec.HALF_SPAN
+	while x < river_x + BridgeSpec.HALF_SPAN - step:
+		var rise := field.bridge_deck_at(x + step, BridgeSpec.CENTRE_Z) - field.bridge_deck_at(x, BridgeSpec.CENTRE_Z)
+		steepest = maxf(steepest, absf(rise) / step)
+		x += step
+	_expect(
+		steepest < MountKinds.max_slope(MountKinds.BICYCLE),
+		"the deck rises at %.2f, which a bicycle takes" % steepest
+	)
+
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	_expect(
+		mounts.can_ride_over(MountKinds.BICYCLE, middle),
+		"a bicycle can be ridden across the bridge"
+	)
+	_expect(
+		mounts.can_ride_over(MountKinds.MOTORCYCLE, middle),
+		"and so can a motorcycle"
+	)
+	# The water beside it is still water. Off the end of the deck, at the
+	# river's own level, nothing on wheels may go.
+	var river := Vector3(river_x, field.water_level_at(river_x, BridgeSpec.CENTRE_Z + 60.0), BridgeSpec.CENTRE_Z + 60.0)
+	_expect(
+		not mounts.can_ride_over(MountKinds.BICYCLE, river),
+		"but not through the river a little way downstream"
+	)
+	_expect(
+		not mounts.can_ride_over(MountKinds.MOTORCYCLE, river),
+		"and neither may the motorcycle"
+	)
+	# Swimming under the arch is not riding over it.
+	var under := Vector3(middle.x, field.water_level_at(middle.x, middle.z), middle.z)
+	_expect(
+		not mounts.can_ride_over(MountKinds.BICYCLE, under),
+		"and being in the water under the deck is not being on it"
+	)
+	_expect(
+		field.forest_density_at(river_x, BridgeSpec.CENTRE_Z) == 0.0,
+		"nothing grows up through the planks"
+	)
+	mounts.queue_free()
