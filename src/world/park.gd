@@ -40,6 +40,24 @@ const FENCE_STEP := 4.0
 const FENCE_COLOUR := Color(0.36, 0.30, 0.26)
 const FENCE_CAP := Color(0.62, 0.24, 0.22)
 
+## The kiosk: where rides are paid for. On the right hand as you walk in,
+## just inside the fence, because that is where a ticket office is.
+const BOOTH_OFFSET := Vector3(6.4, 0.0, -3.4)
+const BOOTH_WIDTH := 3.0
+const BOOTH_DEPTH := 2.4
+const BOOTH_HEIGHT := 2.9
+## How close a child has to be to buy.
+const BOOTH_REACH := 4.0
+
+## What one ride costs, and which rides charge at all. The trampoline and the
+## walkways are free: they are the two a child uses while working out what the
+## place is, and charging for them would make the fairground a shop.
+const RIDE_PRICE := 10
+const PAID_RIDES: Array[StringName] = [&"carousel", &"wheel", &"coaster"]
+
+static func charges_for(ride: StringName) -> bool:
+	return PAID_RIDES.has(ride)
+
 ## What the gateway says.
 const PARK_NAME_TOP := "PARC"
 const PARK_NAME := "DES MERVEILLES"
@@ -61,6 +79,7 @@ func _init(height_field: HeightField) -> void:
 	add_child(solid)
 
 	_build_fence(tool, solid)
+	_build_booth(tool, solid)
 	_build_trampoline(tool, solid)
 
 	tool.generate_normals()
@@ -98,11 +117,110 @@ func _at(spot: Vector3) -> Vector3:
 func carry(at: Vector3, delta: float) -> Vector3:
 	if not ParkSpec.inside(at.x, at.z):
 		return Vector3.ZERO
-	for ride: Node in [carousel, walkway, wheel, coaster]:
-		var moved: Vector3 = ride.call("carry", at, delta)
+	_carrier = &""
+	for ride: Array in [
+		[&"carousel", carousel], [&"walkway", walkway],
+		[&"wheel", wheel], [&"coaster", coaster],
+	]:
+		var moved: Vector3 = (ride[1] as Node).call("carry", at, delta)
 		if moved != Vector3.ZERO:
+			_carrier = ride[0]
 			return moved
 	return Vector3.ZERO
+
+## Which ride carried somebody on the last call to `carry`, or nothing. The
+## game asks so it can take a ticket for the ones that charge.
+var _carrier: StringName = &""
+
+func carrier() -> StringName:
+	return _carrier
+
+## Which ride is a child standing on, whether or not it happens to be moving
+## this instant? A carousel at a standstill between turns, or a coaster
+## waiting at the platform, is still a ride somebody is aboard.
+func ride_under(at: Vector3) -> StringName:
+	if not ParkSpec.inside(at.x, at.z):
+		return &""
+	var deck := carousel.position
+	if Vector2(at.x - deck.x, at.z - deck.z).length() < Carousel.RADIUS \
+			and at.y > deck.y + Carousel.FLOOR_HEIGHT - 0.3:
+		return &"carousel"
+	for index in FerrisWheel.GONDOLAS:
+		var car := wheel.gondola(index)
+		var local := at - car.global_position
+		if absf(local.x) < 1.2 and absf(local.z) < 1.0 and local.y > -0.4 and local.y < 2.2:
+			return &"wheel"
+	for index in coaster.car_count():
+		var seat := coaster.car_at(index)
+		var inside := seat.global_transform.affine_inverse() * at
+		if absf(inside.x) < 0.85 and absf(inside.z) < 0.95 and inside.y > -0.4 and inside.y < 2.0:
+			return &"coaster"
+	return &""
+
+## Where the ticket kiosk stands.
+func booth_at() -> Vector3:
+	var gate := ParkSpec.gate()
+	return Vector3(gate.x + BOOTH_OFFSET.x, ParkSpec.LEVEL, gate.z + BOOTH_OFFSET.z)
+
+## Is a child close enough to the kiosk to buy a ride?
+func at_the_booth(at: Vector3) -> bool:
+	var booth := booth_at()
+	return Vector2(at.x - booth.x, at.z - booth.z).length() < BOOTH_REACH
+
+## The kiosk: a hut with a counter and a window, and a board over it saying
+## what a ride costs. Small — it is a ticket office, not a building — and its
+## counter faces the gate, so a child meets it on the way in.
+func _build_booth(tool: SurfaceTool, solid: StaticBody3D) -> void:
+	var at := booth_at()
+	var hut := Color(0.86, 0.36, 0.30)
+	var trim := Color(0.96, 0.92, 0.84)
+
+	var body := BoxMesh.new()
+	body.size = Vector3(BOOTH_WIDTH, BOOTH_HEIGHT, BOOTH_DEPTH)
+	var middle := at + Vector3(0.0, BOOTH_HEIGHT * 0.5, 0.0)
+	Park._add(tool, body, Transform3D(Basis(), middle), hut)
+	Park._solid(solid, body.size, Transform3D(Basis(), middle))
+
+	# The window, cut as a dark recess rather than a hole: a box the size of
+	# the opening, set into the face, which is how every other window in this
+	# valley is drawn.
+	var window := BoxMesh.new()
+	window.size = Vector3(BOOTH_WIDTH * 0.62, 0.9, 0.12)
+	Park._add(
+		tool, window,
+		Transform3D(Basis(), at + Vector3(0.0, 1.55, BOOTH_DEPTH * 0.5 + 0.02)),
+		Color(0.12, 0.14, 0.18)
+	)
+	# The counter under it, and the shelf a child puts their coins on.
+	var counter := BoxMesh.new()
+	counter.size = Vector3(BOOTH_WIDTH * 0.86, 0.14, 0.55)
+	Park._add(
+		tool, counter,
+		Transform3D(Basis(), at + Vector3(0.0, 1.05, BOOTH_DEPTH * 0.5 + 0.2)),
+		trim
+	)
+	# A little roof with an overhang, which is what tells a child across the
+	# fairground that this is where you pay.
+	var roof := CylinderMesh.new()
+	roof.top_radius = 0.0
+	roof.bottom_radius = BOOTH_WIDTH * 0.95
+	roof.height = 0.85
+	roof.radial_segments = 4
+	roof.rings = 1
+	Park._add(
+		tool, roof,
+		Transform3D(
+			Basis(Vector3.UP, PI * 0.25), at + Vector3(0.0, BOOTH_HEIGHT + 0.35, 0.0)
+		),
+		Color(0.32, 0.30, 0.34)
+	)
+	# And the price, on a plate over the window, in the valley's own enamel.
+	var board := at + Vector3(0.0, BOOTH_HEIGHT + 1.0, BOOTH_DEPTH * 0.5 - 0.1)
+	Plaque.build(tool, 0.0, board, 2.6, 0.78, 0.0, 0.10)
+	Plaque.write(self, 0.0, board, [
+		[Text.of("ui_rides"), 0.20, 0.0018],
+		["%d" % RIDE_PRICE, -0.14, 0.0032],
+	])
 
 ## Where the big trampoline's mat is.
 func trampoline_mat() -> Vector3:

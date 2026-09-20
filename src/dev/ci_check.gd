@@ -122,6 +122,7 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_animals_keep_off_the_playing_places()
 	_check_the_coaster_runs_a_lap()
+	_check_the_rides_are_paid_for()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -8140,3 +8141,72 @@ func _check_the_coaster_runs_a_lap() -> void:
 	_expect(falling < 0.0, "the first drop falls")
 	_expect(climbing > 0.0, "and the camelback after it climbs")
 	coaster.queue_free()
+
+## The fairground charges for its rides, and the kiosk is where you pay.
+##
+## Ten coins a ride, the same for all of them, and the trampoline and the
+## walkways free — they are the two a child uses while working out what the
+## place is, and charging for those would make the fairground a shop.
+func _check_the_rides_are_paid_for() -> void:
+	print("the rides are paid for")
+	var field := HeightField.new(20260903)
+	var park := Park.new(field)
+	get_root().add_child(park)
+
+	_expect(Park.RIDE_PRICE == 10, "a ride is %d coins" % Park.RIDE_PRICE)
+	for paid: StringName in [&"carousel", &"wheel", &"coaster"]:
+		_expect(Park.charges_for(paid), "the %s takes a ticket" % paid)
+	for free: StringName in [&"walkway", &"trampoline", &""]:
+		_expect(not Park.charges_for(free), "the %s does not" % ("trampoline" if free == &"" else free))
+
+	# The kiosk stands on the right hand as you walk in, inside the fence, and
+	# near enough to the gate to be met on the way past.
+	var booth := park.booth_at()
+	var gate := ParkSpec.gate()
+	_expect(ParkSpec.inside(booth.x, booth.z), "the kiosk stands inside the fence")
+	_expect(booth.x > gate.x, "on the right hand of a child walking in")
+	_expect(
+		Vector2(booth.x - gate.x, booth.z - gate.z).length() < 12.0,
+		"and %.1f m from the gate, which is on the way past" % Vector2(booth.x - gate.x, booth.z - gate.z).length()
+	)
+	_expect(park.at_the_booth(booth + Vector3(2.0, 0.0, 0.0)), "you can buy standing at it")
+	_expect(
+		not park.at_the_booth(booth + Vector3(0.0, 0.0, -30.0)),
+		"and not from the middle of the fairground"
+	)
+
+	# A ticket is bought with coins and spent on a ride.
+	var purse := Wallet.new()
+	purse.earn(25)
+	_expect(purse.buy_ticket(Park.RIDE_PRICE), "a ticket is bought")
+	_expect(purse.coins == 15 and purse.tickets == 1, "it costs its price: %d coins, %d tickets" % [purse.coins, purse.tickets])
+	_expect(purse.buy_ticket(Park.RIDE_PRICE), "and another")
+	_expect(not purse.buy_ticket(Park.RIDE_PRICE), "but not a third, at five coins left")
+	_expect(purse.tickets == 2, "so there are two in hand")
+	_expect(purse.use_ticket() and purse.tickets == 1, "one is handed over at a ride")
+	_expect(purse.use_ticket() and purse.tickets == 0, "and the other")
+	_expect(not purse.use_ticket(), "and then there are none to hand over")
+
+	# They survive being put down and picked up again.
+	var kept := Wallet.new()
+	purse.earn(10)
+	purse.buy_ticket(Park.RIDE_PRICE)
+	kept.from_data(purse.to_data())
+	_expect(
+		kept.tickets == purse.tickets and kept.coins == purse.coins,
+		"tickets are remembered between days: %d" % kept.tickets
+	)
+
+	# And the game can tell which ride somebody is standing on, which is what
+	# takes the ticket.
+	var deck := park.carousel.position + Vector3(3.0, Carousel.FLOOR_HEIGHT + 0.5, 0.0)
+	_expect(park.ride_under(deck) == &"carousel", "a child on the carousel is on the carousel")
+	var gondola := (park.wheel.gondola(0) as Node3D).global_position + Vector3(0.0, 0.5, 0.0)
+	_expect(park.ride_under(gondola) == &"wheel", "and one in a gondola is on the wheel")
+	var car := (park.coaster.car_at(0) as Node3D).global_position + Vector3(0.0, 0.5, 0.0)
+	_expect(park.ride_under(car) == &"coaster", "and one in a car is on the coaster")
+	_expect(
+		park.ride_under(ParkSpec.centre()) == &"",
+		"while a child standing on the sand is on nothing"
+	)
+	park.queue_free()

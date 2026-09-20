@@ -46,6 +46,10 @@ const BRAKES_FROM := 0.94
 ## it and step in without hurrying a six-year-old.
 const DWELL := 5.0
 
+## How far the shoulder harnesses swing down, and how long they take.
+const HARNESS_DROP := deg_to_rad(74.0)
+const HARNESS_TIME := 1.1
+
 ## The physics.
 ##
 ## A real coaster is one number — how far it has fallen since the lift — and
@@ -77,12 +81,23 @@ const CAR_FLOOR := 0.55
 const STEPS := 6
 const STEPS_RUN := 4.2
 
-const CARS := 3
-const CAR_GAP := 3.4
+## Five cars, one seat each. A train of two-seaters is a train; five single
+## cars is a fairground ride, and a child on their own is never sitting in the
+## empty half of one.
+const CARS := 5
+const CAR_GAP := 2.15
 
 const TIMBER := Color(0.55, 0.40, 0.26)
 const TIMBER_DARK := Color(0.38, 0.28, 0.19)
 const RAIL := Color(0.80, 0.34, 0.28)
+## The seats, and the shoulder harnesses that come down over them. Yellow,
+## because that is the colour every child has seen one in.
+## How many seats a car carries.
+const SEATS := 1
+
+const SEAT := Color(0.24, 0.25, 0.30)
+const HARNESS := Color(0.96, 0.80, 0.16)
+
 const CAR_COLOURS: Array[Color] = [
 	Color(0.88, 0.26, 0.24), Color(0.96, 0.78, 0.26), Color(0.28, 0.52, 0.84),
 ]
@@ -225,6 +240,11 @@ func speed_at(fraction: float) -> float:
 ## How fast the train is actually going, this moment.
 func speed() -> float:
 	return _speed
+
+## How far down the harnesses are: nought at the platform, one on the ride.
+## For the checks.
+func locked() -> float:
+	return _locked
 
 ## Is it standing at the platform?
 func boarding() -> bool:
@@ -448,16 +468,21 @@ func _build_car(index: int) -> AnimatableBody3D:
 	var colour: Color = CAR_COLOURS[index % CAR_COLOURS.size()]
 
 	var floor_slab := BoxMesh.new()
-	floor_slab.size = Vector3(2.6, 0.18, 1.8)
+	floor_slab.size = Vector3(1.7, 0.18, 1.8)
 	Park._add(tool, floor_slab, Transform3D(Basis(), Vector3.ZERO), colour.darkened(0.4))
 	_solid(car, floor_slab.size, Vector3.ZERO)
-	# Walls at the ends only, and the sides open all the way down to the floor.
-	# A character body climbs slopes and steps over nothing at all, so even a
-	# low sill across the way in is a wall to a child trying to get aboard —
-	# which is why there was no way into these at all.
+	# Closed at the ends and down the far side, and open down the side the
+	# platform is on — which is the local +z, because at the station the track
+	# runs north and a car's own left hand faces the boards.
+	#
+	# The doorway is open all the way down to the floor. A character body
+	# climbs slopes and steps over nothing at all, so even a low sill across
+	# the way in is a wall to a child trying to get aboard — which is why
+	# there was no way into these at all.
 	for wall: Array in [
-		[Vector3(0.16, 1.05, 1.8), Vector3(1.3, 0.53, 0.0)],
-		[Vector3(0.16, 1.05, 1.8), Vector3(-1.3, 0.53, 0.0)],
+		[Vector3(0.16, 1.05, 1.8), Vector3(0.85, 0.53, 0.0)],
+		[Vector3(0.16, 1.05, 1.8), Vector3(-0.85, 0.53, 0.0)],
+		[Vector3(1.7, 1.05, 0.16), Vector3(0.0, 0.53, -0.9)],
 	]:
 		var size: Vector3 = wall[0]
 		var where: Vector3 = wall[1]
@@ -466,25 +491,47 @@ func _build_car(index: int) -> AnimatableBody3D:
 		Park._add(tool, panel, Transform3D(Basis(), where), colour)
 		_solid(car, size, where)
 
-	# A lap bar down each side: high enough to hold on to, high enough to walk
-	# under, and it says "sit down" without being a fence.
-	for side: float in [-1.0, 1.0]:
-		var bar := BoxMesh.new()
-		bar.size = Vector3(2.6, 0.12, 0.12)
+	# A rail along the top of the open side, which is what you hold while you
+	# step in. It stands clear of the doorway itself.
+	var rail := BoxMesh.new()
+	rail.size = Vector3(1.7, 0.12, 0.12)
+	Park._add(
+		tool, rail, Transform3D(Basis(), Vector3(0.0, 1.02, 0.86)), colour.darkened(0.25)
+	)
+	for post in 2:
+		var stanchion := BoxMesh.new()
+		stanchion.size = Vector3(0.12, 1.02, 0.12)
 		Park._add(
-			tool, bar,
-			Transform3D(Basis(), Vector3(0.0, 0.94, side * 0.86)),
+			tool, stanchion,
+			Transform3D(Basis(), Vector3((float(post) - 0.5) * 1.5, 0.51, 0.86)),
 			colour.darkened(0.25)
 		)
-		for post in 2:
-			var stanchion := BoxMesh.new()
-			stanchion.size = Vector3(0.12, 0.94, 0.12)
-			Park._add(
-				tool, stanchion,
-				Transform3D(Basis(), Vector3((float(post) - 0.5) * 2.2, 0.47, side * 0.86)),
-				colour.darkened(0.25)
-			)
 
+	# Two seats, side by side, facing the way the car is going: a cushion, a
+	# back, and a bolster between them.
+	for seat in SEATS:
+		var across := 0.0
+		var cushion := BoxMesh.new()
+		cushion.size = Vector3(0.95, 0.16, 1.0)
+		Park._add(
+			tool, cushion,
+			Transform3D(Basis(), Vector3(across, 0.52, 0.05)),
+			SEAT
+		)
+		var back := BoxMesh.new()
+		back.size = Vector3(0.95, 1.05, 0.18)
+		Park._add(
+			tool, back,
+			Transform3D(Basis(), Vector3(across, 1.0, -0.48)),
+			SEAT
+		)
+		# The pedestal under the cushion, which is what a seat on a coaster
+		# actually stands on.
+		var plinth := BoxMesh.new()
+		plinth.size = Vector3(0.75, 0.44, 0.8)
+		Park._add(
+			tool, plinth, Transform3D(Basis(), Vector3(across, 0.30, 0.05)), colour.darkened(0.3)
+		)
 	tool.generate_normals()
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
@@ -494,6 +541,40 @@ func _build_car(index: int) -> AnimatableBody3D:
 	var drawn := MeshInstance3D.new()
 	drawn.mesh = tool.commit()
 	car.add_child(drawn)
+
+	# The restraints: a shoulder harness over each seat, hinged behind the
+	# head. Up while the train stands at the platform, and down as soon as it
+	# leaves — which is what makes a coaster feel like a coaster even before it
+	# moves, and is the one part of the ride a child recognises from real life.
+	for seat in SEATS:
+		var across := 0.0
+		var hinge := Node3D.new()
+		hinge.name = "Harness%d" % seat
+		hinge.position = Vector3(across, 1.42, -0.42)
+		car.add_child(hinge)
+		_harnesses.append(hinge)
+
+		var harness := SurfaceTool.new()
+		harness.begin(Mesh.PRIMITIVE_TRIANGLES)
+		# Two shoulder pads and the yoke across them, all hanging forward of
+		# the hinge so that lowering it brings them down over a rider.
+		for shoulder: float in [-1.0, 1.0]:
+			var pad := BoxMesh.new()
+			pad.size = Vector3(0.30, 0.22, 0.85)
+			Park._add(
+				harness, pad,
+				Transform3D(Basis(), Vector3(shoulder * 0.30, -0.06, 0.42)),
+				HARNESS
+			)
+		var yoke := BoxMesh.new()
+		yoke.size = Vector3(0.80, 0.18, 0.20)
+		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.0, -0.06, 0.06)), HARNESS)
+		var clasp := BoxMesh.new()
+		clasp.size = Vector3(0.20, 0.30, 0.20)
+		Park._add(
+			harness, clasp, Transform3D(Basis(), Vector3(0.0, -0.26, 0.80)), HARNESS.darkened(0.35)
+		)
+		Park.commit(harness, hinge, "Pads")
 	return car
 
 func _solid(car: AnimatableBody3D, size: Vector3, where: Vector3) -> void:
@@ -522,12 +603,23 @@ func _physics_process(delta: float) -> void:
 
 	_roll(delta)
 	_place_cars()
+
+	# The harnesses come down as the train leaves and go up as it stops, over
+	# about a second, which is how long the real ones take.
+	var wanted := 0.0 if boarding() else 1.0
+	_locked = move_toward(_locked, wanted, delta / HARNESS_TIME)
+	for hinge in _harnesses:
+		hinge.rotation.x = -HARNESS_DROP * _locked
 	_moved.clear()
 	for index in _cars.size():
 		_moved.append(_cars[index].position - before[index])
 
 ## How far each car moved on the last frame, for whoever is riding in it.
 var _moved: Array[Vector3] = []
+## Every shoulder harness on the train, and how far down they are: nought at
+## the platform, one on the ride.
+var _harnesses: Array[Node3D] = []
+var _locked := 0.0
 
 ## How far the ride moves whoever is aboard, this frame.
 ##
@@ -539,7 +631,7 @@ func carry(at: Vector3, _delta: float) -> Vector3:
 		if index >= _moved.size():
 			break
 		var local := _cars[index].global_transform.affine_inverse() * at
-		if absf(local.x) < 1.3 and absf(local.z) < 0.95 and local.y > -0.4 and local.y < 2.0:
+		if absf(local.x) < 0.85 and absf(local.z) < 0.95 and local.y > -0.4 and local.y < 2.0:
 			return _moved[index]
 	return Vector3.ZERO
 
@@ -594,6 +686,14 @@ func highest() -> float:
 	for key: Array in PROFILE:
 		top = maxf(top, float(key[1]))
 	return top
+
+## How many cars the train has, and where one of them is. For the game, which
+## has to know whether somebody is sitting in one, and for the checks.
+func car_count() -> int:
+	return _cars.size()
+
+func car_at(index: int) -> Node3D:
+	return _cars[index]
 
 func car_distance() -> float:
 	return _at_distance

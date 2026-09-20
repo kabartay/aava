@@ -362,11 +362,36 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 ## its floor every frame as it rose. So each ride says how far it has taken its
 ## passengers and the child is moved by that much, here, in step with the
 ## physics that moved the ride.
+## Which ride the child is aboard, and whether they got on it without paying.
+var _aboard: StringName = &""
+var _riding_without_a_ticket := false
+
 func _physics_process(delta: float) -> void:
 	if player == null or _waiting_for_ground or world.park == null:
 		return
+	# Which ride a child is aboard, and whether it is one that charges. A
+	# ticket is taken when they get on, not while they stay on: the carousel
+	# turns for a minute and a ride is a ride.
+	var aboard := world.park.ride_under(player.global_position)
+	if aboard != _aboard:
+		_aboard = aboard
+		if aboard != &"" and Park.charges_for(aboard):
+			if wallet.use_ticket():
+				sounds.play(Sounds.Sound.CHIME, 1.1)
+				hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
+				_riding_without_a_ticket = false
+			else:
+				sounds.play(Sounds.Sound.REFUSE)
+				hud.announce(Text.of("say_park_needs_ticket"), 2.4)
+				_riding_without_a_ticket = true
+		else:
+			_riding_without_a_ticket = false
+
 	var carried := world.park.carry(player.global_position, delta)
-	if carried != Vector3.ZERO:
+	# A ride nobody has paid for does not carry them. It still turns: what a
+	# child sees is the roundabout going round under their feet while they
+	# stand still on it, which is exactly what happens when you have not paid.
+	if carried != Vector3.ZERO and not _riding_without_a_ticket:
 		player.global_position += carried
 
 func _process(delta: float) -> void:
@@ -1331,12 +1356,18 @@ func _watch_the_turnstile() -> void:
 	var inside := world.places.inside_pool_fence(at)
 	if near and inside and not world.places.turnstile_open():
 		world.places.open_turnstile()
-	var offer := near and not inside and not world.places.turnstile_open()
+	# The fairground's kiosk offers the same button. One control for "pay to
+	# get on something", wherever a child is standing.
+	var at_booth := world.park.at_the_booth(at)
+	var offer := (near and not inside and not world.places.turnstile_open()) or at_booth
 	hud.set_ticket_offer(offer)
 	if offer and not _ticket_told:
 		_ticket_told = true
-		hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
-	elif not near:
+		if at_booth:
+			hud.announce(Text.format("say_park_ticket", [Park.RIDE_PRICE]), 2.6)
+		else:
+			hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
+	elif not near and not at_booth:
 		_ticket_told = false
 
 ## Turn the lantern on or off. It lights itself at dusk; this is how a child
@@ -1367,6 +1398,15 @@ func _on_snack() -> void:
 
 ## Pay for the pool. Coins come from the animals, so a swim is earned.
 func _on_ticket() -> void:
+	# At the fairground's kiosk this buys a ride rather than a swim.
+	if world.park.at_the_booth(player.global_position):
+		if not wallet.buy_ticket(Park.RIDE_PRICE):
+			sounds.play(Sounds.Sound.REFUSE)
+			hud.announce(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
+			return
+		sounds.play(Sounds.Sound.PICKUP, 1.2)
+		hud.announce(Text.format("say_park_bought", [wallet.tickets]), 2.0)
+		return
 	if world.places.turnstile_open():
 		return
 	if wallet.coins < Places.POOL_TICKET:

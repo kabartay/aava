@@ -559,6 +559,23 @@ const STRINGS := {
 	"why_reserved": {EN: "not here", FR: "pas ici", RU: "не здесь"},
 	# The pool's turnstile.
 	"say_ticket": {EN: "pool: %d coins to go in", FR: "piscine : %d pièces pour entrer", RU: "бассейн: вход %d монет"},
+	"ui_rides": {EN: "RIDES", FR: "MANÈGES", RU: "АТТРАКЦИОНЫ"},
+	"say_park_ticket": {
+		EN: "rides: %d coins each", FR: "manèges : %d pièces le tour",
+		RU: "аттракционы: %d монет за поездку"
+	},
+	"say_park_bought": {
+		EN: "ticket bought — you have %d", FR: "billet acheté — tu en as %d",
+		RU: "билет куплен — у тебя их %d"
+	},
+	"say_park_needs_ticket": {
+		EN: "this ride wants a ticket", FR: "ce manège demande un billet",
+		RU: "на этот аттракцион нужен билет"
+	},
+	"say_park_used_ticket": {
+		EN: "enjoy the ride — %d tickets left", FR: "bon voyage — il te reste %d billets",
+		RU: "приятной поездки — билетов осталось: %d"
+	},
 	"say_welcome_pool": {EN: "in you go — have a swim!", FR: "entre — bonne baignade !", RU: "проходи — поплавай!"},
 	"ui_ticket": {EN: "ticket", FR: "billet", RU: "билет"},
 	# %s is the list of missing materials.
