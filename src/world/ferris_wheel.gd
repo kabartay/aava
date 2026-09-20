@@ -71,8 +71,8 @@ func _init(at: Vector3) -> void:
 	for side: float in [-1.0, 1.0]:
 		for lean: float in [-1.0, 1.0]:
 			var leg := CylinderMesh.new()
-			leg.top_radius = 0.24
-			leg.bottom_radius = 0.40
+			leg.top_radius = 0.16
+			leg.bottom_radius = 0.26
 			leg.height = length
 			leg.radial_segments = 10
 			leg.rings = 1
@@ -85,7 +85,7 @@ func _init(at: Vector3) -> void:
 				STEEL
 			)
 			Park._solid(
-				frame, Vector3(0.7, length, 0.7),
+				frame, Vector3(0.5, length, 0.5),
 				Transform3D(
 					Basis(Vector3.RIGHT, lean * atan2(spread, HUB_HEIGHT)),
 					Vector3(side * 2.6, HUB_HEIGHT * 0.5, lean * spread * 0.5)
@@ -93,9 +93,9 @@ func _init(at: Vector3) -> void:
 			)
 			# A foot plate, so the leg meets the sand rather than ending in it.
 			var plate := CylinderMesh.new()
-			plate.top_radius = 0.62
-			plate.bottom_radius = 0.72
-			plate.height = 0.22
+			plate.top_radius = 0.44
+			plate.bottom_radius = 0.54
+			plate.height = 0.18
 			plate.radial_segments = 10
 			plate.rings = 1
 			Park._add(
@@ -105,11 +105,11 @@ func _init(at: Vector3) -> void:
 			)
 		# Ties across each A, and a diagonal in each bay: an A-frame without
 		# them is two sticks leaning on one another.
-		for rung in 3:
-			var height := HUB_HEIGHT * (0.26 + 0.22 * float(rung))
+		for rung in 2:
+			var height := HUB_HEIGHT * (0.30 + 0.30 * float(rung))
 			var across := spread * (1.0 - height / HUB_HEIGHT)
 			var tie := BoxMesh.new()
-			tie.size = Vector3(0.16, 0.16, across * 2.0)
+			tie.size = Vector3(0.12, 0.12, across * 2.0)
 			Park._add(
 				still, tie,
 				Transform3D(Basis(), Vector3(side * 2.6, height, 0.0)),
@@ -259,26 +259,15 @@ func _build_car(index: int) -> AnimatableBody3D:
 		Vector2(-1.0, -1.0), Vector2(1.0, -1.0), Vector2(-1.0, 1.0), Vector2(1.0, 1.0)
 	]:
 		var post := BoxMesh.new()
-		post.size = Vector3(0.10, 1.05, 0.10)
+		post.size = Vector3(0.08, 0.85, 0.08)
 		Park._add(
 			tool, post,
-			Transform3D(Basis(), Vector3(corner.x * 1.15, 1.62, corner.y * 0.95)),
+			Transform3D(Basis(), Vector3(corner.x * 1.15, 1.48, corner.y * 0.95)),
 			STEEL
 		)
 	var roof := BoxMesh.new()
-	roof.size = Vector3(2.7, 0.12, 2.3)
-	Park._add(tool, roof, Transform3D(Basis(), Vector3(0.0, 2.2, 0.0)), HUB_COLOUR)
-	var crown := CylinderMesh.new()
-	crown.top_radius = 0.0
-	crown.bottom_radius = 1.5
-	crown.height = 0.45
-	crown.radial_segments = 4
-	crown.rings = 1
-	Park._add(
-		tool, crown,
-		Transform3D(Basis(Vector3.UP, PI * 0.25), Vector3(0.0, 2.45, 0.0)),
-		STEEL
-	)
+	roof.size = Vector3(2.5, 0.10, 2.1)
+	Park._add(tool, roof, Transform3D(Basis(), Vector3(0.0, 1.95, 0.0)), HUB_COLOUR)
 
 	# The hanger: two arms up to the rim, and the pin they swing on.
 	# From the top of the car's own side up to the pin, and no further: they

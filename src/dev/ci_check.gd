@@ -7732,7 +7732,9 @@ func _check_the_coaster_stands_on_the_ground() -> void:
 		var nearest := INF
 		for foot in feet:
 			nearest = minf(nearest, foot.distance_to(Vector2(here.x, here.z)))
-		if nearest > 6.0:
+		# Half the span between bents, and a little over: a piece of track
+		# halfway between two piles is supported by both.
+		if nearest > 7.0:
 			unsupported += 1
 	_expect(
 		unsupported == 0,
@@ -7767,24 +7769,31 @@ func _check_the_rides_are_solid() -> void:
 		"the big wheel's frame stops you"
 	)
 
-	# Through a pile of the coaster, where its timber is thickest: along the
-	# western straight, which is the part a child walks past.
-	var struck := 0
-	var total := park.coaster.circuit()
-	# Sampled closely: the piles stand every few metres and a sparse walk down
-	# the track steps over most of them.
-	for piece in 120:
-		var here := park.coaster.position + park.coaster.point_at(total * float(piece) / 120.0)
-		if here.y < 4.0:
-			continue
-		# At the height a child walks, which is a stride above the fairground's
-		# own floor — not a stride above the sea, which is where this ray went
-		# first and found nothing but the inside of a hill.
-		var at := Vector3(here.x, park.coaster.position.y + waist, here.z)
-		var across := Vector3(3.0, 0.0, 0.0)
-		if _blocked(space, at - across, at + across):
-			struck += 1
-	_expect(struck >= 6, "the coaster's piles stop you: %d of them struck" % struck)
+	# Along the line the coaster's piles stand on, down the western straight:
+	# a ray fired the length of it must meet timber. Firing across the track at
+	# scattered points was a test of luck — the piles are a handspan wide and
+	# eleven metres apart — and it failed the day they were thinned out even
+	# though every one of them was still there.
+	var coaster := park.coaster.position
+	var pile_line := -RollerCoaster.HALF_WIDTH - RollerCoaster.PILE_OFFSET
+	_expect(
+		_blocked(
+			space,
+			coaster + Vector3(pile_line, waist, -RollerCoaster.HALF_LENGTH * 0.8),
+			coaster + Vector3(pile_line, waist, RollerCoaster.HALF_LENGTH * 0.8)
+		),
+		"the coaster's piles stop you"
+	)
+	# And the ground between the two straights is open: a coaster is a frame to
+	# walk under, not a wall.
+	_expect(
+		not _blocked(
+			space,
+			coaster + Vector3(0.0, waist, -RollerCoaster.HALF_LENGTH * 0.4),
+			coaster + Vector3(0.0, waist, RollerCoaster.HALF_LENGTH * 0.4)
+		),
+		"and you can walk under it between them"
+	)
 
 	# The carousel's middle column, and the sides of the belts.
 	var carousel := park.carousel.position

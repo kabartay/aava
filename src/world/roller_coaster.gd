@@ -39,6 +39,9 @@ const CRAWL := 3.0
 ## a second cannot be stood up in, and this is a ride for a six-year-old.
 const FALL_TO_SPEED := 3.1
 
+## How far the piles stand either side of the track's own line.
+const PILE_OFFSET := 0.78
+
 const CARS := 3
 const CAR_GAP := 3.4
 
@@ -173,13 +176,17 @@ func _build_track(tool: SurfaceTool) -> void:
 		# legs leaned with the rails and their feet stopped short of the sand:
 		# a coaster standing on piles that touch nothing. A post holds a track
 		# up; it does not lie along it.
-		if piece % 4 != 0 or middle.y < 1.6:
+		# Every fifth piece rather than every fourth: at three metres apart the
+		# bents closed into a thicket and the shape of the ride was lost inside
+		# its own scaffolding. Eleven metres is what a wooden coaster actually
+		# stands on, and it is still close enough that no span is unsupported.
+		if piece % 5 != 0 or middle.y < 1.6:
 			continue
-		var across := Vector3(-run.z, 0.0, run.x).normalized() * 0.78
+		var across := Vector3(-run.z, 0.0, run.x).normalized() * PILE_OFFSET
 		var foot_height := middle.y
 		for side: float in [-1.0, 1.0]:
 			var leg := BoxMesh.new()
-			leg.size = Vector3(0.22, foot_height, 0.22)
+			leg.size = Vector3(0.18, foot_height, 0.18)
 			Park._add(
 				tool, leg,
 				Transform3D(
@@ -197,11 +204,11 @@ func _build_track(tool: SurfaceTool) -> void:
 			)
 		# Rungs across the bent, and a diagonal in every bay: the lattice is
 		# most of what a wooden coaster looks like from the ground.
-		var bays := maxi(1, int(foot_height / 3.0))
+		var bays := maxi(1, int(foot_height / 4.5))
 		for rung in bays + 1:
 			var at := foot_height * float(rung) / float(bays + 1)
 			var rail_across := BoxMesh.new()
-			rail_across.size = Vector3(0.14, 0.14, across.length() * 2.0 + 0.2)
+			rail_across.size = Vector3(0.10, 0.10, across.length() * 2.0 + 0.2)
 			Park._add(
 				tool, rail_across,
 				Transform3D(
@@ -215,7 +222,7 @@ func _build_track(tool: SurfaceTool) -> void:
 			var high := foot_height * float(bay + 1) / float(bays + 1)
 			var rise := high - low
 			var diagonal := BoxMesh.new()
-			diagonal.size = Vector3(0.12, sqrt(rise * rise + across.length() * across.length() * 4.0), 0.12)
+			diagonal.size = Vector3(0.09, sqrt(rise * rise + across.length() * across.length() * 4.0), 0.09)
 			Park._add(
 				tool, diagonal,
 				Transform3D(
