@@ -7151,7 +7151,7 @@ func _check_the_bridge_is_walked_not_climbed() -> void:
 			absf(label.position.z - BridgeSpec.CENTRE_Z) > BridgeSpec.HALF_WIDTH - BridgeSpec.RAIL_INSET - 0.2,
 			"the name is on the parapet rather than across the roadway"
 		)
-	_expect(named >= 6, "the name is written on both faces of the plaque: %d lines" % named)
+	_expect(named >= 4, "the name is written on both faces of the plaque: %d lines" % named)
 	_expect(
 		lowest_writing > 0.0,
 		"and stands above the planks, not through them: lowest is %.2f m" % lowest_writing
@@ -7321,10 +7321,14 @@ func _check_the_roads_have_names() -> void:
 		plaque_bottom > highest_plate + 0.2,
 		"the plaque hangs %.2f m clear of the highest plate" % (plaque_bottom - highest_plate)
 	)
+	# And the post does not go through it. It did: the plaque was centred on
+	# the pole's own axis at a height the pole still reached, so the grey post
+	# came up through the middle of the enamel and cut the name in half.
 	_expect(
-		post._plaque_centre() + Signpost.PLAQUE_BODY * 0.5 + Signpost.PLAQUE_ARCH
-		<= Signpost.POLE_HEIGHT + 0.2,
-		"and sits at the top of the post rather than over the end of it"
+		plaque_bottom >= Signpost.POLE_HEIGHT,
+		"the post stops at %.2f m, under the plaque's foot at %.2f m" % [
+			Signpost.POLE_HEIGHT, plaque_bottom
+		]
 	)
 
 	# Nobody is left standing inside it. The post went up exactly where a child

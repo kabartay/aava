@@ -245,10 +245,12 @@ func _build() -> void:
 	add_child(timbers)
 
 ## What the bridge is called, and how big its plaque is.
-const NAME_ARCH := "VALLÉE D'AAVA"
-const NAME_WIDTH := 2.7
-const NAME_BODY := 0.78
-const NAME_ARCH_RISE := 0.30
+##
+## Plain rectangle, no arch: the round top belongs to a street plaque naming a
+## place you are standing in. A bridge carries a plate with its name on it.
+const NAME_WIDTH := 2.9
+const NAME_BODY := 0.86
+const NAME_ARCH_RISE := 0.0
 
 ## The name plaque, on the handrail at the western end — the camp's end, the
 ## one a child arrives at. Turned square across the crossing, so it is read
@@ -265,9 +267,8 @@ func _build_name(tool: SurfaceTool, river_x: float) -> void:
 	var yaw := 0.0
 	Plaque.build(tool, yaw, centre, NAME_WIDTH, NAME_BODY, NAME_ARCH_RISE, 0.10)
 	Plaque.write(self, yaw, centre, [
-		[NAME_ARCH, NAME_BODY * 0.5 + NAME_ARCH_RISE * 0.45, 0.0013],
-		["PONT DU", 0.21, 0.0017],
-		["LAC MAGNIFIQUE", -0.10, 0.0026],
+		["PONT DU", 0.20, 0.0018],
+		["LAC MAGNIFIQUE", -0.13, 0.0028],
 	])
 
 ## The deck's collision: one continuous prism swept along the arch.

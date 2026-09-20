@@ -25,7 +25,7 @@ const POLE_RADIUS := 0.125
 ## so the plates and the plaque are seen across the meadow and over whatever a
 ## child builds around them. The plates grow with it — a sign twice as far up
 ## and the same size is a sign nobody can read.
-const POLE_HEIGHT := 10.4
+const POLE_HEIGHT := 9.6
 
 ## The plates. Thickness is the enamel and its frame; the length of each one is
 ## worked out from the name on it, so a long name is a long sign rather than
@@ -143,6 +143,26 @@ func _build() -> void:
 	for road in ROADS.size():
 		_build_plate(tool, road)
 
+	# The bracket the plaque stands on: a short neck off the top of the post,
+	# with a collar under it. Without it the plaque floats a handspan over the
+	# end of the pole.
+	var neck := BoxMesh.new()
+	neck.size = Vector3(0.14, BRACKET_HEIGHT + 0.08, 0.14)
+	Signpost._add(
+		tool, neck,
+		Transform3D(Basis(), Vector3(0.0, POLE_HEIGHT + BRACKET_HEIGHT * 0.5 - 0.04, 0.0)),
+		POLE_GREY
+	)
+	var cap := CylinderMesh.new()
+	cap.top_radius = POLE_RADIUS * 1.5
+	cap.bottom_radius = POLE_RADIUS * 1.5
+	cap.height = 0.09
+	cap.radial_segments = 12
+	cap.rings = 1
+	Signpost._add(
+		tool, cap, Transform3D(Basis(), Vector3(0.0, POLE_HEIGHT, 0.0)), POLE_GREY
+	)
+
 	_build_plaque(tool)
 
 	tool.generate_normals()
@@ -180,14 +200,19 @@ func _build() -> void:
 ## had a street sign growing out of it.
 func _plate_height(road: int) -> float:
 	return (
-		_plaque_centre() - PLAQUE_BODY * 0.5 - PLAQUE_GAP - PLATE_HEIGHT * 0.5
+		POLE_HEIGHT - PLATE_HEIGHT * 0.5 - PLAQUE_GAP
 		- float(road) * (PLATE_HEIGHT + 0.14)
 	)
 
-## The middle of the plaque: at the very top of the post, its arch level with
-## the cap.
+## The middle of the plaque: standing on top of the post, not threaded onto it.
+##
+## It used to be centred on the post's axis at a height the post still reached,
+## so the pole came up through the middle of the enamel and cut the name in
+## half. A plaque is screwed to the front of something; nothing goes through
+## it. So the post stops, a short bracket carries on, and the plaque sits above
+## the end of it.
 func _plaque_centre() -> float:
-	return POLE_HEIGHT - PLAQUE_ARCH - PLAQUE_BODY * 0.5 + 0.10
+	return POLE_HEIGHT + BRACKET_HEIGHT + PLAQUE_BODY * 0.5
 
 ## How long a plate has to be to hold its name and its arrow.
 static func plate_length(road_name: String) -> float:
@@ -281,6 +306,9 @@ const PLAQUE_ARCH := 0.58
 ## The clear air between the plaque and the topmost street plate. A plaque
 ## resting on the signs reads as one more sign.
 const PLAQUE_GAP := 0.60
+
+## The short bracket between the top of the post and the foot of the plaque.
+const BRACKET_HEIGHT := 0.22
 ## What the arch says, above the name: the valley this square is in.
 const PLAQUE_ARCH_TEXT := "VALLÉE D'AAVA"
 

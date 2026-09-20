@@ -47,7 +47,11 @@ static func build(
 		Plaque._add(tool, slab, Transform3D(turn, turn * centre), colour)
 
 		# The round top: a disc, squashed to the height of the arch and laid
-		# on the body's top edge. A plaque with square corners is a notice.
+		# on the body's top edge. A plaque with square corners is a notice —
+		# but some plaques are plain rectangles, and asking for no arch gets
+		# one, rather than a disc squashed to nothing.
+		if rise <= 0.001:
+			continue
 		var cap := CylinderMesh.new()
 		cap.top_radius = wide * 0.5
 		cap.bottom_radius = wide * 0.5
