@@ -1008,6 +1008,8 @@ func _on_ride() -> void:
 		return
 	player.riding = kind
 	camera_rig.set_eye_lift(MountKinds.eye_lift(kind))
+	# A machine starts out pointing the way the child is facing.
+	player.take_the_handlebars(player.facing_angle())
 	sounds.play(Sounds.Sound.JUMP, 0.8)
 	hud.announce(Text.format("say_mounted", [Text.of("mount_%s_on" % MountKinds.kind_of(kind))]), 2.0)
 
@@ -1126,15 +1128,26 @@ func _catch_a_fall(at: Vector3) -> void:
 ## along the way it is pointing. A horse two and a half metres long rides out
 ## the stones between its front and back feet, and so should its rider.
 func _ground_under_the_mount(kind: StringName, at: Vector3, facing: float) -> float:
-	var reach: float = (MountKinds.body_box(kind)[0] as Vector3).z * 0.5
+	# Over the machine's own length, and never less than RIDES_OUT: a bicycle
+	# is barely two metres long, so averaging over its wheelbase alone left
+	# nearly every stone in the ground still arriving as a jolt, and riding one
+	# was being shaken about in the saddle.
+	var reach: float = maxf((MountKinds.body_box(kind)[0] as Vector3).z, RIDES_OUT) * 0.5
 	var along := Vector3(-sin(facing), 0.0, -cos(facing)) * reach
-	var front := at + along
-	var back := at - along
-	return (
-		world.field.height_at(front.x, front.z)
-		+ world.field.height_at(back.x, back.z)
-		+ world.field.height_at(at.x, at.z) * 2.0
-	) * 0.25
+	# Five samples rather than three, weighted towards the middle, so a bump
+	# under one wheel counts for less than the ground the whole machine is on.
+	var total := world.field.height_at(at.x, at.z) * 2.0
+	var weight := 2.0
+	for step: float in [-1.0, -0.5, 0.5, 1.0]:
+		var sample := at + along * step
+		var share := 1.0 if absf(step) < 0.75 else 0.6
+		total += world.field.height_at(sample.x, sample.z) * share
+		weight += share
+	return total / weight
+
+## The shortest length of ground a rider is carried over, whatever they are
+## riding. A machine shorter than this still rides out what is under it.
+const RIDES_OUT := 3.2
 
 func _outside_the_shop(offset: Vector3) -> Vector3:
 	var spot := world.places.position_of(Places.SHOP)

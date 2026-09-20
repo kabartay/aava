@@ -4536,10 +4536,25 @@ func _check_riding() -> void:
 
 	# The reason to own both.
 	_expect(
-		MountKinds.speed(MountKinds.BICYCLE) > MountKinds.speed(MountKinds.HORSE),
-		"the bicycle is faster on the flat (%.1f vs %.1f m/s)" % [
+		MountKinds.speed(MountKinds.BICYCLE) < MountKinds.speed(MountKinds.HORSE),
+		"a bicycle is slower than a galloping horse (%.1f against %.1f m/s)" % [
 			MountKinds.speed(MountKinds.BICYCLE), MountKinds.speed(MountKinds.HORSE)
 		]
+	)
+	# A machine with wheels is steered rather than pointed: it turns by leaning
+	# into a corner, so the turn takes ground, and standing still it does not
+	# turn at all. Pushing the stick sideways used to spin it on the spot like
+	# a shopping trolley.
+	_expect(MountKinds.steers(MountKinds.MOTORCYCLE), "a motorcycle is steered")
+	_expect(MountKinds.steers(MountKinds.BICYCLE), "so is a bicycle")
+	_expect(not MountKinds.steers(MountKinds.HORSE), "a horse is not: it turns where it stands")
+	_expect(not MountKinds.steers(&""), "and neither is a child on their own feet")
+
+	# And half what a motorcycle does, which is what a bicycle is beside one: a
+	# child pedalling is not a machine.
+	_expect(
+		absf(MountKinds.speed(MountKinds.BICYCLE) - MountKinds.speed(MountKinds.MOTORCYCLE) * 0.5) < 0.2,
+		"and half the motorcycle's %.1f m/s" % MountKinds.speed(MountKinds.MOTORCYCLE)
 	)
 	# The motorcycle is the climber: an engine and a knobbly tyre beat a horse
 	# up a bank, and a machine costing three hundred coins that stopped at the

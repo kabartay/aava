@@ -90,6 +90,18 @@ static func body_box(kind: StringName) -> Array:
 		_:
 			return [Vector3(0.5, 1.0, 1.9), 0.55]
 
+## Is this a thing with wheels, which has to be steered rather than pointed?
+##
+## A child on foot goes wherever the stick points, instantly, and so did a
+## child on a motorcycle: push the stick sideways and the machine span on the
+## spot like a shopping trolley. A bicycle and a motorcycle turn by leaning
+## into a corner, which means the faster you are going the more ground the turn
+## takes and standing still you cannot turn at all. A horse is not in this
+## list: a horse can and does turn where it stands.
+static func steers(kind: StringName) -> bool:
+	var of := kind_of(kind)
+	return of == BICYCLE or of == MOTORCYCLE
+
 ## Half the width of a mount, and nothing at all on foot. What the world uses
 ## to decide how much room the thing being ridden needs — a tree is as wide as
 ## the horse walking into it.
@@ -113,9 +125,12 @@ const INFO := {
 		"colour": Color(0.42, 0.29, 0.20),
 	},
 	BICYCLE: {
-		# Faster than the horse on level ground and useless off it, which is
-		# what a bicycle is.
-		"speed": 11.2,
+		# Half what the motorcycle does, which is what a bicycle is next to
+		# one: a child pedalling is not a machine, and eleven metres a second
+		# read as a bicycle with an engine in it. Slower than a horse at a
+		# gallop, too, and still the fastest way across flat ground because it
+		# never needs catching or feeding.
+		"speed": 8.25,
 		"turn": 2.0,
 		"max_slope": 0.28,
 		"fords": false,

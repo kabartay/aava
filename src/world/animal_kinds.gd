@@ -78,7 +78,7 @@ const INFO := {
 	# shears. Big and slow and entirely unbothered by children.
 	SHEEP: {
 		"want": &"", "coins": 0, "cooldown": 90.0,
-		"colour": Color(0.92, 0.90, 0.85), "size": 0.66,
+		"colour": Color(0.95, 0.94, 0.90), "size": 0.58,
 		"home": "meadow", "shy": 0.0,
 		"gives": &"wool",
 	},
@@ -86,11 +86,17 @@ const INFO := {
 	# of cows being an endless larder.
 	COW: {
 		"want": &"", "coins": 0, "cooldown": 120.0,
-		"colour": Color(0.94, 0.93, 0.90), "size": 0.86,
+		"colour": Color(0.96, 0.95, 0.93), "size": 1.0,
 		"home": "meadow", "shy": 0.0,
 		"gives": &"milk",
 	},
 }
+
+## The dark on a sheep's face and legs, and the dark of a cow's markings. Named
+## because both are used in several places apiece and a colour typed out twice
+## is a colour that drifts.
+const SHEEP_FACE := Color(0.24, 0.22, 0.24)
+const COW_PATCH := Color(0.17, 0.15, 0.16)
 
 ## What an animal hands over when it is cared for, or nothing — in which case
 ## it pays coins like the rest.
@@ -354,62 +360,158 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 			inner.rings = 1
 			_add(tool, inner, Transform3D(Basis(), Vector3(side * scale * 0.36, head_lift + scale * 0.78, head_forward + scale * 0.02)), Color(0.86, 0.60, 0.62))
 
-	# A fleece: lumps all over the body, which is the whole of what a sheep
-	# looks like. A smooth ellipsoid in cream is a pebble.
+	# A sheep is a fleece with a face. Small curls all over the body, tight
+	# together, and then the one thing that says sheep from any distance: a
+	# dark face and dark legs against all that white. Without them a sheep is
+	# a pale lump, and a pale lump beside a cow is another cow.
 	if kind == SHEEP:
-		for lump in 14:
+		for lump in 22:
 			var curl := SphereMesh.new()
-			curl.radius = scale * 0.34
-			curl.height = scale * 0.6
+			curl.radius = scale * 0.3
+			curl.height = scale * 0.46
 			curl.radial_segments = 7
 			curl.rings = 4
+			# Spread over the barrel on the golden angle, so they cover it
+			# evenly without a pattern.
 			var around := TAU * float(lump) * 0.618
-			var along := (float(lump) / 13.0 - 0.5) * 1.7
+			var along := (float(lump) / 21.0 - 0.5) * 1.75
 			_add(tool, curl, Transform3D(Basis(), Vector3(
-				cos(around) * scale * slim * 0.62,
-				scale * (1.05 + sin(around) * 0.42),
+				cos(around) * scale * slim * 0.66,
+				scale * (1.02 + sin(around) * 0.44),
 				along * scale * long
-			)), colour.lightened(0.04 if lump % 2 == 0 else 0.0))
+			)), colour if lump % 3 != 0 else colour.darkened(0.05))
+		# The face: dark, and forward of the fleece so it is a face rather than
+		# a stain on the wool.
+		var mask := SphereMesh.new()
+		mask.radius = scale * 0.4
+		mask.height = scale * 0.62
+		mask.radial_segments = 9
+		mask.rings = 5
+		_add(tool, mask, Transform3D(
+			Basis().scaled(Vector3(0.9, 1.0, 1.15)),
+			Vector3(0.0, head_lift, head_forward - scale * 0.1)
+		), SHEEP_FACE)
+		# Ears, out to the sides and down, which no other animal here has.
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			var ear := BoxMesh.new()
+			ear.size = Vector3(scale * 0.34, scale * 0.12, scale * 0.2)
+			_add(tool, ear, Transform3D(
+				Basis(Vector3.FORWARD, side * deg_to_rad(28.0)),
+				Vector3(side * scale * 0.42, head_lift + scale * 0.12, head_forward + scale * 0.06)
+			), SHEEP_FACE)
+		# A short tail, hanging.
+		var tail := SphereMesh.new()
+		tail.radius = scale * 0.16
+		tail.height = scale * 0.34
+		tail.radial_segments = 6
+		tail.rings = 4
+		_add(tool, tail, Transform3D(Basis(), Vector3(0.0, scale * 0.94, scale * long * 0.92)), colour)
 
-	# A cow's markings, horns and udder. The patches are what a child names it
-	# by, and they have to be separate lumps because one mesh carries one
-	# colour per vertex and a cow is two colours in blotches.
+	# A cow is white with a few flat patches on it, not a black animal with
+	# white showing through. The first version used big spheres that swallowed
+	# the body: from the meadow every cow was a dark lump, and a dark lump
+	# beside a sheep is nothing anybody can name.
 	if kind == COW:
-		for patch in 5:
+		for patch in 4:
 			var blot := SphereMesh.new()
-			blot.radius = scale * 0.42
-			blot.height = scale * 0.5
+			blot.radius = scale * 0.34
+			blot.height = scale * 0.3
 			blot.radial_segments = 8
 			blot.rings = 4
-			var around := TAU * float(patch) * 0.618 + 0.7
-			var along := (float(patch) / 4.0 - 0.5) * 1.5
+			var around := TAU * float(patch) * 0.618 + 0.9
+			var along := (float(patch) / 3.0 - 0.5) * 1.35
+			# Flattened against the flank: a patch lies on a cow, it does not
+			# replace the part of her it covers.
 			_add(tool, blot, Transform3D(
-				Basis().scaled(Vector3(1.0, 0.7, 1.2)),
+				Basis().scaled(Vector3(0.5, 0.75, 1.25)),
 				Vector3(
-					cos(around) * scale * slim * 0.78,
-					scale * (1.05 + sin(around) * 0.5),
+					cos(around) * scale * slim * 0.92,
+					scale * (1.05 + sin(around) * 0.42),
 					along * scale * long
 				)
-			), Color(0.20, 0.18, 0.18))
+			), COW_PATCH)
+		# A patch over the shoulders, which is where a cow's markings usually
+		# are and what makes the silhouette read from behind.
+		var saddle := SphereMesh.new()
+		saddle.radius = scale * 0.44
+		saddle.height = scale * 0.3
+		saddle.radial_segments = 9
+		saddle.rings = 4
+		_add(tool, saddle, Transform3D(
+			Basis().scaled(Vector3(1.0, 0.45, 0.9)),
+			Vector3(0.0, scale * 1.6, -scale * long * 0.32)
+		), COW_PATCH)
+		# The head: white with a dark muzzle and a patch over one eye, which is
+		# the face a child draws when asked to draw a cow.
+		var muzzle := SphereMesh.new()
+		muzzle.radius = scale * 0.26
+		muzzle.height = scale * 0.34
+		muzzle.radial_segments = 8
+		muzzle.rings = 4
+		_add(tool, muzzle, Transform3D(
+			Basis().scaled(Vector3(1.0, 0.85, 1.0)),
+			Vector3(0.0, head_lift - scale * 0.16, head_forward - scale * 0.52)
+		), Color(0.88, 0.74, 0.72))
+		var eye_patch := SphereMesh.new()
+		eye_patch.radius = scale * 0.2
+		eye_patch.height = scale * 0.26
+		eye_patch.radial_segments = 7
+		eye_patch.rings = 4
+		_add(tool, eye_patch, Transform3D(
+			Basis().scaled(Vector3(0.6, 1.0, 0.9)),
+			Vector3(scale * 0.3, head_lift + scale * 0.1, head_forward - scale * 0.12)
+		), COW_PATCH)
+		# Horns: short, curving up and out.
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			var horn := CylinderMesh.new()
-			horn.top_radius = scale * 0.02
+			horn.top_radius = scale * 0.025
 			horn.bottom_radius = scale * 0.07
-			horn.height = scale * 0.44
+			horn.height = scale * 0.4
 			horn.radial_segments = 5
 			_add(tool, horn, Transform3D(
-				Basis(Vector3.FORWARD, deg_to_rad(side * 52.0)),
-				Vector3(side * scale * 0.34, head_lift + scale * 0.42, head_forward + scale * 0.1)
-			), Color(0.90, 0.86, 0.74))
+				Basis(Vector3.FORWARD, deg_to_rad(side * 58.0)),
+				Vector3(side * scale * 0.33, head_lift + scale * 0.38, head_forward + scale * 0.08)
+			), Color(0.92, 0.88, 0.76))
+			# Ears below them, sticking straight out sideways.
+			var ear := BoxMesh.new()
+			ear.size = Vector3(scale * 0.36, scale * 0.14, scale * 0.22)
+			_add(tool, ear, Transform3D(
+				Basis(Vector3.FORWARD, side * deg_to_rad(12.0)),
+				Vector3(side * scale * 0.46, head_lift + scale * 0.06, head_forward + scale * 0.12)
+			), COW_PATCH)
+		# The udder, and a tail with a tuft on the end.
 		var udder := SphereMesh.new()
-		udder.radius = scale * 0.3
-		udder.height = scale * 0.42
+		udder.radius = scale * 0.28
+		udder.height = scale * 0.36
 		udder.radial_segments = 8
 		udder.rings = 4
-		_add(tool, udder, Transform3D(Basis(), Vector3(0.0, scale * 0.52, scale * long * 0.42)), Color(0.94, 0.78, 0.76))
+		_add(tool, udder, Transform3D(Basis(), Vector3(0.0, scale * 0.5, scale * long * 0.34)), Color(0.94, 0.78, 0.76))
+		var dock := CylinderMesh.new()
+		dock.top_radius = scale * 0.045
+		dock.bottom_radius = scale * 0.06
+		dock.height = scale * 0.8
+		dock.radial_segments = 5
+		_add(tool, dock, Transform3D(
+			Basis(Vector3.RIGHT, deg_to_rad(16.0)),
+			Vector3(0.0, scale * 1.1, scale * long * 0.98)
+		), colour)
+		var tuft := SphereMesh.new()
+		tuft.radius = scale * 0.12
+		tuft.height = scale * 0.22
+		tuft.radial_segments = 6
+		tuft.rings = 3
+		_add(tool, tuft, Transform3D(Basis(), Vector3(0.0, scale * 0.72, scale * long * 1.06)), COW_PATCH)
 
 	if with_legs:
 		var points := hips(kind)
+		# A sheep's legs are the same black as its face, which is half of what
+		# makes a sheep recognisable at any distance — a white body on white
+		# legs is a cloud. A cow's are her own colour down to dark hooves.
+		var leg_colour := dark
+		if kind == SHEEP:
+			leg_colour = SHEEP_FACE
+		elif kind == COW:
+			leg_colour = colour.darkened(0.06)
 		for i in points.size():
 			var reach := scale * float(shape["leg"]) * (float(shape["front_leg"]) if i < 2 else 1.0)
 			var leg := CylinderMesh.new()
@@ -418,7 +520,18 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 			leg.height = reach
 			leg.radial_segments = 6
 			leg.rings = 1
-			_add(tool, leg, Transform3D(Basis(), points[i] + Vector3(0.0, -reach * 0.5, 0.0)), dark)
+			_add(tool, leg, Transform3D(Basis(), points[i] + Vector3(0.0, -reach * 0.5, 0.0)), leg_colour)
+			if kind == COW:
+				# Hooves: a cow's legs end in something dark, and it is the one
+				# detail that stops four white posts reading as a table.
+				var hoof := CylinderMesh.new()
+				hoof.top_radius = scale * 0.13 * float(shape["leg_slim"])
+				hoof.bottom_radius = hoof.top_radius * 1.05
+				hoof.height = scale * 0.16
+				hoof.radial_segments = 6
+				_add(tool, hoof, Transform3D(
+					Basis(), points[i] + Vector3(0.0, -reach + scale * 0.06, 0.0)
+				), COW_PATCH)
 		_add_paws(tool, scale, long, slim, dark)
 
 	_add_belly(tool, scale, long, tall, slim, colour)

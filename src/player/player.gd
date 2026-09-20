@@ -141,6 +141,11 @@ var _bow_string: Node3D
 var _bow_arrow: Node3D
 var _draw_shown := 0.0
 
+## Called by the game when somebody gets on: a machine starts out pointing the
+## way the child was facing, not the way the last rider left it.
+func take_the_handlebars(facing: float) -> void:
+	_ride_heading = facing
+
 ## What the player is riding, or an empty name when on foot. Set by the game.
 ##
 ## Riding replaces the speed and the turn rate rather than parenting the player
@@ -154,6 +159,11 @@ var may_run := true
 ## Read back by the game to decide what energy the movement actually cost.
 var is_running := false
 var is_moving := false
+
+## Which way a steered machine is pointing. Kept here rather than read back
+## off the drawn body, because the body eases towards it and steering off an
+## eased value compounds into a wobble.
+var _ride_heading := 0.0
 
 var _coyote := 0.0
 var _buffered_jump := 0.0
@@ -345,6 +355,25 @@ func _physics_process(delta: float) -> void:
 	var basis := Basis(Vector3.UP, camera_yaw)
 	var wish := basis * Vector3(input.x, 0.0, input.y)
 
+	# Unless it has wheels. Then the stick is a throttle and a handlebar: up
+	# and down is how hard you are going, left and right is how hard you are
+	# turning, and the machine goes where it is pointed. Pointing it is what
+	# takes time and ground — which is the whole difference between riding a
+	# motorcycle and carrying one.
+	var steering := riding != &"" and MountKinds.steers(riding)
+	if steering:
+		var throttle := -input.y
+		var steer := input.x
+		var pace := Vector2(velocity.x, velocity.z).length()
+		var top_speed := MountKinds.speed(riding)
+		# How sharply it can be turned at this speed. At a standstill, not at
+		# all: a machine on two wheels is pushed round by hand, and a child who
+		# wants to turn on the spot can get off.
+		var bite := clampf(pace / maxf(top_speed * 0.35, 0.01), 0.0, 1.0)
+		_ride_heading -= steer * MountKinds.turn_rate(riding) * bite * delta
+		var forward := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
+		wish = forward * throttle
+
 	# How far the stick is pushed is how fast you go. Normalising the direction
 	# and throwing the magnitude away — which is what this did — meant a barely
 	# nudged stick ran at exactly the same speed as a stick pushed to the rim,
@@ -352,6 +381,9 @@ func _physics_process(delta: float) -> void:
 	var push := clampf(wish.length(), 0.0, 1.0)
 	if push > 0.001:
 		wish /= wish.length()
+	# Reversing is a walking pace, whatever the machine would do forwards.
+	if steering and wish.dot(Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))) < 0.0:
+		push = minf(push, 0.3)
 
 	# Pushing past three quarters breaks into a run without touching sprint,
 	# which is how a thumbstick is expected to behave and means a six-year-old
@@ -408,6 +440,14 @@ func _physics_process(delta: float) -> void:
 		# own turn rate rather than the walking one.
 		var turn_lambda := MountKinds.turn_rate(riding) if riding != &"" else TURN_LAMBDA
 		_visual.rotation.y = lerp_angle(_visual.rotation.y, facing, 1.0 - exp(-turn_lambda * delta))
+
+	# A steered machine points where it is steered, not where it happens to be
+	# sliding: it leads the turn rather than following it, which is what makes
+	# it feel like a machine rather than a boat.
+	if steering:
+		_visual.rotation.y = lerp_angle(
+			_visual.rotation.y, _ride_heading, 1.0 - exp(-9.0 * delta)
+		)
 
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
 	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))

@@ -527,27 +527,45 @@ func _to_vector(text: String, fallback: Vector3) -> Vector3:
 ## Bring one of every animal into view, so a screenshot can show whether they
 ## read as a cat, a dog, a squirrel and a beaver rather than as four blobs.
 func _gather_animals() -> void:
-	var origin := _player.global_position if _player != null else _look_at
-	# _yaw is stored in degrees, as the flag is written; the rig converts it on
-	# use. Reading it as radians put three of the four animals behind us.
-	var heading := deg_to_rad(_yaw)
-	# Godot faces -Z, so forward is negated. Without this the animals were
-	# arranged neatly behind the camera.
-	var forward := -Vector3(sin(heading), 0.0, cos(heading))
+	# In front of whoever is looking. With a player it is the player; without
+	# one it is the camera, looking where the camera looks — it used to be the
+	# *look-at point*, which moves the animals every time the camera is aimed
+	# at them, so framing a row of them was a chase.
+	var origin := _player.global_position if _player != null else _camera_position
+	var forward: Vector3
+	if _player != null:
+		# _yaw is stored in degrees, as the flag is written; the rig converts
+		# it on use. Reading it as radians put three of the four animals behind
+		# us. Godot faces -Z, so forward is negated.
+		var heading := deg_to_rad(_yaw)
+		forward = -Vector3(sin(heading), 0.0, cos(heading))
+	else:
+		forward = (_look_at - _camera_position)
+		forward.y = 0.0
+		forward = forward.normalized() if forward.length() > 0.01 else Vector3.FORWARD
 	var across := Vector3(forward.z, 0.0, -forward.x)
 	for i in AnimalKinds.ALL.size():
 		var kind: StringName = AnimalKinds.ALL[i]
-		var spot := origin + forward * 3.2 + across * (float(i) - 1.5) * 2.4
+		# Centred on however many kinds there are. It was written for four and
+		# there are six now, which put the row off to one side of the shot.
+		var middle := (float(AnimalKinds.ALL.size()) - 1.0) * 0.5
+		# Far enough out to get the whole row in one frame: they are placed in
+		# front of the camera now, and three and a half metres from the lens
+		# put the ends of the row outside the picture.
+		var spot := origin + forward * 9.0 + across * (float(i) - middle) * 1.9
 		spot.y = _world.field.height_at(spot.x, spot.z)
 		var body := MeshInstance3D.new()
 		body.mesh = AnimalKinds.build_mesh(kind)
 		# Facing the camera, so a screenshot shows heads rather than tails. The
 		# meshes face -Z, as Godot does, so turning them by the heading alone
 		# pointed them the way the camera looks — tails first.
-		body.rotation.y = heading + PI
+		body.rotation.y = atan2(-forward.x, -forward.z) + PI
 		add_child(body)
-		# After add_child, or the position is overwritten by the parent's.
-		body.global_position = spot
+		# Local, not global. This node is at the origin, so the two are the
+		# same number — except when this runs before the capture scene itself
+		# is in the tree, and then `global_position` quietly does nothing and
+		# every animal stands at the origin while the log says otherwise.
+		body.position = spot
 		print("  %s at (%.1f, %.1f, %.1f) size %.2f" % [kind, spot.x, spot.y, spot.z, AnimalKinds.size_of(kind)])
 
 ## Fell the nearest trees, so a screenshot can show that the forest really
