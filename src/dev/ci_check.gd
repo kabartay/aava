@@ -114,6 +114,7 @@ func _initialize() -> void:
 	_check_the_bridge_carries_what_cannot_swim()
 	_check_the_bridge_is_walked_not_climbed()
 	_check_the_bridge_is_on_the_map()
+	_check_the_roads_have_names()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -7202,3 +7203,87 @@ func _check_the_bridge_is_on_the_map() -> void:
 			"every place on the map has a colour: %d" % kind
 		)
 	minimap.queue_free()
+
+## The junction at the camp has its name on it, and every plate points along
+## the road it names.
+##
+## The four roads out of the camp were anonymous worn earth, and a child had to
+## walk one to learn where it went. A sign is only worth having if it is right,
+## so the thing checked here is that each plate is turned to the road it names
+## rather than to a bearing written down beside it.
+func _check_the_roads_have_names() -> void:
+	print("the roads have names")
+	var field := HeightField.new(20260903)
+	var post := Signpost.new(field)
+	get_root().add_child(post)
+
+	var camp := field.camp_centre()
+	var foot := post.where()
+	_expect(
+		Vector2(foot.x, foot.z).distance_to(Vector2(camp.x, camp.z)) < 12.0,
+		"the post stands at the camp, where the roads fork"
+	)
+	_expect(
+		absf(foot.y - field.height_at(foot.x, foot.z)) < 0.01,
+		"and its foot is on the ground rather than in it or over it"
+	)
+
+	# Every road out of the camp has a plate, and no plate names a road that
+	# is not there.
+	var named: Array[StringName] = []
+	for road in Signpost.ROADS:
+		named.append(road["toward"])
+	for wanted: StringName in [&"playground", &"cafe", &"pool", &"bridge"]:
+		_expect(named.has(wanted), "there is a plate for the %s road" % wanted)
+	_expect(Signpost.ROADS.size() == 4, "four roads, four plates")
+	_expect(
+		Signpost.PLACE_NAME.strip_edges() != "",
+		"and the square itself is named: %s" % Signpost.PLACE_NAME
+	)
+
+	# Each plate points where its road actually goes. Compared against the
+	# destination rather than against a stored angle, so moving a place turns
+	# its sign.
+	for road in Signpost.ROADS:
+		var toward: StringName = road["toward"]
+		var there := post.destination(toward)
+		var wanted := atan2(-(there.z - foot.z), there.x - foot.x)
+		var off := absf(angle_difference(post.bearing_to(toward), wanted))
+		_expect(
+			off < deg_to_rad(1.0),
+			"%s points at what it names, to within %.2f degrees" % [road["name"], rad_to_deg(off)]
+		)
+
+	# No two plates occupy the same height, or two roads crossing at a narrow
+	# angle would draw through one another.
+	var heights: Array[float] = []
+	for road in Signpost.ROADS.size():
+		var at := post._plate_height(road)
+		for other in heights:
+			_expect(
+				absf(at - other) > Signpost.PLATE_HEIGHT,
+				"the plates are stacked clear of one another"
+			)
+		heights.append(at)
+	_expect(
+		heights.min() > 2.0,
+		"and the lowest plate is %.2f m up, over the head of a child walking under it" % heights.min()
+	)
+	_expect(
+		heights.max() < Signpost.POLE_HEIGHT - 0.5,
+		"while the highest is below the plaque on top"
+	)
+
+	# It is drawn, and it is readable: a post with no mesh and no writing is
+	# the bug the bridge already taught us to check for.
+	var drawn := 0
+	var writing := 0
+	for child in post.get_children():
+		if child is MeshInstance3D:
+			drawn += (child as MeshInstance3D).mesh.get_faces().size() / 3
+		elif child is Label3D:
+			writing += 1
+	_expect(drawn > 200, "the post is drawn: %d triangles" % drawn)
+	# Both faces of four plates, and both faces of the two plaques.
+	_expect(writing >= Signpost.ROADS.size() * 2 + 2, "and carries %d pieces of writing" % writing)
+	post.queue_free()

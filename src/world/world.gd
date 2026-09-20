@@ -30,6 +30,7 @@ var archery: Archery
 var places: Places
 var dams: Dams
 var bridge: Bridge
+var signpost: Signpost
 var hearths: Hearths
 var football: FootballGround
 var atmosphere: Atmosphere
@@ -121,6 +122,11 @@ func _ready() -> void:
 	# half the valley is closed to anything a child buys in the shop.
 	bridge = Bridge.new(field)
 	add_child(bridge)
+
+	# The street signs where the four roads meet. A junction with names on it
+	# is a place rather than a crossing of worn earth.
+	signpost = Signpost.new(field)
+	add_child(signpost)
 
 	# Ducks on the ponds. Decoration, and nothing else: they give no coins and
 	# want nothing, because a valley where everything that moves is an errand
