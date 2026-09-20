@@ -118,6 +118,8 @@ func _initialize() -> void:
 	_check_the_fairground()
 	await _check_the_rides_carry_a_child()
 	_check_the_coaster_stands_on_the_ground()
+	await _check_the_rides_are_solid()
+	_check_the_wheel_stands_on_the_sand()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -7737,3 +7739,103 @@ func _check_the_coaster_stands_on_the_ground() -> void:
 		"every high piece of track has a pile under it: %d without" % unsupported
 	)
 	coaster.queue_free()
+
+## You walk into the rides, not through them.
+##
+## The wheel's legs, the coaster's piles, the carousel's column and the sides
+## of the belts had no collision at all: a child walked through a thirty-metre
+## wheel as though it were painted on the sky. This is the same fault a tree
+## with no trunk has, and it is tested the same way — by firing a ray at the
+## thing and expecting to be stopped.
+func _check_the_rides_are_solid() -> void:
+	print("the rides are solid")
+	var field := HeightField.new(20260903)
+	var park := Park.new(field)
+	get_root().add_child(park)
+	# One physics frame, or the bodies are not in the space yet and every ray
+	# passes through everything.
+	await physics_frame
+
+	var space := get_root().get_world_3d().direct_space_state
+	var waist := 1.0
+
+	# Across the wheel's frame, at the height a child walks: the ray starts
+	# outside one pair of legs and ends outside the other.
+	var wheel := park.wheel.position
+	_expect(
+		_blocked(space, wheel + Vector3(-8.0, waist, 0.0), wheel + Vector3(8.0, waist, 0.0)),
+		"the big wheel's frame stops you"
+	)
+
+	# Through a pile of the coaster, where its timber is thickest: along the
+	# western straight, which is the part a child walks past.
+	var struck := 0
+	var total := park.coaster.circuit()
+	# Sampled closely: the piles stand every few metres and a sparse walk down
+	# the track steps over most of them.
+	for piece in 120:
+		var here := park.coaster.position + park.coaster.point_at(total * float(piece) / 120.0)
+		if here.y < 4.0:
+			continue
+		# At the height a child walks, which is a stride above the fairground's
+		# own floor — not a stride above the sea, which is where this ray went
+		# first and found nothing but the inside of a hill.
+		var at := Vector3(here.x, park.coaster.position.y + waist, here.z)
+		var across := Vector3(3.0, 0.0, 0.0)
+		if _blocked(space, at - across, at + across):
+			struck += 1
+	_expect(struck >= 6, "the coaster's piles stop you: %d of them struck" % struck)
+
+	# The carousel's middle column, and the sides of the belts.
+	var carousel := park.carousel.position
+	_expect(
+		_blocked(space, carousel + Vector3(-3.0, waist + 0.6, 0.0), carousel + Vector3(3.0, waist + 0.6, 0.0)),
+		"the carousel's column stops you"
+	)
+	var walkway := park.walkway.position
+	_expect(
+		_blocked(space, walkway + Vector3(-4.0, Walkway.TOP + 0.4, 0.0), walkway + Vector3(4.0, Walkway.TOP + 0.4, 0.0)),
+		"you cannot walk in through the side of a belt"
+	)
+	# But the way onto them is open: the ends are where you step on.
+	_expect(
+		not _blocked(
+			space,
+			walkway + Vector3(-(Walkway.WIDTH + Walkway.GAP) * 0.5, Walkway.TOP + 0.4, Walkway.LENGTH * 0.5 + 3.0),
+			walkway + Vector3(-(Walkway.WIDTH + Walkway.GAP) * 0.5, Walkway.TOP + 0.4, 0.0)
+		),
+		"and the ends of them are open, which is where a child gets on"
+	)
+	park.queue_free()
+
+## Is the line between two points blocked by anything solid?
+func _blocked(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3) -> bool:
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	return not space.intersect_ray(query).is_empty()
+
+## Nothing on the big wheel is underground, and its gondolas hang clear of the
+## sand — the whole ride was half a metre into the ground when its hub was set
+## to its own radius and the cars were forgotten about.
+func _check_the_wheel_stands_on_the_sand() -> void:
+	print("the big wheel stands on the sand")
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	var lowest := INF
+	for child in wheel.get_children():
+		var drawn := child as MeshInstance3D
+		if drawn != null:
+			lowest = minf(lowest, drawn.mesh.get_aabb().position.y)
+	_expect(lowest > -0.25, "the frame stands on the sand: lowest timber at %.2f m" % lowest)
+
+	var lowest_car := INF
+	for index in FerrisWheel.GONDOLAS:
+		lowest_car = minf(lowest_car, (wheel.gondola(index) as Node3D).position.y)
+	_expect(
+		lowest_car > 0.5,
+		"and the lowest gondola floor is %.2f m up, which is a step into it" % lowest_car
+	)
+	_expect(
+		absf(wheel.top_of_the_ride() - 30.0) < 1.5,
+		"while the top of the ride is %.1f m" % wheel.top_of_the_ride()
+	)
+	wheel.queue_free()

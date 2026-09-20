@@ -59,6 +59,13 @@ func _init(at: Vector3) -> void:
 	# lean worked out from the two, rather than a height and an angle guessed
 	# at. Guessed at, the feet went under the ground and the ride looked
 	# buried.
+	# The frame is solid. It was not, and a child walked straight through the
+	# legs of a thirty-metre wheel as though it were painted on — the same
+	# fault a tree with no trunk collider has, and just as plain to see.
+	var frame := StaticBody3D.new()
+	frame.name = "Frame"
+	add_child(frame)
+
 	var spread := HUB_HEIGHT * 0.34
 	var length := sqrt(HUB_HEIGHT * HUB_HEIGHT + spread * spread)
 	for side: float in [-1.0, 1.0]:
@@ -76,6 +83,13 @@ func _init(at: Vector3) -> void:
 					Vector3(side * 2.6, HUB_HEIGHT * 0.5, lean * spread * 0.5)
 				),
 				STEEL
+			)
+			Park._solid(
+				frame, Vector3(0.7, length, 0.7),
+				Transform3D(
+					Basis(Vector3.RIGHT, lean * atan2(spread, HUB_HEIGHT)),
+					Vector3(side * 2.6, HUB_HEIGHT * 0.5, lean * spread * 0.5)
+				)
 			)
 			# A foot plate, so the leg meets the sand rather than ending in it.
 			var plate := CylinderMesh.new()
@@ -267,13 +281,26 @@ func _build_car(index: int) -> AnimatableBody3D:
 	)
 
 	# The hanger: two arms up to the rim, and the pin they swing on.
+	# From the top of the car's own side up to the pin, and no further: they
+	# used to start at the roof and end above the rim, so the gondolas looked
+	# hung on nothing at all.
 	for side: float in [-1.0, 1.0]:
 		var arm := BoxMesh.new()
-		arm.size = Vector3(0.12, HANGS_BELOW + 0.4, 0.12)
+		arm.size = Vector3(0.14, HANGS_BELOW - 0.55, 0.14)
 		Park._add(
 			tool, arm,
-			Transform3D(Basis(), Vector3(side * 1.6, HANGS_BELOW * 0.5 + 1.1, 0.0)),
+			Transform3D(
+				Basis(),
+				Vector3(side * 1.55, 0.55 + (HANGS_BELOW - 0.55) * 0.5, 0.0)
+			),
 			STEEL
+		)
+		# The bracket where the arm meets the car, which is what says the two
+		# are bolted together rather than passing one another.
+		var bracket := BoxMesh.new()
+		bracket.size = Vector3(0.34, 0.26, 0.5)
+		Park._add(
+			tool, bracket, Transform3D(Basis(), Vector3(side * 1.4, 0.62, 0.0)), HUB_COLOUR
 		)
 	var pin := CylinderMesh.new()
 	pin.top_radius = 0.16

@@ -24,9 +24,15 @@ const SLAT := Color(0.34, 0.37, 0.42)
 const SIDE := Color(0.58, 0.55, 0.52)
 const ARROW := Color(0.95, 0.85, 0.35)
 
+var _sides: StaticBody3D
+
 func _init(at: Vector3) -> void:
 	name = "Walkway"
 	position = at
+
+	_sides = StaticBody3D.new()
+	_sides.name = "Sides"
+	add_child(_sides)
 
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -97,6 +103,12 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 			tool, wall,
 			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), TOP + 0.36, 0.0)),
 			SIDE
+		)
+		# Solid, so a child steps onto a belt at its ends rather than walking
+		# in through its side onto the edge of a moving floor.
+		Park._solid(
+			_sides, Vector3(0.14, 0.72, LENGTH),
+			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), TOP + 0.36, 0.0))
 		)
 		var rail := BoxMesh.new()
 		rail.size = Vector3(0.10, 0.10, LENGTH)

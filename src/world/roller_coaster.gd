@@ -50,11 +50,18 @@ const CAR_COLOURS: Array[Color] = [
 ]
 
 var _cars: Array[AnimatableBody3D] = []
+var _frame: StaticBody3D
 var _at_distance := 0.0
 
 func _init(at: Vector3) -> void:
 	name = "RollerCoaster"
 	position = at
+
+	# The timber is solid: a coaster you can walk through is scenery, and this
+	# is the biggest thing on the fairground.
+	_frame = StaticBody3D.new()
+	_frame.name = "Frame"
+	add_child(_frame)
 
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -180,6 +187,13 @@ func _build_track(tool: SurfaceTool) -> void:
 					Vector3(middle.x, foot_height * 0.5, middle.z) + across * side
 				),
 				TIMBER_DARK
+			)
+			Park._solid(
+				_frame, Vector3(0.45, foot_height, 0.45),
+				Transform3D(
+					Basis(),
+					Vector3(middle.x, foot_height * 0.5, middle.z) + across * side
+				)
 			)
 		# Rungs across the bent, and a diagonal in every bay: the lattice is
 		# most of what a wooden coaster looks like from the ground.

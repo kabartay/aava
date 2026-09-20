@@ -77,6 +77,17 @@ func _init(at: Vector3) -> void:
 
 	# The middle column, and the canopy over it: stripes, because a roundabout
 	# without stripes is a platform.
+	# The column is solid — it stands on the axis, so a still collider and a
+	# turning one are the same thing. The horses are not: they are what a
+	# child walks up to and climbs onto.
+	var core := CylinderShape3D.new()
+	core.radius = 0.42
+	core.height = CANOPY_HEIGHT
+	var core_shape := CollisionShape3D.new()
+	core_shape.shape = core
+	core_shape.position = Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT * 0.5, 0.0)
+	footing.add_child(core_shape)
+
 	var column := CylinderMesh.new()
 	column.top_radius = 0.34
 	column.bottom_radius = 0.40
