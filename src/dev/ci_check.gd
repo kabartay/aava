@@ -7287,6 +7287,52 @@ func _check_the_roads_have_names() -> void:
 		"the plaque faces the camp, which is the way a child comes home"
 	)
 
+	# Nobody is left standing inside it. The post went up exactly where a child
+	# was standing, and they loaded back in within its collision and could not
+	# walk out — a solid thing that appears around somebody traps them.
+	var inside := Vector3(foot.x, foot.y, foot.z)
+	var freed := post.push_clear(inside)
+	_expect(
+		Vector2(freed.x, freed.z).distance_to(Vector2(foot.x, foot.z)) >= Signpost.KEEP_CLEAR,
+		"somebody standing in the post is stepped out of it"
+	)
+	_expect(
+		absf(freed.y - field.height_at(freed.x, freed.z)) < 0.5,
+		"and put down on the ground where they land"
+	)
+	var beside := Vector3(foot.x + 6.0, foot.y, foot.z)
+	_expect(
+		post.push_clear(beside).is_equal_approx(beside),
+		"while somebody standing clear of it is left where they are"
+	)
+	_expect(
+		Signpost.KEEP_CLEAR > Player.RADIUS,
+		"the clear ground round the post is wider than a child"
+	)
+
+	# And no rock sits in the road or at the foot of the post. One did, right
+	# against the signs, which is what a child on a bicycle hits while reading
+	# them — and a boulder in the middle of a worn path is one that would have
+	# been rolled aside years ago.
+	var rocks := Boulders.new(field, 20260903)
+	get_root().add_child(rocks)
+	_expect(
+		not rocks._suits(foot.x + 1.5, foot.z + 1.0),
+		"no rock stands against the signpost"
+	)
+	var on_the_road := false
+	var i := 0
+	while i < Paths.SEGMENTS.size():
+		for step in 9:
+			var along := float(step + 1) / 10.0
+			var x := lerpf(Paths.SEGMENTS[i], Paths.SEGMENTS[i + 2], along)
+			var z := lerpf(Paths.SEGMENTS[i + 1], Paths.SEGMENTS[i + 3], along)
+			if rocks._suits(x, z):
+				on_the_road = true
+		i += 4
+	_expect(not on_the_road, "and none in the middle of a road")
+	rocks.queue_free()
+
 	# It is drawn, and it is readable: a post with no mesh and no writing is
 	# the bug the bridge already taught us to check for.
 	var drawn := 0

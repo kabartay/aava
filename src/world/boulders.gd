@@ -196,6 +196,9 @@ func _build_tile(coord: Vector2i) -> void:
 
 ## Where a rock belongs: on open ground, out of the water, off the pitch, and
 ## not so steep that it would be half buried.
+## How far from the signpost no rock may sit: the square around its foot.
+const SIGNPOST_CLEARANCE := 4.0
+
 func _suits(x: float, z: float) -> bool:
 	var height := field.height_at(x, z)
 	if field.is_pond(x, z):
@@ -207,6 +210,15 @@ func _suits(x: float, z: float) -> bool:
 	if height < HeightField.WATER_LEVEL + 0.4:
 		return false
 	if Pitch.is_levelled(x, z):
+		return false
+	# Not on a road, and not against the signpost. A rock sitting in the middle
+	# of a worn path is a rock somebody would have rolled aside years ago, and
+	# one at the foot of the signs is something a child on a bicycle hits while
+	# reading them.
+	if Paths.influence(x, z, field.camp_centre()) > 0.0:
+		return false
+	var post := field.camp_centre() + Signpost.OFFSET
+	if Vector2(x - post.x, z - post.z).length() < SIGNPOST_CLEARANCE:
 		return false
 	if field.steepness_at(x, z) > 0.45:
 		return false

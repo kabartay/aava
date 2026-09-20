@@ -285,6 +285,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# sessions: the day the playground stopped being a thirty-metre pit, a child
 	# saved at the bottom of it would have loaded thirty metres inside a hill.
 	start.y = maxf(start.y, world.field.height_at(start.x, start.z))
+	# And never inside the signpost. It was put where a child happened to be
+	# standing, and they loaded back in within the post and could not walk out:
+	# a solid thing that appears around somebody traps them there.
+	start = world.signpost.push_clear(start)
 	player.position = start + Vector3.UP * SPAWN_CLEARANCE
 	# Terrain arrives a few chunks per frame, so for the first instants there is
 	# nothing under the player's feet. Physics stays off until the ground they

@@ -68,6 +68,34 @@ func where() -> Vector3:
 	at.y = _field.height_at(at.x, at.z)
 	return at
 
+## How far from the middle of the post nothing may stand: the post's own
+## collision, a child's own width, and a hand's breadth so they are not left
+## leaning on it.
+const KEEP_CLEAR := POLE_RADIUS * 1.6 + Player.RADIUS + 0.25
+
+## Move a point out from under the post, if it is under it.
+##
+## The post was put exactly where a child was standing, and they loaded back in
+## inside it and could not walk out: a solid thing that appears around somebody
+## traps them. Anything that puts a child into the world asks this first, and a
+## child already there is stepped out along the line they were pushed from —
+## towards the camp when they are dead centre, because that is where they were
+## going anyway.
+func push_clear(at: Vector3) -> Vector3:
+	var foot := where()
+	var out := Vector2(at.x - foot.x, at.z - foot.z)
+	if out.length() >= KEEP_CLEAR:
+		return at
+	if out.length() < 0.01:
+		var camp := _field.camp_centre()
+		out = Vector2(camp.x - foot.x, camp.z - foot.z)
+		if out.length() < 0.01:
+			out = Vector2(1.0, 0.0)
+	out = out.normalized() * KEEP_CLEAR
+	var moved := Vector3(foot.x + out.x, at.y, foot.z + out.y)
+	moved.y = maxf(moved.y, _field.height_at(moved.x, moved.z))
+	return moved
+
 ## What a road on this post points at.
 func destination(toward: StringName) -> Vector3:
 	var camp := _field.camp_centre()
