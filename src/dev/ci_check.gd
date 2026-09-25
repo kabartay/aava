@@ -8721,6 +8721,32 @@ func _check_the_machines_steer() -> void:
 		)
 	mounts.queue_free()
 
+	# The button for getting off says what you are getting off. It was handed
+	# whatever stood within reach, and while riding nothing does — so it fell
+	# back to a horseshoe whatever was underneath.
+	var screen := Hud.new()
+	get_root().add_child(screen)
+	for machine: Array in [
+		[MountKinds.QUAD, ActionIcon.Kind.LEAVE_QUAD],
+		[MountKinds.BICYCLE, ActionIcon.Kind.LEAVE_BICYCLE],
+		[MountKinds.MOTORCYCLE, ActionIcon.Kind.LEAVE_MOTORCYCLE],
+	]:
+		screen.set_mount_in_reach(false, true, false, machine[0])
+		var face := screen._face_of(screen._ride_button)
+		_expect(face != null, "the ride button has a face")
+		if face != null:
+			_expect(
+				face.kind == machine[1],
+				"riding a %s, the button shows how to get off one" % machine[0]
+			)
+	screen.set_mount_in_reach(false, true, false, MountKinds.HORSE)
+	var horse_face := screen._face_of(screen._ride_button)
+	_expect(
+		horse_face != null and horse_face.kind == ActionIcon.Kind.GET_OFF,
+		"and a horse still shows the horseshoe"
+	)
+	screen.queue_free()
+
 	# A machine lays into its corners rather than turning bolt upright, which
 	# is what the eye reads as turning hard.
 	_expect(Player.RIDE_BANK > deg_to_rad(8.0), "a machine leans into a corner")

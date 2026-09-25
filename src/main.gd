@@ -598,10 +598,15 @@ func _process(delta: float) -> void:
 	_watch_the_turnstile()
 	world.mounts.watch(player.global_position)
 	var offered := world.mounts.nearest(player.global_position)
+	# Which thing the button is about: the one being ridden if there is one,
+	# and otherwise whatever is standing within reach. It passed the thing in
+	# reach only, and while riding there is nothing in reach — so the button
+	# for getting off a quad fell back to the horseshoe every time.
+	var about := riding if riding != &"" else offered
 	hud.set_mount_in_reach(
 		offered != &"", riding != &"",
-		MountKinds.floats(offered if offered != &"" else riding) if (offered != &"" or riding != &"") else false,
-		MountKinds.kind_of(offered) if offered != &"" else &""
+		MountKinds.floats(about) if about != &"" else false,
+		MountKinds.kind_of(about) if about != &"" else &""
 	)
 	if riding != &"" and not world.mounts.can_ride_over(riding, player.global_position):
 		# Ridden somewhere this mount cannot go — put the child down rather than
