@@ -84,7 +84,7 @@ const INFO := {
 	WHISTLE: {"price": 59, "colour": Color(0.80, 0.80, 0.84)},
 	SADDLE: {"price": 79, "colour": Color(0.52, 0.32, 0.18)},
 	BICYCLE: {"price": 99, "colour": Color(0.86, 0.42, 0.36)},
-	QUAD: {"price": 199, "colour": Color(0.86, 0.62, 0.18)},
+	QUAD: {"price": 199, "colour": Color(0.52, 0.33, 0.74)},
 	# Three bicycles. It is the last thing anybody buys here, and it should
 	# feel like the end of a long summer rather than the obvious next purchase.
 	MOTORCYCLE: {"price": 299, "colour": Color(0.16, 0.20, 0.30)},

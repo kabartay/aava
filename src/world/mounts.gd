@@ -726,6 +726,11 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 		return true
 
 	var camp := field.camp_centre()
+	# Nothing is ridden indoors. A quad went into the shop and stood between
+	# the shelves, which is funny once and then is a machine parked on the
+	# floor of a building a child has to walk round.
+	if PlaceSpec.indoors(at.x, at.z, camp):
+		return false
 	if PlaceSpec.excavation(at.x, at.z, camp) > 0.4:
 		return false
 	if PlaceSpec.inside_the_pool_fence(at.x, at.z, camp):

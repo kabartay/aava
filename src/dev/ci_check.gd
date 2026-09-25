@@ -111,6 +111,7 @@ func _initialize() -> void:
 	_check_felling_your_own_tree_costs_what_it_paid()
 	_check_nothing_is_planted_where_it_does_not_belong()
 	_check_the_shop_sells_seconds_and_buys_back()
+	_check_the_machines_steer()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
@@ -2735,8 +2736,61 @@ func _check_the_motorcycle_is_heard() -> void:
 		absi(first - last) < 4000,
 		"and its ends meet, within %d of 32768, so the loop does not click" % absi(first - last)
 	)
+	# An engine is two sounds. The first version was only the top one, which
+	# pitched down to idle is a mosquito and pitched up is a hairdryer; what a
+	# child hears going past the window is the exhaust. So the two trade places
+	# as the revs come up — thump at rest, wail at speed — and the thump is
+	# swept over a much smaller range, because a thump pitched up an octave is
+	# not a thump.
+	_expect(
+		Ambience.EXHAUST_PITCH_RANGE < Ambience.ENGINE_PITCH_RANGE * 0.5,
+		"the exhaust is swept over %.2f against the wail's %.2f" % [
+			Ambience.EXHAUST_PITCH_RANGE, Ambience.ENGINE_PITCH_RANGE
+		]
+	)
+	sound.engine(0.0)
+	var thump_idle := sound._exhaust.volume_db
+	var wail_idle := sound._engine.volume_db
+	sound.engine(1.0)
+	_expect(
+		sound._exhaust.volume_db < thump_idle,
+		"the thump eases off as the machine pulls away"
+	)
+	_expect(
+		sound._engine.volume_db > wail_idle,
+		"while the wail comes up"
+	)
+	_expect(
+		thump_idle > wail_idle,
+		"so a standing engine is mostly exhaust: %.1f dB against %.1f" % [thump_idle, wail_idle]
+	)
+
+	# The exhaust loops without a click as well: its rings are wrapped round
+	# the end of the loop rather than cut off there.
+	var thump := sound._exhaust.stream as AudioStreamWAV
+	var thump_bytes := thump.data
+	var thump_last := thump_bytes.decode_s16(thump_bytes.size() - 2)
+	var thump_first := thump_bytes.decode_s16(0)
+	# Measured against the steps the waveform takes anyway, not against zero:
+	# a firing begins at the loop point, and a firing begins with a crack. The
+	# question is whether the join is bigger than the fifty-four cracks a
+	# second either side of it, not whether it is small.
+	var thump_usual := 0.0
+	for i in range(1, 8000):
+		thump_usual += absf(float(
+			thump_bytes.decode_s16(i * 2) - thump_bytes.decode_s16((i - 1) * 2)
+		))
+	thump_usual /= 7999.0
+	_expect(
+		absf(float(thump_first - thump_last)) < thump_usual * 14.0,
+		"the exhaust joins with a step of %d against its usual %.0f" % [
+			absi(thump_first - thump_last), thump_usual
+		]
+	)
+
 	sound.engine(-1.0)
 	_expect(not sound.engine_is_running(), "and stops when the rider gets off")
+	_expect(not sound._exhaust.playing, "both halves of it stop together")
 
 	# Louder than the wood it is driven into. An engine that the leaves drown
 	# is an engine a child cannot hear themselves riding.
@@ -8561,3 +8615,60 @@ func _check_the_shop_sells_seconds_and_buys_back() -> void:
 	_expect(mounts.sell_one(MountKinds.BICYCLE, spot), "one can be sold back")
 	_expect(mounts.count_of_kind(MountKinds.BICYCLE) == 2, "leaving two standing")
 	mounts.queue_free()
+
+## Every machine with wheels is steered, and none of them is ridden indoors.
+##
+## The quad span on the spot the way the motorcycle used to, because it was
+## left out of the one list that says a thing turns by going round rather than
+## by pointing — and it was ridden into the shop and parked between the
+## shelves, which the building had no opinion about either.
+func _check_the_machines_steer() -> void:
+	print("the machines steer")
+	for wheeled: StringName in [
+		MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD
+	]:
+		_expect(MountKinds.steers(wheeled), "the %s is steered, not pointed" % wheeled)
+	_expect(not MountKinds.steers(MountKinds.HORSE), "and a horse turns where it stands")
+
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var camp := field.camp_centre()
+	var indoors := PlaceSpec.centre_of(&"shop", camp)
+	_expect(
+		PlaceSpec.indoors(indoors.x, indoors.z, camp),
+		"the middle of the shop is indoors"
+	)
+	for wheeled: StringName in [
+		MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD, MountKinds.HORSE
+	]:
+		_expect(
+			not mounts.can_ride_over(
+				wheeled, Vector3(indoors.x, field.height_at(indoors.x, indoors.z), indoors.z)
+			),
+			"a %s is not ridden into the shop" % wheeled
+		)
+	mounts.queue_free()
+
+	# A machine lays into its corners rather than turning bolt upright, which
+	# is what the eye reads as turning hard.
+	_expect(Player.RIDE_BANK > deg_to_rad(8.0), "a machine leans into a corner")
+	_expect(
+		Player.RIDE_BANK < deg_to_rad(35.0),
+		"but never so far that a child reads it as falling over"
+	)
+
+	# The quad sounds like a bigger engine in a heavier machine rather than
+	# like the motorcycle played back slower.
+	_expect(
+		Ambience.QUAD_PITCH < 1.0 and Ambience.QUAD_PITCH > 0.6,
+		"the quad's note is %.2f of the motorcycle's" % Ambience.QUAD_PITCH
+	)
+	var sound := Ambience.new()
+	get_root().add_child(sound)
+	sound.engine(0.5, 0.0, false)
+	var light := sound._engine.pitch_scale
+	sound.engine(0.5, 0.0, true)
+	_expect(sound._engine.pitch_scale < light, "and it is plainly the lower of the two")
+	sound.engine(-1.0)
+	sound.queue_free()

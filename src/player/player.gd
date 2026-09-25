@@ -171,6 +171,13 @@ const REVERSE_SHARE := 0.32
 ## off the drawn body, because the body eases towards it and steering off an
 ## eased value compounds into a wobble.
 var _ride_heading := 0.0
+## How hard the bars are over, and how far the machine is laid into the corner.
+var _last_steer := 0.0
+var _ride_bank := 0.0
+
+## How far a machine leans at full lock and full speed. Twenty degrees: enough
+## to be plainly leaning, little enough that a child never reads it as falling.
+const RIDE_BANK := deg_to_rad(20.0)
 
 var _coyote := 0.0
 var _buffered_jump := 0.0
@@ -393,6 +400,7 @@ func _physics_process(delta: float) -> void:
 		if absf(throttle) > 0.1:
 			bite = maxf(bite, PADDLE_BITE)
 		_ride_heading -= steer * MountKinds.turn_rate(riding) * bite * delta
+		_last_steer = steer
 		var forward := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
 		wish = forward * throttle
 
@@ -480,6 +488,16 @@ func _physics_process(delta: float) -> void:
 		_visual.rotation.y = lerp_angle(
 			_visual.rotation.y, _ride_heading, 1.0 - exp(-9.0 * delta)
 		)
+		# And it leans into the corner. A machine that changes direction bolt
+		# upright reads as a chess piece being slid; the lean is what the eye
+		# actually uses to tell that something is turning hard, and it grows
+		# with speed because that is what leaning is for.
+		var pace := Vector2(velocity.x, velocity.z).length()
+		var hard := _last_steer * clampf(pace / maxf(MountKinds.speed(riding) * 0.6, 0.01), 0.0, 1.0)
+		_ride_bank = lerpf(_ride_bank, hard * RIDE_BANK, 1.0 - exp(-6.0 * delta))
+	else:
+		_ride_bank = lerpf(_ride_bank, 0.0, 1.0 - exp(-6.0 * delta))
+	_visual.rotation.z = _ride_bank
 
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
 	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
@@ -589,6 +607,10 @@ func lean_with_the_ground(riding_now: bool, field: HeightField, delta: float) ->
 ## How far the rider is leaning with the slope. For the checks.
 func ride_lean() -> float:
 	return _ride_lean
+
+## How far the machine is laid into the corner it is taking. For the checks.
+func ride_bank() -> float:
+	return _ride_bank
 
 ## How deep the drawn body is sitting, and how far it is tipped. For the
 ## checks — the collider does not move, so nothing else can see this.

@@ -557,17 +557,24 @@ func _process(delta: float) -> void:
 	world.mounts.saddled = wallet.has(ShopStock.SADDLE)
 	world.animals.has_shears = wallet.has(ShopStock.SHEARS)
 	var on_the_motorcycle := MountKinds.kind_of(riding) == MountKinds.MOTORCYCLE
-	world.animals.racket = on_the_motorcycle and player.is_moving
+	var on_the_quad := MountKinds.kind_of(riding) == MountKinds.QUAD
+	var with_an_engine := on_the_motorcycle or on_the_quad
+	# Animals leave for either engine. A quad is quieter than a motorcycle and
+	# still not something a squirrel sits through.
+	world.animals.racket = with_an_engine and player.is_moving
 	# The engine, under the rider and nobody else. How hard it is working comes
 	# from how fast the machine is actually going, so the note rises as it
 	# pulls away and drops when it stops — an engine at one pitch is a hum.
+	# Measured against what the machine itself can do, so a quad at its own
+	# full pelt sounds like full pelt rather than like a motorcycle dawdling.
 	ambience.engine(
 		clampf(
 			Vector2(player.velocity.x, player.velocity.z).length()
-			/ MountKinds.speed(MountKinds.MOTORCYCLE),
+			/ MountKinds.speed(MountKinds.kind_of(riding) if with_an_engine else MountKinds.MOTORCYCLE),
 			0.0, 1.0
-		) if on_the_motorcycle else -1.0,
-		delta
+		) if with_an_engine else -1.0,
+		delta,
+		on_the_quad
 	)
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.

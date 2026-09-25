@@ -88,6 +88,7 @@ func _init() -> void:
 	_birds = _voice(_make_birds())
 	_swimming = _voice(_make_swimming())
 	_engine = _voice(_make_engine())
+	_exhaust = _voice(_make_exhaust())
 
 ## How loud the engine is under the rider, and how far its pitch rises between
 ## idling and full pelt. Loud: the whole point of the machine is that it is
@@ -96,15 +97,27 @@ const ENGINE_DB := -13.0
 const ENGINE_PITCH := 0.62
 const ENGINE_PITCH_RANGE := 1.5
 
+## And the exhaust under it: louder at rest than the wail is, and swept over a
+## third of the range, so the low beat stays a low beat all the way up.
+const EXHAUST_DB := -11.0
+const EXHAUST_PITCH := 0.86
+const EXHAUST_PITCH_RANGE := 0.5
+
+## How much lower a quad sounds than the motorcycle: a bigger, softer engine in
+## a machine that weighs half as much again.
+const QUAD_PITCH := 0.82
+
 var _engine: AudioStreamPlayer
+var _exhaust: AudioStreamPlayer
 
 ## Called every frame with how hard the engine is working, from 0 for a
 ## machine standing still to 1 for one at full pelt, and -1 for no engine at
 ## all. It rises in pitch as well as in volume, because an engine that only
 ## gets louder reads as a volume knob rather than as an engine.
-func engine(effort: float, delta := 0.0) -> void:
+func engine(effort: float, delta := 0.0, heavy := false) -> void:
 	if effort < 0.0:
 		_apply(_engine, 0.0, ENGINE_DB)
+		_apply(_exhaust, 0.0, EXHAUST_DB)
 		_revs = 0.0
 		return
 	# Smoothed, because the number handed in is worked out from the machine's
@@ -120,10 +133,25 @@ func engine(effort: float, delta := 0.0) -> void:
 	var gear := mini(int(_revs * float(GEARS)), GEARS - 1)
 	var through := _revs * float(GEARS) - float(gear)
 	var note := 0.30 + 0.70 * through
-	_engine.pitch_scale = ENGINE_PITCH + ENGINE_PITCH_RANGE * note
+	# A quad is the same engine in a heavier machine: lower, slower to rise,
+	# and more of it coming out of the pipe than out of the top end. One set
+	# of waveforms and two characters, rather than a second pair of samples
+	# for a machine a child rides half as often.
+	var bigger := QUAD_PITCH if heavy else 1.0
+	_engine.pitch_scale = (ENGINE_PITCH + ENGINE_PITCH_RANGE * note) * bigger
 	# Loudness follows the pace rather than the note, so changing up does not
 	# make the machine quieter.
-	_apply(_engine, 0.35 + 0.65 * _revs, ENGINE_DB)
+	#
+	# The wail is what a machine at speed sounds like and the exhaust is what
+	# it sounds like standing still, so the two trade places as the revs come
+	# up: at rest you hear the thump and almost no top end, and at full pelt
+	# the top end is most of it. That trade is the difference between an engine
+	# and a pitch-shifted buzz.
+	_apply(_engine, 0.14 + 0.86 * _revs, ENGINE_DB)
+	# The exhaust climbs far less: a thump pitched up an octave is not a
+	# thump, and the low beat has to stay low or the machine loses its weight.
+	_exhaust.pitch_scale = (EXHAUST_PITCH + EXHAUST_PITCH_RANGE * note) * bigger
+	_apply(_exhaust, (1.1 if heavy else 0.95) - 0.45 * _revs, EXHAUST_DB)
 
 ## How many gears the note climbs through between a standstill and full pelt.
 const GEARS := 3
@@ -148,6 +176,52 @@ func engine_peak() -> float:
 		loudest = maxi(loudest, absi(sample))
 		i += 2
 	return float(loudest) / 32768.0
+
+## The exhaust: the low thump under the wail.
+##
+## An engine is two sounds, and the first version was only the top one — a
+## bright wail that, pitched down to idle, became a mosquito and, pitched up,
+## became a hairdryer. What a child hears when a motorcycle goes past the
+## window is the exhaust: a low beat you feel, one thump per firing, each
+## thump the pipe ringing after the bang rather than the bang itself.
+##
+## So each firing here excites two damped tones — the pipe at about a hundred
+## hertz and an octave under it — and the ring is wrapped round the end of the
+## loop rather than cut off there, which is what keeps a one-second loop of
+## fifty-four thumps seamless.
+##
+## The firings are not identical. A twin does not fire evenly, and the
+## alternation is most of what stops an engine sounding like a test tone: every
+## other beat is a little weaker and a little darker. Fifty-four is an even
+## number, so the pattern still closes at the loop.
+func _make_exhaust() -> AudioStreamWAV:
+	var samples := int(RATE * 1.0)
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	var firings := 54.0
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 606060
+
+	var ring := int(RATE * 0.055)
+	for firing in int(firings):
+		var start := int(float(firing) / firings * float(samples))
+		var weak := firing % 2 == 1
+		var loudness := 0.62 if weak else 1.0
+		var pipe := 104.0 if weak else 112.0
+		for i in ring:
+			var t := float(i) / float(RATE)
+			# Quick to speak and quick to die: a thump, not a note.
+			var fade := exp(-t * 58.0)
+			var body := sin(TAU * pipe * t) * 0.62 + sin(TAU * pipe * 0.5 * t) * 0.3
+			# The crack of the bang itself, over the first few milliseconds.
+			var crack := exp(-t * 420.0) * noise.randf_range(-1.0, 1.0) * 0.5
+			values[(start + i) % samples] += (body + crack) * fade * loudness * 0.5
+
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 32000.0))
+	return _wrap(data)
 
 ## A racing engine: a hard, bright wail rather than a thump.
 ##
