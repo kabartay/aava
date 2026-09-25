@@ -160,9 +160,16 @@ var may_run := true
 var is_running := false
 var is_moving := false
 
-## How much steering a standing machine gets while the throttle is held: enough
-## to paddle it round out of a corner, not enough to spin it on the spot.
-const PADDLE_BITE := 0.4
+## Paddling a stopped machine round with your feet: how slowly, and below what
+## speed it is allowed at all. Slow enough that it never reads as spinning.
+const PADDLE_RATE := 0.75
+const PADDLE_BELOW := 1.2
+
+## How hard a machine pulls, and how slowly it gives its speed back when the
+## throttle is released. Coasting is the slower of the two by a long way,
+## which is what weight feels like.
+const MACHINE_PULL := 9.0
+const MACHINE_COAST := 2.2
 
 ## Reverse, as a share of what the machine does forwards.
 const REVERSE_SHARE := 0.32
@@ -384,22 +391,33 @@ func _physics_process(delta: float) -> void:
 		var throttle := -input.y
 		var steer := input.x
 		var pace := Vector2(velocity.x, velocity.z).length()
-		var top_speed := MountKinds.speed(riding)
 		reversing = throttle < -0.05
-		# How sharply it can be turned at this speed. Moving, it leans into the
-		# turn; standing still it barely turns at all, because a machine on two
-		# wheels is pushed round by hand rather than spun on the spot.
-		var bite := clampf(pace / maxf(top_speed * 0.35, 0.01), 0.0, 1.0)
-		# But *barely* is not *never*. Ridden nose-first into a wood, the
-		# machine stops dead, and with no speed there was no bite, and with no
-		# bite it could not be pointed anywhere else: a child was wedged
-		# against a tree with the throttle open and nothing happening. So
-		# holding the throttle — either way — always buys enough steering to
-		# paddle the thing round, the way you walk a motorcycle out of a corner
-		# with your feet.
-		if absf(throttle) > 0.1:
-			bite = maxf(bite, PADDLE_BITE)
-		_ride_heading -= steer * MountKinds.turn_rate(riding) * bite * delta
+		# Which way it is actually going, not merely how fast: a machine
+		# backing up steers the other way round, exactly as a car does.
+		var heading_now := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
+		var signed_pace := Vector3(velocity.x, 0.0, velocity.z).dot(heading_now)
+		# How fast it comes round: the speed divided by the wheelbase, times
+		# the tangent of the angle the bars are at. That is what rolling on
+		# wheels does, and it has three consequences a rider feels at once —
+		# standing still it does not turn at all, creeping it turns very
+		# sharply, and at speed the same lock sweeps a much bigger circle.
+		#
+		# It used to be a rate per second scaled by a "bite" that rose with
+		# speed, which at low speed span the machine on the spot like a
+		# shopping trolley: a quad, sitting still, could be rotated on its own
+		# axis with the stick.
+		var lock := tan(steer * MountKinds.FULL_LOCK)
+		var turning := signed_pace / MountKinds.wheelbase(riding) * lock
+		# Capped at what the machine will actually do, so a bicycle shot down a
+		# hill cannot be flicked round faster than a bicycle can be.
+		turning = clampf(turning, -MountKinds.turn_rate(riding), MountKinds.turn_rate(riding))
+		# And paddling: with the throttle held and the machine all but stopped,
+		# it can still be walked round — slowly — the way you shuffle a
+		# motorcycle out of a corner with your feet. Ridden nose-first into a
+		# wood, a machine with no paddle is wedged there for ever.
+		if absf(throttle) > 0.1 and pace < PADDLE_BELOW:
+			turning += steer * PADDLE_RATE * (1.0 - pace / PADDLE_BELOW)
+		_ride_heading -= turning * delta
 		_last_steer = steer
 		var forward := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
 		wish = forward * throttle
@@ -458,6 +476,12 @@ func _physics_process(delta: float) -> void:
 	var rate := GROUND_ACCELERATION if grounded else AIR_ACCELERATION
 	if wish.length_squared() < 0.01 and grounded:
 		rate = GROUND_FRICTION
+	# A machine has weight. It gathers speed rather than reaching it, and when
+	# the throttle is let go it rolls on instead of stopping where it is — a
+	# motorcycle that halts the instant a thumb lifts is a shopping trolley
+	# with an engine noise.
+	if steering:
+		rate = MACHINE_PULL if wish.length_squared() > 0.01 else MACHINE_COAST
 	horizontal = horizontal.move_toward(target, rate * delta)
 	is_moving = horizontal.length_squared() > 0.35
 

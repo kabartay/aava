@@ -6996,10 +6996,43 @@ func _check_the_valley_loops_without_a_tick() -> void:
 ## target speed — so a third of a push came out as a tenth of the speed.
 func _check_a_machine_backs_out_of_a_corner() -> void:
 	print("a machine backs out of a corner")
-	_expect(Player.PADDLE_BITE > 0.0, "a standing machine can still be turned while the throttle is held")
+	# What a steered machine does is roll: how fast it comes round is its speed
+	# divided by its wheelbase, times the tangent of the angle the bars are at.
+	# Standing still that is nothing at all, which is the point — a quad could
+	# be rotated on its own axis with the stick.
+	for machine: StringName in [
+		MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD
+	]:
+		var wheelbase := MountKinds.wheelbase(machine)
+		_expect(wheelbase > 0.8 and wheelbase < 2.0, "a %s is %.2f m between axles" % [machine, wheelbase])
+		var creeping := 1.0 / wheelbase * tan(MountKinds.FULL_LOCK)
+		var flying := MountKinds.speed(machine) / wheelbase * tan(MountKinds.FULL_LOCK)
+		_expect(
+			flying > creeping,
+			"the same lock at speed swings it faster than at a crawl: %.2f against %.2f" % [
+				flying, creeping
+			]
+		)
+		_expect(
+			MountKinds.turn_rate(machine) < flying,
+			"and the cap bites before that, so it sweeps a circle rather than pivoting"
+		)
+	# Paddling: with the throttle held and the machine all but stopped it can
+	# still be walked round, slowly, or a machine ridden nose-first into a wood
+	# is wedged there for ever.
+	_expect(Player.PADDLE_RATE > 0.0, "a stopped machine can be paddled round")
 	_expect(
-		Player.PADDLE_BITE < 1.0,
-		"but not as freely as one under way, or it spins on the spot"
+		Player.PADDLE_RATE < MountKinds.turn_rate(MountKinds.QUAD) * 0.5,
+		"but far slower than it turns when it is moving, or it reads as spinning"
+	)
+	_expect(Player.PADDLE_BELOW < 2.0, "and only below walking pace")
+	# A machine has weight: it gathers speed, and rolls on when the throttle is
+	# let go rather than stopping where it stands.
+	_expect(
+		Player.MACHINE_COAST < Player.MACHINE_PULL * 0.5,
+		"a machine coasts at %.1f against pulling at %.1f" % [
+			Player.MACHINE_COAST, Player.MACHINE_PULL
+		]
 	)
 	var top := MountKinds.speed(MountKinds.MOTORCYCLE)
 	var reverse := top * Player.REVERSE_SHARE

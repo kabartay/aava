@@ -253,9 +253,19 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 	body.height = scale * 1.7
 	body.radial_segments = 12
 	body.rings = 7
+	# Bodies are built out of an ellipsoid with a barrel of flat panels laid
+	# over it rather than out of the ellipsoid alone.
+	#
+	# A scaled sphere is a bubble, and a valley of bubbles with ears on is what
+	# this was: the eye reads an animal by its corners — the point of a
+	# shoulder, the square of a rump, the flat of a flank — and a sphere has
+	# none of them anywhere. The sphere stays underneath as the soft filling;
+	# the panels are what give it a shape to recognise.
 	_add(tool, body, Transform3D(
-		Basis().scaled(Vector3(slim, tall, long)), Vector3(0.0, scale * 1.05, 0.0)
+		Basis().scaled(Vector3(slim * 0.92, tall * 0.94, long * 0.98)),
+		Vector3(0.0, scale * 1.05, 0.0)
 	), colour)
+	_barrel(tool, kind, scale, long, tall, slim, colour)
 	if kind == DOG:
 		# A deep chest, which is most of what makes a dog's outline a dog's.
 		var chest := SphereMesh.new()
@@ -297,6 +307,15 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 	head.radial_segments = 10
 	head.rings = 6
 	_add(tool, head, Transform3D(Basis(), Vector3(0.0, head_lift, head_forward)), colour)
+	# A skull over it: a box for the brow and cheeks, so the head has a flat
+	# front to put a face on rather than being a ball with eyes stuck to it.
+	var skull := BoxMesh.new()
+	skull.size = Vector3(head.radius * 1.5, head.radius * 1.42, head.radius * 1.6)
+	_add(
+		tool, skull,
+		Transform3D(Basis(), Vector3(0.0, head_lift + scale * 0.02, head_forward)),
+		colour
+	)
 
 	# A muzzle, so there is a front. Long and boxy on the dog, blunt on the
 	# beaver, small on the cat.
@@ -664,6 +683,69 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 	# is exactly what happened the first time the screenshot tool used them.
 	tool.set_material(fur_material())
 	return tool.commit()
+
+## The flat panels that give a body corners: shoulders, flanks, a back and a
+## rump, laid over the soft shape underneath.
+##
+## Six slabs rather than a hundred triangles. Each is a box, so each has edges,
+## and edges are what catch the light — which is the whole difference between
+## an animal and a balloon in a world lit by one sun.
+static func _barrel(
+	tool: SurfaceTool, kind: StringName, scale: float, long: float, tall: float,
+	slim: float, colour: Color
+) -> void:
+	var length := scale * long * 1.62
+	var height := scale * tall * 1.32
+	var width := scale * slim * 1.42
+	var middle := Vector3(0.0, scale * 1.05, 0.0)
+
+	# The barrel itself: a box a little shorter than the body, so the ends of
+	# the animal stay round and the middle of it reads as ribs.
+	var barrel := BoxMesh.new()
+	barrel.size = Vector3(width * 0.92, height * 0.82, length * 0.72)
+	_add(tool, barrel, Transform3D(Basis(), middle), colour)
+
+	# The shoulder and the rump, each tipped a little, which is what turns a
+	# box into a body that is going somewhere.
+	var shoulder := BoxMesh.new()
+	shoulder.size = Vector3(width * 0.86, height * 0.74, length * 0.34)
+	_add(
+		tool, shoulder,
+		Transform3D(
+			Basis(Vector3.RIGHT, deg_to_rad(-7.0)),
+			middle + Vector3(0.0, scale * 0.06, -length * 0.36)
+		),
+		colour
+	)
+	var rump := BoxMesh.new()
+	rump.size = Vector3(width * 0.9, height * 0.8, length * 0.36)
+	_add(
+		tool, rump,
+		Transform3D(
+			Basis(Vector3.RIGHT, deg_to_rad(6.0)),
+			middle + Vector3(0.0, scale * 0.04, length * 0.34)
+		),
+		colour
+	)
+
+	# A back along the top, flat, which is the line a child draws first.
+	var back := BoxMesh.new()
+	back.size = Vector3(width * 0.62, height * 0.2, length * 0.88)
+	_add(
+		tool, back,
+		Transform3D(Basis(), middle + Vector3(0.0, height * 0.42, 0.0)),
+		colour if kind != COW else colour.lightened(0.04)
+	)
+
+	# And the flanks, tucked in under the ribs: the underside of a standing
+	# animal is flat and narrower than its back.
+	var belly := BoxMesh.new()
+	belly.size = Vector3(width * 0.66, height * 0.26, length * 0.76)
+	_add(
+		tool, belly,
+		Transform3D(Basis(), middle - Vector3(0.0, height * 0.4, 0.0)),
+		colour.lightened(0.16)
+	)
 
 ## Shared by every animal: one material, vertex-coloured, slightly rough.
 static func fur_material() -> StandardMaterial3D:

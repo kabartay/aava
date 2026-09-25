@@ -112,6 +112,25 @@ static func steers(kind: StringName) -> bool:
 	# ground cannot do.
 	return of == BICYCLE or of == MOTORCYCLE or of == QUAD
 
+## How far apart a machine's axles are.
+##
+## What a steered machine actually does is roll: the back wheel follows the
+## front one, and how fast the whole thing comes round is the speed divided by
+## the wheelbase, times the tangent of the angle the bars are at. A long
+## machine turns lazily, a short one sharply, and neither turns at all standing
+## still — which is the thing a rider feels and the thing this game got wrong.
+static func wheelbase(kind: StringName) -> float:
+	match kind_of(kind):
+		MOTORCYCLE:
+			return 1.4
+		QUAD:
+			return 1.25
+		_:
+			return 1.05
+
+## How far the bars go over at full lock.
+const FULL_LOCK := deg_to_rad(38.0)
+
 ## Half the width of a mount, and nothing at all on foot. What the world uses
 ## to decide how much room the thing being ridden needs — a tree is as wide as
 ## the horse walking into it.
