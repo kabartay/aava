@@ -107,6 +107,7 @@ func _initialize() -> void:
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
 	_check_talking_can_be_switched_off()
+	_check_a_valley_survives_a_new_phone()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
 	await _check_the_open_bag_moves_nothing()
@@ -8299,3 +8300,32 @@ func _check_the_rides_are_paid_for() -> void:
 		"while a child standing on the sand is on nothing"
 	)
 	park.queue_free()
+
+## A child's valley survives a new phone.
+##
+## Everything a child makes lives in the app's own private storage, and Android
+## will copy that into the owner's Google account and restore it on a new device
+## — but only if the app allows it, and the export preset said no. A family that
+## played for a month and changed a phone would have started again from an empty
+## valley, and there is no way to notice that in testing: the only symptom is a
+## loss that happens once, to somebody else, long afterwards.
+##
+## Read off the export preset, because that is the file that decides it.
+func _check_a_valley_survives_a_new_phone() -> void:
+	print("a valley survives a new phone")
+	var preset := FileAccess.get_file_as_string("res://export_presets.cfg")
+	_expect(not preset.is_empty(), "the export preset can be read")
+	_expect(
+		preset.contains("user_data_backup/allow=true"),
+		"the Android build lets the system back up what a child has made"
+	)
+	# And everything worth keeping is in that storage rather than somewhere the
+	# backup cannot see.
+	_expect(
+		Profiles.FOLDER.begins_with("user://"),
+		"players are kept in the app's own storage: %s" % Profiles.FOLDER
+	)
+	_expect(
+		SaveGame.PATH.begins_with("user://"),
+		"and so is the save: %s" % SaveGame.PATH
+	)
