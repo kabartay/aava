@@ -27,7 +27,7 @@ const PARKED := Vector3(0.0, -10000.0, 0.0)
 var animals: Animals
 
 var _bodies: Array[StaticBody3D] = []
-var _shapes: Array[CapsuleShape3D] = []
+var _shapes: Array[BoxShape3D] = []
 var _following := Vector3(1e9, 1e9, 1e9)
 var _solid := 0
 
@@ -37,9 +37,16 @@ func _init(living: Animals) -> void:
 	# Built here rather than in _ready, for the usual reason: a headless check
 	# uses this without ever starting the scene tree. See LESSONS.md.
 	for _i in BODIES:
-		var shape := CapsuleShape3D.new()
-		shape.radius = 0.4
-		shape.height = 1.0
+		# A box, laid along the animal, rather than an upright capsule.
+		#
+		# A capsule stands on its own axis, which is the one direction an
+		# animal's body is not: a cow two and a half metres long was stood in
+		# for by a post half a metre across through her middle, so a child
+		# walked through her head and her rump and met something in between.
+		# It was written off at the time as "at this size a child feels a lump
+		# rather than a shape", which is true of a cat and not of a cow.
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(0.6, 0.6, 1.2)
 		var collider := CollisionShape3D.new()
 		collider.shape = shape
 		var body := StaticBody3D.new()
@@ -74,15 +81,27 @@ func set_animals(near: Array[Dictionary]) -> void:
 			_bodies[i].position = PARKED
 			continue
 		var animal: Dictionary = near[i]
-		var scale := AnimalKinds.size_of(animal["kind"])
-		# A capsule stands along its own Y, which is what an animal's body is
-		# not — but at this size a child feels a lump, not a shape, and a
-		# capsule never catches on its own ends the way a box does.
-		_shapes[i].radius = scale * 0.62 * GIRTH
-		_shapes[i].height = maxf(scale * 1.9 * GIRTH, _shapes[i].radius * 2.0 + 0.05)
+		var size := AnimalKinds.body_size(animal["kind"]) * GIRTH
+		_shapes[i].size = size
 		var at := _where(animal)
-		_bodies[i].position = at + Vector3(0.0, _shapes[i].height * 0.5, 0.0)
+		# Laid along the animal, so a cow is solid from her nose to her tail
+		# and not only where her middle is.
+		_bodies[i].position = at + Vector3(0.0, size.y * 0.5 + _stands(animal), 0.0)
+		_bodies[i].rotation = Vector3(0.0, _facing(animal), 0.0)
 		_solid += 1
+
+## How high an animal's body sits off the ground: the length of its legs.
+static func _stands(animal: Dictionary) -> float:
+	var kind: StringName = animal["kind"]
+	return AnimalKinds.size_of(kind) * 0.45
+
+## Which way an animal is pointed, so the body laid along it points that way
+## too.
+static func _facing(animal: Dictionary) -> float:
+	var node = animal.get("node")
+	if node == null or not is_instance_valid(node):
+		return 0.0
+	return (node as Node3D).rotation.y
 
 ## How many animals are solid right now. Read by the checks.
 func solid_count() -> int:

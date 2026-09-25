@@ -139,7 +139,7 @@ static func wheelbase(kind: StringName) -> float:
 static func grip(kind: StringName) -> float:
 	match kind_of(kind):
 		QUAD:
-			return 14.0
+			return 9.5
 		MOTORCYCLE:
 			return 9.0
 		_:
@@ -214,7 +214,11 @@ const INFO := {
 		# the tyres rather than in the speed. The machine for a child who
 		# finds the motorcycle too quick and the bicycle too slow.
 		"speed": 12.0,
-		"turn": 2.2,
+		# Slower to come round than the numbers first said. At two and a
+		# quarter radians a second a quad turned a full circle in under three
+		# seconds, which at twelve metres a second is not a corner but a
+		# skid — the rider is flung round rather than steering.
+		"turn": 1.35,
 		"max_slope": 0.78,
 		"fords": false,
 		"floats": false,
@@ -745,6 +749,18 @@ static func build_node(kind: StringName) -> Node3D:
 	body.name = "Body"
 	body.mesh = build_mesh(kind)
 	root.add_child(body)
+	if kind_of(kind) == QUAD:
+		# Four wheels that turn. They were part of the one mesh, so a quad
+		# crossing a meadow slid along on tyres that never moved — which is
+		# the first thing anybody notices about a machine that is supposed to
+		# be rolling.
+		var wheel_mesh := quad_wheel_mesh()
+		for i in QUAD_WHEELS.size():
+			var wheel := MeshInstance3D.new()
+			wheel.name = "Wheel%d" % i
+			wheel.mesh = wheel_mesh
+			wheel.position = QUAD_WHEELS[i] * QUAD_SCALE
+			root.add_child(wheel)
 	if kind_of(kind) == HORSE:
 		# The body alone here; the head and tail are their own nodes, so that
 		# one can nod and the other swing.
@@ -1080,33 +1096,15 @@ static func _quad(tool: SurfaceTool) -> void:
 	var dark := paint.darkened(0.5)
 	var seat_colour := Color(0.18, 0.17, 0.20)
 
-	# Wheels at the corners, and knobbly: a quad's tyres are its whole
-	# character, and a smooth torus reads as a shopping trolley castor. The
-	# lugs are short blocks laid round the tread, which is cheap and, at the
-	# distance a child sees one, exactly right.
+	# The wheels are not drawn here: they are their own nodes, so they can
+	# turn. What is drawn is what holds them on.
 	for side: float in [-1.0, 1.0]:
 		for end: float in [-1.0, 1.0]:
-			var hub_at := Vector3(side * 0.56, 0.36, end * 0.68)
-			_wheel(tool, hub_at, 0.36, 0.17, 5, rubber, metal)
-			for lug in 10:
-				var angle := TAU * float(lug) / 10.0
-				var knob := BoxMesh.new()
-				knob.size = Vector3(0.2, 0.1, 0.07)
-				_add(
-					tool, knob,
-					Transform3D(
-						Basis(Vector3.RIGHT, angle),
-						hub_at + Vector3(0.0, cos(angle) * 0.33, sin(angle) * 0.33)
-					),
-					tread
-				)
-			# The suspension arm from the chassis out to the hub, so the wheels
-			# are held on rather than hovering beside the body.
 			var arm := BoxMesh.new()
 			arm.size = Vector3(0.36, 0.09, 0.12)
 			_add(
 				tool, arm,
-				Transform3D(Basis(), Vector3(side * 0.34, 0.38, end * 0.68)),
+				Transform3D(Basis(), Vector3(side * 0.34, QUAD_AXLE, end * 0.68)),
 				metal
 			)
 
@@ -1265,6 +1263,52 @@ static func _quad(tool: SurfaceTool) -> void:
 		Transform3D(Basis(Vector3.RIGHT, deg_to_rad(84.0)), Vector3(0.3, 0.52, 0.42)),
 		metal.darkened(0.3)
 	)
+
+## Where a quad's four wheels are, how big they are, and how fat.
+##
+## Balloon tyres: two and a half times the section they had, which is what a
+## quad runs and what stops the machine reading as a go-kart. A torus cannot
+## simply be made fatter — its tube is the gap between its two radii, and past
+## a point the inner radius goes negative — so a fat tyre here is three tori
+## laid side by side across the hub with the lugs spanning all of them.
+const QUAD_AXLE := 0.38
+const QUAD_WHEEL_RADIUS := 0.4
+const QUAD_WHEEL_HALF_WIDTH := 0.21
+const QUAD_WHEELS: Array[Vector3] = [
+	Vector3(-0.56, QUAD_AXLE, -0.68), Vector3(0.56, QUAD_AXLE, -0.68),
+	Vector3(-0.56, QUAD_AXLE, 0.68), Vector3(0.56, QUAD_AXLE, 0.68),
+]
+
+static func quad_wheel_mesh() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rubber := Color(0.11, 0.11, 0.12)
+	var tread := Color(0.16, 0.16, 0.17)
+	var metal := Color(0.62, 0.64, 0.68)
+	for slice in 3:
+		var across := (float(slice) - 1.0) * QUAD_WHEEL_HALF_WIDTH * 0.8
+		_wheel(
+			tool, Vector3(across, 0.0, 0.0) * QUAD_SCALE,
+			QUAD_WHEEL_RADIUS * QUAD_SCALE, 0.15 * QUAD_SCALE, 5, rubber, metal
+		)
+	# The lugs, spanning the whole width of the tyre.
+	for lug in 12:
+		var angle := TAU * float(lug) / 12.0
+		var knob := BoxMesh.new()
+		knob.size = Vector3(
+			QUAD_WHEEL_HALF_WIDTH * 2.1, 0.1, 0.08
+		) * QUAD_SCALE
+		_add(
+			tool, knob,
+			Transform3D(
+				Basis(Vector3.RIGHT, angle),
+				Vector3(0.0, cos(angle), sin(angle)) * (QUAD_WHEEL_RADIUS - 0.04) * QUAD_SCALE
+			),
+			tread
+		)
+	tool.generate_normals()
+	tool.set_material(AnimalKinds.fur_material())
+	return tool.commit()
 
 ## A bicycle, facing -Z.
 ##

@@ -120,6 +120,11 @@ var held_at_height := NOT_HELD
 const HOLD_SPRING := 8.0
 const HOLD_SLACK := 0.12
 var held_spring := HOLD_SPRING
+
+## How quickly a rider settles to the height of the ground under the machine.
+## Fast enough to stay with it over a bank, slow enough that a stone is a
+## nudge rather than a launch.
+const HOLD_FOLLOW := 14.0
 var is_swimming := false
 
 ## Multiplies the next jump. 1.0 everywhere but on the trampoline, where the
@@ -162,7 +167,7 @@ var is_moving := false
 
 ## Paddling a stopped machine round with your feet: how slowly, and below what
 ## speed it is allowed at all. Slow enough that it never reads as spinning.
-const PADDLE_RATE := 0.75
+const PADDLE_RATE := 0.55
 const PADDLE_BELOW := 1.2
 
 ## How hard a machine pulls, and how slowly it gives its speed back when the
@@ -330,14 +335,22 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed(InputActions.JUMP):
 		_buffered_jump = JUMP_BUFFER
 
-	if held:
-		# Sprung to the saddle, for the same reason the boat's seat is — but
-		# never allowed to drift far from it, however fast the ground moves.
-		var off := held_at_height - global_position.y
-		if absf(off) > HOLD_SLACK:
-			global_position.y = held_at_height - signf(off) * HOLD_SLACK
-			off = signf(off) * HOLD_SLACK
-		velocity.y = off * held_spring
+	if held and velocity.y <= JUMP_VELOCITY * 0.25:
+		# Carried to the saddle rather than sprung to it.
+		#
+		# A spring is a spring: hand it a step in the ground — the edge of a
+		# levelled place, a stone under one wheel — and it converts that step
+		# into upward speed and throws the rider. What a rider actually does is
+		# stay with the machine, so the height is followed directly and the
+		# vertical speed is simply spent. Smoothed, so a slope is a slope
+		# rather than a staircase.
+		#
+		# A jump still escapes it: a child who has just pushed off is rising
+		# under their own power, and the hold lets go until they come down.
+		global_position.y = lerpf(
+			global_position.y, held_at_height, 1.0 - exp(-HOLD_FOLLOW * delta)
+		)
+		velocity.y = 0.0
 	elif boating:
 		# Sprung to the seat rather than snapped, so getting in reads as
 		# climbing in and a wave of the pond's surface would read as a wave.
@@ -414,7 +427,7 @@ func _physics_process(delta: float) -> void:
 		# metres a second is a machine that spits its rider off every time a
 		# thumb twitches; the faster it goes the less the bars will move, which
 		# is also what a rider does without thinking about it.
-		wanted_lock *= lerpf(1.0, 0.42, clampf(pace / maxf(top_speed, 0.01), 0.0, 1.0))
+		wanted_lock *= lerpf(1.0, 0.28, clampf(pace / maxf(top_speed, 0.01), 0.0, 1.0))
 		_bars = move_toward(_bars, wanted_lock, BARS_SPEED * delta)
 
 		# How fast it comes round: the speed divided by the wheelbase, times

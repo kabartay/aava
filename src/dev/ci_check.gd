@@ -113,6 +113,7 @@ func _initialize() -> void:
 	_check_the_shop_sells_seconds_and_buys_back()
 	_check_the_machines_steer()
 	_check_the_view_can_be_swapped()
+	_check_the_wheels_turn()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
@@ -1251,11 +1252,26 @@ func _check_animals_are_solid() -> void:
 		Vector2(nearest_body.position.x, nearest_body.position.z).length() < 0.01,
 		"the nearest animal gets the first body"
 	)
-	var girth: CapsuleShape3D = solid._shapes[0]
+	# A box laid along the animal rather than an upright capsule. A cow two
+	# and a half metres long was stood in for by a post through her middle, so
+	# a child walked through her head and her rump and met something between
+	# them.
+	var girth: BoxShape3D = solid._shapes[0]
+	var dog := AnimalKinds.body_size(AnimalKinds.DOG)
 	_expect(
-		girth.radius > 0.2 and girth.height > girth.radius * 2.0,
-		"whose shape is the size of a dog (%.2f m across, %.2f m tall)" % [girth.radius * 2.0, girth.height]
+		girth.size.z > girth.size.x,
+		"whose shape is longer than it is wide, as a dog is (%.2f by %.2f)" % [
+			girth.size.z, girth.size.x
+		]
 	)
+	_expect(
+		girth.size.z > dog.z * 0.6 and girth.size.z < dog.z * 1.1,
+		"and is the length of the dog it stands for: %.2f against %.2f" % [girth.size.z, dog.z]
+	)
+	# The cow is the one this was found on: she is long, and the body has to
+	# be long too or she is a fence post with a cow drawn round it.
+	var cow := AnimalKinds.body_size(AnimalKinds.COW)
+	_expect(cow.z > 2.0, "a cow is %.2f m long" % cow.z)
 	_expect(nearest_body.position.y > 0.1, "standing on the ground rather than sunk into it")
 	solid.set_animals([] as Array[Dictionary])
 	_expect(solid.solid_count() == 0, "and they are free again when the animals wander off")
@@ -8777,3 +8793,63 @@ func _check_the_view_can_be_swapped() -> void:
 	)
 	rig.queue_free()
 	player.queue_free()
+
+## The wheels go round, at the speed the machine is going.
+##
+## They were part of the machine's one mesh, so a quad crossing a meadow slid
+## along on tyres that never moved — the first thing anybody notices about
+## something that is supposed to be rolling. How fast they turn is not chosen:
+## it is the pace divided by the radius, which is what rolling without slipping
+## means.
+func _check_the_wheels_turn() -> void:
+	print("the wheels turn")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var spot := field.find_spawn_point()
+	mounts.place(MountKinds.QUAD, spot)
+	var node := mounts.node_of(MountKinds.QUAD)
+	_expect(node != null, "the quad is in the world")
+
+	var wheels: Array[Node3D] = []
+	for child in node.get_children():
+		var wheel := child as Node3D
+		if wheel != null and wheel.name.begins_with("Wheel"):
+			wheels.append(wheel)
+	_expect(wheels.size() == 4, "with four wheels of its own: %d" % wheels.size())
+	_expect(
+		wheels[0].position.x * wheels[1].position.x < 0.0,
+		"one at each side"
+	)
+
+	# Ridden and carried, they turn; and the faster it goes the faster they do.
+	# Summed frame by frame rather than compared end to end: the wheels wrap
+	# round at a full turn, so the difference between two angles says nothing
+	# about how far one of them has gone.
+	mounts.mount(MountKinds.QUAD)
+	var crawled := 0.0
+	var was := wheels[0].rotation.x
+	for step in 30:
+		mounts.carry(spot + Vector3(0.0, 0.0, -0.1 * float(step + 1)), 0.0)
+		mounts._process(1.0 / 60.0)
+		crawled += absf(angle_difference(wheels[0].rotation.x, was))
+		was = wheels[0].rotation.x
+	_expect(crawled > 0.05, "a quad being ridden turns its wheels: %.2f rad" % crawled)
+
+	var flew := 0.0
+	var at := spot
+	was = wheels[0].rotation.x
+	for step in 30:
+		at += Vector3(0.0, 0.0, -0.4)
+		mounts.carry(at, 0.0)
+		mounts._process(1.0 / 60.0)
+		flew += absf(angle_difference(wheels[0].rotation.x, was))
+		was = wheels[0].rotation.x
+	_expect(flew > crawled, "and faster when it is going faster: %.2f against %.2f" % [flew, crawled])
+
+	# The tyres are the fat ones a quad runs on.
+	_expect(
+		MountKinds.QUAD_WHEEL_HALF_WIDTH * 2.0 > MountKinds.QUAD_WHEEL_RADIUS,
+		"the tyres are wider than they are tall in section, which is a balloon tyre"
+	)
+	mounts.queue_free()

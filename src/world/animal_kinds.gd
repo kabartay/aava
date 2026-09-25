@@ -174,6 +174,21 @@ static func _shape(kind: StringName) -> Dictionary:
 
 ## Where the four legs hang from, in the body's frame: front-left,
 ## front-right, hind-left, hind-right. Front is -Z.
+## How big an animal's body actually is: across, up and along, in metres.
+##
+## The same numbers the barrel is built from, so what a child bumps into is
+## the animal they can see. A cow is two and a half metres long and was being
+## stood in for by a capsule half a metre across — which is a post where the
+## cow's middle is, and open air at both ends of her.
+static func body_size(kind: StringName) -> Vector3:
+	var scale := size_of(kind)
+	var shape := _shape(kind)
+	return Vector3(
+		scale * float(shape["slim"]) * 1.42,
+		scale * float(shape["tall"]) * 1.32,
+		scale * float(shape["long"]) * 1.62
+	)
+
 static func hips(kind: StringName) -> Array[Vector3]:
 	var scale := size_of(kind)
 	var shape := _shape(kind)
@@ -307,13 +322,21 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 	head.radial_segments = 10
 	head.rings = 6
 	_add(tool, head, Transform3D(Basis(), Vector3(0.0, head_lift, head_forward)), colour)
-	# A skull over it: a box for the brow and cheeks, so the head has a flat
-	# front to put a face on rather than being a ball with eyes stuck to it.
-	var skull := BoxMesh.new()
-	skull.size = Vector3(head.radius * 1.5, head.radius * 1.42, head.radius * 1.6)
+	# A brow over it: deeper than it is wide and set back a little, so the head
+	# has a forehead and cheeks rather than being a ball with eyes on. An
+	# ellipsoid again — the box that was here made every animal look like a
+	# crate with ears.
+	var skull := SphereMesh.new()
+	skull.radius = head.radius * 0.86
+	skull.height = head.radius * 1.5
+	skull.radial_segments = 9
+	skull.rings = 5
 	_add(
 		tool, skull,
-		Transform3D(Basis(), Vector3(0.0, head_lift + scale * 0.02, head_forward)),
+		Transform3D(
+			Basis().scaled(Vector3(1.0, 0.92, 1.15)),
+			Vector3(0.0, head_lift + scale * 0.05, head_forward + scale * 0.06)
+		),
 		colour
 	)
 
@@ -699,52 +722,60 @@ static func _barrel(
 	var width := scale * slim * 1.42
 	var middle := Vector3(0.0, scale * 1.05, 0.0)
 
-	# The barrel itself: a box a little shorter than the body, so the ends of
-	# the animal stay round and the middle of it reads as ribs.
-	var barrel := BoxMesh.new()
-	barrel.size = Vector3(width * 0.92, height * 0.82, length * 0.72)
-	_add(tool, barrel, Transform3D(Basis(), middle), colour)
-
-	# The shoulder and the rump, each tipped a little, which is what turns a
-	# box into a body that is going somewhere.
-	var shoulder := BoxMesh.new()
-	shoulder.size = Vector3(width * 0.86, height * 0.74, length * 0.34)
+	# Masses, not boxes.
+	#
+	# The first attempt at this laid flat slabs over the body to give it
+	# corners, and it worked in the sense that the animals stopped being
+	# bubbles and failed in the sense that a cow became a crate. An animal is
+	# neither: it is a few round masses of different sizes pushed together —
+	# a deep chest, a barrel of ribs, a rounded rump — and what reads as a
+	# shoulder is the *join* between two of them, not an edge.
+	#
+	# So these are ellipsoids, squashed differently from one another and from
+	# the body they sit on. There is not a flat face anywhere in it.
+	var shoulder := SphereMesh.new()
+	shoulder.radius = scale * 0.66
+	shoulder.height = scale * 1.2
+	shoulder.radial_segments = 10
+	shoulder.rings = 6
 	_add(
 		tool, shoulder,
 		Transform3D(
-			Basis(Vector3.RIGHT, deg_to_rad(-7.0)),
-			middle + Vector3(0.0, scale * 0.06, -length * 0.36)
+			Basis().scaled(Vector3(slim * 0.96, tall * 0.92, long * 0.5)),
+			middle + Vector3(0.0, scale * 0.04, -length * 0.26)
 		),
 		colour
 	)
-	var rump := BoxMesh.new()
-	rump.size = Vector3(width * 0.9, height * 0.8, length * 0.36)
+
+	var rump := SphereMesh.new()
+	rump.radius = scale * 0.7
+	rump.height = scale * 1.25
+	rump.radial_segments = 10
+	rump.rings = 6
 	_add(
 		tool, rump,
 		Transform3D(
-			Basis(Vector3.RIGHT, deg_to_rad(6.0)),
-			middle + Vector3(0.0, scale * 0.04, length * 0.34)
+			Basis().scaled(Vector3(slim * 1.0, tall * 0.96, long * 0.52)),
+			middle + Vector3(0.0, scale * 0.02, length * 0.27)
 		),
 		colour
 	)
 
-	# A back along the top, flat, which is the line a child draws first.
-	var back := BoxMesh.new()
-	back.size = Vector3(width * 0.62, height * 0.2, length * 0.88)
+	# And the line of the back: a long, very flat ellipsoid along the top,
+	# which is what gives a grazing animal its level topline without giving it
+	# a lid.
+	var topline := SphereMesh.new()
+	topline.radius = scale * 0.5
+	topline.height = scale * 0.7
+	topline.radial_segments = 10
+	topline.rings = 5
 	_add(
-		tool, back,
-		Transform3D(Basis(), middle + Vector3(0.0, height * 0.42, 0.0)),
-		colour if kind != COW else colour.lightened(0.04)
-	)
-
-	# And the flanks, tucked in under the ribs: the underside of a standing
-	# animal is flat and narrower than its back.
-	var belly := BoxMesh.new()
-	belly.size = Vector3(width * 0.66, height * 0.26, length * 0.76)
-	_add(
-		tool, belly,
-		Transform3D(Basis(), middle - Vector3(0.0, height * 0.4, 0.0)),
-		colour.lightened(0.16)
+		tool, topline,
+		Transform3D(
+			Basis().scaled(Vector3(slim * 0.78, tall * 0.3, long * 1.02)),
+			middle + Vector3(0.0, height * 0.3, 0.0)
+		),
+		colour if kind != COW else colour.lightened(0.03)
 	)
 
 ## Shared by every animal: one material, vertex-coloured, slightly rough.

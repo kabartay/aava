@@ -180,6 +180,11 @@ func sell_one(kind: StringName, from: Vector3) -> bool:
 	_nodes.erase(chosen)
 	return true
 
+## The node a mount is drawn as. For the checks, and for anything that needs
+## to reach inside it.
+func node_of(kind: StringName) -> Node3D:
+	return _nodes.get(kind)
+
 ## How many of a kind are standing in the world.
 func count_of_kind(kind: StringName) -> int:
 	var many := 0
@@ -290,6 +295,26 @@ func _lie_on_the_ground(at: Vector3, facing: float, kind: StringName) -> Basis:
 ## How far a machine will tip to the ground under it.
 const LIE_LIMIT := deg_to_rad(26.0)
 
+## Roll the wheels of whatever is being ridden.
+##
+## They were part of the machine's one mesh, so a quad crossing a meadow slid
+## along on tyres that never turned — the first thing anybody notices about
+## something that is supposed to be rolling. How fast they turn is not chosen:
+## it is the pace divided by the radius, which is what rolling without slipping
+## means, so they cannot go round at a speed the machine is not doing.
+func _turn_the_wheels(delta: float) -> void:
+	if not exists(riding):
+		return
+	var radius := MountKinds.QUAD_WHEEL_RADIUS * MountKinds.QUAD_SCALE
+	if radius <= 0.0:
+		return
+	var spin := _pace / radius * delta
+	for child in (_nodes[riding] as Node3D).get_children():
+		var wheel := child as Node3D
+		if wheel == null or not wheel.name.begins_with("Wheel"):
+			continue
+		wheel.rotation.x = fposmod(wheel.rotation.x - spin, TAU)
+
 ## How fast the ridden mount is going, smoothed, and where in its stride it is.
 var _pace := 0.0
 var _stride := 0.0
@@ -312,17 +337,21 @@ func _process(delta: float) -> void:
 	if riding == &"":
 		_settle_the_last_one(delta)
 		return
+	# How fast whatever is being ridden is going, from how far it was carried
+	# since the last frame. Smoothed, so one odd frame does not kick the legs
+	# or spin the wheels.
+	if delta > 0.0:
+		var went := Vector2(
+			_carried_to.x - _paced_from.x, _carried_to.z - _paced_from.z
+		).length() / delta
+		_pace = lerpf(_pace, minf(went, 20.0), 1.0 - exp(-8.0 * delta))
+		_paced_from = _carried_to
+	_turn_the_wheels(delta)
 	if not exists(riding) or MountKinds.kind_of(riding) != MountKinds.HORSE:
 		return
 	var body := (_nodes[riding] as Node3D).get_node_or_null("Body") as Node3D
 	if body == null:
 		return
-	# The pace, from how far it was carried since the last frame. Smoothed, so
-	# one odd frame does not kick the legs.
-	if delta > 0.0:
-		var moved := Vector2(_carried_to.x - _paced_from.x, _carried_to.z - _paced_from.z).length() / delta
-		_pace = lerpf(_pace, minf(moved, 14.0), 1.0 - exp(-8.0 * delta))
-		_paced_from = _carried_to
 	# A stationary horse settles its legs and stands; a moving one strides,
 	# faster the faster it goes, and its body rises and falls with each beat.
 	var effort := clampf(_pace / MountKinds.speed(MountKinds.HORSE), 0.0, 1.3)

@@ -389,6 +389,11 @@ func _step(animal: Dictionary, delta: float) -> void:
 				animal["rest"] = 0.2
 		else:
 			node.position = next
+			# And it leans with the slope it is walking down. A cow going
+			# downhill stayed dead level, hanging in the air at the front and
+			# buried at the back, which reads as a cardboard cut-out being slid
+			# along rather than an animal walking.
+			_lean_with_the_ground(animal, node)
 			animal["stuck"] = 0.0
 		node.rotation.y = heading
 
@@ -436,6 +441,24 @@ func _stride(node: Node3D, kind: StringName, bob: float, trot: float, delta: flo
 		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-12.0 * delta))
 	body.scale.y = 1.0 + 0.015 * sin(bob * 0.5) * (1.0 - trot)
 	body.rotation.x = (sin(bob) * 0.04 if hops else 0.0) * trot
+
+## Tip an animal to the ground under it, front to back.
+##
+## Sampled over the animal's own length, so a sheep notices a bank a cat walks
+## over, and held to a limit so nothing stands on its nose at the foot of a
+## slope.
+func _lean_with_the_ground(animal: Dictionary, node: Node3D) -> void:
+	var kind: StringName = animal["kind"]
+	var half := AnimalKinds.body_size(kind).z * 0.5
+	var facing := node.rotation.y
+	var ahead := Vector3(-sin(facing), 0.0, -cos(facing)) * half
+	var front := _footing(node.position.x + ahead.x, node.position.z + ahead.z)
+	var back := _footing(node.position.x - ahead.x, node.position.z - ahead.z)
+	var pitch := clampf(atan2(back - front, half * 2.0), -LEANS_TO, LEANS_TO)
+	node.rotation.x = lerpf(node.rotation.x, pitch, 0.2)
+
+## How far an animal will tip to the ground under it.
+const LEANS_TO := deg_to_rad(22.0)
 
 ## Somewhere else nearby to wander to, and a while to settle when it arrives.
 ## Constant motion reads as a machine; pauses read as an animal deciding. A
