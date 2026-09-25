@@ -114,6 +114,7 @@ func _initialize() -> void:
 	_check_the_machines_steer()
 	_check_the_view_can_be_swapped()
 	_check_the_wheels_turn()
+	_check_the_animals_walk_at_their_own_pace()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
@@ -8873,3 +8874,34 @@ func _check_the_wheels_turn() -> void:
 		"the tyres are wider than they are tall in section, which is a balloon tyre"
 	)
 	mounts.queue_free()
+
+## A cow walks like a cow: slowly, with long steps.
+##
+## They all moved at one speed, which for a cow is a brisk human walk and for
+## a squirrel is a stroll — and because the legs swing at a rate of their own,
+## a cow crossing a meadow slid along with her legs barely moving. Reported,
+## reasonably, as "the cow moves very strangely".
+func _check_the_animals_walk_at_their_own_pace() -> void:
+	print("the animals walk at their own pace")
+	var slowest := Animals.pace_of(AnimalKinds.COW)
+	var quickest := Animals.pace_of(AnimalKinds.SQUIRREL)
+	_expect(slowest < quickest, "a cow walks at %.2f and a squirrel at %.2f" % [slowest, quickest])
+	_expect(
+		Animals.pace_of(AnimalKinds.SHEEP) < Animals.pace_of(AnimalKinds.DOG),
+		"a sheep is slower than a dog"
+	)
+	# The bigger the animal, the longer its step: a short step under a body
+	# that size is a table being pushed across the floor.
+	_expect(
+		float(Animals.LEG_SWINGS[AnimalKinds.COW]) > float(Animals.LEG_SWINGS[AnimalKinds.CAT]) * 0.9,
+		"and takes longer steps: %.2f against a cat's %.2f" % [
+			Animals.LEG_SWINGS[AnimalKinds.COW], Animals.LEG_SWINGS[AnimalKinds.CAT]
+		]
+	)
+	# Every kind has a pace, so nothing falls back to the old single speed by
+	# accident.
+	for kind: StringName in AnimalKinds.ALL:
+		_expect(
+			Animals.SPEEDS.has(kind),
+			"%s has a walking pace of its own" % kind
+		)

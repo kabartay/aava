@@ -23,6 +23,25 @@ const REACH := 2.4
 ## How far an animal wanders from where it lives.
 const ROAM := 9.0
 const SPEED := 1.5
+
+## And each kind's own walking pace.
+##
+## They all moved at one speed, which for a cow is a brisk human walk and for
+## a squirrel is a stroll — and because the legs swing at a rate of their own,
+## a cow crossing a meadow slid along with her legs barely moving. A big
+## animal is slow and takes long steps; a small one is quick and takes short
+## ones, and the two together are what walking looks like.
+const SPEEDS := {
+	AnimalKinds.COW: 0.85,
+	AnimalKinds.SHEEP: 1.05,
+	AnimalKinds.BEAVER: 1.2,
+	AnimalKinds.CAT: 1.6,
+	AnimalKinds.DOG: 1.9,
+	AnimalKinds.SQUIRREL: 2.3,
+}
+
+static func pace_of(kind: StringName) -> float:
+	return float(SPEEDS.get(kind, SPEED))
 const FLEE_SPEED := 4.2
 
 ## Within this distance a shy animal starts backing away, unless the player is
@@ -57,7 +76,9 @@ const TURN_RATES := {
 ## How far the legs swing at a walk, per kind, and how the body bounces.
 const LEG_SWINGS := {
 	AnimalKinds.CAT: 0.42, AnimalKinds.DOG: 0.55, AnimalKinds.SQUIRREL: 0.5, AnimalKinds.BEAVER: 0.35,
-	AnimalKinds.SHEEP: 0.3, AnimalKinds.COW: 0.26,
+	# The big ones take long steps. Short ones under a body that size read as
+	# a table being pushed across the floor.
+	AnimalKinds.SHEEP: 0.44, AnimalKinds.COW: 0.5,
 }
 const ACCEL := 3.5
 const LOOK_AHEAD := 3.2
@@ -415,8 +436,11 @@ func _step(animal: Dictionary, delta: float) -> void:
 	# was only read again while walking. Two centimetres a frame, sixty times
 	# a second, for the seconds an animal stood still: they climbed into the
 	# air and stayed there. Reported as animals flying, which is what it was.
-	animal["bob"] = float(animal["bob"]) + delta * (3.0 + moving * 6.0)
-	var trot := clampf(moving / SPEED, 0.0, 1.0)
+	# Big animals stride slowly. The rate was the same for every kind, so a
+	# cow trotted her legs at a squirrel's cadence while her body crawled.
+	var cadence := 1.0 / sqrt(maxf(AnimalKinds.size_of(animal["kind"]), 0.2))
+	animal["bob"] = float(animal["bob"]) + delta * (3.0 + moving * 6.0) * cadence
+	var trot := clampf(moving / Animals.pace_of(animal["kind"]), 0.0, 1.0)
 	var bob := float(animal["bob"])
 	var kind: StringName = animal["kind"]
 	var hops := kind == AnimalKinds.SQUIRREL
@@ -491,7 +515,7 @@ func _pick_wander(animal: Dictionary) -> void:
 		spot.y = _footing(spot.x, spot.z)
 		animal["target"] = spot
 		animal["rest"] = randf_range(1.5, 5.0)
-		animal["speed"] = SPEED
+		animal["speed"] = Animals.pace_of(animal["kind"])
 		return
 	animal["rest"] = randf_range(1.0, 2.0)
 

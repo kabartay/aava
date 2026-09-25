@@ -65,7 +65,11 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 	add_child(node)
 	var grounded := at
 	grounded.y = _rest_height(kind, at)
-	node.global_position = grounded
+	# Set through `position` rather than `global_position`: this node sits at
+	# the world's origin, so the two are the same number, and asking for a
+	# global transform before this node is itself in the tree is an error
+	# Godot prints and then quietly answers with the identity.
+	node.position = grounded
 	# A parked machine lies on the ground it is parked on. One height sample
 	# put the whole thing at the height of its middle, so on a slope one end
 	# was buried and the other in the air.
