@@ -202,20 +202,29 @@ func _make_exhaust() -> AudioStreamWAV:
 	var noise := RandomNumberGenerator.new()
 	noise.seed = 606060
 
-	var ring := int(RATE * 0.055)
+	# Long, soft rings rather than short hard ones. The first version cracked:
+	# a burst of noise at the head of every thump, fifty-four times a second,
+	# which is not an engine but a rattle — the sound of a stick held against
+	# bicycle spokes. What an exhaust actually does is *ring*, so each firing
+	# here swells over a few milliseconds and dies over forty, and there is no
+	# noise in it at all.
+	var ring := int(RATE * 0.085)
 	for firing in int(firings):
 		var start := int(float(firing) / firings * float(samples))
 		var weak := firing % 2 == 1
-		var loudness := 0.62 if weak else 1.0
-		var pipe := 104.0 if weak else 112.0
+		var loudness := 0.68 if weak else 1.0
+		var pipe := 96.0 if weak else 104.0
 		for i in ring:
 			var t := float(i) / float(RATE)
-			# Quick to speak and quick to die: a thump, not a note.
-			var fade := exp(-t * 58.0)
-			var body := sin(TAU * pipe * t) * 0.62 + sin(TAU * pipe * 0.5 * t) * 0.3
-			# The crack of the bang itself, over the first few milliseconds.
-			var crack := exp(-t * 420.0) * noise.randf_range(-1.0, 1.0) * 0.5
-			values[(start + i) % samples] += (body + crack) * fade * loudness * 0.5
+			# Swelling in over four milliseconds and dying over forty: an
+			# envelope with no edge on it anywhere.
+			var fade := (1.0 - exp(-t * 260.0)) * exp(-t * 26.0)
+			var body := (
+				sin(TAU * pipe * t)
+				+ 0.34 * sin(TAU * pipe * 2.0 * t)
+				+ 0.16 * sin(TAU * pipe * 0.5 * t)
+			)
+			values[(start + i) % samples] += body * fade * loudness * 0.42
 
 	var data := PackedByteArray()
 	data.resize(samples * 2)
@@ -247,30 +256,36 @@ func _make_engine() -> AudioStreamWAV:
 	for i in samples:
 		var t := float(i) / float(RATE)
 		var phase := fmod(t * firings, 1.0)
-		# A short, hard pulse: fast attack, fast decay. The shorter it is, the
-		# more harmonics it carries and the more it screams.
-		var pulse := exp(-phase * 16.0) - exp(-phase * 70.0)
-		# The wail: harmonics of the firing rate, the odd ones louder, which is
-		# the character a four-stroke has.
+		# A rounded pulse rather than a hard one.
+		#
+		# It was a fast attack and a fast decay, which carries an enormous
+		# number of high harmonics — that is the whole reason it sounded like
+		# a two-stroke strimmer. A raised sine to a power is smooth everywhere,
+		# has no edge to alias, and still leans on the firing rate: what comes
+		# out is a motor rather than a buzzer.
+		var pulse := pow(sin(PI * phase), 6.0)
+		# The wail: the first few harmonics of the firing rate only, the odd
+		# ones louder, which is the character a four-stroke has. The eighth and
+		# twelfth were what turned this into a hairdryer.
 		var wail := 0.0
-		for harmonic: int in [1, 2, 3, 4, 6, 8, 12]:
+		for harmonic: int in [1, 2, 3, 4, 6]:
 			var weight := 1.0 / float(harmonic)
 			if harmonic % 2 == 1:
-				weight *= 1.5
+				weight *= 1.4
 			wail += sin(TAU * firings * float(harmonic) * t) * weight
-		wail /= 3.4
-		# Gear whine, well above everything else and quiet, which is what makes
-		# a racing engine sound expensive.
+		wail /= 3.2
+		# Gear whine, well above everything else and very quiet: it is what
+		# makes an engine sound expensive, and at any volume at all it is what
+		# makes it sound like a dentist.
 		#
 		# Every part of this waveform has to complete a whole number of cycles
 		# in the loop, or the end does not meet the beginning and the join is a
-		# click — once a second, for ever. The wobble on the whine was three
-		# radians a second, which is not a whole cycle of anything, and that
-		# click was the bug: two cycles a second is.
-		var whine := sin(TAU * firings * 9.0 * t + sin(TAU * 2.0 * t) * 0.8) * 0.12
-		# Induction roar: noise, gated by the pulse, so it breathes with it.
-		var roar := (randf() * 2.0 - 1.0) * 0.18 * maxf(pulse, 0.0)
-		var value := pulse * 0.55 + wail * 0.42 + whine + roar
+		# click — once a second, for ever.
+		var whine := sin(TAU * firings * 9.0 * t + sin(TAU * 2.0 * t) * 0.8) * 0.045
+		# Induction: noise breathing with the pulse, and smoothed, so it is air
+		# being drawn rather than static.
+		var roar := (randf() * 2.0 - 1.0) * 0.1 * pulse
+		var value := pulse * 0.5 + wail * 0.46 + whine + roar
 		var sample := int(clampf(value * 1.25, -1.0, 1.0) * 32000.0)
 		data[i * 2] = sample & 0xFF
 		data[i * 2 + 1] = (sample >> 8) & 0xFF

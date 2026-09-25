@@ -8005,6 +8005,26 @@ func _check_the_rides_are_solid() -> void:
 		),
 		"the coaster's piles stop you"
 	)
+	# The track itself is one swept surface, not a row of tilted boxes. Two
+	# boxes turned differently cannot be laid flush — their corners cross —
+	# and a child standing on the result sinks in, catches and shakes.
+	var frame := park.coaster.get_node("Frame") as StaticBody3D
+	var swept := 0
+	var boxed := 0
+	for child in frame.get_children():
+		var collider := child as CollisionShape3D
+		if collider == null:
+			continue
+		if collider.shape is ConcavePolygonShape3D:
+			swept += 1
+		elif collider.shape is BoxShape3D:
+			boxed += 1
+	_expect(swept == 1, "the track is one swept surface: %d of them" % swept)
+	_expect(
+		boxed < 90,
+		"and the boxes left are the uprights, not the rails: %d" % boxed
+	)
+
 	# And the ground between the two straights is open: a coaster is a frame to
 	# walk under, not a wall.
 	_expect(

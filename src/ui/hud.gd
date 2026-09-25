@@ -962,6 +962,10 @@ func set_mount_in_reach(
 			kind = ActionIcon.Kind.RIDE_BICYCLE
 		elif kind_of == MountKinds.MOTORCYCLE:
 			kind = ActionIcon.Kind.RIDE_MOTORCYCLE
+		elif kind_of == MountKinds.QUAD:
+			# It showed a horseshoe, which is what every mount showed before
+			# the machines had faces of their own.
+			kind = ActionIcon.Kind.RIDE_QUAD
 		face.show_kind(kind)
 	if _ride_button.visible != wanted:
 		_ride_button.visible = wanted

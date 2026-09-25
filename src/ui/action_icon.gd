@@ -22,7 +22,7 @@ enum Kind {
 	JUMP, KICK, BUILD, CLOSE,
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
 	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET, SHOP,
-	SNACK, LANTERN, RIDE_BICYCLE, RIDE_MOTORCYCLE,
+	SNACK, LANTERN, RIDE_BICYCLE, RIDE_MOTORCYCLE, RIDE_QUAD,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -110,6 +110,52 @@ func _draw() -> void:
 			_two_wheeler(box, false)
 		Kind.RIDE_MOTORCYCLE:
 			_two_wheeler(box, true)
+		Kind.RIDE_QUAD:
+			_quad_face(box)
+
+## A quad seen from the front: four fat tyres at the corners, a body between
+## them and bars across the top. Head-on rather than from the side, because
+## from the side it is a motorcycle with extra wheels, and the whole job of
+## this picture is to be the one thing it cannot be mistaken for.
+func _quad_face(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var across := unit * 0.3
+	var down := unit * 0.22
+	var tyre := unit * 0.15
+	for side: float in [-1.0, 1.0]:
+		# The near pair, drawn solid, and the far pair behind them as rings:
+		# that is what gives it depth in twenty pixels.
+		draw_rect(
+			Rect2(
+				centre + Vector2(side * across - tyre * 0.5, down - tyre),
+				Vector2(tyre, tyre * 1.9)
+			),
+			tint
+		)
+		draw_arc(
+			centre + Vector2(side * across * 0.72, down - tyre * 0.9),
+			tyre * 0.55, 0.0, TAU, 12, tint, maxf(1.5, unit * 0.05)
+		)
+	# The body: a wedge between the wheels.
+	draw_colored_polygon(PackedVector2Array([
+		centre + Vector2(-across * 0.78, down - tyre * 0.2),
+		centre + Vector2(-across * 0.5, -down * 0.5),
+		centre + Vector2(across * 0.5, -down * 0.5),
+		centre + Vector2(across * 0.78, down - tyre * 0.2),
+	]), tint)
+	# The bars across the top, with grips at the ends.
+	var bar_y := -down * 0.86
+	draw_line(
+		centre + Vector2(-across * 0.82, bar_y),
+		centre + Vector2(across * 0.82, bar_y),
+		tint, maxf(2.0, unit * 0.07)
+	)
+	draw_line(
+		centre + Vector2(0.0, bar_y),
+		centre + Vector2(0.0, -down * 0.5),
+		tint, maxf(2.0, unit * 0.06)
+	)
 
 ## A two-wheeler seen from the side: thin wheels and a diamond frame for the
 ## bicycle, fat wheels and a body between them for the motorcycle.

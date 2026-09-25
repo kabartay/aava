@@ -126,6 +126,7 @@ func _init(at: Vector3) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_build_track(tool)
+	_lay_the_rails()
 	_build_lift(tool)
 	_build_station(tool)
 
@@ -293,12 +294,11 @@ func _build_track(tool: SurfaceTool) -> void:
 		var sleeper := BoxMesh.new()
 		sleeper.size = Vector3(length * 0.5, 0.10, 1.7)
 		Park._add(tool, sleeper, Transform3D(turn, middle), TIMBER)
-		# The track is solid too, not only the piles under it: where it runs
-		# low — through the station, and over the last hill — a child walked
-		# straight through the rails.
-		Park._solid(
-			_frame, Vector3(length * 1.02, 0.36, 1.7), Transform3D(turn, middle)
-		)
+		# The track's own collision is not built here. One tilted box per piece
+		# is the fault the bridge's deck had: two boxes turned differently
+		# cannot be laid flush, their corners cross, and a child standing on
+		# the result is wedged between them and shaken. It is swept as one
+		# surface below.
 
 		# The trestle under it, where there is any height to hold up.
 		#
@@ -363,6 +363,54 @@ func _build_track(tool: SurfaceTool) -> void:
 				),
 				TIMBER
 			)
+
+## The track a foot actually meets: one closed prism swept along the whole
+## circuit, top, underside and both sides.
+##
+## The same lesson as the bridge, learnt twice. A box per piece, each turned to
+## its own part of the arch, cannot be flush with the next: the upper corner of
+## each stands proud of its neighbour, and what a child standing on it gets is
+## a floor that pushes them sideways every frame — they sink a little into it,
+## catch, and shake. Swept as one surface there are no corners at all.
+func _lay_the_rails() -> void:
+	var faces := PackedVector3Array()
+	var total := circuit()
+	var pieces := 150
+	var step := total / float(pieces)
+	var half_wide := 0.85
+	var deep := 0.36
+	for piece in pieces:
+		var here := point_at(step * float(piece))
+		var next := point_at(step * float(piece + 1))
+		var frame_here := frame_at(step * float(piece))
+		var frame_next := frame_at(step * float(piece + 1))
+		# The four corners of the cross-section at each end, in the track's own
+		# frame, so the prism banks with the rails.
+		var corners: Array[Vector3] = [
+			Vector3(0.0, 0.0, -half_wide), Vector3(0.0, 0.0, half_wide),
+			Vector3(0.0, -deep, half_wide), Vector3(0.0, -deep, -half_wide),
+		]
+		for corner in 4:
+			var a := here + frame_here * corners[corner]
+			var b := next + frame_next * corners[corner]
+			var c := next + frame_next * corners[(corner + 1) % 4]
+			var d := here + frame_here * corners[(corner + 1) % 4]
+			RollerCoaster._quad(faces, a, b, c, d)
+
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	_frame.add_child(collider)
+
+## Two triangles, wound the same way round.
+static func _quad(faces: PackedVector3Array, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	faces.append(a)
+	faces.append(b)
+	faces.append(c)
+	faces.append(a)
+	faces.append(c)
+	faces.append(d)
 
 ## The chain lift: the ratchet strip a car is dragged up on, laid between the
 ## rails from the station to the top. It is the one part of a coaster a child
