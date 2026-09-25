@@ -180,6 +180,24 @@ func sell_one(kind: StringName, from: Vector3) -> bool:
 	_nodes.erase(chosen)
 	return true
 
+## Is a machine or an animal standing here, close enough to be in the way?
+##
+## Asked by the animals, which move by their own reckoning and not by physics:
+## a sheep walked straight through a parked quad, because the only things they
+## knew to walk round were the furniture of the places and a short list of what
+## the world had built. A mount is neither, and it moves about.
+##
+## The ridden one does not count. A child is standing in it.
+func blocks(x: float, z: float, margin: float) -> bool:
+	for id in _nodes:
+		if id == riding or not is_instance_valid(_nodes[id]):
+			continue
+		var node: Node3D = _nodes[id]
+		var reach := MountKinds.girth(id) + margin
+		if Vector2(x - node.global_position.x, z - node.global_position.z).length() < reach:
+			return true
+	return false
+
 ## The node a mount is drawn as. For the checks, and for anything that needs
 ## to reach inside it.
 func node_of(kind: StringName) -> Node3D:
@@ -305,7 +323,7 @@ const LIE_LIMIT := deg_to_rad(26.0)
 func _turn_the_wheels(delta: float) -> void:
 	if not exists(riding):
 		return
-	var radius := MountKinds.QUAD_WHEEL_RADIUS * MountKinds.QUAD_SCALE
+	var radius := MountKinds.wheel_radius(riding)
 	if radius <= 0.0:
 		return
 	var spin := _pace / radius * delta

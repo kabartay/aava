@@ -97,6 +97,9 @@ var obstacles: Places = null
 ## which is the sort of thing that makes a valley feel like a diorama.
 var keep_out: Array[Vector3] = []
 
+## The machines and horses standing about, so an animal walks round them.
+var parked: Mounts = null
+
 ## Ground that is kept for people. Nothing lives on the fairground, the
 ## playground, the football pitch or inside the pool fence — except a cat or a
 ## dog, which is exactly where a cat or a dog would be.
@@ -120,6 +123,11 @@ static func belongs_at(kind: StringName, kept: bool) -> bool:
 ## something else the world has put there?
 func blocked_at(x: float, z: float, margin: float) -> bool:
 	if obstacles != null and obstacles.obstructed(x, z, margin):
+		return true
+	# And whatever is parked in the meadow. A sheep walked through a quad
+	# somebody had left standing, which is the sort of thing that makes a
+	# valley feel like a screensaver rather than a place.
+	if parked != null and is_instance_valid(parked) and parked.blocks(x, z, margin + 0.4):
 		return true
 	for circle in keep_out:
 		if Vector2(x - circle.x, z - circle.z).length() < circle.y + margin:

@@ -8847,6 +8847,26 @@ func _check_the_wheels_turn() -> void:
 		was = wheels[0].rotation.x
 	_expect(flew > crawled, "and faster when it is going faster: %.2f against %.2f" % [flew, crawled])
 
+	# Every machine with wheels has them as nodes of its own, not baked into
+	# its body: a bicycle and a motorcycle slid along on tyres that never
+	# moved just as the quad did.
+	for wheeled: StringName in [MountKinds.BICYCLE, MountKinds.MOTORCYCLE]:
+		var built := MountKinds.build_node(wheeled)
+		var turning := 0
+		for child in built.get_children():
+			if (child as Node3D) != null and child.name.begins_with("Wheel"):
+				turning += 1
+		_expect(turning == 2, "a %s has two wheels of its own: %d" % [wheeled, turning])
+		_expect(
+			MountKinds.wheel_radius(wheeled) > 0.2,
+			"and a radius to roll on: %.2f m" % MountKinds.wheel_radius(wheeled)
+		)
+		built.queue_free()
+	_expect(
+		MountKinds.wheel_radius(MountKinds.HORSE) == 0.0,
+		"a horse has no wheels, and is not asked to turn any"
+	)
+
 	# The tyres are the fat ones a quad runs on.
 	_expect(
 		MountKinds.QUAD_WHEEL_HALF_WIDTH * 2.0 > MountKinds.QUAD_WHEEL_RADIUS,

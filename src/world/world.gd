@@ -138,6 +138,9 @@ func _ready() -> void:
 	# What the animals must walk round: the signpost at the square and the
 	# rides on the fairground. The places keep their own list of such things,
 	# and everything built since had been walked straight through.
+	# What is parked in the meadow is something to walk round as well, and it
+	# moves, so it is asked rather than listed.
+	animals.parked = mounts
 	animals.keep_out = [
 		Vector3(signpost.where().x, 1.4, signpost.where().z),
 		Vector3(Park.CAROUSEL_AT.x, Carousel.RADIUS + 0.5, Park.CAROUSEL_AT.z),

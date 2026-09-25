@@ -749,6 +749,15 @@ static func build_node(kind: StringName) -> Node3D:
 	body.name = "Body"
 	body.mesh = build_mesh(kind)
 	root.add_child(body)
+	if kind_of(kind) == BICYCLE or kind_of(kind) == MOTORCYCLE:
+		var tyre := two_wheeler_wheel_mesh(kind)
+		var spots := wheel_spots(kind)
+		for i in spots.size():
+			var wheel := MeshInstance3D.new()
+			wheel.name = "Wheel%d" % i
+			wheel.mesh = tyre
+			wheel.position = spots[i]
+			root.add_child(wheel)
 	if kind_of(kind) == QUAD:
 		# Four wheels that turn. They were part of the one mesh, so a quad
 		# crossing a meadow slid along on tyres that never moved — which is
@@ -799,12 +808,11 @@ static func _motorcycle(tool: SurfaceTool) -> void:
 	var chrome := Color(0.88, 0.90, 0.94)
 	var leather := Color(0.11, 0.11, 0.13)
 
-	var back := Vector3(0.0, 0.42, 0.74)
-	var front := Vector3(0.0, 0.42, -0.78)
-	# Fatter tyres and more spokes than the bicycle: same wheel, different
-	# machine, which is exactly how the two should differ.
-	_wheel(tool, back, 0.42, 0.12, 8, rubber, steel)
-	_wheel(tool, front, 0.42, 0.11, 8, rubber, steel)
+	var back := MOTORCYCLE_WHEELS[1]
+	var front := MOTORCYCLE_WHEELS[0]
+	# The wheels are not drawn here. They are nodes of their own, so they turn
+	# — a machine crossing a meadow on tyres that never move is the first
+	# thing anybody notices.
 
 	# Mudguards over both wheels, which is most of what makes a motorcycle look
 	# built rather than assembled: a curve following the tyre.
@@ -1264,6 +1272,64 @@ static func _quad(tool: SurfaceTool) -> void:
 		metal.darkened(0.3)
 	)
 
+## Where each two-wheeler's wheels are, and how big. Front first.
+const BICYCLE_WHEELS: Array[Vector3] = [
+	Vector3(0.0, 0.40, -0.66), Vector3(0.0, 0.40, 0.66),
+]
+const BICYCLE_WHEEL_RADIUS := 0.40
+const MOTORCYCLE_WHEELS: Array[Vector3] = [
+	Vector3(0.0, 0.42, -0.78), Vector3(0.0, 0.42, 0.74),
+]
+const MOTORCYCLE_WHEEL_RADIUS := 0.42
+
+## How big the wheels of whatever this is are, for working out how fast they
+## should be going round. Nought for anything that has none.
+static func wheel_radius(kind: StringName) -> float:
+	match kind_of(kind):
+		BICYCLE:
+			return BICYCLE_WHEEL_RADIUS
+		MOTORCYCLE:
+			return MOTORCYCLE_WHEEL_RADIUS
+		QUAD:
+			return QUAD_WHEEL_RADIUS * QUAD_SCALE
+		_:
+			return 0.0
+
+## Where the wheels of whatever this is sit, in its own frame.
+static func wheel_spots(kind: StringName) -> Array[Vector3]:
+	match kind_of(kind):
+		BICYCLE:
+			return BICYCLE_WHEELS
+		MOTORCYCLE:
+			return MOTORCYCLE_WHEELS
+		QUAD:
+			var out: Array[Vector3] = []
+			for spot in QUAD_WHEELS:
+				out.append(spot * QUAD_SCALE)
+			return out
+		_:
+			return [] as Array[Vector3]
+
+## One wheel of a two-wheeler, drawn on its own so it can be turned. A
+## motorcycle's is fatter and has more spokes than a bicycle's: the same wheel,
+## a different machine, which is exactly how the two should differ.
+static func two_wheeler_wheel_mesh(kind: StringName) -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	if kind_of(kind) == MOTORCYCLE:
+		_wheel(
+			tool, Vector3.ZERO, MOTORCYCLE_WHEEL_RADIUS, 0.12, 8,
+			Color(0.10, 0.10, 0.11), Color(0.72, 0.74, 0.78)
+		)
+	else:
+		_wheel(
+			tool, Vector3.ZERO, BICYCLE_WHEEL_RADIUS, 0.055, 6,
+			Color(0.13, 0.13, 0.15), Color(0.80, 0.82, 0.86)
+		)
+	tool.generate_normals()
+	tool.set_material(AnimalKinds.fur_material())
+	return tool.commit()
+
 ## Where a quad's four wheels are, how big they are, and how fat.
 ##
 ## Balloon tyres: two and a half times the section they had, which is what a
@@ -1328,10 +1394,9 @@ static func _bicycle(tool: SurfaceTool) -> void:
 	var metal := Color(0.80, 0.82, 0.86)
 	var grip := Color(0.18, 0.18, 0.20)
 
-	var back := Vector3(0.0, 0.40, 0.66)
-	var front := Vector3(0.0, 0.40, -0.66)
-	_wheel(tool, back, 0.40, 0.055, 6, rubber, metal)
-	_wheel(tool, front, 0.40, 0.055, 6, rubber, metal)
+	var back := BICYCLE_WHEELS[1]
+	var front := BICYCLE_WHEELS[0]
+	# Drawn as their own nodes, like every other wheel here.
 
 	# The diamond: bottom bracket low in the middle, seat tube up from it, down
 	# tube forward to the head tube, top tube between the two.
