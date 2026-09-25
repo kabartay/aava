@@ -38,6 +38,9 @@ const REFRESH_STEP := 1.5
 ## being solid, while clipping into the bark before stopping reads as a bug.
 const TRUNK_RADIUS := 0.34
 
+## The most a rider may widen a trunk by.
+const WIDEST_RIDER := 0.5
+
 ## How much wider a trunk is to somebody riding.
 ##
 ## What the world can touch is the child's own body — a capsule a third of a
@@ -60,7 +63,11 @@ func set_girth(half_width: float) -> void:
 	if is_equal_approx(half_width, _girth):
 		return
 	_girth = half_width
-	_shape.radius = TRUNK_RADIUS + half_width
+	# Capped. A quad is three quarters of a metre to the side of its rider, and
+	# a trunk that wide is a wood a machine cannot be ridden through at all —
+	# which is what "it gets stuck" was. Half a metre of extra trunk is enough
+	# to have to steer round and little enough to leave gaps between trees.
+	_shape.radius = TRUNK_RADIUS + minf(half_width, WIDEST_RIDER)
 
 ## How wide a trunk is standing right now. For the checks.
 func trunk_radius() -> float:

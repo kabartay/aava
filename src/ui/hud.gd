@@ -33,6 +33,8 @@ signal care_pressed()
 signal shop_toggled()
 ## Something owned is being sold back to the shop.
 signal shop_sold_back(item: StringName)
+## The camera is being moved between over the shoulder and behind the eyes.
+signal view_toggled()
 signal shop_buy(item: StringName)
 signal snack_pressed()
 signal lantern_pressed()
@@ -72,6 +74,7 @@ var _menu: VBoxContainer
 var _danger: PanelContainer
 var _menu_button: Button
 var _map_button: Button
+var _view_button: Button
 ## How long the reset must be held. Long enough that a child cannot do it by
 ## accident or by curiosity, short enough that a parent does not wonder whether
 ## it is working.
@@ -420,6 +423,14 @@ func _init() -> void:
 	_map_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_map_button.pressed.connect(_toggle_map)
 	add_child(_map_button)
+
+	# And the third: which way round the camera sits. Beside the menu and the
+	# map because it belongs to the same family — things about looking at the
+	# valley rather than things about doing something in it.
+	_view_button = _icon_button(ActionIcon.Kind.VIEW_FIRST)
+	_view_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
+	_view_button.pressed.connect(func() -> void: view_toggled.emit())
+	add_child(_view_button)
 
 func _ready() -> void:
 	# Everything above is built in _init, so a caller can use this HUD's
@@ -909,6 +920,15 @@ func set_place_offer(place: StringName) -> void:
 		_visit_button.visible = wanted
 		_layout()
 
+## Which way round the camera is sitting. The button shows the view it would
+## give you, not the one you are in: a picture of what pressing it does.
+func set_first_person(on: bool) -> void:
+	var face := _face_of(_view_button)
+	if face != null:
+		face.show_kind(
+			ActionIcon.Kind.VIEW_THIRD if on else ActionIcon.Kind.VIEW_FIRST
+		)
+
 ## Whether a lantern is owned, and whether it is alight. The button appears
 ## once there is one to switch, and dims while it is out.
 func set_lantern(owned: bool, alight: bool) -> void:
@@ -954,7 +974,15 @@ func set_mount_in_reach(
 		# a hoof.
 		var kind := ActionIcon.Kind.RIDE
 		if riding:
+			# Which thing you are getting off, not merely that you are getting
+			# off something: it showed a horse whatever was underneath.
 			kind = ActionIcon.Kind.GET_OFF
+			if kind_of == MountKinds.BICYCLE:
+				kind = ActionIcon.Kind.LEAVE_BICYCLE
+			elif kind_of == MountKinds.MOTORCYCLE:
+				kind = ActionIcon.Kind.LEAVE_MOTORCYCLE
+			elif kind_of == MountKinds.QUAD:
+				kind = ActionIcon.Kind.LEAVE_QUAD
 		elif boat:
 			# A horseshoe on a jetty would be a riddle; a boat says "row".
 			kind = ActionIcon.Kind.ROW
@@ -1374,6 +1402,7 @@ func _layout() -> void:
 			Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
 		)
 	_map_button.position = _menu_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
+	_view_button.position = _map_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
 	# Bottom left, above the stick, where a thumb already rests — and far from
 	# the buttons on the right that a child presses while playing.
 	_talk_button.position = Vector2(

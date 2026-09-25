@@ -66,7 +66,10 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 	var grounded := at
 	grounded.y = _rest_height(kind, at)
 	node.global_position = grounded
-	node.rotation.y = facing
+	# A parked machine lies on the ground it is parked on. One height sample
+	# put the whole thing at the height of its middle, so on a slope one end
+	# was buried and the other in the air.
+	node.transform.basis = _lie_on_the_ground(grounded, facing, kind)
 	_nodes[kind] = node
 	_positions[kind] = grounded
 
@@ -244,12 +247,14 @@ func carry(at: Vector3, facing: float) -> void:
 	var spot := at
 	spot.y = _rest_height(riding, at)
 	node.global_position = spot
-	# Stood on the ground rather than through it. One height sample put the
-	# whole machine at the height of the middle of it, so on any slope one end
-	# was buried and the other in the air; this tips it to the ground it is
-	# standing on, front to back and side to side, which is also what makes a
-	# machine parked on a bank look parked rather than dropped.
-	node.transform.basis = _lie_on_the_ground(spot, facing, riding)
+	# A ridden machine is simply pointed where its rider is pointed.
+	#
+	# It was being tipped to the ground under it here as well, and that broke
+	# two things at once: everything else in this file reads `node.rotation.y`
+	# to know which way a mount faces, and the Euler decomposition of a basis
+	# with pitch and roll in it is not the heading that was put in. Parked
+	# machines are tipped — see `place` — and ridden ones are not.
+	node.rotation = Vector3(0.0, facing, 0.0)
 	_positions[riding] = spot
 	# How fast it is going is worked out in _process, where there is a delta
 	# worth dividing by. It was worked out here from get_process_delta_time(),

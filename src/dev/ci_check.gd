@@ -112,6 +112,7 @@ func _initialize() -> void:
 	_check_nothing_is_planted_where_it_does_not_belong()
 	_check_the_shop_sells_seconds_and_buys_back()
 	_check_the_machines_steer()
+	_check_the_view_can_be_swapped()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
@@ -8725,3 +8726,54 @@ func _check_the_machines_steer() -> void:
 	_expect(sound._engine.pitch_scale < light, "and it is plainly the lower of the two")
 	sound.engine(-1.0)
 	sound.queue_free()
+
+## The camera can be moved behind the child's own eyes, and back.
+##
+## The same rig rather than a second camera, so the yaw and pitch a thumb has
+## already set are where the head is pointed: swapping the view does not move
+## what a child was looking at. And the body is not drawn from inside it, which
+## would be the back of a skull filling the screen.
+func _check_the_view_can_be_swapped() -> void:
+	print("the view can be swapped")
+	var player := Player.new()
+	get_root().add_child(player)
+	await process_frame
+	var rig := CameraRig.new(player)
+	player.add_child(rig)
+	await process_frame
+
+	_expect(not rig.first_person, "the camera starts over the shoulder")
+	rig.yaw = 1.2
+	rig.pitch = -0.3
+	rig.set_first_person(true)
+	_expect(rig.first_person, "and can be put behind the eyes")
+	_expect(
+		is_equal_approx(rig.yaw, 1.2) and is_equal_approx(rig.pitch, -0.3),
+		"without moving what a child was looking at"
+	)
+	await process_frame
+	var head := player.global_position.y + CameraRig.EYE_HEIGHT
+	_expect(
+		absf(rig.camera.global_position.y - head) < 0.35,
+		"the camera sits at the eyes: %.2f against %.2f" % [
+			rig.camera.global_position.y, head
+		]
+	)
+	_expect(
+		rig.camera.global_position.distance_to(player.global_position) < 2.0,
+		"and not at the end of an arm behind them"
+	)
+	_expect(not player.body_shown(), "the body is not drawn from inside it")
+
+	rig.set_first_person(false)
+	# The camera eases back down the arm rather than snapping to the end of
+	# it, so this waits the way a player's eye does.
+	for settle in 60:
+		await process_frame
+	_expect(player.body_shown(), "and comes back when the camera does")
+	_expect(
+		rig.camera.global_position.distance_to(player.global_position) > 2.0,
+		"which is over the shoulder again"
+	)
+	rig.queue_free()
+	player.queue_free()

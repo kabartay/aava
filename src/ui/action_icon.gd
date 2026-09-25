@@ -23,6 +23,8 @@ enum Kind {
 	DRINK, WHISTLE, CHOP, RIDE, GET_OFF, SHOOT,
 	SWING, EAT, GIVE_STICK, FEED_FIRE, SLEEP, TALK, THROW, ROW, TICKET, SHOP,
 	SNACK, LANTERN, RIDE_BICYCLE, RIDE_MOTORCYCLE, RIDE_QUAD,
+	LEAVE_BICYCLE, LEAVE_MOTORCYCLE, LEAVE_QUAD,
+	VIEW_FIRST, VIEW_THIRD,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -112,6 +114,66 @@ func _draw() -> void:
 			_two_wheeler(box, true)
 		Kind.RIDE_QUAD:
 			_quad_face(box)
+		# Getting off says which thing you are getting off. It said the same
+		# thing whatever you were on — a rider leaving a quad was shown a
+		# horse — and the picture for leaving is the machine with somebody
+		# stepping up off it.
+		Kind.LEAVE_BICYCLE:
+			_two_wheeler(box, false)
+			_step_off(box)
+		Kind.LEAVE_MOTORCYCLE:
+			_two_wheeler(box, true)
+			_step_off(box)
+		Kind.LEAVE_QUAD:
+			_quad_face(box)
+			_step_off(box)
+		Kind.VIEW_FIRST:
+			_eye(box)
+		Kind.VIEW_THIRD:
+			_over_the_shoulder(box)
+
+## The mark that turns a machine into "get off it": an arrow rising away from
+## it, up and to the side, which is the way somebody actually leaves one.
+func _step_off(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var foot := centre + Vector2(unit * 0.3, -unit * 0.04)
+	var head := foot + Vector2(unit * 0.12, -unit * 0.3)
+	draw_line(foot, head, tint, maxf(2.0, unit * 0.08))
+	draw_colored_polygon(PackedVector2Array([
+		head + Vector2(0.0, -unit * 0.09),
+		head + Vector2(-unit * 0.09, unit * 0.04),
+		head + Vector2(unit * 0.09, unit * 0.04),
+	]), tint)
+
+## An eye: looking out of your own head.
+func _eye(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var wide := unit * 0.36
+	var tall := unit * 0.2
+	var thick := maxf(2.0, unit * 0.07)
+	# Two arcs meeting at the corners, which is an eye in four strokes.
+	draw_arc(centre + Vector2(0.0, tall * 0.6), wide, PI * 1.15, PI * 1.85, 14, tint, thick)
+	draw_arc(centre - Vector2(0.0, tall * 0.6), wide, PI * 0.15, PI * 0.85, 14, tint, thick)
+	draw_circle(centre, unit * 0.1, tint)
+
+## A figure with the camera behind it: the view a child has now.
+func _over_the_shoulder(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var thick := maxf(2.0, unit * 0.07)
+	# The child, small and ahead.
+	draw_circle(centre + Vector2(unit * 0.12, -unit * 0.16), unit * 0.09, tint)
+	draw_rect(
+		Rect2(centre + Vector2(unit * 0.03, -unit * 0.04), Vector2(unit * 0.18, unit * 0.26)),
+		tint
+	)
+	# And the frame of the shot behind them.
+	draw_rect(
+		Rect2(centre + Vector2(-unit * 0.38, -unit * 0.3), Vector2(unit * 0.34, unit * 0.3)),
+		tint, false, thick
+	)
 
 ## A quad seen from the front: four fat tyres at the corners, a body between
 ## them and bars across the top. Head-on rather than from the side, because

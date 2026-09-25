@@ -118,6 +118,24 @@ func _ready() -> void:
 	_aim = _player.global_position + Vector3.UP * (AIM_HEIGHT + _eye_lift)
 	camera.look_at(_aim, Vector3.UP)
 
+## Looking out of the child's own eyes rather than over their shoulder.
+##
+## The same rig, not a second camera: the yaw and pitch a thumb has already set
+## are what the head is pointed by, so switching views does not reset where a
+## child was looking. What changes is where the camera sits — at the eyes
+## instead of at the end of the arm — and that the body it is inside is not
+## drawn, because from there the back of a head fills the screen.
+func set_first_person(on: bool) -> void:
+	if first_person == on:
+		return
+	first_person = on
+	_player.show_body(not on)
+
+## Where the eyes are, measured from the feet.
+const EYE_HEIGHT := Player.HEIGHT * 0.92
+
+var first_person := false
+
 ## How much higher the camera sits than when on foot.
 func set_eye_lift(metres: float) -> void:
 	_eye_lift_target = maxf(metres, 0.0)
@@ -144,6 +162,18 @@ func _process(delta: float) -> void:
 	# rather than its last physics snapshot, so the camera does not inherit the
 	# 60 Hz staircase of the body it is following.
 	var anchor := _player.get_global_transform_interpolated().origin
+
+	if first_person:
+		# At the eyes, pointed where the thumb is pointing. No spring arm, no
+		# lag and no aim point: a head does not trail behind itself.
+		camera.global_position = anchor + Vector3.UP * (EYE_HEIGHT + _eye_lift)
+		camera.global_transform.basis = Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch)
+		camera.fov = lerpf(
+			camera.fov, lerpf(FOV_WALK, FOV_RUN, _player.run_fraction()),
+			1.0 - exp(-6.0 * delta)
+		)
+		_player.camera_yaw = yaw
+		return
 
 	# Fast in, slow out: if the arm just pulled closer — a wall or a hillside —
 	# the camera catches up quickly rather than lingering for a few frames on

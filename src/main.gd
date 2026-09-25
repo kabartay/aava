@@ -88,6 +88,7 @@ func _ready() -> void:
 	# Talking is allowed unless a parent has said otherwise, and the answer is
 	# remembered: a switch that forgets is a switch nobody trusts.
 	_voice_allowed = bool(save.get("voice_allowed", true))
+	_first_person = bool(save.get("first_person", false))
 
 	# The world's map decides the seed, not the save: everyone in one copy of the
 	# valley must get the same ground, even though their own progress is in
@@ -330,6 +331,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 
 	camera_rig = CameraRig.new(player)
 	camera_rig.name = "CameraRig"
+	# The view a child left it in, applied as soon as there is a camera to
+	# apply it to.
+	camera_rig.set_first_person(_first_person)
 	if save.has("camera_yaw"):
 		camera_rig.yaw = float(save["camera_yaw"])
 	player.add_child(camera_rig)
@@ -350,12 +354,14 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# where `hud` was still null, so the game reached the tablet with its talk
 	# button and its entire play-together panel connected to nothing at all.
 	hud.set_voice_allowed(_voice_allowed)
+	hud.set_first_person(_first_person)
 	voice.allowed = _voice_allowed
 	hud.voice_allowed_changed.connect(func(allowed: bool) -> void:
 		_voice_allowed = allowed
 		voice.allowed = allowed
 		_write_save())
 	hud.shop_sold_back.connect(_on_sell_back)
+	hud.view_toggled.connect(_on_view_toggled)
 	hud.confirmed.connect(_on_answered.bind(true))
 	hud.refused.connect(_on_answered.bind(false))
 	hud.fire_fed.connect(_on_feed_fire)
@@ -542,11 +548,20 @@ func _process(delta: float) -> void:
 		# and the bumps between them average out, while a real slope does not.
 		var under := _ground_under_the_mount(riding, player.global_position, player.facing_angle())
 		if player.global_position.y - under < 1.2:
+			# Allowed to rise only as fast as a machine could actually climb.
+			# Ground that steps up — the edge of a levelled place, a boulder
+			# under one wheel — was handed straight to the spring that holds a
+			# rider in the saddle, and threw them into the air.
+			if _held_last > Player.NOT_HELD * 0.5:
+				under = minf(under, _held_last + RIDER_LIFTS * delta)
 			player.held_at_height = under
+			_held_last = under
 		else:
 			player.held_at_height = Player.NOT_HELD
+			_held_last = Player.NOT_HELD
 	else:
 		player.held_at_height = Player.NOT_HELD
+		_held_last = Player.NOT_HELD
 	player.lean_with_the_ground(
 		riding != &"" and not world.mounts.afloat(riding, player.global_position),
 		world.field, delta
@@ -1316,6 +1331,12 @@ func _ground_under_the_mount(kind: StringName, at: Vector3, facing: float) -> fl
 ## riding. A machine shorter than this still rides out what is under it.
 const RIDES_OUT := 3.2
 
+## How fast the ground a rider is held to may rise, in metres a second. A
+## machine climbing a bank lifts its rider with it; a wheel meeting a step
+## should not fire them upwards.
+const RIDER_LIFTS := 6.0
+var _held_last := Player.NOT_HELD
+
 func _outside_the_shop(offset: Vector3) -> Vector3:
 	var spot := world.places.position_of(Places.SHOP)
 	if spot == Vector3.ZERO:
@@ -1330,6 +1351,17 @@ func _outside_the_shop(offset: Vector3) -> Vector3:
 ## and the one that disappears is the one standing at the shop door if there is
 ## one there — otherwise the furthest away, because that is the one a child has
 ## decided they are not walking back for.
+## Move the camera between over the shoulder and behind the eyes.
+func _on_view_toggled() -> void:
+	_first_person = not _first_person
+	camera_rig.set_first_person(_first_person)
+	hud.set_first_person(_first_person)
+	sounds.play(Sounds.Sound.PICKUP, 1.4)
+	_write_save()
+
+## Which way round the camera is sitting, remembered between days.
+var _first_person := false
+
 func _on_sell_back(item: StringName) -> void:
 	if not wallet.has(item):
 		return
@@ -1737,6 +1769,7 @@ func _save_data() -> Dictionary:
 		"seed": world.world_seed,
 		"language": String(Text.language()),
 		"voice_allowed": _voice_allowed,
+		"first_person": _first_person,
 		"player": {"x": at.x, "y": at.y, "z": at.z},
 		"camera_yaw": camera_rig.yaw,
 		"inventory": inventory.to_data(),

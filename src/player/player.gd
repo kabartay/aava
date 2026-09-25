@@ -641,6 +641,20 @@ func _swim_bob() -> float:
 		return 0.0
 	return sin(float(Time.get_ticks_msec()) * 0.0022) * SWIM_BOB * (_swim_sink / SWIM_SINK)
 
+## Show or hide the drawn body. Hidden when the camera is inside the head,
+## where a body is the back of a skull filling the screen.
+##
+## Only what is drawn: the collider, the lantern in the hand and everything
+## else carry on exactly as before, because a child in first person is still a
+## child standing in a valley.
+func show_body(shown: bool) -> void:
+	if _visual != null:
+		_visual.visible = shown
+
+## Is the drawn body showing? For the checks.
+func body_shown() -> bool:
+	return _visual == null or _visual.visible
+
 ## Carry something: a lantern, and anything else a child holds.
 ##
 ## It goes on the body rather than on the character itself, so it turns when
