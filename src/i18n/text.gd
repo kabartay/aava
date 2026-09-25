@@ -608,6 +608,12 @@ const STRINGS := {
 
 	# Things the world says back.
 	"say_goal": {EN: "GOAL", FR: "BUT", RU: "ГОЛ"},
+	# %d is the wood taken, %d the coins the tree's growing had paid.
+	"say_felled_own": {
+		EN: "your own tree: %d wood, and the %d it grew for",
+		FR: "ton propre arbre : %d bois, et les %d de sa pousse",
+		RU: "своё дерево: %d древесины, и %d монет за рост назад",
+	},
 	"say_grown": {EN: "your tree has grown", FR: "ton arbre a poussé", RU: "твоё дерево выросло"},
 	"say_grove": {
 		EN: "a grove — and the birds have found it",

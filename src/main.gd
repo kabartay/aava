@@ -1124,6 +1124,14 @@ func _on_ride() -> void:
 func _on_chop() -> void:
 	if not wallet.has(ShopStock.AXE):
 		return
+	# A tree the child planted themselves, first: it stands where the forest's
+	# own trees do not, and an axe swung at it should fell it rather than
+	# reaching past it into the wood behind.
+	var mine := structures.nearest_grown_tree(player.global_position, CHOP_REACH)
+	if not mine.is_empty():
+		_fell_a_planted_tree(mine)
+		return
+
 	var answer := world.vegetation.nearest_tree_found(player.global_position, CHOP_REACH)
 	if not bool(answer[1]):
 		return
@@ -1151,6 +1159,40 @@ func _on_chop() -> void:
 		Text.format("say_felled_cost", [WOOD_PER_TREE, toll]) if toll > 0
 		else Text.format("say_felled", [WOOD_PER_TREE]),
 		2.6
+	)
+
+## Fell a tree the child grew themselves.
+##
+## The wood is the same wood. What is different is the price: growing it paid a
+## reward, and cutting it down gives that reward back. Otherwise a child could
+## plant a sapling, wait for it to mature, fell it for the coins and the timber,
+## and plant it again — which is not a valley, it is a machine for making money
+## out of nothing, and a ten-year-old finds that in an afternoon.
+##
+## The seed is not returned. The tree was grown; what is taken down is a tree,
+## not a misplaced piece of building.
+func _fell_a_planted_tree(record: Dictionary) -> void:
+	var kind: StringName = record["kind"]
+	var at: Vector3 = record["position"]
+	var reward := BuildKinds.reward_for(kind)
+	structures.remove(record)
+
+	# Floored at what there is, like the toll on a wild tree: being told "you
+	# may not" by a game about a valley is worse than being told what it cost.
+	var toll := mini(reward, wallet.coins)
+	if toll > 0:
+		wallet.spend(toll)
+	inventory.add(&"wood", WOOD_PER_TREE)
+	# A stump stays where it stood, the same as a wild tree's: something was
+	# here, and the ground should say so.
+	world.felled.fell(at)
+	session.report_felled(at)
+	world.vegetation.rebuild_around(at)
+	sounds.play(Sounds.Sound.REMOVE, 0.7)
+	hud.announce(
+		Text.format("say_felled_own", [WOOD_PER_TREE, toll]) if toll > 0
+		else Text.format("say_felled", [WOOD_PER_TREE]),
+		2.8
 	)
 
 func _on_whistle() -> void:

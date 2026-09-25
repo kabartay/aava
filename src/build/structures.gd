@@ -113,6 +113,27 @@ func nearest(world_position: Vector3, reach: float) -> Dictionary:
 			best = record
 	return best
 
+## The nearest tree a child planted that has finished growing, or an empty
+## record. A sapling is not one: a young tree is taken back with the hands in
+## build mode and the seed comes back, and an axe taken to something the height
+## of a boot is not felling.
+func nearest_grown_tree(world_position: Vector3, reach: float) -> Dictionary:
+	var best := {}
+	var best_distance := reach
+	for record in _records:
+		var kind: StringName = record["kind"]
+		if not BuildKinds.INFO.has(kind) or not BuildKinds.grows(kind):
+			continue
+		if int(record["stage"]) < BuildKinds.GROWTH_STAGES - 1:
+			continue
+		var offset: Vector3 = record["position"] - world_position
+		offset.y *= 0.6
+		var distance := offset.length()
+		if distance <= best_distance:
+			best_distance = distance
+			best = record
+	return best
+
 ## Take a piece back down. Returns what it was, so the caller can refund it.
 ##
 ## Everything a child builds must be removable. Without that, a misplaced wall

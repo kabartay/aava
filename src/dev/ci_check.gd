@@ -108,6 +108,7 @@ func _initialize() -> void:
 	_check_voice_is_safe()
 	_check_talking_can_be_switched_off()
 	_check_a_valley_survives_a_new_phone()
+	_check_felling_your_own_tree_costs_what_it_paid()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
 	await _check_the_open_bag_moves_nothing()
@@ -8329,3 +8330,56 @@ func _check_a_valley_survives_a_new_phone() -> void:
 		SaveGame.PATH.begins_with("user://"),
 		"and so is the save: %s" % SaveGame.PATH
 	)
+
+## Felling a tree you grew yourself gives back the coins the growing paid.
+##
+## Without it a child can plant a sapling, wait for it to mature, fell it for
+## the coins and the timber and plant it again — which is not a valley, it is a
+## machine for making money out of nothing, and a ten-year-old finds that in an
+## afternoon.
+func _check_felling_your_own_tree_costs_what_it_paid() -> void:
+	print("felling your own tree costs what it paid")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+
+	var at := field.find_spawn_point() + Vector3(4.0, 0.0, 0.0)
+	structures.place(BuildKinds.SAPLING, at, 0.0)
+	var young := structures.nearest_grown_tree(at, 4.0)
+	_expect(young.is_empty(), "a sapling is not something an axe fells")
+
+	# Grown, the way the game grows it: by time passing.
+	structures.advance_offline(
+		BuildKinds.GROWTH_STAGE_SECONDS * float(BuildKinds.GROWTH_STAGES) + 1.0
+	)
+	# The ageing is recorded by advance_offline and applied by _process, so
+	# that growth happens through exactly one code path rather than two.
+	structures._process(0.1)
+	var grown := structures.nearest_grown_tree(at, 4.0)
+	_expect(not grown.is_empty(), "and a grown one is")
+	_expect(
+		structures.nearest_grown_tree(at + Vector3(40.0, 0.0, 0.0), 4.0).is_empty(),
+		"but only within reach of the axe"
+	)
+
+	# The toll is exactly what growing it paid.
+	var reward := BuildKinds.reward_for(BuildKinds.SAPLING)
+	_expect(reward > 0, "growing a tree pays %d" % reward)
+	var purse := Wallet.new()
+	purse.earn(reward)
+	var toll := mini(reward, purse.coins)
+	purse.spend(toll)
+	_expect(purse.coins == 0, "and felling it gives back all of it")
+
+	# A child with nothing still fells the tree; they simply have nothing to
+	# pay with. Being told "you may not" by a game about a valley is worse
+	# than being told what it cost.
+	var empty := Wallet.new()
+	_expect(mini(reward, empty.coins) == 0, "a child with no coins pays nothing")
+
+	structures.remove(grown)
+	_expect(
+		structures.nearest_grown_tree(at, 4.0).is_empty(),
+		"and the tree is gone once it is felled"
+	)
+	structures.queue_free()
