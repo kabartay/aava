@@ -117,7 +117,18 @@ func is_permitted() -> bool:
 	return OS.get_granted_permissions().has(PERMISSION)
 
 ## Hold to talk. The microphone starts here and nowhere else.
+## Whether talking is allowed at all. A parent's switch, off in the menu, and
+## the one it actually has to obey: hiding the button would be a promise about
+## the interface, and this is a promise about the microphone.
+var allowed := true:
+	set(value):
+		allowed = value
+		if not allowed:
+			stop_talking()
+
 func start_talking() -> void:
+	if not allowed:
+		return
 	if not _available or _talking or _session == null:
 		return
 	if not _session.is_connected_to_anyone():

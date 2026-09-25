@@ -559,6 +559,8 @@ const STRINGS := {
 	"why_reserved": {EN: "not here", FR: "pas ici", RU: "не здесь"},
 	# The pool's turnstile.
 	"say_ticket": {EN: "pool: %d coins to go in", FR: "piscine : %d pièces pour entrer", RU: "бассейн: вход %d монет"},
+	"ui_talk_on": {EN: "talking: on", FR: "parler : oui", RU: "разговор: вкл"},
+	"ui_talk_off": {EN: "talking: off", FR: "parler : non", RU: "разговор: выкл"},
 	"ui_rides": {EN: "RIDES", FR: "MANÈGES", RU: "АТТРАКЦИОНЫ"},
 	"ask_buy_ride": {
 		EN: "buy a ride for %d coins?", FR: "acheter un tour pour %d pièces ?",

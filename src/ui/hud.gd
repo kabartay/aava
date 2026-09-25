@@ -44,6 +44,9 @@ signal place_used()
 ## The turnstile at the pool: pay and go in.
 signal ticket_pressed()
 ## A question answered: the tick, or the cross.
+## The parent's switch for talking, from the menu.
+signal voice_allowed_changed(allowed: bool)
+
 signal confirmed()
 signal refused()
 signal dam_stick()
@@ -106,6 +109,8 @@ var _lantern_button: Button
 var _sleep_button: Button
 var together: TogetherPanel
 var _talk_button: Button
+var _voice_switch: Button
+var _voice_allowed := true
 var _shop: PanelContainer
 ## The shelf the stock sits on, which scrolls when there is more of it than
 ## fits, and how many pictures stand across it.
@@ -466,6 +471,19 @@ func _build_menu() -> VBoxContainer:
 		button.pressed.connect(func() -> void: language_chosen.emit(code))
 		column.add_child(button)
 
+	# The switch for talking. In the menu with the languages rather than behind
+	# the quiet door, because it is a setting a parent may want on purpose and
+	# not a thing to be warned about — but it is worded so it is plainly about
+	# the microphone.
+	_voice_switch = _button("", Color(0.90, 0.93, 0.97))
+	_voice_switch.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
+	_voice_switch.add_theme_font_size_override("font_size", 19)
+	_voice_switch.pressed.connect(func() -> void:
+		set_voice_allowed(not _voice_allowed)
+		voice_allowed_changed.emit(_voice_allowed))
+	column.add_child(_voice_switch)
+	_refresh_voice_switch()
+
 	# Playing together is an ordinary thing to want, so it sits above the quiet
 	# door and is coloured like something to press rather than something to
 	# avoid.
@@ -805,8 +823,11 @@ func set_vitals(energy: float, water: float, carries_bottle: bool) -> void:
 
 ## Whether there is anyone to talk to, and whether the microphone is live.
 func set_voice(offered: bool, speaking: bool) -> void:
-	if _talk_button.visible != offered:
-		_talk_button.visible = offered
+	# Only when talking is allowed at all: the switch in the menu takes the
+	# button away as well as silencing the microphone.
+	var wanted := offered and _voice_allowed
+	if _talk_button.visible != wanted:
+		_talk_button.visible = wanted
 		_layout()
 	# Lit while the microphone is actually running, so a child can always see
 	# whether they are being heard.
@@ -1210,6 +1231,27 @@ func set_score(goals: int) -> void:
 		_layout()
 
 ## A short, centred announcement. Used for the things the world does in reply.
+## Whether a child may talk at all. Set from the saved settings when the game
+## opens, and by the switch in the menu after that.
+func set_voice_allowed(allowed: bool) -> void:
+	_voice_allowed = allowed
+	_refresh_voice_switch()
+	if not allowed and _talk_button.visible:
+		_talk_button.visible = false
+		_layout()
+
+func voice_allowed() -> bool:
+	return _voice_allowed
+
+func _refresh_voice_switch() -> void:
+	if _voice_switch == null:
+		return
+	_voice_switch.text = Text.of("ui_talk_on" if _voice_allowed else "ui_talk_off")
+	_voice_switch.add_theme_color_override(
+		"font_color",
+		Color(0.62, 0.88, 0.68) if _voice_allowed else Color(1.0, 1.0, 1.0, 0.45)
+	)
+
 ## Ask a yes-or-no question, with a cross and a tick under it.
 ##
 ## Nothing here takes a child's coins without being asked. Money is the record

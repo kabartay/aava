@@ -3,7 +3,7 @@
 What exists in the game today, and how finished each part is. Written so that
 someone returning after a month knows what they can play and what they cannot.
 
-Last updated: 2026-09-20.
+Last updated: 2026-09-21.
 
 ## Legend
 
@@ -117,8 +117,12 @@ Last updated: 2026-09-20.
 | Swimming pool | Done | Off the football pitch's long side, thirty metres clear of the touchline and parallel to it: 28 m by 18 m, seven tenths of the pitch, dug into the height field so the hole and the water are the same shape by construction, filled to a brim the fence and the water sheet are both built from, with steps at the shallow end and a block to jump from at the deep. Fenced, with a turnstile that costs five coins and lets a child inside straight out, a ticket booth whose sign shows the price as a coin and five pips, loungers, a lifebuoy and two lamps. Paths arrive at its gate, and a horse cannot be ridden into it. |
 | Playground | Done | Two swing frames with two seats each, pumped rather than wound up — each push adds to the arc up to a limit, and a swing pumped to the top runs for a minute — a three-metre slide with a leaning ladder that gathers speed on the way down, a trampoline that bounces, a basketball hoop with three balls that are thrown at it, two benches with bins, a running fountain that fills the bottle, four flower beds, three lamps that come on one by one at dusk, and a lumpy clipped hedge round the lot. Everything is solid, to the child and to the animals, which steer round it. Laid out in bands on a 14 m pad so it reads as a place rather than a heap. |
 | Café | Done | A building a child walks into: a bar along the back with what is on offer laid along it — cake, a bun, a teapot and cups, coffee, a jug of water — shelves and a menu board behind, three stools, three tables with chairs, a sofa with cushions and a low table, pendant lights; outside, an awning and sign, two tables under umbrellas, pots, a menu board, two lamps that light at dusk, a bin. Solid throughout. A meal costs coins, restores a large fraction of the energy bar, sits the child down at the nearest seat and puts a tray with a steaming cup on their table. |
+| Fairground | Done | Forty by a hundred and seventy metres of fenced sand on the east bank, levelled by the height field the way the pitch is, with nothing growing or lying about on it. Five rides: a carousel whose horses stand along the circle and turn with the floor, two thirty-metre moving walkways running opposite ways with treads that visibly move, a trampoline twice the playground's, a thirty-metre big wheel turning in the plane along the river, and a wooden coaster running the length of the ground — five single cars, shoulder harnesses that drop as the train leaves the platform, a five-second stop to be boarded, and a speed integrated from the track's own slope under real gravity: eighteen metres a second at the bottom of the first drop, three over the crests. A kiosk at the gate sells rides at ten coins; the trampoline and the walkways are free. Everything a child can stand on that moves carries them, and every frame is solid. |
+| Bridge | Done | The only crossing for anything on wheels, at the camp's own latitude where the river is twenty-five metres from the door. One swept deck rather than a row of planks, so there is no step anywhere along it, meeting the bank flush at both ends and arching three metres over the water; solid handrails, trestles, and its name on an enamel plate at the near end. |
+| Street signs | Done | Where the four roads meet: a post with a plate for each — Boulevard Berzeg, Avenue Kabard, Impasse de Kassag, Rue des Parents — each turned by asking Paths where its road actually goes, under an enamel plaque naming the square itself. |
 | Levelled ground | Done | Playground, pool and café are flat by construction, like the football pitch. |
 | Spread out | Done | The playground and the café sit several hundred metres from the camp, so getting to one means crossing the valley rather than a courtyard; the pitch and the pool are a short walk from the spawn, as the first afternoon's things. |
+| Tickets | Done | Rides are paid for at the kiosk and nothing is ever taken without being asked: the question comes up with a red cross and a green tick under it, which need no reading. Tickets are remembered between days. |
 | Whole-valley map | Done | Double-tap (third tap) the minimap for a view of the entire valley, with a coloured dot for every destination — a six-year-old cannot read a label, so the colour has to carry it. |
 
 ## Riding
@@ -155,6 +159,7 @@ Last updated: 2026-09-20.
 
 | Part | State | Notes |
 |---|---|---|
+| Talking can be switched off | Done | A switch in the menu, remembered between sessions. With it off the microphone cannot be started at all and the button is not shown — a promise about the capture stream rather than about the interface, and the answer to the parental-controls question every children's store asks. |
 | Virtual stick | Done | Native `VirtualJoystick`; deflection sets speed. |
 | Camera pad | Done | Drag to orbit. |
 | Backpack | Done | Right-hand side, showing counts per item. |

@@ -85,6 +85,9 @@ func _ready() -> void:
 	# The language is read before anything is built, so the first frame is
 	# already in the right one rather than flashing English.
 	Text.set_language(StringName(save.get("language", Text.EN)))
+	# Talking is allowed unless a parent has said otherwise, and the answer is
+	# remembered: a switch that forgets is a switch nobody trusts.
+	_voice_allowed = bool(save.get("voice_allowed", true))
 
 	# The world's map decides the seed, not the save: everyone in one copy of the
 	# valley must get the same ground, even though their own progress is in
@@ -337,6 +340,12 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# The interface exists from here and not one line earlier. These sat above,
 	# where `hud` was still null, so the game reached the tablet with its talk
 	# button and its entire play-together panel connected to nothing at all.
+	hud.set_voice_allowed(_voice_allowed)
+	voice.allowed = _voice_allowed
+	hud.voice_allowed_changed.connect(func(allowed: bool) -> void:
+		_voice_allowed = allowed
+		voice.allowed = allowed
+		_write_save())
 	hud.confirmed.connect(_on_answered.bind(true))
 	hud.refused.connect(_on_answered.bind(false))
 	hud.fire_fed.connect(_on_feed_fire)
@@ -373,6 +382,8 @@ var _coaster_paid := false
 var _coaster_told := false
 ## What the game has just asked about: a ticket at the kiosk, or a ride.
 var _asked: StringName = &""
+## Whether a parent has left talking switched on.
+var _voice_allowed := true
 
 func _physics_process(delta: float) -> void:
 	if player == null or _waiting_for_ground or world.park == null:
@@ -1591,6 +1602,7 @@ func _save_data() -> Dictionary:
 	return {
 		"seed": world.world_seed,
 		"language": String(Text.language()),
+		"voice_allowed": _voice_allowed,
 		"player": {"x": at.x, "y": at.y, "z": at.z},
 		"camera_yaw": camera_rig.yaw,
 		"inventory": inventory.to_data(),

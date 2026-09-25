@@ -106,6 +106,7 @@ func _initialize() -> void:
 	_check_playing_together()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
+	_check_talking_can_be_switched_off()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
 	await _check_the_open_bag_moves_nothing()
@@ -6222,6 +6223,36 @@ func _check_it_will_run_on_a_tablet() -> void:
 ## Voice is the only part of this game whose failures reach outside it, and the
 ## children are small. These checks read the source, because the rules have to
 ## be structural: a rule held by a comment is a rule that gets edited away.
+## A parent can switch talking off, and the switch is obeyed by the microphone
+## rather than by the interface.
+##
+## Hiding the button would be a promise about the screen; this is a promise
+## about the capture stream, which is the one that matters. It is also the
+## answer to the parental-controls question every children's store asks.
+func _check_talking_can_be_switched_off() -> void:
+	print("talking can be switched off")
+	var voice := Voice.new()
+	get_root().add_child(voice)
+	_expect(voice.allowed, "talking is allowed to begin with")
+	voice.allowed = false
+	voice.start_talking()
+	_expect(not voice.is_talking(), "and switching it off stops the microphone starting")
+	voice.queue_free()
+
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.set_voice_allowed(false)
+	hud.set_voice(true, false)
+	_expect(
+		not hud._talk_button.visible,
+		"the talk button is gone while it is switched off"
+	)
+	hud.set_voice_allowed(true)
+	hud.set_voice(true, false)
+	_expect(hud._talk_button.visible, "and comes back when it is switched on")
+	_expect(hud.voice_allowed(), "the switch remembers where it is")
+	hud.queue_free()
+
 func _check_voice_is_safe() -> void:
 	print("voice is push-to-talk and goes nowhere else")
 	var source := _code_only(FileAccess.get_file_as_string("res://src/net/voice.gd"))

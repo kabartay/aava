@@ -1,0 +1,28 @@
+# How to cite this game, for anybody who writes about it — a talk, a paper on
+# making software for children, a list of Godot projects. GitHub reads this file
+# and offers the citation on the repository page.
+cff-version: 1.2.0
+title: "Aava"
+message: "If you write about this software, please cite it as below."
+type: software
+authors:
+  - given-names: Mukharbek
+    family-names: Organokov
+    email: mukharbek.organokov@gmail.com
+    orcid: "https://orcid.org/0000-0002-3093-3456"
+abstract: >-
+  An open world that comes alive as you build in it: a 3D exploration and
+  building game for children, written in GDScript on Godot 4 and built around a
+  procedural valley generated from a seed. Everything a child builds makes the
+  valley more alive, and the more alive it is, the more it gives back.
+keywords:
+  - game
+  - godot
+  - gdscript
+  - children
+  - procedural-generation
+  - android
+license: AGPL-3.0-or-later
+repository-code: "https://github.com/kabartay/aava"
+version: 0.4.0
+date-released: "2026-09-21"

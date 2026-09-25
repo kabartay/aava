@@ -1,0 +1,78 @@
+name: Release
+
+# A tag must not exist without the checks having passed on exactly what it
+# points at. Releases here are cut by hand — the APK is signed with a keystore
+# that is not in this repository and never will be — so this workflow does not
+# build the game. It does the one thing CI on `main` cannot: it proves that the
+# commit the tag names is green, and it says so on the release page.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: 4.7.2-stable
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux
+
+      - name: Download Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot && cd ~/godot
+          curl -sSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv Godot_v${GODOT_VERSION}_linux.x86_64 godot
+          chmod +x godot
+
+      # Two passes, for the reason CI explains: global class names only exist
+      # once the class cache has been written, and on a clean checkout the same
+      # pass writes it and reads it.
+      - name: Import project (first pass writes the class cache)
+        run: ~/godot/godot --headless --path . --import > first-import.log 2>&1 || true
+
+      - name: Import project
+        run: |
+          ~/godot/godot --headless --path . --import 2>&1 | tee import.log
+          if grep -qE "SCRIPT ERROR|Parse Error|Failed to load script" import.log; then
+            echo "::error::import reported script errors"
+            exit 1
+          fi
+
+      - name: Checks
+        run: ~/godot/godot --headless --path . --script src/dev/ci_check.gd
+
+      # The tag, the version inside the build, and the version this project
+      # tells the world to cite all have to be the same thing. A release page
+      # that says 0.4.0 over an APK that calls itself 0.3.0 is a bug report
+      # nobody can make sense of, and the version inside the APK is the one a
+      # parent can actually read on their phone.
+      - name: The tag matches the version in the build and the citation
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          built=$(grep -E '^version/name=' export_presets.cfg | head -1 | cut -d'"' -f2)
+          cited=$(grep -E '^version:' CITATION.cff | awk '{print $2}')
+          echo "tag: $tag, export preset: $built, CITATION.cff: $cited"
+          if [ "$tag" != "$built" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version/name=$built"
+            exit 1
+          fi
+          if [ "$tag" != "$cited" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match CITATION.cff version $cited"
+            exit 1
+          fi

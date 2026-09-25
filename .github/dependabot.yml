@@ -1,0 +1,23 @@
+# Dependency updates, weekly and batched.
+#
+# One ecosystem only. This is a Godot project: GDScript has no package manager
+# and nothing here is pulled from a registry at build time — the whole game is
+# in this repository. What does have versions is the CI: the actions that check
+# out the code, cache Godot and upload artefacts, and an action pinned to a tag
+# that quietly stops being maintained is the one supply-chain risk a project
+# like this actually has.
+#
+# Grouped into a single pull request rather than one per action: the check suite
+# takes about two minutes, and a scattered stream of single-action updates would
+# cost more attention than the updates are worth.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

@@ -1,5 +1,13 @@
 # Aava
 
+[![CI](https://github.com/kabartay/aava/actions/workflows/ci.yml/badge.svg)](https://github.com/kabartay/aava/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kabartay/aava?color=blue)](https://github.com/kabartay/aava/releases)
+[![License](https://img.shields.io/badge/code-AGPL--3.0-green.svg)](LICENSE)
+[![Art](https://img.shields.io/badge/name%20%26%20art-reserved-lightgrey.svg)](NOTICE.md)
+[![Godot](https://img.shields.io/badge/Godot-4.7-478cbf.svg)](https://godotengine.org)
+[![Platform](https://img.shields.io/badge/platform-Android-3ddc84.svg)](docs/ANDROID.md)
+[![Privacy](https://img.shields.io/badge/data%20collected-none-blueviolet.svg)](docs/PRIVACY.md)
+
 An open world that comes alive as you build in it.
 
 A 3D exploration-and-building game made for two brothers, aged 10 and 6, with a
