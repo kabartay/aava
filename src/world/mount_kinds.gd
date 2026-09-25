@@ -456,6 +456,27 @@ static func _horse_head(tool: SurfaceTool, pivot: Vector3, hide := colour(HORSE)
 			neck_tilt * Basis(Vector3.UP, mane.randf_range(-0.12, 0.12)),
 			along + neck_tilt * Vector3(0.0, 0.0, 0.15 * s) - pivot
 		), dark)
+	# Nostrils and a soft muzzle. A horse's face is read at the nose — it is
+	# what a child reaches for — and this one ended in a blank end of a box.
+	var soft_nose := SphereMesh.new()
+	soft_nose.radius = 0.17 * s
+	soft_nose.height = 0.26 * s
+	soft_nose.radial_segments = 8
+	soft_nose.rings = 4
+	_add(tool, soft_nose, Transform3D(
+		Basis().scaled(Vector3(1.0, 0.9, 1.1)), Vector3(0.0, 1.98 * s, -1.52 * s) - pivot
+	), hide.darkened(0.12))
+	for side: float in [-1.0, 1.0]:
+		var nostril := SphereMesh.new()
+		nostril.radius = 0.045 * s
+		nostril.height = 0.07 * s
+		nostril.radial_segments = 6
+		nostril.rings = 3
+		_add(tool, nostril, Transform3D(
+			Basis().scaled(Vector3(0.8, 1.2, 0.6)),
+			Vector3(side * 0.08 * s, 2.0 * s, -1.62 * s) - pivot
+		), hoof)
+
 	var forelock := BoxMesh.new()
 	forelock.size = Vector3(0.12 * s, 0.1 * s, 0.24 * s)
 	_add(tool, forelock, Transform3D(Basis(), Vector3(0.0, 2.34 * s, -1.18 * s) - pivot), dark)
