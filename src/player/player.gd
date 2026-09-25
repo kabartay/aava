@@ -178,6 +178,14 @@ const REVERSE_SHARE := 0.32
 ## off the drawn body, because the body eases towards it and steering off an
 ## eased value compounds into a wobble.
 var _ride_heading := 0.0
+## Where the bars are, which is not where the thumb is: they take time to go
+## over and they come back to centre when it lifts.
+var _bars := 0.0
+
+## How fast the bars move, in lock per second. Quick enough to feel direct,
+## slow enough that a flicked stick is a lean rather than a swerve.
+const BARS_SPEED := 3.4
+
 ## How hard the bars are over, and how far the machine is laid into the corner.
 var _last_steer := 0.0
 var _ride_bank := 0.0
@@ -391,11 +399,24 @@ func _physics_process(delta: float) -> void:
 		var throttle := -input.y
 		var steer := input.x
 		var pace := Vector2(velocity.x, velocity.z).length()
+		var top_speed := MountKinds.speed(riding)
 		reversing = throttle < -0.05
 		# Which way it is actually going, not merely how fast: a machine
 		# backing up steers the other way round, exactly as a car does.
 		var heading_now := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
 		var signed_pace := Vector3(velocity.x, 0.0, velocity.z).dot(heading_now)
+		# The bars take time to go over, and come back to centre when the
+		# thumb comes off. A stick read straight through to full lock is why
+		# steering felt like flicking a switch: a rider turns the bars, and
+		# turning them is itself a movement with a speed of its own.
+		var wanted_lock := steer
+		# Less lock at speed. A machine that can be put on full lock at twenty
+		# metres a second is a machine that spits its rider off every time a
+		# thumb twitches; the faster it goes the less the bars will move, which
+		# is also what a rider does without thinking about it.
+		wanted_lock *= lerpf(1.0, 0.42, clampf(pace / maxf(top_speed, 0.01), 0.0, 1.0))
+		_bars = move_toward(_bars, wanted_lock, BARS_SPEED * delta)
+
 		# How fast it comes round: the speed divided by the wheelbase, times
 		# the tangent of the angle the bars are at. That is what rolling on
 		# wheels does, and it has three consequences a rider feels at once —
@@ -406,7 +427,7 @@ func _physics_process(delta: float) -> void:
 		# speed, which at low speed span the machine on the spot like a
 		# shopping trolley: a quad, sitting still, could be rotated on its own
 		# axis with the stick.
-		var lock := tan(steer * MountKinds.FULL_LOCK)
+		var lock := tan(_bars * MountKinds.FULL_LOCK)
 		var turning := signed_pace / MountKinds.wheelbase(riding) * lock
 		# Capped at what the machine will actually do, so a bicycle shot down a
 		# hill cannot be flicked round faster than a bicycle can be.
@@ -416,9 +437,9 @@ func _physics_process(delta: float) -> void:
 		# motorcycle out of a corner with your feet. Ridden nose-first into a
 		# wood, a machine with no paddle is wedged there for ever.
 		if absf(throttle) > 0.1 and pace < PADDLE_BELOW:
-			turning += steer * PADDLE_RATE * (1.0 - pace / PADDLE_BELOW)
+			turning += _bars * PADDLE_RATE * (1.0 - pace / PADDLE_BELOW)
 		_ride_heading -= turning * delta
-		_last_steer = steer
+		_last_steer = _bars
 		var forward := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
 		wish = forward * throttle
 
@@ -485,6 +506,22 @@ func _physics_process(delta: float) -> void:
 	horizontal = horizontal.move_toward(target, rate * delta)
 	is_moving = horizontal.length_squared() > 0.35
 
+	# Wheels do not slide sideways.
+	#
+	# The machine's heading was being turned while its velocity kept pointing
+	# where it had been going, and the two were only reconciled by the slow
+	# pull of the throttle — so a quad taking a corner drifted like a car on
+	# ice, and on a slope it slid. A wheel rolls: what is across it is scrubbed
+	# off. The scrubbing is not total, because a machine that is perfectly
+	# rigid to its heading twitches every time the heading twitches, but it is
+	# most of it, and on four wheels it is nearly all of it.
+	if steering:
+		var heading := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
+		var along := heading * horizontal.dot(heading)
+		var sideways := horizontal - along
+		var grip := MountKinds.grip(riding)
+		horizontal = along + sideways * exp(-grip * delta)
+
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 
@@ -510,7 +547,7 @@ func _physics_process(delta: float) -> void:
 	# it feel like a machine rather than a boat.
 	if steering:
 		_visual.rotation.y = lerp_angle(
-			_visual.rotation.y, _ride_heading, 1.0 - exp(-9.0 * delta)
+			_visual.rotation.y, _ride_heading, 1.0 - exp(-13.0 * delta)
 		)
 		# And it leans into the corner. A machine that changes direction bolt
 		# upright reads as a chess piece being slid; the lean is what the eye
@@ -521,6 +558,7 @@ func _physics_process(delta: float) -> void:
 		_ride_bank = lerpf(_ride_bank, hard * RIDE_BANK, 1.0 - exp(-6.0 * delta))
 	else:
 		_ride_bank = lerpf(_ride_bank, 0.0, 1.0 - exp(-6.0 * delta))
+		_bars = move_toward(_bars, 0.0, BARS_SPEED * delta)
 	_visual.rotation.z = _ride_bank
 
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
@@ -530,7 +568,16 @@ func _physics_process(delta: float) -> void:
 
 	# The world streams around wherever the player is, but only when they have
 	# actually gone somewhere worth regenerating for.
-	if global_position.distance_squared_to(_last_reported) > 16.0:
+	# Every four metres on foot, and every metre on something with an engine.
+	#
+	# This is what the world streams against — the solid trunks, the solid
+	# animals, the rocks — and at sixteen metres a second four metres is a
+	# third of a second of travel: a motorcycle arrived at trees whose
+	# colliders had not been put there yet, and went through them. What a child
+	# reported as "the quad passes through trees" was the pool being a quarter
+	# of a second behind the machine.
+	var report_after := 16.0 if riding == &"" else 1.0
+	if global_position.distance_squared_to(_last_reported) > report_after:
 		_last_reported = global_position
 		moved.emit(global_position)
 

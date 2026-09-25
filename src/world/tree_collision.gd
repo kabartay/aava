@@ -21,7 +21,13 @@ const REACH := 14.0
 
 ## How many trunks can be solid at once. Even in thick forest, twenty is more
 ## than fits inside REACH.
-const BODIES := 20
+## And how far out for somebody on a machine, who covers the difference in
+## about a second and a half.
+const RIDDEN_REACH := 26.0
+
+## How many trunks can be solid at once. Even in thick forest, twenty is more
+## than fits inside REACH — a rider reaching further needs more of them.
+const BODIES := 34
 
 ## How far the player must move before the pool is reshuffled. Every frame is
 ## wasteful and jumpy; this is a couple of paces.
@@ -103,10 +109,16 @@ func _init(forest: Vegetation) -> void:
 ## Put the solid trunks where the player is. Called with the player's position,
 ## like everything else that streams.
 func follow(world_position: Vector3) -> void:
-	if world_position.distance_to(_last_refresh) < REFRESH_STEP:
+	# A rider is reshuffled sooner and reaches further. Fourteen metres is
+	# comfortably past where a child can get in one frame at a run and nothing
+	# like enough at sixteen metres a second, and the pool was also allowed to
+	# go stale for a pace and a half — which together is how a machine came to
+	# arrive at a tree before its collider did.
+	var step := REFRESH_STEP if _girth <= 0.0 else REFRESH_STEP * 0.4
+	if world_position.distance_to(_last_refresh) < step:
 		return
 	_last_refresh = world_position
-	set_trunks(vegetation.trees_near(world_position, REACH))
+	set_trunks(vegetation.trees_near(world_position, REACH if _girth <= 0.0 else RIDDEN_REACH))
 
 ## The trunks to stand in for, nearest first. Separated from `follow` so a
 ## check can hand it a list without building a forest.

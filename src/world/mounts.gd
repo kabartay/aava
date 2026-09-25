@@ -244,7 +244,12 @@ func carry(at: Vector3, facing: float) -> void:
 	var spot := at
 	spot.y = _rest_height(riding, at)
 	node.global_position = spot
-	node.rotation.y = facing
+	# Stood on the ground rather than through it. One height sample put the
+	# whole machine at the height of the middle of it, so on any slope one end
+	# was buried and the other in the air; this tips it to the ground it is
+	# standing on, front to back and side to side, which is also what makes a
+	# machine parked on a bank look parked rather than dropped.
+	node.transform.basis = _lie_on_the_ground(spot, facing, riding)
 	_positions[riding] = spot
 	# How fast it is going is worked out in _process, where there is a delta
 	# worth dividing by. It was worked out here from get_process_delta_time(),
@@ -252,6 +257,33 @@ func carry(at: Vector3, facing: float) -> void:
 	# horse carried three metres a second was measured at a third of one, and
 	# the gait check passed a horse that barely moved its legs.
 	_carried_to = spot
+
+## The way a machine sits on the ground it is standing on: pointed along
+## `facing`, pitched to the slope under its wheels and rolled to the slope
+## across them.
+##
+## Sampled at the machine's own size rather than at a fixed distance: a quad is
+## wider than a bicycle and should notice a rut a bicycle straddles.
+func _lie_on_the_ground(at: Vector3, facing: float, kind: StringName) -> Basis:
+	var turn := Basis(Vector3.UP, facing)
+	var ahead := turn * Vector3(0.0, 0.0, -1.0)
+	var across := turn * Vector3(1.0, 0.0, 0.0)
+	var half_long: float = (MountKinds.body_box(kind)[0] as Vector3).z * 0.5
+	var half_wide := maxf(MountKinds.girth(kind), 0.2)
+
+	var front := field.height_at(at.x + ahead.x * half_long, at.z + ahead.z * half_long)
+	var back := field.height_at(at.x - ahead.x * half_long, at.z - ahead.z * half_long)
+	var right := field.height_at(at.x + across.x * half_wide, at.z + across.z * half_wide)
+	var left := field.height_at(at.x - across.x * half_wide, at.z - across.z * half_wide)
+
+	# Held to a limit, so that a wheel over a boulder does not stand the
+	# machine on its nose.
+	var pitch := clampf(atan2(back - front, half_long * 2.0), -LIE_LIMIT, LIE_LIMIT)
+	var roll := clampf(atan2(right - left, half_wide * 2.0), -LIE_LIMIT, LIE_LIMIT)
+	return turn * Basis(Vector3.RIGHT, pitch) * Basis(Vector3.BACK, roll)
+
+## How far a machine will tip to the ground under it.
+const LIE_LIMIT := deg_to_rad(26.0)
 
 ## How fast the ridden mount is going, smoothed, and where in its stride it is.
 var _pace := 0.0

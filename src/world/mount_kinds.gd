@@ -92,8 +92,9 @@ static func body_box(kind: StringName) -> Array:
 			return [Vector3(0.72, 1.35, 2.3), 0.68]
 		QUAD:
 			# Wider than it is long, which is what a quad is and what makes it
-			# read as one from behind.
-			return [Vector3(1.35, 1.25, 1.95), 0.6]
+			# read as one from behind. Grown with the mesh, so the room it
+			# takes up and the thing a child sees stay the same object.
+			return [Vector3(1.35, 1.25, 1.95) * QUAD_SCALE, 0.6 * QUAD_SCALE]
 		_:
 			return [Vector3(0.5, 1.0, 1.9), 0.55]
 
@@ -127,6 +128,27 @@ static func wheelbase(kind: StringName) -> float:
 			return 1.25
 		_:
 			return 1.05
+
+## How hard a machine holds the ground sideways: how fast whatever is across
+## the wheels is scrubbed off, per second.
+##
+## Four wheels hold best, a bicycle's narrow tyres least. Not infinite for any
+## of them — a machine perfectly rigid to its own heading twitches whenever the
+## heading twitches — but high enough that a corner is a corner rather than a
+## drift across ice, which is what it was.
+static func grip(kind: StringName) -> float:
+	match kind_of(kind):
+		QUAD:
+			return 14.0
+		MOTORCYCLE:
+			return 9.0
+		_:
+			return 11.0
+
+## How much bigger the quad is drawn than it was designed. A machine a child
+## sits astride with a wheel at each corner looked like a toy beside the
+## motorcycle at the size it was first built.
+const QUAD_SCALE := 1.15
 
 ## How far the bars go over at full lock.
 const FULL_LOCK := deg_to_rad(38.0)
@@ -270,6 +292,10 @@ static func build_mesh(kind: StringName) -> Mesh:
 			_motorcycle(tool)
 		QUAD:
 			_quad(tool)
+			# Built at the size it was drawn and then grown, rather than every
+			# number in it changed by hand: a machine scaled whole keeps its
+			# proportions, and proportions are what a child recognises.
+			_grow(tool, QUAD_SCALE)
 		_:
 			_bicycle(tool)
 	tool.generate_normals()
@@ -982,6 +1008,22 @@ static func _boat(tool: SurfaceTool, hull: Color) -> void:
 ## place along the machine. Every wheel in this file is built here, so a
 ## bicycle's and a motorcycle's differ in their numbers rather than in their
 ## code — and spokes are what stop a wheel reading as a black doughnut.
+## Scale everything already in a surface about the origin.
+##
+## Used to grow a machine whole after it is drawn: changing forty numbers by
+## hand is how proportions drift, and the proportions are the machine.
+static func _grow(tool: SurfaceTool, by: float) -> void:
+	var mesh := tool.commit()
+	var faces := mesh.get_faces()
+	tool.clear()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var arrays := mesh.surface_get_arrays(0)
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	for i in faces.size():
+		if i < colours.size():
+			tool.set_color(colours[i])
+		tool.add_vertex(faces[i] * by)
+
 static func _wheel(
 	tool: SurfaceTool, at: Vector3, tyre_radius: float, tyre_width: float,
 	spokes: int, rubber: Color, metal: Color

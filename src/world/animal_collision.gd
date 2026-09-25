@@ -14,7 +14,7 @@ extends Node3D
 ## tree an animal walks away on its own.
 
 ## How far out an animal is made solid, and how many can be at once.
-const REACH := 12.0
+const REACH := 18.0
 const BODIES := 6
 
 ## How much of an animal's own size the body is: a little under, so a child
