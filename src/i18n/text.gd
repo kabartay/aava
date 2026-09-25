@@ -42,6 +42,8 @@ const STRINGS := {
 	"item_cone": {EN: "cone", FR: "pomme de pin", RU: "шишка"},
 	"item_chocolate": {EN: "chocolate", FR: "chocolat", RU: "шоколадка"},
 	"item_wool": {EN: "wool", FR: "laine", RU: "шерсть"},
+	"item_wood": {EN: "wood", FR: "bois", RU: "древесина"},
+	"item_wood_object": {EN: "wood", FR: "du bois", RU: "древесину"},
 	"item_wool_object": {EN: "wool", FR: "de la laine", RU: "шерсть"},
 	"item_chocolate_object": {EN: "chocolate", FR: "du chocolat", RU: "шоколадку"},
 	# The same items as the object of a verb — "wants a stick" — which in

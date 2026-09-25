@@ -50,10 +50,14 @@ static func bake(
 	for grown in generate_trees(field, coord, tile_size, world_seed, null):
 		var at: Vector3 = grown["position"]
 		if felled != null and felled.is_felled(at.x, at.z):
-			stumps.append(Transform3D(
-				Basis(Vector3.UP, float(stumps.size()) * 1.1),
-				Vector3(at.x - origin_x, at.y, at.z - origin_z)
-			))
+			# Felled but grubbed out draws nothing at all: the tree stays gone
+			# — the forest would otherwise stand it back up on the next
+			# rebuild — and the ground is clear.
+			if felled.shows_stump(at.x, at.z):
+				stumps.append(Transform3D(
+					Basis(Vector3.UP, float(stumps.size()) * 1.1),
+					Vector3(at.x - origin_x, at.y, at.z - origin_z)
+				))
 		elif grown["conifer"]:
 			conifers.append(grown["transform"])
 		else:

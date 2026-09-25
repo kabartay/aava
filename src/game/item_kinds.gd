@@ -20,8 +20,13 @@ const CHOCOLATE := &"chocolate"
 ## The one thing in this valley that is earned by hand and sold rather than
 ## found and used — which is why it is worth having a flock.
 const WOOL := &"wool"
+## Timber from a felled tree. It is carried and spent like anything else — a
+## fire is fed with it — and it was the one thing a child could hold that this
+## list had never heard of: the bag showed it as "?item_wood", which is what
+## the text lookup says when a key does not exist.
+const WOOD := &"wood"
 
-const ALL: Array[StringName] = [STICK, STONE, REED, SEED, CONE, CHOCOLATE, WOOL]
+const ALL: Array[StringName] = [STICK, STONE, REED, SEED, CONE, CHOCOLATE, WOOL, WOOD]
 
 ## What is found lying about the valley. Chocolate is not.
 const SCATTERED: Array[StringName] = [STICK, STONE, REED, SEED, CONE]
@@ -36,6 +41,7 @@ const INFO := {
 	CONE: {"label": "cone", "icon": "A", "color": Color(0.52, 0.34, 0.20)},
 	CHOCOLATE: {"label": "chocolate", "icon": "=", "color": Color(0.36, 0.22, 0.14)},
 	WOOL: {"label": "wool", "icon": "@", "color": Color(0.94, 0.92, 0.87)},
+	WOOD: {"label": "wood", "icon": "H", "color": Color(0.55, 0.38, 0.22)},
 }
 
 ## The name shown to the player, in whatever language is set. The English in
@@ -81,6 +87,16 @@ static func build_mesh(kind: StringName) -> Mesh:
 			reed.radial_segments = 5
 			reed.rings = 1
 			return reed
+		WOOD:
+			# A short log, lying down: thicker than a stick and cut at both
+			# ends, which is the difference a child has to see in the bag.
+			var log_mesh := CylinderMesh.new()
+			log_mesh.top_radius = 0.12
+			log_mesh.bottom_radius = 0.13
+			log_mesh.height = 0.5
+			log_mesh.radial_segments = 7
+			log_mesh.rings = 1
+			return log_mesh
 		CONE:
 			# A cone is a cone, which is a rare piece of luck in this project.
 			var cone := CylinderMesh.new()
@@ -101,7 +117,7 @@ static func build_mesh(kind: StringName) -> Mesh:
 ## How a pickup lies on the ground: sticks fall over, reeds stand up.
 static func resting_rotation(kind: StringName, spin: float) -> Basis:
 	match kind:
-		STICK:
+		STICK, WOOD:
 			return Basis(Vector3.UP, spin) * Basis(Vector3.RIGHT, deg_to_rad(84.0))
 		REED:
 			return Basis(Vector3.UP, spin)

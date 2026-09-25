@@ -109,6 +109,8 @@ func _initialize() -> void:
 	_check_talking_can_be_switched_off()
 	_check_a_valley_survives_a_new_phone()
 	_check_felling_your_own_tree_costs_what_it_paid()
+	_check_nothing_is_planted_where_it_does_not_belong()
+	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
 	await _check_the_open_bag_moves_nothing()
@@ -4272,7 +4274,7 @@ func _check_nodes_are_usable_immediately() -> void:
 	var structures := Structures.new(field)
 	get_root().add_child(structures)
 	var inventory := Inventory.new()
-	inventory.add(&"wood", 50)
+	inventory.add(ItemKinds.WOOD, 50)
 
 	var build := BuildMode.new(field, structures, inventory)
 	get_root().add_child(build)
@@ -8383,3 +8385,88 @@ func _check_felling_your_own_tree_costs_what_it_paid() -> void:
 		"and the tree is gone once it is felled"
 	)
 	structures.queue_free()
+
+## Nothing is planted or built on ground that belongs to something else.
+##
+## A tree came up through the fairground beside the big wheel. The levelled
+## places kept their own ground from the first day; everything built since —
+## the pitch, the fairground, the crossing, the signs — was not on anybody's
+## list, and a valley where a sapling can be planted in the middle of a
+## roller coaster is a valley nobody is looking after.
+func _check_nothing_is_planted_where_it_does_not_belong() -> void:
+	print("nothing is planted where it does not belong")
+	var field := HeightField.new(20260903)
+	var inventory := Inventory.new()
+	for kind in ItemKinds.ALL:
+		inventory.add(kind, 99)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var build := BuildMode.new(field, structures, inventory)
+	get_root().add_child(build)
+
+	var camp := field.camp_centre()
+	var forbidden: Array = [
+		["the fairground", ParkSpec.centre()],
+		["the fairground's fence", Vector3(ParkSpec.WEST + 1.0, 0.0, ParkSpec.SOUTH - 1.0)],
+		["the football pitch", Pitch.CENTRE],
+		["the pool", PlaceSpec.centre_of(&"pool", camp)],
+		["the playground", PlaceSpec.centre_of(&"playground", camp)],
+		["the café", PlaceSpec.centre_of(&"cafe", camp)],
+		["the shop", PlaceSpec.centre_of(&"shop", camp)],
+		["the range", PlaceSpec.centre_of(&"range", camp)],
+		["the crossing", Vector3(
+			field.river_centre_x(BridgeSpec.CENTRE_Z), 0.0, BridgeSpec.CENTRE_Z
+		)],
+		["the signs", camp + Signpost.OFFSET],
+	]
+	for spot: Array in forbidden:
+		var at: Vector3 = spot[1]
+		_expect(
+			build._kept_ground(at.x, at.z),
+			"nothing is planted on %s" % spot[0]
+		)
+
+	# And the open valley is still open, or the rule has eaten the game.
+	var open := 0
+	for step in 24:
+		var angle := TAU * float(step) / 24.0
+		var at := camp + Vector3(cos(angle) * 140.0, 0.0, sin(angle) * 140.0)
+		if not build._kept_ground(at.x, at.z):
+			open += 1
+	_expect(open >= 20, "%d of 24 spots round the camp are still plantable" % open)
+	build.queue_free()
+	structures.queue_free()
+
+## A stump goes when a tree grows where it stood.
+##
+## Felled and cleared are two different things: the tree must stay felled, or
+## the forest — which is generated from the seed — stands the old one back up
+## on the next rebuild. What goes is the stump.
+func _check_a_stump_is_grubbed_out_by_a_new_tree() -> void:
+	print("a stump is grubbed out by a new tree")
+	var stumps := Felled.new()
+	var at := Vector3(120.0, 0.0, -40.0)
+	stumps.fell(at)
+	stumps.fell(at + Vector3(0.8, 0.0, 0.0))
+	stumps.fell(at + Vector3(6.0, 0.0, 0.0))
+	_expect(stumps.count() == 3, "three trees were felled")
+	_expect(stumps.shows_stump(at.x, at.z), "and each leaves a stump")
+
+	var gone := stumps.clear_stumps_near(at, 1.0)
+	_expect(gone == 2, "a tree grown here grubs out the two within a stride: %d" % gone)
+	_expect(not stumps.shows_stump(at.x, at.z), "so that ground is clear")
+	_expect(
+		stumps.is_felled(at.x, at.z),
+		"but the tree stays felled, or the forest stands the old one back up"
+	)
+	_expect(
+		stumps.shows_stump(at.x + 6.0, at.z),
+		"and the stump six metres away is untouched"
+	)
+
+	# It survives being saved and loaded, or the scar comes back tomorrow.
+	var kept := Felled.new()
+	kept.from_data(stumps.to_data())
+	_expect(kept.count() == 3, "all three are remembered")
+	_expect(not kept.shows_stump(at.x, at.z), "and the cleared ones stay cleared")
+	_expect(kept.shows_stump(at.x + 6.0, at.z), "while the other still shows")

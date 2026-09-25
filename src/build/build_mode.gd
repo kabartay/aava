@@ -271,7 +271,7 @@ func _evaluate() -> void:
 	elif field.steepness_at(_target.x, _target.z) > MAX_SLOPE:
 		_valid = false
 		_reason = Text.of("why_steep")
-	elif PlaceSpec.reserved(_target.x, _target.z, field.camp_centre()):
+	elif _kept_ground(_target.x, _target.z):
 		# The playground, the pool and the café are somebody else's work. A
 		# sapling planted beside the trampoline became a tree standing in it.
 		_valid = false
@@ -295,6 +295,43 @@ func _evaluate() -> void:
 	if signature != _last_signature:
 		_last_signature = signature
 		preview_changed.emit(selected, _valid, _reason)
+
+## How far from the things that are not places — the crossing and the signs —
+## nothing may be built. Three metres, which is a stride and a half clear.
+const KEEP_BACK := 3.0
+
+## Ground that belongs to something else.
+##
+## The levelled places keep their own ground already, and the rest of this is
+## everything built since that nobody thought to protect: a tree came up
+## through the fairground beside the big wheel, which is where this list was
+## found wanting.
+func _kept_ground(x: float, z: float) -> bool:
+	var camp := field.camp_centre()
+	if PlaceSpec.reserved(x, z, camp):
+		return true
+	# The football pitch, which is levelled rather than reserved.
+	if Pitch.is_levelled(x, z):
+		return true
+	# The fairground, and a stride of sand outside its fence.
+	if ParkSpec.inside(x, z):
+		return true
+	if (
+		x > ParkSpec.WEST - KEEP_BACK and x < ParkSpec.EAST + KEEP_BACK
+		and z < ParkSpec.SOUTH + KEEP_BACK and z > ParkSpec.NORTH - KEEP_BACK
+	):
+		return true
+	# The crossing: its deck and the ground either end of it, so nothing grows
+	# up through the planks or in front of them.
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	if (
+		absf(z - BridgeSpec.CENTRE_Z) < BridgeSpec.HALF_WIDTH + KEEP_BACK
+		and absf(x - river_x) < BridgeSpec.HALF_SPAN + KEEP_BACK
+	):
+		return true
+	# The signs, and room to stand and read them.
+	var post := camp + Signpost.OFFSET
+	return Vector2(x - post.x, z - post.z).length() < Signpost.KEEP_CLEAR + KEEP_BACK
 
 func _cost_text(cost: Dictionary) -> String:
 	var parts := PackedStringArray()

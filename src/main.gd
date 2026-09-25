@@ -622,7 +622,7 @@ func _process(delta: float) -> void:
 
 	# A fire takes a log from a child standing at it with wood.
 	hud.set_fire_offer(
-		inventory.count(&"wood") > 0 and world.hearths.has_fire_near(at)
+		inventory.count(ItemKinds.WOOD) > 0 and world.hearths.has_fire_near(at)
 	)
 
 	# The beavers take a stick at a dam site, from a child carrying one.
@@ -1013,9 +1013,9 @@ func _on_sleep() -> void:
 ## A log on the fire. This is what the axe was for: wood was a number in a bag
 ## until something burned it.
 func _on_feed_fire() -> void:
-	if inventory.count(&"wood") <= 0 or not world.hearths.has_fire_near(player.global_position):
+	if inventory.count(ItemKinds.WOOD) <= 0 or not world.hearths.has_fire_near(player.global_position):
 		return
-	if not inventory.spend({&"wood": 1}):
+	if not inventory.spend({ItemKinds.WOOD: 1}):
 		return
 	var left := world.hearths.feed(player.global_position)
 	sounds.play(Sounds.Sound.PLACE, 0.7)
@@ -1153,7 +1153,7 @@ func _on_chop() -> void:
 	# The forest is a MultiMesh generated from the seed, so the tree cannot be
 	# deleted — the tiles are rebuilt against the new record instead.
 	world.vegetation.rebuild_around(tree)
-	inventory.add(&"wood", WOOD_PER_TREE)
+	inventory.add(ItemKinds.WOOD, WOOD_PER_TREE)
 	sounds.play(Sounds.Sound.REMOVE, 0.7)
 	hud.announce(
 		Text.format("say_felled_cost", [WOOD_PER_TREE, toll]) if toll > 0
@@ -1182,7 +1182,7 @@ func _fell_a_planted_tree(record: Dictionary) -> void:
 	var toll := mini(reward, wallet.coins)
 	if toll > 0:
 		wallet.spend(toll)
-	inventory.add(&"wood", WOOD_PER_TREE)
+	inventory.add(ItemKinds.WOOD, WOOD_PER_TREE)
 	# A stump stays where it stood, the same as a wild tree's: something was
 	# here, and the ground should say so.
 	world.felled.fell(at)
@@ -1589,14 +1589,37 @@ func _on_place() -> void:
 		today.record(Today.PLANT if planted else Today.BUILD)
 		sounds.play(Sounds.Sound.PLACE)
 		tasks.on_built(build_mode.selected)
+		_placed_at = Time.get_ticks_msec()
+		return
+
+	# A second tap on a spot that was free a moment ago is a spot filled by
+	# what the first tap put there, and saying "not here" over a sapling a
+	# child has just planted reads as the game refusing the thing it plainly
+	# did. Tapping twice is also how a six-year-old presses a button.
+	if Time.get_ticks_msec() - _placed_at < JUST_PLACED:
 		return
 	sounds.play(Sounds.Sound.REFUSE)
 	# A refused build is the moment a child most needs to be told why, and the
 	# ghost's colour alone does not say it.
 	hud.announce(Text.of("say_not_here"))
 
-func _on_matured(kind: StringName, _at: Vector3) -> void:
+## How long after putting something down a refusal is kept quiet.
+## How far from a grown tree its old stumps are cleared away.
+const STUMPS_CLEARED_WITHIN := 1.0
+
+const JUST_PLACED := 600
+var _placed_at := -JUST_PLACED
+
+func _on_matured(kind: StringName, at: Vector3) -> void:
 	sounds.play(Sounds.Sound.GROWN)
+	# The stumps round it are grubbed out — as many as are within a stride.
+	# A child who cut a tree down and grew one in its place has tidied up, and
+	# the ground should show that rather than keeping the scar for ever. The
+	# tree is still recorded as felled, or the forest would stand the old one
+	# back up on the next rebuild; what goes is the stump.
+	var tidied := world.felled.clear_stumps_near(at, STUMPS_CLEARED_WITHIN)
+	if tidied > 0:
+		world.vegetation.rebuild_around(at)
 	var reward := BuildKinds.reward_for(kind)
 	if reward <= 0:
 		hud.announce(Text.of("say_grown"))
