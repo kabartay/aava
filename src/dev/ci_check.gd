@@ -110,6 +110,7 @@ func _initialize() -> void:
 	_check_a_valley_survives_a_new_phone()
 	_check_felling_your_own_tree_costs_what_it_paid()
 	_check_nothing_is_planted_where_it_does_not_belong()
+	_check_the_shop_sells_seconds_and_buys_back()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
@@ -4243,11 +4244,26 @@ func _check_the_shop_adds_up() -> void:
 	_expect(wallet.coins == 0, "the price was actually deducted")
 	_expect(wallet.has(ShopStock.BOTTLE), "the bottle is owned afterwards")
 
-	# Buying the same thing twice must not charge twice for nothing.
+	# Buying a second one is allowed, and charged for. What a child pays for is
+	# the thing, not the right to have one: a bicycle left at the far side of
+	# the valley still counted as owned, so the shop refused to sell another
+	# and a child standing at the counter could not ride home.
 	wallet.earn(100)
 	var before := wallet.coins
-	wallet.buy(ShopStock.BOTTLE, ShopStock.price(ShopStock.BOTTLE))
-	_expect(wallet.coins == before, "buying something already owned costs nothing")
+	_expect(
+		wallet.buy(ShopStock.BOTTLE, ShopStock.price(ShopStock.BOTTLE)),
+		"a second bottle can be bought"
+	)
+	_expect(
+		wallet.coins == before - ShopStock.price(ShopStock.BOTTLE),
+		"and is paid for like the first"
+	)
+	_expect(wallet.count_of(ShopStock.BOTTLE) == 2, "so there are two of them")
+	_expect(wallet.give_up(ShopStock.BOTTLE), "one can be put down")
+	_expect(wallet.count_of(ShopStock.BOTTLE) == 1, "leaving one")
+	_expect(wallet.has(ShopStock.BOTTLE), "which is still a bottle owned")
+	wallet.take(ShopStock.BOTTLE)
+	_expect(wallet.count_of(ShopStock.BOTTLE) == 2, "and one picked up off the ground is free")
 
 	var restored := Wallet.new()
 	restored.from_data(wallet.to_data())
@@ -8470,3 +8486,78 @@ func _check_a_stump_is_grubbed_out_by_a_new_tree() -> void:
 	_expect(kept.count() == 3, "all three are remembered")
 	_expect(not kept.shows_stump(at.x, at.z), "and the cleared ones stay cleared")
 	_expect(kept.shows_stump(at.x + 6.0, at.z), "while the other still shows")
+
+## The shop sells a second one, up to a limit, and takes things back.
+##
+## Ownership used to be a flag: you had a bicycle or you did not. A bicycle
+## left at the far side of the valley still counted, so the shop refused to
+## sell another and a child standing at the counter could not ride home. Things
+## here are objects — but not without end, or a child buys a new one rather
+## than walking back for the one they left.
+func _check_the_shop_sells_seconds_and_buys_back() -> void:
+	print("the shop sells seconds and buys back")
+	_expect(ShopStock.limit(ShopStock.BICYCLE) == 3, "three bicycles at most")
+	_expect(ShopStock.limit(ShopStock.MOTORCYCLE) == 2, "two motorcycles")
+	_expect(ShopStock.limit(ShopStock.QUAD) == 1, "one quad")
+	_expect(ShopStock.limit(ShopStock.AXE) == 3, "and three of anything else")
+
+	# The quad sits between the two machines in price, as it does in speed.
+	_expect(
+		ShopStock.price(ShopStock.QUAD) > ShopStock.price(ShopStock.BICYCLE)
+		and ShopStock.price(ShopStock.QUAD) < ShopStock.price(ShopStock.MOTORCYCLE),
+		"the quad costs %d, between the bicycle and the motorcycle" % ShopStock.price(ShopStock.QUAD)
+	)
+	_expect(
+		MountKinds.speed(MountKinds.QUAD) > MountKinds.speed(MountKinds.BICYCLE)
+		and MountKinds.speed(MountKinds.QUAD) < MountKinds.speed(MountKinds.MOTORCYCLE),
+		"and goes between them: %.1f m/s" % MountKinds.speed(MountKinds.QUAD)
+	)
+	# Four wheels, so it is wider than the two-wheeled machines and cannot be
+	# mistaken for one from behind.
+	var quad_box: Vector3 = MountKinds.body_box(MountKinds.QUAD)[0]
+	var bike_box: Vector3 = MountKinds.body_box(MountKinds.MOTORCYCLE)[0]
+	_expect(quad_box.x > bike_box.x * 1.5, "and is %.2f m wide against the motorcycle's %.2f" % [quad_box.x, bike_box.x])
+	_expect(
+		MountKinds.build_mesh(MountKinds.QUAD).get_faces().size() > 300,
+		"the quad is drawn"
+	)
+
+	# Half the price back, rounded, and never more than was paid.
+	for item: StringName in ShopStock.ALL:
+		var back := ShopStock.sells_back(item)
+		_expect(
+			back <= ShopStock.price(item) and back >= ShopStock.price(item) / 2,
+			"%s sells back for %d against %d" % [item, back, ShopStock.price(item)]
+		)
+	_expect(ShopStock.sells_back(ShopStock.BICYCLE) == 50, "a 99-coin bicycle comes back at 50")
+	_expect(ShopStock.sells_back(ShopStock.CHOCOLATE) == 1, "and a 1-coin bar rounds to 1")
+
+	# Buying, selling and the limit, on a purse.
+	var purse := Wallet.new()
+	purse.earn(ShopStock.price(ShopStock.BICYCLE) * 4)
+	for bought in 3:
+		_expect(
+			purse.buy(ShopStock.BICYCLE, ShopStock.price(ShopStock.BICYCLE)),
+			"bicycle %d is sold" % (bought + 1)
+		)
+	_expect(
+		purse.count_of(ShopStock.BICYCLE) >= ShopStock.limit(ShopStock.BICYCLE),
+		"which is as many as a child may have"
+	)
+	var coins_before := purse.coins
+	var paid := purse.sell_back(ShopStock.BICYCLE, ShopStock.sells_back(ShopStock.BICYCLE))
+	_expect(paid == 50 and purse.coins == coins_before + 50, "one sold back pays 50")
+	_expect(purse.count_of(ShopStock.BICYCLE) == 2, "and leaves two")
+
+	# And the world can hold more than one of a machine, which it could not:
+	# a second bicycle replaced the first, wherever it was standing.
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var spot := field.find_spawn_point()
+	for index in 3:
+		mounts.place(mounts.free_id(MountKinds.BICYCLE), spot + Vector3(float(index) * 2.0, 0.0, 0.0))
+	_expect(mounts.count_of_kind(MountKinds.BICYCLE) == 3, "three bicycles stand in the valley")
+	_expect(mounts.sell_one(MountKinds.BICYCLE, spot), "one can be sold back")
+	_expect(mounts.count_of_kind(MountKinds.BICYCLE) == 2, "leaving two standing")
+	mounts.queue_free()

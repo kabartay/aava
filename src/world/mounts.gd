@@ -155,6 +155,48 @@ func position_of(kind: StringName) -> Vector3:
 	return _positions.get(kind, Vector3.ZERO)
 
 ## The mount within reach, or an empty name. Never returns one already ridden.
+## Sell one of a kind back: the one at the shop door if there is one there,
+## and otherwise the one furthest from the child — that being the one they have
+## decided they are not walking back for.
+func sell_one(kind: StringName, from: Vector3) -> bool:
+	var chosen := &""
+	var furthest := -1.0
+	for id in _nodes:
+		if MountKinds.kind_of(id) != kind or not is_instance_valid(_nodes[id]):
+			continue
+		var node: Node3D = _nodes[id]
+		var distance := node.global_position.distance_to(from)
+		if distance > furthest:
+			furthest = distance
+			chosen = id
+	if chosen == &"":
+		return false
+	var node: Node3D = _nodes[chosen]
+	if is_instance_valid(node):
+		node.queue_free()
+	_nodes.erase(chosen)
+	return true
+
+## How many of a kind are standing in the world.
+func count_of_kind(kind: StringName) -> int:
+	var many := 0
+	for id in _nodes:
+		if MountKinds.kind_of(id) == kind and is_instance_valid(_nodes[id]):
+			many += 1
+	return many
+
+## The id for one more of a kind: "bicycle:2" for the third bicycle.
+##
+## Machines used to be named by their kind alone, so there could only ever be
+## one of each — buying a second bicycle replaced the first, wherever it was
+## standing. They are numbered the way the boats and the horses are now.
+func free_id(kind: StringName) -> StringName:
+	for index in 16:
+		var id := StringName("%s:%d" % [kind, index])
+		if not _nodes.has(id) or not is_instance_valid(_nodes[id]):
+			return id
+	return StringName("%s:%d" % [kind, 16])
+
 func nearest(player_position: Vector3) -> StringName:
 	if riding != &"":
 		return &""

@@ -22,6 +22,8 @@ const WHISTLE := &"whistle"
 ## arrive, so it should be the reward for a great many good deeds rather than
 ## the obvious second purchase.
 const MOTORCYCLE := &"motorcycle"
+## Between the two machines in price as well as in speed.
+const QUAD := &"quad"
 ## A proper saddle and girth. A horse will carry you bareback up anything it
 ## can walk up; with a saddle under you it will take ground you would slide
 ## off, which is what turns the steep shoulders of this valley from walls into
@@ -44,7 +46,7 @@ const CHOCOLATE := &"chocolate"
 ## reads as a ladder if the ladder is in order. A check keeps this list sorted,
 ## because the obvious way to add something is to put it at the end.
 const ALL: Array[StringName] = [
-	CHOCOLATE, BOTTLE, AXE, SHEARS, LANTERN, WHISTLE, SADDLE, BICYCLE, MOTORCYCLE,
+	CHOCOLATE, BOTTLE, AXE, SHEARS, LANTERN, WHISTLE, SADDLE, BICYCLE, QUAD, MOTORCYCLE,
 ]
 
 ## What is used up rather than owned. The wallet refuses to sell a thing twice,
@@ -82,6 +84,7 @@ const INFO := {
 	WHISTLE: {"price": 59, "colour": Color(0.80, 0.80, 0.84)},
 	SADDLE: {"price": 79, "colour": Color(0.52, 0.32, 0.18)},
 	BICYCLE: {"price": 99, "colour": Color(0.86, 0.42, 0.36)},
+	QUAD: {"price": 199, "colour": Color(0.86, 0.62, 0.18)},
 	# Three bicycles. It is the last thing anybody buys here, and it should
 	# feel like the end of a long summer rather than the obvious next purchase.
 	MOTORCYCLE: {"price": 299, "colour": Color(0.16, 0.20, 0.30)},
@@ -89,6 +92,29 @@ const INFO := {
 
 static func price(item: StringName) -> int:
 	return INFO[item]["price"]
+
+## How many of a thing a child may have at once.
+##
+## Buying a second one is allowed — things are objects here, and one left at
+## the far side of the valley is no help at the counter — but not without end.
+## Three of anything is a spare and a spare for the spare; two motorcycles and
+## one quad, because those are the ones a child would otherwise simply buy
+## again rather than walk back for.
+const LIMIT := {MOTORCYCLE: 2, QUAD: 1}
+const DEFAULT_LIMIT := 3
+
+static func limit(item: StringName) -> int:
+	return int(LIMIT.get(item, DEFAULT_LIMIT))
+
+## What the shop gives for a thing brought back: half what it charged, rounded
+## to the nearest coin.
+##
+## Half rather than all, because a shop that buys back at cost is a cupboard
+## and there is no cost to a mistake; half rather than a tenth, because a child
+## who saved ninety-nine coins for a bicycle and finds they wanted the quad
+## should not be punished for changing their mind.
+static func sells_back(item: StringName) -> int:
+	return int(round(float(price(item)) * 0.5))
 
 static func colour(item: StringName) -> Color:
 	return INFO[item]["colour"]

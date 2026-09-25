@@ -31,6 +31,8 @@ signal language_chosen(code: StringName)
 signal reset_requested()
 signal care_pressed()
 signal shop_toggled()
+## Something owned is being sold back to the shop.
+signal shop_sold_back(item: StringName)
 signal shop_buy(item: StringName)
 signal snack_pressed()
 signal lantern_pressed()
@@ -120,11 +122,19 @@ var _shop_shelf: ScrollContainer
 ## the drag before the shelf sees it, so the bottom row was unreachable and the
 ## bicycle could not be bought. Five columns puts ten things in two rows, and
 ## the question of scrolling does not arise.
-const SHOP_COLUMNS := 5
+## Six across, not five. The shelf holds everything at once — a tile is a
+## button, and a button eats the drag before the scrolling shelf sees it, so
+## anything below the fold is unreachable — and the quad made eleven things,
+## which is three rows at five and two rows at six.
+const SHOP_COLUMNS := 6
 ## The picture a child has tapped, the two lines that answer them, and what is
 ## already theirs.
 var _shop_chosen := &""
 var _shop_owned: Dictionary = {}
+## How many of each thing the child already has, so the shelf can say so
+## without hiding what it costs.
+var _shop_have: Dictionary = {}
+var _shop_sell_back: Button
 var _shop_buy_button: Button
 ## What is in the purse, so the buying button can grey itself out.
 var _shop_coins := 0
@@ -683,11 +693,27 @@ func _build_shop() -> PanelContainer:
 	_shop_buy_button.custom_minimum_size = Vector2(BUTTON * 3.0, BUTTON * 0.7)
 	_shop_buy_button.add_theme_font_size_override("font_size", 20)
 	_shop_buy_button.visible = false
+	# A second one may always be bought: what a child pays for is the thing,
+	# not the right to have one, and the shop refuses only when they have as
+	# many as they are allowed.
 	_shop_buy_button.pressed.connect(func() -> void:
-		if _shop_chosen != &"" and not bool(_shop_owned.get(_shop_chosen, false)):
+		if _shop_chosen != &"":
 			shop_buy.emit(_shop_chosen)
 	)
 	column.add_child(_shop_buy_button)
+
+	# And the way back out of a purchase: the shop takes a thing back for half
+	# what it charged. A child who saved ninety-nine coins for a bicycle and
+	# finds they wanted the quad should not be stuck with the bicycle.
+	_shop_sell_back = _button("", Color(0.62, 0.92, 0.66))
+	_shop_sell_back.custom_minimum_size = Vector2(BUTTON * 3.0, BUTTON * 0.62)
+	_shop_sell_back.add_theme_font_size_override("font_size", 19)
+	_shop_sell_back.visible = false
+	_shop_sell_back.pressed.connect(func() -> void:
+		if _shop_chosen != &"":
+			shop_sold_back.emit(_shop_chosen)
+	)
+	column.add_child(_shop_sell_back)
 
 	var close := _button(Text.of("ui_back"), Color(0.90, 0.93, 0.97))
 	close.custom_minimum_size = Vector2(BUTTON * 4.6, BUTTON * 0.62)
@@ -707,13 +733,28 @@ func _shop_tapped(item: StringName) -> void:
 		_shop_mark_chosen()
 		return
 	_shop_name.text = ShopStock.label(item)
-	if bool(_shop_owned.get(item, false)):
-		_shop_name.text += " ✓"
+	var have := int(_shop_have.get(item, 0))
+	if have > 0:
+		_shop_name.text += "   ×%d" % have
 	_shop_note.text = ShopStock.description(item)
 	_refresh_shop_buy()
+	_refresh_shop_sell_back()
 	_shop_mark_chosen()
 
 ## The buying button: what it would cost, or that it is already yours.
+## The button for selling a thing back. Shown only when there is one to sell,
+## because an empty offer is a question a child has to answer for no reason.
+func _refresh_shop_sell_back() -> void:
+	if _shop_sell_back == null:
+		return
+	var many := int(_shop_have.get(_shop_chosen, 0))
+	var wanted := _shop_chosen != &"" and many > 0 and ShopStock.pays_for(_shop_chosen) <= 0
+	_shop_sell_back.visible = wanted
+	if wanted:
+		_shop_sell_back.text = "%s  %d ●" % [
+			Text.of("ui_sell"), ShopStock.sells_back(_shop_chosen)
+		]
+
 func _refresh_shop_buy() -> void:
 	if _shop_buy_button == null:
 		return
@@ -727,13 +768,12 @@ func _refresh_shop_buy() -> void:
 			Text.of("ui_sell"), many * ShopStock.pays_for(_shop_chosen)
 		]
 		_shop_buy_button.disabled = many <= 0
-	elif bool(_shop_owned.get(_shop_chosen, false)):
-		_shop_buy_button.text = Text.of("ui_owned")
-		_shop_buy_button.disabled = true
 	else:
-		_shop_buy_button.text = "%s  %d ●" % [
-			Text.of("ui_buy"), ShopStock.price(_shop_chosen)
-		]
+		# Just "buy". The price is on the shelf beside the thing, where it can
+		# be read while choosing rather than only after choosing — and a second
+		# one may always be bought, because what a child pays for is the thing
+		# and not the right to have one.
+		_shop_buy_button.text = Text.of("ui_buy")
 		_shop_buy_button.disabled = _shop_coins < ShopStock.price(_shop_chosen)
 
 ## Ring the chosen picture, so it is plain which one the words belong to and
@@ -788,28 +828,27 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 				row.modulate = Color.WHITE if _shop_carried.get(item, 0) > 0 else Color(1.0, 1.0, 1.0, 0.45)
 				continue
 			var price := ShopStock.price(item)
-			var mine: bool = owned.has(item)
-			if mine:
-				price_label.text = "✓"
-				price_label.add_theme_color_override("font_color", Color(0.62, 0.92, 0.66))
-				row.modulate = Color(0.80, 0.96, 0.82)
-			else:
-				# The coin is drawn next to the number, because a bare "12" does
-				# not say what it is asking for.
-				price_label.text = "%d ●" % price
-				price_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
-				# Affordable rows stand out; the rest stay legible so the price
-				# of the next thing is always readable.
-				row.modulate = (
-					Color.WHITE if coins >= price else Color(1.0, 1.0, 1.0, 0.45)
-				)
+			var many := int(owned.get(item, 0))
+			# The price is always shown, with the coin beside the number: a
+			# bare "12" does not say what it is asking for, and a tick in place
+			# of a price left a child unable to see what the thing costs the
+			# moment they had one. What they have is said beside it instead.
+			price_label.text = "%d ●" % price
+			price_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
+			if many > 0:
+				price_label.text = "%d ●   ×%d" % [price, many]
+			row.modulate = (
+				Color.WHITE if coins >= price else Color(1.0, 1.0, 1.0, 0.45)
+			)
 			# Never disabled. A bought thing still has to answer "what is this"
 			# when a child taps it — that was the whole point of the words —
 			# and a disabled button answers nothing at all.
-			_shop_owned[item] = mine
+			_shop_owned[item] = many > 0
+			_shop_have[item] = many
 		# The purse may have changed since the words went up — a child has just
-		# bought something, or earned a coin — so the button says so.
+		# bought something, or earned a coin — so the buttons say so.
 		_refresh_shop_buy()
+		_refresh_shop_sell_back()
 	_layout()
 
 ## Energy and water, and whether a drink is worth offering.

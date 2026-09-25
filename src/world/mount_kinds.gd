@@ -19,11 +19,14 @@ const BICYCLE := &"bicycle"
 ## leaves. That is the whole trade — you get there first and there is nothing
 ## there when you arrive.
 const MOTORCYCLE := &"motorcycle"
+## Four fat wheels and a seat you sit astride: slower than the motorcycle and
+## far steadier, which is the machine a six-year-old is allowed on.
+const QUAD := &"quad"
 ## A boat: the one mount that goes where the others cannot at all — across
 ## the pond — and nowhere else. Five of them wait at the big pond's shore.
 const BOAT := &"boat"
 
-const ALL: Array[StringName] = [HORSE, BICYCLE, MOTORCYCLE, BOAT]
+const ALL: Array[StringName] = [HORSE, BICYCLE, MOTORCYCLE, QUAD, BOAT]
 
 ## There is one horse and one bicycle, but several boats, so a mount is named
 ## by an id — "horse", or "boat:2" — and everything that wants to know what
@@ -87,6 +90,10 @@ static func body_box(kind: StringName) -> Array:
 			return [Vector3(1.4, 0.55, 3.5), 0.05]
 		MOTORCYCLE:
 			return [Vector3(0.72, 1.35, 2.3), 0.68]
+		QUAD:
+			# Wider than it is long, which is what a quad is and what makes it
+			# read as one from behind.
+			return [Vector3(1.35, 1.25, 1.95), 0.6]
 		_:
 			return [Vector3(0.5, 1.0, 1.9), 0.55]
 
@@ -156,6 +163,20 @@ const INFO := {
 		"eye": 0.62,
 		"colour": Color(0.16, 0.20, 0.30),
 	},
+	QUAD: {
+		# Between the two, and steadier than either: four wheels on the ground
+		# means it turns at any speed rather than leaning into a corner, and
+		# it climbs nearly as well as the motorcycle because the grip is in
+		# the tyres rather than in the speed. The machine for a child who
+		# finds the motorcycle too quick and the bicycle too slow.
+		"speed": 12.0,
+		"turn": 2.2,
+		"max_slope": 0.78,
+		"fords": false,
+		"floats": false,
+		"eye": 0.72,
+		"colour": Color(0.86, 0.62, 0.18),
+	},
 	BOAT: {
 		# Slower than a horse and much faster than swimming, which is the
 		# whole comparison a boat is in. Turns like a boat: slowly.
@@ -222,6 +243,8 @@ static func build_mesh(kind: StringName) -> Mesh:
 			_boat(tool, colour(kind))
 		MOTORCYCLE:
 			_motorcycle(tool)
+		QUAD:
+			_quad(tool)
 		_:
 			_bicycle(tool)
 	tool.generate_normals()
@@ -974,6 +997,99 @@ static func _wheel(
 		bar.height = (tyre_radius - tyre_width) * 2.0
 		bar.radial_segments = 4
 		_add(tool, bar, Transform3D(Basis(Vector3.RIGHT, angle), at), metal)
+
+## A quad bike, facing -Z.
+##
+## The silhouette is the whole job: four fat tyres set wide at the corners, a
+## body slung low between them, a seat you sit astride and wide bars. Nothing
+## else in the valley is square on four wheels, so at any distance it is
+## unmistakably not the motorcycle — which matters, because the two stand side
+## by side in the shop and cost different money.
+static func _quad(tool: SurfaceTool) -> void:
+	var paint := colour(QUAD)
+	var rubber := Color(0.12, 0.12, 0.13)
+	var metal := Color(0.62, 0.64, 0.68)
+	var dark := paint.darkened(0.45)
+
+	# The four wheels, at the corners. Fat and short: a quad's tyres are
+	# balloons, and thin ones would read as a car.
+	for side: float in [-1.0, 1.0]:
+		for end: float in [-1.0, 1.0]:
+			_wheel(
+				tool, Vector3(side * 0.54, 0.34, end * 0.66), 0.34, 0.16, 5, rubber, metal
+			)
+
+	# The chassis: a low box between the wheels, with a tapered nose.
+	var body := BoxMesh.new()
+	body.size = Vector3(0.78, 0.3, 1.5)
+	_add(tool, body, Transform3D(Basis(), Vector3(0.0, 0.5, 0.0)), paint)
+	var nose := BoxMesh.new()
+	nose.size = Vector3(0.6, 0.26, 0.5)
+	_add(tool, nose, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-12.0)), Vector3(0.0, 0.58, -0.86)), paint)
+	var tail := BoxMesh.new()
+	tail.size = Vector3(0.64, 0.22, 0.44)
+	_add(tool, tail, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(9.0)), Vector3(0.0, 0.6, 0.82)), paint)
+
+	# Mudguards over each wheel, which is most of what makes it a quad rather
+	# than a go-kart.
+	for side: float in [-1.0, 1.0]:
+		for end: float in [-1.0, 1.0]:
+			var guard := BoxMesh.new()
+			guard.size = Vector3(0.44, 0.1, 0.72)
+			_add(
+				tool, guard,
+				Transform3D(Basis(), Vector3(side * 0.54, 0.66, end * 0.66)),
+				paint.lightened(0.12)
+			)
+
+	# The seat, and the tank in front of it.
+	var seat := BoxMesh.new()
+	seat.size = Vector3(0.42, 0.18, 0.66)
+	_add(tool, seat, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-4.0)), Vector3(0.0, 0.74, 0.16)), dark)
+	var tank := BoxMesh.new()
+	tank.size = Vector3(0.36, 0.26, 0.42)
+	_add(tool, tank, Transform3D(Basis(), Vector3(0.0, 0.78, -0.3)), paint.darkened(0.15))
+
+	# The bars, on a short stem, with grips.
+	var stem := CylinderMesh.new()
+	stem.top_radius = 0.045
+	stem.bottom_radius = 0.055
+	stem.height = 0.42
+	stem.radial_segments = 6
+	_add(tool, stem, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-14.0)), Vector3(0.0, 0.95, -0.52)), metal)
+	var bars := CylinderMesh.new()
+	bars.top_radius = 0.035
+	bars.bottom_radius = 0.035
+	bars.height = 0.86
+	bars.radial_segments = 6
+	_add(tool, bars, Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(0.0, 1.14, -0.56)), metal)
+	for side: float in [-1.0, 1.0]:
+		var grip := CylinderMesh.new()
+		grip.top_radius = 0.05
+		grip.bottom_radius = 0.05
+		grip.height = 0.18
+		grip.radial_segments = 6
+		_add(tool, grip, Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(side * 0.34, 1.14, -0.56)), dark)
+
+	# A headlight and a rack: the two details that say this one works for a
+	# living.
+	var lamp := CylinderMesh.new()
+	lamp.top_radius = 0.09
+	lamp.bottom_radius = 0.09
+	lamp.height = 0.06
+	lamp.radial_segments = 8
+	_add(tool, lamp, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(90.0)), Vector3(0.0, 0.92, -1.02)), Color(0.98, 0.94, 0.72))
+	for bar in 3:
+		var rail := CylinderMesh.new()
+		rail.top_radius = 0.022
+		rail.bottom_radius = 0.022
+		rail.height = 0.5
+		rail.radial_segments = 5
+		_add(
+			tool, rail,
+			Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(0.0, 0.78 + float(bar) * 0.02, 0.72 + float(bar) * 0.12)),
+			metal
+		)
 
 ## A bicycle, facing -Z.
 ##

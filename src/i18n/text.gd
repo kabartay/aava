@@ -426,6 +426,9 @@ const STRINGS := {
 	"mount_motorcycle": {
 		EN: "motorcycle", FR: "moto", RU: "мотоцикл",
 	},
+	"mount_quad": {
+		EN: "quad bike", FR: "quad", RU: "квадроцикл",
+	},
 	"mount_boat": {
 		EN: "boat", FR: "barque", RU: "лодка",
 	},
@@ -434,6 +437,7 @@ const STRINGS := {
 	"mount_horse_on": {EN: "horse", FR: "cheval", RU: "на коне"},
 	"mount_bicycle_on": {EN: "bicycle", FR: "vélo", RU: "на велосипеде"},
 	"mount_motorcycle_on": {EN: "motorcycle", FR: "moto", RU: "на мотоцикле"},
+	"mount_quad_on": {EN: "quad bike", FR: "quad", RU: "на квадроцикле"},
 	"mount_boat_on": {EN: "boat", FR: "barque", RU: "на лодке"},
 	"ui_ride": {
 		EN: "ride", FR: "monter", RU: "сесть",
@@ -488,6 +492,18 @@ const STRINGS := {
 	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
 	"ui_owned": {EN: "yours", FR: "à toi", RU: "твоё"},
 	"say_bought": {EN: "%s is yours", FR: "%s est à toi", RU: "%s теперь твой"},
+	# %d is how many of the thing a child may have at once.
+	"say_enough_of_those": {
+		EN: "you have %d already — go and fetch one",
+		FR: "tu en as déjà %d — va rechercher celui que tu as laissé",
+		RU: "у тебя их уже %d — сходи за оставленным",
+	},
+	# %s is the thing, %d what the shop gave for it.
+	"say_sold_back": {
+		EN: "sold the %s back for %d",
+		FR: "%s revendu pour %d",
+		RU: "продал обратно: %s за %d",
+	},
 	"say_too_dear": {
 		EN: "not enough coins yet",
 		FR: "pas encore assez de pièces",
@@ -540,6 +556,12 @@ const STRINGS := {
 		EN: "fastest of all, but the animals run from the noise",
 		FR: "le plus rapide, mais le bruit fait fuir les animaux",
 		RU: "самый быстрый, но звери разбегаются от шума",
+	},
+	"shop_quad": {EN: "quad bike", FR: "quad", RU: "квадроцикл"},
+	"shop_quad_what": {
+		EN: "four wheels: steadier than the motorcycle, and climbs nearly as well",
+		FR: "quatre roues : plus stable que la moto, et grimpe presque aussi bien",
+		RU: "четыре колеса: устойчивее мотоцикла и лезет почти так же",
 	},
 	"shop_bicycle": {EN: "bicycle", FR: "vélo", RU: "велосипед"},
 	"shop_bicycle_what": {

@@ -110,6 +110,13 @@ func grant_bottle() -> void:
 	has_bottle = true
 	water_changed.emit(water_fraction())
 
+## Sold back, or put down. What is in the bottle goes with it: a child who has
+## no bottle is not carrying water in their hands.
+func take_bottle() -> void:
+	has_bottle = false
+	water = 0.0
+	water_changed.emit(water_fraction())
+
 func to_data() -> Dictionary:
 	return {"energy": energy, "water": water, "bottle": has_bottle}
 

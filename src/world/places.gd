@@ -89,6 +89,10 @@ const SHOP_COUNTER_Z := SHOP_MID_Z + 4.2
 ## shelf is not.
 const SHOP_BICYCLES := 5
 const SHOP_MOTORCYCLES := 2
+## One quad on the floor, at the end of the bicycles: it is the thing between
+## the two in price, and it stands where a child walking the cheap wall meets
+## it before they reach the motorcycles.
+const SHOP_QUADS := 1
 ## The two stands down the middle, where the small goods are laid out.
 const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
 ## How many shelves run along the wall behind the counter.
@@ -124,6 +128,7 @@ const SHOP_LIGHTS: Array[Vector3] = [
 ## out of the shop.
 const BICYCLE_STANDS_AT := Vector3(4.2, 0.0, -8.6)
 const MOTORCYCLE_STANDS_AT := Vector3(6.8, 0.0, -8.6)
+const QUAD_STANDS_AT := Vector3(9.4, 0.0, -8.6)
 
 ## The hitching rail outside, because nothing is ridden through a doorway.
 const SHOP_RAIL_X := -10.4
@@ -1028,6 +1033,16 @@ func _build_shop(at: Vector3) -> void:
 			Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), Vector3(-wall_x, 0.12, along))
 		)
 		_collide(solid, _box_shape(Vector3(1.9, 1.3, 0.7)), Transform3D(Basis(), Vector3(-wall_x, 0.65, along)))
+	for i in SHOP_QUADS:
+		var along := lerpf(rank_to - 1.2, rank_to, float(i))
+		_add_as_drawn(
+			tool, MountKinds.build_mesh(MountKinds.QUAD),
+			Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), Vector3(-wall_x + 0.4, 0.12, along))
+		)
+		_collide(
+			solid, _box_shape(Vector3(1.9, 1.3, 1.5)),
+			Transform3D(Basis(), Vector3(-wall_x + 0.4, 0.65, along))
+		)
 	for i in SHOP_MOTORCYCLES:
 		var along := lerpf(rank_from + 0.6, rank_to - 0.6, float(i) / float(maxi(SHOP_MOTORCYCLES - 1, 1)))
 		_add_as_drawn(
@@ -1040,7 +1055,8 @@ func _build_shop(at: Vector3) -> void:
 	# same goods again on the shelves behind the counter.
 	var small: Array[StringName] = []
 	for item in ShopStock.ALL:
-		if item != ShopStock.BICYCLE and item != ShopStock.MOTORCYCLE:
+		if item != ShopStock.BICYCLE and item != ShopStock.MOTORCYCLE \
+				and item != ShopStock.QUAD:
 			small.append(item)
 	# Two stands, one either side of the aisle rather than across it, so the way
 	# in is a way in. Waist height for a child, and shallow enough to reach

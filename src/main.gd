@@ -253,10 +253,19 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		hud.announce(Text.of("say_dam_done"), 5.0))
 	# A bicycle already bought must be standing in the world on reload.
 	lantern.owned = wallet.has(ShopStock.LANTERN)
-	if wallet.has(ShopStock.BICYCLE) and not world.mounts.exists(MountKinds.BICYCLE):
-		world.mounts.place(MountKinds.BICYCLE, _outside_the_shop(Places.BICYCLE_STANDS_AT))
-	if wallet.has(ShopStock.MOTORCYCLE) and not world.mounts.exists(MountKinds.MOTORCYCLE):
-		world.mounts.place(MountKinds.MOTORCYCLE, _outside_the_shop(Places.MOTORCYCLE_STANDS_AT))
+	# Every machine a child owns must be standing somewhere on reload. Where
+	# they were left is in the world file; any that are missing — a machine
+	# bought on a day the world was not saved — are put back at the shop.
+	for machine: Array in [
+		[ShopStock.BICYCLE, MountKinds.BICYCLE, Places.BICYCLE_STANDS_AT],
+		[ShopStock.MOTORCYCLE, MountKinds.MOTORCYCLE, Places.MOTORCYCLE_STANDS_AT],
+		[ShopStock.QUAD, MountKinds.QUAD, Places.QUAD_STANDS_AT],
+	]:
+		var wanted := wallet.count_of(machine[0])
+		while world.mounts.count_of_kind(machine[1]) < wanted:
+			world.mounts.place(
+				world.mounts.free_id(machine[1]), _outside_the_shop(machine[2])
+			)
 
 	world.archery.hit_target.connect(_on_arrow_hit)
 	world.archery.missed.connect(func() -> void:
@@ -346,6 +355,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		_voice_allowed = allowed
 		voice.allowed = allowed
 		_write_save())
+	hud.shop_sold_back.connect(_on_sell_back)
 	hud.confirmed.connect(_on_answered.bind(true))
 	hud.refused.connect(_on_answered.bind(false))
 	hud.fire_fed.connect(_on_feed_fire)
@@ -1307,6 +1317,34 @@ func _outside_the_shop(offset: Vector3) -> Vector3:
 		return world.field.find_spawn_point() + offset
 	return spot + offset
 
+## Sell something back to the shop, for half what it cost.
+##
+## The machine goes with it: a bicycle sold is a bicycle gone from the valley,
+## and the one that disappears is the one standing at the shop door if there is
+## one there — otherwise the furthest away, because that is the one a child has
+## decided they are not walking back for.
+func _on_sell_back(item: StringName) -> void:
+	if not wallet.has(item):
+		return
+	var paid := wallet.sell_back(item, ShopStock.sells_back(item))
+	if paid <= 0:
+		return
+	if item == ShopStock.LANTERN and not wallet.has(ShopStock.LANTERN):
+		lantern.owned = false
+	if item == ShopStock.BOTTLE and not wallet.has(ShopStock.BOTTLE):
+		vitals.take_bottle()
+	for machine: Array in [
+		[ShopStock.BICYCLE, MountKinds.BICYCLE],
+		[ShopStock.MOTORCYCLE, MountKinds.MOTORCYCLE],
+		[ShopStock.QUAD, MountKinds.QUAD],
+	]:
+		if item == machine[0]:
+			world.mounts.sell_one(machine[1], player.global_position)
+	sounds.play(Sounds.Sound.CHIME, 1.2)
+	hud.announce(Text.format("say_sold_back", [ShopStock.label(item), paid]), 2.6)
+	hud.set_owned(wallet.owned)
+	hud.set_shop_open(true, wallet.coins, wallet.owned)
+
 func _on_buy(item: StringName) -> void:
 	# A bar of chocolate is used up rather than owned, so it goes through the
 	# purse rather than the ledger: buy as many as you like, one at a time.
@@ -1335,6 +1373,18 @@ func _on_buy(item: StringName) -> void:
 		sounds.play(Sounds.Sound.PICKUP, 1.2)
 		hud.set_shop_open(true, wallet.coins, wallet.owned)
 		return
+	# Not without end. Things are objects here and a second one is a fair
+	# purchase, but three of anything is a spare and a spare for the spare —
+	# and a machine left at the far side of the valley is still yours, so it
+	# counts. Otherwise a child buys a new bicycle rather than walking back
+	# for the one they left, and the valley fills with bicycles.
+	if wallet.count_of(item) >= ShopStock.limit(item):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(
+			Text.format("say_enough_of_those", [ShopStock.limit(item)]), 3.0
+		)
+		hud.set_shop_open(true, wallet.coins, wallet.owned)
+		return
 	if wallet.buy(item, ShopStock.price(item)):
 		if item == ShopStock.BOTTLE:
 			vitals.grant_bottle()
@@ -1343,14 +1393,26 @@ func _on_buy(item: StringName) -> void:
 			lantern.owned = true
 		# A machine is left outside, so it has to say so: a child who buys a
 		# bicycle at a counter looks around the room for it.
-		if item == ShopStock.MOTORCYCLE:
-			world.mounts.place(MountKinds.MOTORCYCLE, _outside_the_shop(Places.MOTORCYCLE_STANDS_AT))
-			hud.announce(Text.format("say_waiting_outside", [MountKinds.label(MountKinds.MOTORCYCLE)]), 4.0)
-		if item == ShopStock.BICYCLE:
-			# At the camp, not underfoot: a bicycle that appears wherever you
-			# happen to stand feels like a cheat rather than something you own.
-			world.mounts.place(MountKinds.BICYCLE, _outside_the_shop(Places.BICYCLE_STANDS_AT))
-			hud.announce(Text.format("say_waiting_outside", [MountKinds.label(MountKinds.BICYCLE)]), 4.0)
+		# A machine is left outside, and a second one stands beside the first:
+		# each is its own thing in the world, named the way the boats and the
+		# horses are, so two bicycles are two bicycles rather than one flag.
+		for machine: Array in [
+			[ShopStock.MOTORCYCLE, MountKinds.MOTORCYCLE, Places.MOTORCYCLE_STANDS_AT],
+			[ShopStock.BICYCLE, MountKinds.BICYCLE, Places.BICYCLE_STANDS_AT],
+			[ShopStock.QUAD, MountKinds.QUAD, Places.QUAD_STANDS_AT],
+		]:
+			if item != machine[0]:
+				continue
+			# At the shop door, not underfoot: a machine that appears wherever
+			# you happen to stand feels like a cheat rather than something you
+			# own.
+			world.mounts.place(
+				world.mounts.free_id(machine[1]),
+				_outside_the_shop(machine[2])
+			)
+			hud.announce(
+				Text.format("say_waiting_outside", [MountKinds.label(machine[1])]), 4.0
+			)
 		hud.set_owned(wallet.owned)
 		sounds.play(Sounds.Sound.GOAL)
 		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 3.0)
