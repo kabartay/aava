@@ -183,11 +183,39 @@ static func _shape(kind: StringName) -> Dictionary:
 static func body_size(kind: StringName) -> Vector3:
 	var scale := size_of(kind)
 	var shape := _shape(kind)
+	# The width is measured off the drawn animal rather than worked out from
+	# her proportions a second time.
+	#
+	# Two ways of answering one question drift apart, and these had: a sheep's
+	# fleece, a cow's barrel and a dog's chest all stand out past the number
+	# this used to compute, so every animal here was solid across about two
+	# thirds of what a child could see — which is how a quad bike drove
+	# through the outside of a sheep and touched nothing.
 	return Vector3(
-		scale * float(shape["slim"]) * 1.42,
+		_drawn_width(kind),
 		scale * float(shape["tall"]) * 1.32,
-		scale * float(shape["long"]) * 1.62
+		scale * float(shape["long"]) * 1.62 * (1.12 if kind == SHEEP else 1.0)
 	)
+
+## How wide the drawn animal actually is across her middle, tail and ears
+## left out of it. Measured from the mesh once per kind and remembered — the
+## mesh is built from constants, so the answer cannot change while the game
+## runs.
+static var _widths: Dictionary = {}
+
+static func _drawn_width(kind: StringName) -> float:
+	if _widths.has(kind):
+		return float(_widths[kind])
+	var shape := _shape(kind)
+	var middle := size_of(kind) * float(shape["long"]) * 1.62 * 0.3
+	var arrays := (body_mesh(kind) as ArrayMesh).surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var widest := 0.0
+	for point in points:
+		if absf(point.z) <= middle:
+			widest = maxf(widest, absf(point.x))
+	_widths[kind] = widest * 2.0
+	return widest * 2.0
 
 static func hips(kind: StringName) -> Array[Vector3]:
 	var scale := size_of(kind)
@@ -402,76 +430,101 @@ static func _build(kind: StringName, with_legs: bool) -> Mesh:
 			inner.rings = 1
 			_add(tool, inner, Transform3D(Basis(), Vector3(side * scale * 0.36, head_lift + scale * 0.78, head_forward + scale * 0.02)), Color(0.86, 0.60, 0.62))
 
-	# A sheep is a fleece with a face. Small curls all over the body, tight
-	# together, and then the one thing that says sheep from any distance: a
-	# dark face and dark legs against all that white. Without them a sheep is
-	# a pale lump, and a pale lump beside a cow is another cow.
+	# A sheep is a fleece with a face, and the fleece is one smooth mass.
+	#
+	# It used to be twenty-two little spheres scattered over the barrel, meant
+	# to read as curls. At arm's length on a phone they read as lumps stuck to
+	# an animal — the wool was on her rather than being her — and nothing at
+	# that size can carry a curl anyway: a curl is centimetres and a sheep is
+	# a metre. So the fleece is a single soft envelope over the whole body,
+	# swelling past the barrel underneath, and what says wool is the outline:
+	# deep, round and continuous from the rump to the back of the head, with a
+	# dark narrow head and dark thin legs coming out of it.
 	if kind == SHEEP:
-		for lump in 22:
-			var curl := SphereMesh.new()
-			curl.radius = scale * 0.3
-			curl.height = scale * 0.46
-			curl.radial_segments = 7
-			curl.rings = 4
-			# Spread over the barrel on the golden angle, so they cover it
-			# evenly without a pattern.
-			var around := TAU * float(lump) * 0.618
-			var along := (float(lump) / 21.0 - 0.5) * 1.75
-			_add(tool, curl, Transform3D(Basis(), Vector3(
-				cos(around) * scale * slim * 0.66,
-				scale * (1.02 + sin(around) * 0.44),
-				along * scale * long
-			)), colour if lump % 3 != 0 else colour.darkened(0.05))
+		var fleece := SphereMesh.new()
+		fleece.radius = scale * 1.04
+		fleece.height = scale * 1.76
+		fleece.radial_segments = 14
+		fleece.rings = 9
+		_add(tool, fleece, Transform3D(
+			Basis().scaled(Vector3(slim * 1.02, tall * 1.0, long * 1.02)),
+			Vector3(0.0, scale * 1.08, 0.0)
+		), colour)
+		# And a second, flatter mass lying inside it along the back, which is
+		# what turns an egg into a sheep: a fleece is level on top and square
+		# at the ends, with the corners rounded off. One ellipsoid alone gives
+		# a body that tapers away at the shoulder and the rump, and an animal
+		# that tapers at both ends is a seal.
+		var back := SphereMesh.new()
+		back.radius = scale * 0.98
+		back.height = scale * 1.5
+		back.radial_segments = 14
+		back.rings = 8
+		_add(tool, back, Transform3D(
+			Basis().scaled(Vector3(slim * 0.94, tall * 0.74, long * 1.12)),
+			Vector3(0.0, scale * 1.24, 0.0)
+		), colour)
+		# The fleece carries on up the neck and stops behind the eyes, which is
+		# where a shorn sheep's wool line actually is. Without it the fleece
+		# ended at the shoulders and she was a woolly barrel holding up a bare
+		# dark neck.
+		var ruff := SphereMesh.new()
+		ruff.radius = scale * 0.66
+		ruff.height = scale * 1.02
+		ruff.radial_segments = 12
+		ruff.rings = 7
+		_add(tool, ruff, Transform3D(
+			Basis(Vector3.RIGHT, deg_to_rad(-28.0)).scaled(Vector3(0.94, 0.9, 0.86)),
+			Vector3(0.0, head_lift - scale * 0.26, head_forward * 0.62)
+		), colour)
 		# The face: dark, and forward of the fleece so it is a face rather than
-		# a stain on the wool.
+		# a stain on the wool. Narrow and a little long — a sheep's head is the
+		# one slim thing on her.
 		var mask := SphereMesh.new()
 		mask.radius = scale * 0.4
-		mask.height = scale * 0.62
-		mask.radial_segments = 9
-		mask.rings = 5
+		mask.height = scale * 0.64
+		mask.radial_segments = 10
+		mask.rings = 6
 		_add(tool, mask, Transform3D(
-			Basis().scaled(Vector3(0.9, 1.0, 1.15)),
-			Vector3(0.0, head_lift, head_forward - scale * 0.1)
+			Basis().scaled(Vector3(0.82, 0.96, 1.22)),
+			Vector3(0.0, head_lift, head_forward - scale * 0.12)
 		), SHEEP_FACE)
-		# A topknot between the ears and wool down the neck: without them the
-		# fleece stopped at the shoulders and a sheep was a woolly barrel with
-		# a bare dark neck holding a head up.
+		# A topknot of wool between the ears, low and rounded rather than a
+		# ball balanced on her head.
 		var knot := SphereMesh.new()
-		knot.radius = scale * 0.28
-		knot.height = scale * 0.34
-		knot.radial_segments = 7
-		knot.rings = 4
+		knot.radius = scale * 0.34
+		knot.height = scale * 0.4
+		knot.radial_segments = 10
+		knot.rings = 6
 		_add(tool, knot, Transform3D(
-			Basis(), Vector3(0.0, head_lift + scale * 0.3, head_forward + scale * 0.16)
+			Basis().scaled(Vector3(1.0, 0.68, 0.9)),
+			Vector3(0.0, head_lift + scale * 0.26, head_forward + scale * 0.14)
 		), colour)
-		for curl in 4:
-			var ruff := SphereMesh.new()
-			ruff.radius = scale * 0.26
-			ruff.height = scale * 0.34
-			ruff.radial_segments = 7
-			ruff.rings = 4
-			var along := float(curl) / 3.0
-			_add(tool, ruff, Transform3D(Basis(), Vector3(
-				(0.22 if curl % 2 == 0 else -0.22) * scale,
-				lerpf(scale * 1.25, head_lift - scale * 0.2, along),
-				lerpf(-scale * long * 0.5, head_forward * 0.8, along)
-			)), colour)
 
 		# Ears, out to the sides and down, which no other animal here has.
+		# Rounded, not boxes: a box the size of an ear is a chip of wood.
 		for side in PackedFloat32Array([-1.0, 1.0]):
-			var ear := BoxMesh.new()
-			ear.size = Vector3(scale * 0.34, scale * 0.12, scale * 0.2)
+			var ear := SphereMesh.new()
+			ear.radius = scale * 0.2
+			ear.height = scale * 0.3
+			ear.radial_segments = 8
+			ear.rings = 5
 			_add(tool, ear, Transform3D(
-				Basis(Vector3.FORWARD, side * deg_to_rad(28.0)),
-				Vector3(side * scale * 0.42, head_lift + scale * 0.12, head_forward + scale * 0.06)
+				Basis(Vector3.FORWARD, side * deg_to_rad(34.0)).scaled(
+					Vector3(1.7, 0.42, 0.9)
+				),
+				Vector3(side * scale * 0.46, head_lift + scale * 0.08, head_forward + scale * 0.04)
 			), SHEEP_FACE)
-		# A short tail, hanging.
+		# A short tail, hanging, and woolly like the rest of her.
 		var tail := SphereMesh.new()
-		tail.radius = scale * 0.16
-		tail.height = scale * 0.34
-		tail.radial_segments = 6
-		tail.rings = 4
-		_add(tool, tail, Transform3D(Basis(), Vector3(0.0, scale * 0.94, scale * long * 0.92)), colour)
+		tail.radius = scale * 0.18
+		tail.height = scale * 0.4
+		tail.radial_segments = 8
+		tail.rings = 5
+		_add(tool, tail, Transform3D(
+			Basis().scaled(Vector3(0.9, 1.0, 0.8)),
+			Vector3(0.0, scale * 0.98, scale * long * 0.94)
+		), colour)
 
 	# A cow is white with a few flat patches on it, not a black animal with
 	# white showing through. The first version used big spheres that swallowed

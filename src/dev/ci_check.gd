@@ -115,6 +115,7 @@ func _initialize() -> void:
 	_check_the_view_can_be_swapped()
 	_check_the_wheels_turn()
 	_check_the_animals_walk_at_their_own_pace()
+	_check_a_sheep_is_solid_as_wide_as_she_looks()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
@@ -8981,6 +8982,38 @@ func _check_the_wheels_turn() -> void:
 ## a squirrel is a stroll — and because the legs swing at a rate of their own,
 ## a cow crossing a meadow slid along with her legs barely moving. Reported,
 ## reasonably, as "the cow moves very strangely".
+## A sheep is as solid as she looks.
+##
+## Her fleece is a metre of wool standing out past the animal inside it, and
+## the box that stops a child was measured from the animal: across the
+## shoulders it covered barely two thirds of what is drawn, so a quad bike
+## drove through the outside of the wool and touched nothing. Every animal is
+## measured against its own mesh here rather than only the sheep, because the
+## same mistake is waiting for anything else that is given a coat.
+func _check_a_sheep_is_solid_as_wide_as_she_looks() -> void:
+	print("a sheep is solid as wide as she looks")
+	for kind: StringName in AnimalKinds.ALL:
+		var mesh := AnimalKinds.body_mesh(kind)
+		var arrays := (mesh as ArrayMesh).surface_get_arrays(0)
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		# Across the middle of the animal only: a tail, a nose and a pair of
+		# ears stick out further than any of these boxes covers, and nobody
+		# expects to be stopped by a tail.
+		var middle := AnimalKinds.body_size(kind).z * 0.3
+		var widest := 0.0
+		for point in points:
+			if absf(point.z) <= middle:
+				widest = maxf(widest, absf(point.x))
+		# What is actually made solid: the declared size, taken in a little on
+		# purpose so a child stops against the animal and not a stride short.
+		var solid := AnimalKinds.body_size(kind) * AnimalCollision.GIRTH
+		_expect(
+			solid.x * 0.5 > widest * 0.78,
+			"a %s is solid across %.2f m of the %.2f m she is drawn" % [
+				kind, solid.x, widest * 2.0
+			]
+		)
+
 func _check_the_animals_walk_at_their_own_pace() -> void:
 	print("the animals walk at their own pace")
 	var slowest := Animals.pace_of(AnimalKinds.COW)
