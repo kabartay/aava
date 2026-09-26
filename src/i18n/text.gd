@@ -624,6 +624,11 @@ const STRINGS := {
 		FR: "monte — elle attend dix secondes",
 		RU: "заходи — ждёт десять секунд"
 	},
+	"say_wheel_done": {
+		EN: "that's your turn — out you get",
+		FR: "voilà ton tour — descends",
+		RU: "круг окончен — выходи"
+	},
 	"say_coaster_booked": {
 		EN: "the train will pull up for you",
 		FR: "le train va s'arrêter pour toi",

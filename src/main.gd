@@ -523,9 +523,14 @@ func _physics_process(delta: float) -> void:
 	# that standing at the wheel there was nothing offering to sell you a
 	# ride and nothing saying you needed one.
 	var wheel := world.park.wheel
+	# The wheel is told who is riding, so it can bring them back down: a ride
+	# is one turn, and then it stands at the boards with the bar up.
+	wheel.set_rider(wheel.gondola_under(player.global_position))
 	if wheel.waiting() > 0.0 and not _wheel_here_told:
 		_wheel_here_told = true
-		hud.announce(Text.of("say_wheel_here"), 2.0)
+		hud.announce(
+			Text.of("say_wheel_done" if aboard == &"wheel" else "say_wheel_here"), 2.2
+		)
 	elif wheel.waiting() <= 0.0:
 		_wheel_here_told = false
 

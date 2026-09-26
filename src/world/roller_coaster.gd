@@ -1156,7 +1156,10 @@ func _roll(delta: float) -> void:
 	if was > _at_distance:
 		# Round the end of the lap.
 		passed = passed or stop_at >= was or stop_at <= _at_distance
-	if passed and _booked:
+	# A train with somebody in it always stops, booked or not: the ride is one
+	# lap, and the platform is the only way off. Without this a child who got
+	# in went round for ever.
+	if passed and (_booked or _rider_aboard):
 		_at_distance = stop_at
 		_speed = 0.0
 		_waiting = DWELL

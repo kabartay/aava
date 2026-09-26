@@ -138,6 +138,7 @@ func _initialize() -> void:
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
 	_check_the_wheel_stops_when_the_button_is_pressed()
+	_check_a_ride_ends_where_it_started()
 	_check_the_wheel_stands_on_an_a_frame()
 	_check_the_coasters_button_is_on_its_platform()
 	_check_a_rider_stays_in_through_a_loop()
@@ -8337,6 +8338,82 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 		spot.y > station.y + RollerCoaster.CAR_FLOOR - 0.01,
 		"and stood on top of them, at %.2f m" % spot.y
 	)
+	coaster.queue_free()
+
+## A ride ends where it started, and lets you out.
+##
+## Both of the big rides run all day and stop only when a ride is booked,
+## which left no way off either of them: a child got into a gondola, went
+## round, and went round again for ever. The answer is the one a real wheel
+## gives — a ride is one turn, and at the end of it the thing you are in
+## comes back to the boards and stands there with the way out open. Stay in
+## and it goes round again; that is the child's choice rather than a trap.
+func _check_a_ride_ends_where_it_started() -> void:
+	print("a ride ends where it started")
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	var tick := 1.0 / 60.0
+
+	# Somebody climbs into the lowest gondola and stays in it.
+	var riding := 0
+	for index in FerrisWheel.GONDOLAS:
+		if wheel.gondola(index).position.y < wheel.gondola(riding).position.y:
+			riding = index
+	wheel.set_rider(riding)
+
+	# A turn takes two minutes. Nothing stops before that and something stops
+	# soon after it.
+	var stopped_after := -1.0
+	var run := 0.0
+	var most := 0.0
+	while run < 160.0 and stopped_after < 0.0:
+		wheel._physics_process(tick)
+		run += tick
+		most = maxf(most, wheel.ridden())
+		if wheel.waiting() > 0.0:
+			stopped_after = run
+	# And a moment longer, for the bar to come up: it takes about a second,
+	# and this has to look at the ride as a child finds it rather than on the
+	# single frame it stopped.
+	for _step in int(1.2 / tick):
+		wheel._physics_process(tick)
+	_expect(
+		stopped_after > 100.0,
+		"it carries them a whole turn first: %.0f s" % stopped_after
+	)
+	_expect(
+		stopped_after < 130.0,
+		"and sets them down at the end of it rather than the one after"
+	)
+	_expect(most <= 1.01, "never more than one turn in the air: %.2f" % most)
+
+	# Down at the boards, with the bar up: the way out is open.
+	var lowest := 0
+	for index in FerrisWheel.GONDOLAS:
+		if wheel.gondola(index).position.y < wheel.gondola(lowest).position.y:
+			lowest = index
+	_expect(lowest == riding, "the gondola at the boards is the one they are in")
+	_expect(wheel.bar_open(riding) > 0.9, "and its bar is up")
+
+	wheel.queue_free()
+
+	# The coaster does the same: a train with somebody in it stops at the
+	# platform whether or not anybody booked it.
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	coaster.rider_aboard(true)
+	var stood := 0.0
+	var went := 0.0
+	while went < 120.0:
+		coaster._roll(tick)
+		went += tick
+		if coaster.boarding():
+			stood += tick
+	_expect(
+		stood > RollerCoaster.DWELL * 0.9,
+		"a train with a rider in it pulls up: %.1f s at the platform" % stood
+	)
+	_expect(not coaster.booked(), "and nobody had to book it")
 	coaster.queue_free()
 
 ## The wheel stands on an A, not on a V.

@@ -410,6 +410,32 @@ func book() -> void:
 		return
 	_called = true
 
+## Who is riding, and how far the wheel has turned since they got in.
+##
+## A ride is one turn. At the end of it the wheel brings that gondola back to
+## the boards and stands there with the bar up, which is the only way off —
+## without this a child who got in went round for ever, which is precisely
+## what was asked: how do I get out?
+var _rider := -1
+var _turned_with_rider := 0.0
+
+## The game says which gondola somebody is standing in, or -1 for none.
+func set_rider(index: int) -> void:
+	if index != _rider:
+		_rider = index
+		_turned_with_rider = 0.0
+
+## Which gondola this point is in, or -1.
+func gondola_under(at: Vector3) -> int:
+	for index in _cars.size():
+		if inside_a_gondola(at - _cars[index].global_position):
+			return index
+	return -1
+
+## How far round the rider has been carried, in turns. For the checks.
+func ridden() -> float:
+	return _turned_with_rider / TAU
+
 ## How far the bar on one gondola is lifted: nought closed, one open. For the
 ## checks.
 func bar_open(index: int) -> float:
@@ -647,6 +673,15 @@ func _physics_process(delta: float) -> void:
 		# the only ten seconds in which a six-year-old can get into a gondola.
 		_holding = maxf(0.0, _holding - delta)
 	else:
+		# A rider is carried one whole turn and then set down. Asked for a
+		# little before the turn is up, because the wheel has to be told to
+		# stop before the gondola gets there — and a whole turn after it left
+		# the boards, the gondola arriving is theirs.
+		if _rider >= 0:
+			_turned_with_rider += TURN_RATE * delta
+			if _turned_with_rider >= TAU - 0.06 and not _called:
+				_called = true
+				_turned_with_rider = 0.0
 		# A gondola arrives at the boards every tenth of a turn. Whether one
 		# has just arrived is asked by watching how far the wheel is from the
 		# next arrival: that distance shrinks as it turns and jumps back up
