@@ -92,6 +92,9 @@ const BUTTON_LIT := Color(0.42, 0.86, 0.36)
 ## and long enough that missing the train is a choice rather than an accident.
 const DWELL := 10.0
 
+## How far the door across the way in lifts.
+const DOOR_LIFT := 1.15
+
 ## How far the shoulder harnesses swing down, and how long they take.
 const HARNESS_DROP := deg_to_rad(74.0)
 const HARNESS_TIME := 1.1
@@ -437,6 +440,12 @@ func car_within(at: Vector3, reach: float) -> bool:
 ## For the checks.
 func locked() -> float:
 	return _locked
+
+## How far the door on a car is open: nought shut, one lifted. For the checks.
+func door_open(index: int) -> float:
+	if index >= _doors.size():
+		return 0.0
+	return _doors[index].position.y / DOOR_LIFT
 
 ## Is it standing at the platform?
 func boarding() -> bool:
@@ -897,20 +906,47 @@ func _build_car(index: int) -> AnimatableBody3D:
 				Color(0.30, 0.31, 0.34)
 			)
 
-	# A rail over the doorway, which is what you hold while you step in.
+	# The door: a rail across the way in, on its own node, which lifts while
+	# the train is standing at the platform and drops as it pulls out.
+	#
+	# It used to be a fixed rail with two posts under it, drawn across the
+	# only opening in the car — so getting in meant walking straight through
+	# the handrail you were supposed to hold, which looks exactly as wrong as
+	# it sounds. A door that opens costs the same and is the truth.
+	var door := Node3D.new()
+	door.name = "Door"
+	car.add_child(door)
+
+	var door_tool := SurfaceTool.new()
+	door_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var rail := BoxMesh.new()
 	rail.size = Vector3(1.9, 0.12, 0.12)
 	Park._add(
-		tool, rail, Transform3D(Basis(), Vector3(0.0, 1.02, 0.61)), colour.darkened(0.25)
+		door_tool, rail, Transform3D(Basis(), Vector3(0.0, 1.02, 0.61)),
+		colour.darkened(0.25)
 	)
 	for post in 2:
 		var stanchion := BoxMesh.new()
 		stanchion.size = Vector3(0.12, 1.02, 0.12)
 		Park._add(
-			tool, stanchion,
+			door_tool, stanchion,
 			Transform3D(Basis(), Vector3((float(post) - 0.5) * 1.7, 0.51, 0.61)),
 			colour.darkened(0.25)
 		)
+	Park.commit(door_tool, door, "Rail")
+
+	# Solid, and the shape belongs to the car rather than to the door: a
+	# CollisionShape3D only counts as part of the body it is a direct child
+	# of, which is the lesson the big wheel's bar taught the hard way.
+	var bar_shape := BoxShape3D.new()
+	bar_shape.size = Vector3(1.9, 1.02, 0.18)
+	var door_bar := CollisionShape3D.new()
+	door_bar.shape = bar_shape
+	door_bar.position = Vector3(0.0, 0.51, 0.61)
+	car.add_child(door_bar)
+
+	_doors.append(door)
+	_door_shapes.append(door_bar)
 
 	# The seat: back to the rear of the car, facing forward.
 	for _seat in SEATS:
@@ -1054,6 +1090,13 @@ func _physics_process(delta: float) -> void:
 	# about a second, which is how long the real ones take.
 	var wanted := 0.0 if boarding() else 1.0
 	_locked = move_toward(_locked, wanted, delta / HARNESS_TIME)
+	# And the door across the way in goes the other way: up while the train
+	# stands, shut while it runs.
+	for index in _doors.size():
+		var open := 1.0 - _locked
+		_doors[index].position.y = open * DOOR_LIFT
+		_door_shapes[index].position.y = 0.51 + open * DOOR_LIFT
+		_door_shapes[index].disabled = open > 0.6
 	for hinge in _harnesses:
 		# About the car's own across-axis, so the pads swing down in front of
 		# the rider rather than out of the side of the car.
@@ -1116,6 +1159,9 @@ var _moved: Array[Vector3] = []
 ## Every shoulder harness on the train, and how far down they are: nought at
 ## the platform, one on the ride.
 var _harnesses: Array[Node3D] = []
+## The door across each car's way in, and the shapes that make them solid.
+var _doors: Array[Node3D] = []
+var _door_shapes: Array[CollisionShape3D] = []
 var _locked := 1.0
 var _cleared_to_board := false
 var _rider_aboard := false

@@ -7752,6 +7752,18 @@ func _check_the_fairground() -> void:
 			signf(apex.z) == signf(carries.z),
 			"and its arrow points the way it runs: arrow %.2f, belt %.2f" % [apex.z, carries.z]
 		)
+		# And it lies down. A three-sided cone turned on its side is a wedge
+		# with an edge along the top, and from the ground that read as a
+		# yellow fin standing up out of the belt rather than as an arrow
+		# painted on it. Measured off the mesh: nothing on a tread stands more
+		# than a hand above it.
+		var tallest := 0.0
+		for point in treads.multimesh.mesh.get_faces():
+			tallest = maxf(tallest, absf(point.y))
+		_expect(
+			tallest < 0.12,
+			"and lies flat on the belt: %.2f m of it stands up" % tallest
+		)
 		# Asked of the belt rather than of the multimesh: instance transforms
 		# live on the rendering server, and there is no rendering server here,
 		# so a headless check reads nothing back from one however well it is
@@ -8300,6 +8312,23 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 	var standing := coaster.seat_under(coaster.car_at(0).global_position).origin
 	_expect(not is_nan(standing.x), "somebody is standing in a car")
 
+	# The way into a car is open while it stands there. It was not: a fixed
+	# handrail was drawn across the only opening in the car, so getting in
+	# meant walking through the rail you were meant to hold.
+	# Through _physics_process, because that is what drives the doors and the
+	# harnesses: a check that rolls the train by hand sees neither move.
+	var ran := 0.0
+	while not coaster.boarding() and ran < 40.0:
+		coaster._physics_process(1.0 / 60.0)
+		ran += 1.0 / 60.0
+	_expect(coaster.boarding(), "the booked train pulls up at the platform")
+	for _step in int(1.4 * 60.0):
+		coaster._physics_process(1.0 / 60.0)
+	_expect(
+		coaster.door_open(0) > 0.9,
+		"the door across the way in is up while it stands: %.2f" % coaster.door_open(0)
+	)
+
 	# Strapped in, they stay: this is not a rule against riding.
 	_expect(
 		not coaster.must_get_off(standing, true),
@@ -8311,8 +8340,7 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 	var put_off_while_boarding := 0
 	var put_off_after := 0
 	for step in int(14.0 / tick):
-		coaster._roll(tick)
-		coaster._place_cars()
+		coaster._physics_process(tick)
 		if coaster.must_get_off(standing, false):
 			if coaster.boarding():
 				put_off_while_boarding += 1
@@ -8321,6 +8349,10 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 	_expect(
 		put_off_while_boarding == 0,
 		"nobody is turned out of a car standing at the platform"
+	)
+	_expect(
+		coaster.door_open(0) < 0.1,
+		"and shut once it has pulled out: %.2f" % coaster.door_open(0)
 	)
 	_expect(
 		put_off_after > 0,

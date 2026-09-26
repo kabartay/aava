@@ -162,16 +162,25 @@ func _tread_mesh(heading: float) -> ArrayMesh:
 	Park._add(tool, bar, Transform3D(Basis(), Vector3.ZERO), SLAT)
 	var head := CylinderMesh.new()
 	head.top_radius = 0.0
-	head.bottom_radius = 0.42
-	head.height = 0.6
+	head.bottom_radius = 0.38
+	head.height = 0.56
 	head.radial_segments = 3
 	head.rings = 1
 	# North is -z in this valley, so a belt with a heading of one runs -z and
 	# its arrow has to lie that way: the cylinder points along its own +y, and
 	# turning it a quarter about x lays it along z.
+	#
+	# And then flattened, which is the part that was missing. A three-sided
+	# cone laid on its side is a wedge with an edge along the top: from the
+	# ground it read as a yellow fin standing up out of the belt rather than
+	# as an arrow painted on it. Scaling after the turn squashes it into the
+	# floor, where an arrow belongs.
 	Park._add(
 		tool, head,
-		Transform3D(Basis(Vector3.RIGHT, heading * -PI * 0.5), Vector3(0.0, 0.02, 0.0)),
+		Transform3D(
+			Basis(Vector3.RIGHT, heading * -PI * 0.5).scaled(Vector3(1.0, 0.12, 1.0)),
+			Vector3(0.0, 0.04, 0.0)
+		),
 		ARROW
 	)
 	tool.generate_normals()
