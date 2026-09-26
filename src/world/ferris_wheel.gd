@@ -24,6 +24,30 @@ const GONDOLAS := 10
 ## A turn every two minutes: a whole ride is a long slow look at the valley.
 const TURN_RATE := deg_to_rad(3.0)
 
+## The boarding platform, the button on it, and how long a gondola waits when
+## the button is pressed.
+##
+## The wheel turns all day and nobody can board a moving gondola: a child
+## chased the doorway round and got a shin. So there is a platform level with
+## the lowest car and a button on it, and the button is the whole of the
+## mechanism — press it, the next gondola comes round to the boards and stands
+## there for ten seconds, and if nobody presses it the wheel simply turns.
+const PLATFORM_AT := Vector3(-2.9, 0.0, 0.0)
+const PLATFORM_SIZE := Vector3(3.0, 0.24, 4.4)
+const PLATFORM_STEPS := 4
+const PLATFORM_RUN := 2.4
+## Where the button stands, on the platform, by the doorway.
+const BUTTON_AT := Vector3(-2.0, 0.0, 1.55)
+const BUTTON_HEIGHT := 1.05
+## How close a child has to be to press it.
+const BUTTON_REACH := 1.9
+## How long the gondola stands at the boards.
+const HOLD := 10.0
+
+const BUTTON := Color(0.86, 0.22, 0.20)
+const BUTTON_LIT := Color(0.42, 0.86, 0.36)
+const DECK := Color(0.58, 0.55, 0.52)
+
 const STEEL := Color(0.72, 0.74, 0.78)
 const HUB_COLOUR := Color(0.40, 0.43, 0.48)
 ## The lamps round the rim: the one thing on the wheel that is not steel.
@@ -32,6 +56,13 @@ const LAMP := Color(1.0, 0.92, 0.66)
 var _rim: Node3D
 var _cars: Array[AnimatableBody3D] = []
 var _turned := 0.0
+## A gondola has been called for, and how long the one at the boards has left
+## to stand there.
+var _called := false
+var _holding := 0.0
+## The button's own cap, so it can be seen to go in and light up.
+var _cap: MeshInstance3D
+var _cap_paint: StandardMaterial3D
 
 func _init(at: Vector3) -> void:
 	name = "FerrisWheel"
@@ -207,6 +238,7 @@ func _init(at: Vector3) -> void:
 				LAMP
 			)
 
+	_build_platform(still)
 	Park.commit(still, self, "Frame")
 	Park.commit(turning, _rim, "Wheel")
 
@@ -214,6 +246,136 @@ func _init(at: Vector3) -> void:
 	for car in GONDOLAS:
 		_cars.append(_build_car(car))
 	_place_cars()
+
+## The boarding platform, its steps, and the button.
+##
+## Level with the floor of the lowest gondola, on the side its doorway faces,
+## and clear of the legs — which straddle the wheel across the axle while the
+## platform stands along it.
+func _build_platform(tool: SurfaceTool) -> void:
+	var body := StaticBody3D.new()
+	body.name = "Platform"
+	add_child(body)
+
+	var top := boarding_floor()
+	var deck := BoxMesh.new()
+	deck.size = PLATFORM_SIZE
+	var where := PLATFORM_AT + Vector3(0.0, top - PLATFORM_SIZE.y * 0.5, 0.0)
+	Park._add(tool, deck, Transform3D(Basis(), where), DECK)
+	Park._solid(body, deck.size, Transform3D(Basis(), where))
+
+	# Legs under it, and a rail along the back so nobody steps off it into the
+	# wheel's own frame.
+	for post in 4:
+		var leg := BoxMesh.new()
+		leg.size = Vector3(0.18, where.y, 0.18)
+		Park._add(
+			tool, leg,
+			Transform3D(Basis(), Vector3(
+				where.x + (-1.0 if post % 2 == 0 else 1.0) * (PLATFORM_SIZE.x * 0.4),
+				where.y * 0.5,
+				where.z + (-1.0 if post < 2 else 1.0) * (PLATFORM_SIZE.z * 0.4)
+			)),
+			DECK.darkened(0.3)
+		)
+	for side: float in [-1.0, 1.0]:
+		var rail := BoxMesh.new()
+		rail.size = Vector3(PLATFORM_SIZE.x, 0.10, 0.10)
+		Park._add(
+			tool, rail,
+			Transform3D(Basis(), Vector3(
+				where.x, top + 0.95, where.z + side * PLATFORM_SIZE.z * 0.5
+			)),
+			STEEL
+		)
+		for stanchion in 2:
+			var post := BoxMesh.new()
+			post.size = Vector3(0.10, 0.95, 0.10)
+			Park._add(
+				tool, post,
+				Transform3D(Basis(), Vector3(
+					where.x + (float(stanchion) - 0.5) * PLATFORM_SIZE.x * 0.8,
+					top + 0.47,
+					where.z + side * PLATFORM_SIZE.z * 0.5
+				)),
+				STEEL
+			)
+
+	# The way up: a flight drawn, a ramp walked. A character body climbs
+	# slopes and stops dead at a riser, so a staircase of boxes is a wall with
+	# a pattern on it.
+	var foot := where.x - PLATFORM_SIZE.x * 0.5 - PLATFORM_RUN * 0.5
+	for tread in PLATFORM_STEPS:
+		var up := top * float(tread + 1) / float(PLATFORM_STEPS)
+		var along := PLATFORM_RUN * ((float(tread) + 0.5) / float(PLATFORM_STEPS) - 0.5)
+		var step := BoxMesh.new()
+		step.size = Vector3(PLATFORM_RUN / float(PLATFORM_STEPS) + 0.04, 0.16, PLATFORM_SIZE.z * 0.6)
+		Park._add(
+			tool, step, Transform3D(Basis(), Vector3(foot + along, up, where.z)), DECK
+		)
+	Park._solid(
+		body,
+		Vector3(Vector2(PLATFORM_RUN, top).length(), 0.24, PLATFORM_SIZE.z * 0.6),
+		Transform3D(
+			Basis(Vector3.BACK, atan2(top, PLATFORM_RUN)),
+			Vector3(foot, top * 0.5 - 0.06, where.z)
+		)
+	)
+
+	# And the button: a post with a red cap on it, which is the only control
+	# on this ride and has to look like one from across the fairground.
+	var pillar := CylinderMesh.new()
+	pillar.top_radius = 0.16
+	pillar.bottom_radius = 0.20
+	pillar.height = BUTTON_HEIGHT
+	pillar.radial_segments = 10
+	pillar.rings = 1
+	var stand := BUTTON_AT + Vector3(0.0, top + BUTTON_HEIGHT * 0.5, 0.0)
+	Park._add(tool, pillar, Transform3D(Basis(), stand), HUB_COLOUR)
+	Park._solid(body, Vector3(0.34, BUTTON_HEIGHT, 0.34), Transform3D(Basis(), stand))
+
+	var cap := SurfaceTool.new()
+	cap.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var dome := SphereMesh.new()
+	dome.radius = 0.19
+	dome.height = 0.26
+	dome.radial_segments = 12
+	dome.rings = 6
+	Park._add(cap, dome, Transform3D(Basis(), Vector3.ZERO), BUTTON)
+	_cap = Park.commit(cap, self, "Button")
+	_cap.position = BUTTON_AT + Vector3(0.0, top + BUTTON_HEIGHT + 0.06, 0.0)
+	_cap_paint = StandardMaterial3D.new()
+	_cap_paint.albedo_color = BUTTON
+	_cap.material_override = _cap_paint
+
+## How high the floor of the gondola at the bottom of the wheel is, in the
+## wheel's own frame: what the platform has to be level with.
+func boarding_floor() -> float:
+	return HUB_HEIGHT - RADIUS - HANGS_BELOW + 0.08
+
+## Where the button is, in the world.
+func button_at() -> Vector3:
+	return global_position + BUTTON_AT + Vector3(
+		0.0, boarding_floor() + BUTTON_HEIGHT + 0.06, 0.0
+	)
+
+## Somebody pressed it. Returns true if that did something — a gondola already
+## standing at the boards, or one already on its way, needs no second press.
+func press(at: Vector3) -> bool:
+	if at.distance_to(button_at()) > BUTTON_REACH:
+		return false
+	if _called or _holding > 0.0:
+		return false
+	_called = true
+	return true
+
+## Is a gondola standing at the boards, and for how much longer?
+func waiting() -> float:
+	return _holding
+
+## Has one been called for?
+func called() -> bool:
+	return _called
 
 ## One gondola: a floor with a rail round it and a hood over the back, hung
 ## from the rim.
@@ -367,9 +529,36 @@ func _physics_process(delta: float) -> void:
 	var before: Array[Vector3] = []
 	for car in _cars:
 		before.append(car.position)
-	_turned = fmod(_turned + TURN_RATE * delta, TAU)
+
+	if _holding > 0.0:
+		# Standing at the boards. Nothing turns, which is the point: this is
+		# the only ten seconds in which a six-year-old can get into a gondola.
+		_holding = maxf(0.0, _holding - delta)
+	else:
+		# A gondola arrives at the boards every tenth of a turn. Whether one
+		# has just arrived is asked by watching how far the wheel is from the
+		# next arrival: that distance shrinks as it turns and jumps back up
+		# the moment it passes one.
+		var step := TAU / float(GONDOLAS)
+		var was := fposmod(PI - _turned, step)
+		_turned = fmod(_turned + TURN_RATE * delta, TAU)
+		var now := fposmod(PI - _turned, step)
+		if _called and now > was:
+			# Wound back the hair it overshot by, so the doorway is square
+			# with the platform rather than nearly square with it.
+			_turned = fposmod(_turned - (step - now), TAU)
+			_called = false
+			_holding = HOLD
 	_rim.rotation.x = -_turned
 	_place_cars()
+	if _cap != null:
+		# The button goes in while a gondola is on its way and lights up while
+		# one is standing there — a control that does nothing visible when it
+		# is pressed is a control a child presses again and again.
+		_cap.position.y = (
+			boarding_floor() + BUTTON_HEIGHT + (0.0 if _called else 0.06)
+		)
+		_cap_paint.albedo_color = BUTTON_LIT if _holding > 0.0 else BUTTON
 	_moved.clear()
 	for index in _cars.size():
 		_moved.append(_cars[index].position - before[index])

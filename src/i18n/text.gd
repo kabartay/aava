@@ -614,6 +614,21 @@ const STRINGS := {
 		EN: "this ride wants a ticket", FR: "ce manège demande un billet",
 		RU: "на этот аттракцион нужен билет"
 	},
+	"say_wheel_called": {
+		EN: "a gondola is coming round to you",
+		FR: "une nacelle arrive vers toi",
+		RU: "кабинка подъезжает к тебе"
+	},
+	"say_wheel_here": {
+		EN: "in you get — it waits ten seconds",
+		FR: "monte — elle attend dix secondes",
+		RU: "заходи — ждёт десять секунд"
+	},
+	"say_coaster_booked": {
+		EN: "the train will pull up for you",
+		FR: "le train va s'arrêter pour toi",
+		RU: "поезд остановится для тебя"
+	},
 	"say_park_put_off": {
 		EN: "no ticket, no ride — off you get",
 		FR: "pas de billet, pas de tour — descends",

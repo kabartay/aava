@@ -413,7 +413,9 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 ## Finish a surface and hang it on a node. Every ride builds its still parts
 ## and its moving parts into separate tools and then calls this, so the whole
 ## fairground is a handful of meshes rather than a hundred.
-static func commit(tool: SurfaceTool, parent: Node3D, drawn_name: String) -> void:
+## Hands back what it drew, for the few things that have to change afterwards
+## — a button that lights up, for one.
+static func commit(tool: SurfaceTool, parent: Node3D, drawn_name: String) -> MeshInstance3D:
 	tool.generate_normals()
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
@@ -422,11 +424,12 @@ static func commit(tool: SurfaceTool, parent: Node3D, drawn_name: String) -> voi
 	tool.set_material(material)
 	var mesh := tool.commit()
 	if mesh == null or mesh.get_surface_count() == 0:
-		return
+		return null
 	var drawn := MeshInstance3D.new()
 	drawn.name = drawn_name
 	drawn.mesh = mesh
 	parent.add_child(drawn)
+	return drawn
 
 static func _solid(body: StaticBody3D, size: Vector3, where: Transform3D) -> void:
 	var shape := BoxShape3D.new()

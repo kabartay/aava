@@ -325,20 +325,28 @@ func from_data(data: Array) -> void:
 		_spawn_node(record)
 	_recompute_groves()
 
-## Anything built on ground that a place now keeps — see PlaceSpec.reserved —
-## is moved to the nearest ground outside it, on the same bearing from the
-## place's centre, and set on the ground there. Moved, not removed: the tree
-## a child planted is still their tree, only no longer in the trampoline.
+## Anything standing on ground that now belongs to something else — a place,
+## the football pitch, the fairground, the crossing, the signs — is moved to
+## the nearest ground outside it and set down there. Moved, not removed: the
+## tree a child planted is still their tree, only no longer in the trampoline
+## or in front of the big wheel.
+##
+## This runs on every load, so a rule made today reaches valleys built before
+## it. That is the whole point: the planting rule and this one are the same
+## rule, and a tree planted on the fairground the week before the rule existed
+## was still standing there afterwards.
 ## Returns how many were moved.
 func _move_out_of_places() -> int:
 	var camp := field.camp_centre()
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
 	var moved := 0
 	for record in _records:
 		var at: Vector3 = record["position"]
-		if not PlaceSpec.reserved(at.x, at.z, camp):
+		if not KeepOut.kept(at.x, at.z, camp, river_x):
 			continue
-		var free := PlaceSpec.nearest_free(at.x, at.z, camp)
-		free.y = field.height_at(free.x, free.z)
-		record["position"] = free
+		var free := KeepOut.nearest_free(at.x, at.z, camp, river_x)
+		record["position"] = Vector3(
+			free.x, field.height_at(free.x, free.y), free.y
+		)
 		moved += 1
 	return moved

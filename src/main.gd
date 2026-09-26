@@ -397,6 +397,8 @@ var _riding_without_a_ticket := false
 var _coaster_paid := false
 ## And whether the child currently in a car paid to be there.
 var _coaster_rider_paid := false
+## Whether the wheel has already said that a gondola is waiting.
+var _wheel_told := false
 var _coaster_told := false
 ## What the game has just asked about: a ticket at the kiosk, or a ride.
 var _asked: StringName = &""
@@ -411,12 +413,18 @@ func _physics_process(delta: float) -> void:
 	# turns for a minute and a ride is a ride.
 	var aboard := world.park.ride_under(player.global_position)
 
-	# The coaster is paid for at the car rather than in it, because its
-	# restraints have to know: walk up to a car standing at the platform with a
-	# ticket and it is taken, the shoulder bars lift, and you get in. Without
-	# one they stay down and the seat is shut, which is what a ticket is for.
+	# The coaster is booked at the button on the platform, not in the car.
+	#
+	# The train used to stop every lap whether anybody wanted it or not, and
+	# the ticket was taken from whoever walked up to a standing car — so the
+	# ride happened *at* a child rather than being asked for. Now it runs all
+	# day, and the button is where both things happen: the ticket is taken and
+	# the next train is booked to pull up.
 	var coaster := world.park.coaster
-	var at_a_car := coaster.boarding() and coaster.car_within(player.global_position, 3.5)
+	var at_a_car := (
+		coaster.at_the_button(player.global_position) and not coaster.booked()
+		and not coaster.boarding()
+	)
 	if at_a_car and not _coaster_paid and aboard != &"coaster" and not _coaster_told:
 		if wallet.tickets > 0:
 			if _asked == &"":
@@ -474,6 +482,19 @@ func _physics_process(delta: float) -> void:
 	# seat is rather than nudging them along by how far the car moved. A loop
 	# turns the car over as well as carrying it forward, and no amount of
 	# nudging keeps a child in a seat that is upside down.
+	# The big wheel's button is free: it calls a gondola down to the boards
+	# and holds it there. What it costs is a ticket, and that is taken when a
+	# child steps into the gondola, exactly as it always was — a button that
+	# charged as well would charge twice for one ride.
+	if world.park.wheel.press(player.global_position):
+		sounds.play(Sounds.Sound.CHIME, 1.2)
+		hud.announce(Text.of("say_wheel_called"), 2.2)
+	if world.park.wheel.waiting() > 0.0 and not _wheel_told:
+		_wheel_told = true
+		hud.announce(Text.of("say_wheel_here"), 2.0)
+	elif world.park.wheel.waiting() <= 0.0:
+		_wheel_told = false
+
 	var seat := coaster.seat_under(player.global_position)
 	# Held from the moment it pulls out, not from the moment the bars finish
 	# coming down, and never while it is standing at the platform — a child at
@@ -1657,7 +1678,13 @@ func _on_answered(yes: bool) -> void:
 				_coaster_paid = true
 				_riding_without_a_ticket = false
 				sounds.play(Sounds.Sound.CHIME, 1.1)
-				hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
+				# Paid at the coaster's button: that is also the booking, and
+				# the train pulls up next time round.
+				if world.park.coaster.at_the_button(player.global_position):
+					world.park.coaster.book()
+					hud.announce(Text.of("say_coaster_booked"), 2.4)
+				else:
+					hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
 
 ## The pool's turnstile: a child outside is offered a ticket and told the
 ## price once; a child inside is simply let out.

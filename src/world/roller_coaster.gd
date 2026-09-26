@@ -72,6 +72,19 @@ const LIFT_FOOT := 0.05
 const LIFT_TOP := 0.26
 const BRAKES_FROM := 0.94
 
+## The button on the platform, and how close you have to be to press it.
+##
+## The train runs all day. It only pulls up if somebody has booked a ride at
+## the button, which is also where the ticket is taken — so a child who has
+## not paid never has a train standing in front of them to climb into, and
+## the ride stops being a thing that happens to be there and becomes a thing
+## you ask for.
+const BUTTON_AT := Vector3(2.6, 0.0, 5.4)
+const BUTTON_HEIGHT := 1.05
+const BUTTON_REACH := 2.2
+const BUTTON := Color(0.86, 0.22, 0.20)
+const BUTTON_LIT := Color(0.42, 0.86, 0.36)
+
 ## How long the cars stand at the platform. Ten seconds: long enough to walk
 ## the length of it, pick a car and step in without hurrying a six-year-old,
 ## and long enough that missing the train is a choice rather than an accident.
@@ -141,8 +154,12 @@ var _cars: Array[AnimatableBody3D] = []
 var _frame: StaticBody3D
 var _at_distance := 0.0
 var _speed := 0.0
-## How long is left of the wait at the platform.
+## How long is left of the wait at the platform, and whether anybody has
+## booked the next one.
 var _waiting := 0.0
+var _booked := false
+var _cap: MeshInstance3D
+var _cap_paint: StandardMaterial3D
 
 func _init(at: Vector3) -> void:
 	name = "RollerCoaster"
@@ -406,6 +423,28 @@ func locked() -> float:
 ## Is it standing at the platform?
 func boarding() -> bool:
 	return _waiting > 0.0
+
+## Where the button is, in the world, and whether somebody is close enough to
+## press it.
+func button_at() -> Vector3:
+	var at := point_at(distance_of(BOARDS_AT))
+	return global_position + Vector3(
+		at.x + BUTTON_AT.x,
+		at.y + CAR_FLOOR + BUTTON_HEIGHT + 0.06,
+		at.z + BUTTON_AT.z
+	)
+
+func at_the_button(at: Vector3) -> bool:
+	return at.distance_to(button_at()) < BUTTON_REACH
+
+## A ride has been paid for: the next time the train comes past the platform
+## it pulls up, and stands there for as long as it takes a six-year-old to
+## choose a car and get in.
+func book() -> void:
+	_booked = true
+
+func booked() -> bool:
+	return _booked
 
 func _build_track(tool: SurfaceTool) -> void:
 	var total := circuit()
@@ -704,6 +743,33 @@ func _build_station(tool: SurfaceTool) -> void:
 			)
 		)
 
+	# The button, at the head of the platform: the only control on the ride.
+	var pillar := CylinderMesh.new()
+	pillar.top_radius = 0.16
+	pillar.bottom_radius = 0.20
+	pillar.height = BUTTON_HEIGHT
+	pillar.radial_segments = 10
+	pillar.rings = 1
+	var pedestal := Vector3(
+		at.x + BUTTON_AT.x, where.y + deck.size.y * 0.5 + BUTTON_HEIGHT * 0.5,
+		at.z + BUTTON_AT.z
+	)
+	Park._add(tool, pillar, Transform3D(Basis(), pedestal), TIMBER_DARK)
+	Park._solid(body, Vector3(0.34, BUTTON_HEIGHT, 0.34), Transform3D(Basis(), pedestal))
+	var cap := SurfaceTool.new()
+	cap.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var dome := SphereMesh.new()
+	dome.radius = 0.19
+	dome.height = 0.26
+	dome.radial_segments = 12
+	dome.rings = 6
+	Park._add(cap, dome, Transform3D(Basis(), Vector3.ZERO), BUTTON)
+	_cap = Park.commit(cap, self, "Button")
+	_cap.position = pedestal + Vector3(0.0, BUTTON_HEIGHT * 0.5 + 0.06, 0.0)
+	_cap_paint = StandardMaterial3D.new()
+	_cap_paint.albedo_color = BUTTON
+	_cap.material_override = _cap_paint
+
 	# A roof over it, because a station is a shelter and because it is what
 	# tells a child from across the fairground that this is where you get on.
 	var roof := BoxMesh.new()
@@ -954,6 +1020,16 @@ func _physics_process(delta: float) -> void:
 	_roll(delta)
 	_place_cars()
 
+	if _cap != null:
+		# Lit while a train is standing there, pressed in while one is on its
+		# way: a button that does nothing visible is a button a child presses
+		# again and again.
+		_cap_paint.albedo_color = BUTTON_LIT if boarding() else BUTTON
+		_cap.position.y = (
+			point_at(distance_of(BOARDS_AT)).y + CAR_FLOOR + BUTTON_HEIGHT
+			+ (0.0 if _booked else 0.06)
+		)
+
 	# The harnesses come down as the train leaves and go up as it stops, over
 	# about a second, which is how long the real ones take.
 	var wanted := 0.0 if boarding() else 1.0
@@ -1078,10 +1154,11 @@ func _roll(delta: float) -> void:
 	if was > _at_distance:
 		# Round the end of the lap.
 		passed = passed or stop_at >= was or stop_at <= _at_distance
-	if passed:
+	if passed and _booked:
 		_at_distance = stop_at
 		_speed = 0.0
 		_waiting = DWELL
+		_booked = false
 
 ## How high the ride goes, and where the leading car is. For the checks.
 func highest() -> float:

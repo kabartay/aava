@@ -296,42 +296,16 @@ func _evaluate() -> void:
 		_last_signature = signature
 		preview_changed.emit(selected, _valid, _reason)
 
-## How far from the things that are not places — the crossing and the signs —
-## nothing may be built. Three metres, which is a stride and a half clear.
-const KEEP_BACK := 3.0
+## How far nothing may be built from the crossing and the signs. The rule
+## itself lives in KeepOut, because the builder and the loaded valley have to
+## agree about it — see the note there.
+const KEEP_BACK := KeepOut.KEEP_BACK
 
 ## Ground that belongs to something else.
-##
-## The levelled places keep their own ground already, and the rest of this is
-## everything built since that nobody thought to protect: a tree came up
-## through the fairground beside the big wheel, which is where this list was
-## found wanting.
 func _kept_ground(x: float, z: float) -> bool:
-	var camp := field.camp_centre()
-	if PlaceSpec.reserved(x, z, camp):
-		return true
-	# The football pitch, which is levelled rather than reserved.
-	if Pitch.is_levelled(x, z):
-		return true
-	# The fairground, and a stride of sand outside its fence.
-	if ParkSpec.inside(x, z):
-		return true
-	if (
-		x > ParkSpec.WEST - KEEP_BACK and x < ParkSpec.EAST + KEEP_BACK
-		and z < ParkSpec.SOUTH + KEEP_BACK and z > ParkSpec.NORTH - KEEP_BACK
-	):
-		return true
-	# The crossing: its deck and the ground either end of it, so nothing grows
-	# up through the planks or in front of them.
-	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
-	if (
-		absf(z - BridgeSpec.CENTRE_Z) < BridgeSpec.HALF_WIDTH + KEEP_BACK
-		and absf(x - river_x) < BridgeSpec.HALF_SPAN + KEEP_BACK
-	):
-		return true
-	# The signs, and room to stand and read them.
-	var post := camp + Signpost.OFFSET
-	return Vector2(x - post.x, z - post.z).length() < Signpost.KEEP_CLEAR + KEEP_BACK
+	return KeepOut.kept(
+		x, z, field.camp_centre(), field.river_centre_x(BridgeSpec.CENTRE_Z)
+	)
 
 func _cost_text(cost: Dictionary) -> String:
 	var parts := PackedStringArray()

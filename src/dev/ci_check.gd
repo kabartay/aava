@@ -110,6 +110,7 @@ func _initialize() -> void:
 	_check_a_valley_survives_a_new_phone()
 	_check_felling_your_own_tree_costs_what_it_paid()
 	_check_nothing_is_planted_where_it_does_not_belong()
+	_check_an_old_tree_is_moved_off_ground_that_is_now_kept()
 	_check_the_shop_sells_seconds_and_buys_back()
 	_check_the_machines_steer()
 	_check_the_view_can_be_swapped()
@@ -136,6 +137,8 @@ func _initialize() -> void:
 	_check_the_animals_keep_off_the_playing_places()
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
+	_check_the_wheel_stops_when_the_button_is_pressed()
+	_check_the_coasters_button_is_on_its_platform()
 	_check_a_rider_stays_in_through_a_loop()
 	_check_nobody_rides_the_coaster_unstrapped()
 	_check_the_rides_are_paid_for()
@@ -8270,7 +8273,10 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 	print("nobody rides the coaster unstrapped")
 	var coaster := RollerCoaster.new(Vector3.ZERO)
 	get_root().add_child(coaster)
-	coaster._roll(0.0)
+	# Booked, so it is standing at the platform with somebody in a car — the
+	# situation this is about.
+	coaster.book()
+	coaster._roll(1.0 / 60.0)
 	coaster._place_cars()
 	var standing := coaster.seat_under(coaster.car_at(0).global_position).origin
 	_expect(not is_nan(standing.x), "somebody is standing in a car")
@@ -8312,6 +8318,103 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 	_expect(
 		spot.y > station.y + RollerCoaster.CAR_FLOOR - 0.01,
 		"and stood on top of them, at %.2f m" % spot.y
+	)
+	coaster.queue_free()
+
+## The big wheel stops for whoever presses the button, and for nobody else.
+##
+## A wheel that turns all day cannot be boarded: the doorway of a gondola goes
+## past at walking pace a foot above the sand and a child chases it. So there
+## is a platform level with the lowest car and a button on it, and the button
+## is the whole mechanism — pressed, the next gondola comes round to the
+## boards and stands there for ten seconds.
+func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
+	print("the wheel stops when the button is pressed")
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	var tick := 1.0 / 60.0
+
+	_expect(
+		not wheel.press(Vector3(30.0, 0.0, 0.0)),
+		"it cannot be pressed from across the fairground"
+	)
+	# Unpressed, it simply turns: twenty seconds is nearly two gondolas past.
+	var stood := 0.0
+	for _step in int(20.0 / tick):
+		wheel._physics_process(tick)
+		if wheel.waiting() > 0.0:
+			stood += tick
+	_expect(stood == 0.0, "and nothing stops while nobody has asked it to")
+
+	_expect(
+		wheel.press(wheel.button_at() + Vector3(0.7, 0.0, 0.0)),
+		"a child standing at it can press it"
+	)
+	_expect(not wheel.press(wheel.button_at()), "and pressing twice changes nothing")
+
+	# It comes round: a gondola every tenth of a turn, and a turn is two
+	# minutes, so never more than twelve seconds.
+	var waited := 0.0
+	while wheel.waiting() <= 0.0 and waited < 20.0:
+		wheel._physics_process(tick)
+		waited += tick
+	_expect(waited < 12.5, "a gondola is at the boards %.1f s later" % waited)
+
+	# And it is at the boards: square with the platform, and its floor level
+	# with the deck rather than a step above or below it.
+	var nearest := 0
+	for index in FerrisWheel.GONDOLAS:
+		if absf(wheel.gondola(index).position.z) < absf(wheel.gondola(nearest).position.z):
+			nearest = index
+	var car := wheel.gondola(nearest)
+	_expect(
+		absf(car.position.z) < 0.25,
+		"square with the platform: %.2f m off it" % absf(car.position.z)
+	)
+	_expect(
+		absf(car.position.y + 0.08 - wheel.boarding_floor()) < 0.05,
+		"and its floor is level with the boards, %.2f m up" % (car.position.y + 0.08)
+	)
+
+	# It stands there for ten seconds, and then goes on turning.
+	var held := 0.0
+	for _step in int(14.0 / tick):
+		wheel._physics_process(tick)
+		if wheel.waiting() > 0.0:
+			held += tick
+	_expect(
+		held > FerrisWheel.HOLD * 0.9 and held < FerrisWheel.HOLD * 1.1,
+		"it waits %.1f s against the %.1f it is meant to" % [held, FerrisWheel.HOLD]
+	)
+	_expect(wheel.turned() > 0.0, "and then it turns again")
+	wheel.queue_free()
+
+## The coaster's button is on its platform, where a child stands.
+##
+## It is the one control on the ride — the ticket is taken there and the next
+## train is booked there — so it has to be reachable from the boards and not,
+## say, two metres out over the rails.
+func _check_the_coasters_button_is_on_its_platform() -> void:
+	print("the coaster's button is on its platform")
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	var boards := coaster.point_at(RollerCoaster.distance_of(RollerCoaster.BOARDS_AT))
+	var button := coaster.button_at()
+	_expect(
+		absf(button.x - (boards.x + 2.6)) < 1.2,
+		"it stands on the deck, %.1f m off the rails" % (button.x - boards.x)
+	)
+	_expect(
+		button.y > boards.y + RollerCoaster.CAR_FLOOR,
+		"at hand height above the boards, at %.2f m" % button.y
+	)
+	_expect(
+		coaster.at_the_button(button + Vector3(0.0, 0.0, 1.4)),
+		"and a child on the platform is close enough to press it"
+	)
+	_expect(
+		not coaster.at_the_button(button + Vector3(0.0, 0.0, 14.0)),
+		"while one at the far end of it is not"
 	)
 	coaster.queue_free()
 
@@ -8441,8 +8544,27 @@ func _check_the_coaster_runs_a_lap() -> void:
 	var slowest_running := 99.0
 	var laps := 0
 	var was := coaster.car_distance()
+	# Nobody has booked a ride for the first lap, and a train nobody has
+	# booked does not stop: it runs the station through and climbs the lift
+	# again. Booked after that, so the rest of this measures the stop.
+	var unbooked := 0.0
+	var ran := 0.0
+	while ran < 70.0:
+		coaster._roll(tick)
+		ran += tick
+		if coaster.speed() < 0.01:
+			unbooked += tick
+	_expect(
+		unbooked < 0.1,
+		"a train nobody booked never stops: %.1f s standing in a lap" % unbooked
+	)
+	coaster.book()
 	for step in int(180.0 / tick):
 		coaster._roll(tick)
+		# Booked again the moment it leaves, so the run below sees a stop
+		# every lap rather than only the first.
+		if not coaster.booked() and not coaster.boarding():
+			coaster.book()
 		var now := coaster.car_distance()
 		if now < was - total * 0.5:
 			laps += 1
@@ -8697,6 +8819,54 @@ func _check_felling_your_own_tree_costs_what_it_paid() -> void:
 ## the pitch, the fairground, the crossing, the signs — was not on anybody's
 ## list, and a valley where a sapling can be planted in the middle of a
 ## roller coaster is a valley nobody is looking after.
+## A tree standing on ground that is now somebody else's is moved when the
+## valley loads.
+##
+## The planting rule came after the fairground did, so refusing to plant a
+## tree there did nothing about the one already standing in front of the big
+## wheel. A rule made today has to reach a valley built before it, or it is
+## only a rule about new trees.
+func _check_an_old_tree_is_moved_off_ground_that_is_now_kept() -> void:
+	print("an old tree is moved off ground that is now kept")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var camp := field.camp_centre()
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+
+	# Where the tree actually was: on the fairground, near the big wheel.
+	var wheel := ParkSpec.centre()
+	structures.from_data([{
+		"kind": String(BuildKinds.SAPLING),
+		"x": wheel.x + 4.0, "y": ParkSpec.LEVEL, "z": wheel.z + 4.0,
+		"spin": 0.0, "age": 900.0,
+	}])
+	var where := structures.positions()
+	_expect(where.size() == 1, "the tree is still in the valley")
+	_expect(
+		not KeepOut.kept(where[0].x, where[0].z, camp, river_x),
+		"and is no longer on the fairground: it stands at %.0f, %.0f" % [
+			where[0].x, where[0].z
+		]
+	)
+	_expect(
+		absf(where[0].y - field.height_at(where[0].x, where[0].z)) < 0.01,
+		"and stands on the ground it was moved to"
+	)
+
+	# The same for the crossing, which is the other rule made after the fact.
+	structures.from_data([{
+		"kind": String(BuildKinds.SAPLING),
+		"x": river_x + 6.0, "y": 0.0, "z": BridgeSpec.CENTRE_Z,
+		"spin": 0.0, "age": 900.0,
+	}])
+	var moved := structures.positions()
+	_expect(
+		moved.size() == 1 and not KeepOut.kept(moved[0].x, moved[0].z, camp, river_x),
+		"a tree on the bridge is moved off it too"
+	)
+	structures.queue_free()
+
 func _check_nothing_is_planted_where_it_does_not_belong() -> void:
 	print("nothing is planted where it does not belong")
 	var field := HeightField.new(20260903)
