@@ -8455,10 +8455,18 @@ func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
 
 	# And it is at the boards: square with the platform, and its floor level
 	# with the deck rather than a step above or below it.
+	# The lowest one, by height rather than by how near the middle of the
+	# wheel it is: the gondola at the top is just as near the middle as the
+	# one at the bottom, and this check has to be able to tell them apart —
+	# it is the mistake the ride itself made.
 	var nearest := 0
 	for index in FerrisWheel.GONDOLAS:
-		if absf(wheel.gondola(index).position.z) < absf(wheel.gondola(nearest).position.z):
+		if wheel.gondola(index).position.y < wheel.gondola(nearest).position.y:
 			nearest = index
+	_expect(
+		wheel.gondola(nearest).position.y < wheel.boarding_floor() + 0.2,
+		"the gondola at the boards is the low one, %.1f m up" % wheel.gondola(nearest).position.y
+	)
 	var car := wheel.gondola(nearest)
 	_expect(
 		absf(car.position.z) < 0.25,

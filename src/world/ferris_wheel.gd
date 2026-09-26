@@ -668,11 +668,18 @@ func _physics_process(delta: float) -> void:
 	# is lifted; every other one is down. Which car that is is asked of the
 	# cars themselves — the one nearest the platform — rather than worked out
 	# from the angle a second time.
+	# The lowest car, by height.
+	#
+	# It was the car nearest the middle of the wheel measured across the
+	# ground — and the gondola at the *top* is exactly as near the middle as
+	# the one at the bottom. So a bought ride lifted the bar on a gondola
+	# fifty metres up while the one standing at the boards stayed shut, which
+	# is what "it says get in and the yellow bar will not let me" was.
 	var boarding_car := -1
 	if _holding > 0.0:
 		boarding_car = 0
 		for index in _cars.size():
-			if absf(_cars[index].position.z) < absf(_cars[boarding_car].position.z):
+			if _cars[index].position.y < _cars[boarding_car].position.y:
 				boarding_car = index
 	for index in _gates.size():
 		var wanted := 1.0 if index == boarding_car else 0.0
