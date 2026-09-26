@@ -30,10 +30,40 @@ const HALF_WIDTH := 6.5
 ## because a coaster cannot climb higher than it has fallen from and a profile
 ## that pretends otherwise is the one thing a ten-year-old will notice.
 const PROFILE: Array = [
-	[0.00, 1.30], [0.05, 1.30], [0.26, 20.0], [0.31, 19.2], [0.40, 2.6],
-	[0.50, 14.4], [0.57, 3.4], [0.64, 10.2], [0.70, 3.6], [0.76, 7.6],
-	[0.81, 3.2], [0.86, 5.6], [0.92, 2.0], [1.00, 1.30],
+	[0.00, 1.30], [0.05, 1.30], [0.26, 28.0], [0.34, 26.4], [0.42, 10.0],
+	[0.50, 2.20], [0.56, 2.20], [0.64, 2.40], [0.72, 12.6], [0.78, 4.20],
+	[0.84, 8.40], [0.88, 3.60], [0.92, 5.20], [0.96, 2.00], [1.00, 1.30],
 ]
+
+## The two loops, as [where on the base circuit they stand, their radius].
+##
+## A vertical loop is not a hill: the track leaves the base line, goes up and
+## over backwards, and comes down onto the same spot it left. So it is not in
+## the height profile at all — it is spliced into the circuit, and the base
+## line underneath it is flat, which is what the long level stretch between
+## 0.50 and 0.64 is for.
+##
+## Both stand on the river side of the circuit, where the train arrives at its
+## fastest: the lift is twenty-eight metres, the drop and the bend spend it,
+## and the train enters the first loop at over twenty metres a second.
+##
+## The radii are what the speed will carry, and that is a real sum rather than
+## a guess. A car needs v² ≥ 5gR at the bottom of a loop or it leaves the rails
+## at the top; at 22 m/s that is a radius of up to 9.9 m. Seven metres is taken
+## for the first, so the train goes over the top at about three times its own
+## weight — firmly held, not hanging — and the second is smaller again because
+## by then the train has spent some of what it had.
+const LOOPS: Array = [
+	[0.53, 7.00],
+	[0.60, 5.80],
+]
+
+## How far outside the rails the yellow hoop that carries a loop stands, and
+## what colour it is: every looping coaster a child has seen has this, and it
+## is what makes a loop read as a loop from across the fairground rather than
+## as a bent rail.
+const HOOP_OFFSET := 1.70
+const HOOP := Color(0.96, 0.74, 0.16)
 
 ## Where the cars pull up, where the chain lift ends, and where the brakes
 ## take hold on the way back in.
@@ -42,9 +72,10 @@ const LIFT_FOOT := 0.05
 const LIFT_TOP := 0.26
 const BRAKES_FROM := 0.94
 
-## How long the cars stand at the platform. Long enough to walk the length of
-## it and step in without hurrying a six-year-old.
-const DWELL := 5.0
+## How long the cars stand at the platform. Ten seconds: long enough to walk
+## the length of it, pick a car and step in without hurrying a six-year-old,
+## and long enough that missing the train is a choice rather than an accident.
+const DWELL := 10.0
 
 ## How far the shoulder harnesses swing down, and how long they take.
 const HARNESS_DROP := deg_to_rad(74.0)
@@ -72,7 +103,7 @@ const LIFT_SPEED := 3.4
 const LIFT_PULL := 2.6
 const BRAKE := 7.5
 const CRAWL := 1.6
-const TOP_SPEED := 21.0
+const TOP_SPEED := 26.0
 
 ## How far the piles stand either side of the track's own line.
 const PILE_OFFSET := 0.78
@@ -126,6 +157,7 @@ func _init(at: Vector3) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_build_track(tool)
+	_build_hoops(tool)
 	_lay_the_rails()
 	_build_lift(tool)
 	_build_station(tool)
@@ -145,18 +177,77 @@ func _init(at: Vector3) -> void:
 		_cars.append(_build_car(car))
 	_place_cars()
 
-## How long the circuit is, all the way round.
-func circuit() -> float:
+## How long the base circuit is — the stadium alone, with no loops in it.
+static func base_circuit() -> float:
 	return 4.0 * (HALF_LENGTH - HALF_WIDTH) + TAU * HALF_WIDTH
 
-## Where the track is at a distance along it, and which way it is heading.
+## How long the whole ride is, loops included. This is the length a car
+## actually travels, and the length everything else is measured in.
+static func circuit() -> float:
+	var total := base_circuit()
+	for loop: Array in LOOPS:
+		total += TAU * float(loop[1])
+	return total
+
+## Where a distance along the ride falls: how far along the base circuit it
+## is, which loop it is inside — -1 for none — and how far round that loop, in
+## radians.
+##
+## This is the whole trick of the loops. The base stadium is left exactly as
+## it was, and each loop is spliced into it as an extra stretch of track
+## during which the base position does not advance at all: a car enters the
+## loop, travels 2πR, and comes out on the rail it left. Everything else — the
+## rails, the sleepers, the collision, the cars, the physics — reads the track
+## through here and needs to know nothing about loops.
+static func unwind(distance: float) -> Array:
+	var along := fposmod(distance, circuit())
+	var base := base_circuit()
+	var cursor := 0.0
+	var base_cursor := 0.0
+	for index in LOOPS.size():
+		var entry: float = base * float(LOOPS[index][0])
+		var run := entry - base_cursor
+		if along <= cursor + run:
+			return [base_cursor + (along - cursor), -1, 0.0]
+		cursor += run
+		base_cursor = entry
+		var radius: float = float(LOOPS[index][1])
+		var round_it := TAU * radius
+		if along <= cursor + round_it:
+			return [entry, index, (along - cursor) / radius]
+		cursor += round_it
+	return [base_cursor + (along - cursor), -1, 0.0]
+
+## Where the track is at a distance along it, loops and all.
+func point_at(distance: float) -> Vector3:
+	var at := unwind(distance)
+	var here := base_point_at(float(at[0]))
+	var loop := int(at[1])
+	if loop < 0:
+		return here
+	# A circle in the vertical plane the track is already running in: it
+	# leaves along the rail, rises, goes over the top backwards, and comes
+	# down onto the point it left. Two radii up at the top, and no sideways
+	# movement anywhere in it — which is why the hoop that carries it stands
+	# directly over its own feet.
+	var radius: float = float(LOOPS[loop][1])
+	var angle := float(at[2])
+	var forward := base_heading_at(float(at[0]))
+	var up := (Vector3.UP - forward * forward.dot(Vector3.UP)).normalized()
+	return here + forward * (sin(angle) * radius) + up * ((1.0 - cos(angle)) * radius)
+
+## Which way the base track is heading here, as a unit vector.
+func base_heading_at(base_distance: float) -> Vector3:
+	return (base_point_at(base_distance + 1.0) - base_point_at(base_distance - 1.0)).normalized()
+
+## Where the base stadium is at a distance along itself.
 ## The stadium is walked straight-round-straight-round, so that a car's speed
 ## can be worked out from distance rather than from an angle that means
 ## something different on every part of the shape.
-func point_at(distance: float) -> Vector3:
+func base_point_at(distance: float) -> Vector3:
 	var straight := 2.0 * (HALF_LENGTH - HALF_WIDTH)
 	var bend := PI * HALF_WIDTH
-	var total := circuit()
+	var total := base_circuit()
 	var along := fposmod(distance, total)
 	var flat := Vector2.ZERO
 	if along < straight:
@@ -203,10 +294,16 @@ const BANK := deg_to_rad(24.0)
 const BANK_EASE := 5.0
 
 func bank_at(distance: float) -> float:
-	var total := circuit()
-	var here := point_at(distance)
-	var ahead := point_at(distance + 2.0)
-	var behind := point_at(distance - 2.0)
+	# Read off the base line, not the track: inside a loop the track's heading
+	# swings through a whole turn without going anywhere, and a bank worked
+	# out from that would lay the car over on its side at the top of it.
+	var at := unwind(distance)
+	if int(at[1]) >= 0:
+		return 0.0
+	var base := float(at[0])
+	var here := base_point_at(base)
+	var ahead := base_point_at(base + 2.0)
+	var behind := base_point_at(base - 2.0)
 	var into := Vector2(ahead.x - here.x, ahead.z - here.z).normalized()
 	var out_of := Vector2(here.x - behind.x, here.z - behind.z).normalized()
 	# How far the heading swings over four metres: nothing on a straight, and
@@ -219,28 +316,68 @@ func bank_at(distance: float) -> float:
 ## its slope, and laid over into its bend. Asked by the rails, the sleepers and
 ## the cars alike, so none of them can disagree about which way is up.
 func frame_at(distance: float) -> Basis:
-	var here := point_at(distance)
-	var ahead := point_at(distance + 1.0)
+	var at := unwind(distance)
+	var base := float(at[0])
+	var here := base_point_at(base)
+	var ahead := base_point_at(base + 1.0)
 	var run := ahead - here
 	var turn := Basis(Vector3.UP, atan2(-run.z, run.x))
 	turn = turn * Basis(Vector3.BACK, atan2(run.y, Vector2(run.x, run.z).length()))
-	return turn * Basis(Vector3.RIGHT, bank_at(distance))
+	turn = turn * Basis(Vector3.RIGHT, bank_at(distance))
+	# In a loop the car rolls right the way over, about its own across-axis.
+	# Built from an angle rather than from the direction of travel, because
+	# straight up and straight down have no heading to read: a frame taken
+	# from the run of the rail flips over at the top of every loop, and the
+	# car — and whoever is in it — flips with it.
+	var loop := int(at[1])
+	if loop < 0:
+		return turn
+	return turn * Basis(Vector3.BACK, float(at[2]))
 
 ## How steeply the track falls or rises here: metres of height per metre along
 ## the rail, which is what gravity actually pulls on.
+##
+## Measured off the track itself rather than off the height profile, so that a
+## loop is as real to the physics as a hill is: going up the inside of one the
+## gradient reaches a clean 1.0 — straight up — and the car slows at the full
+## pull of gravity, which is what decides whether it gets over the top at all.
 func gradient_at(fraction: float) -> float:
-	var step := 1.0 / 600.0
-	return (height_at(fraction + step) - height_at(fraction - step)) / (2.0 * step * circuit())
+	var total := circuit()
+	var step := 0.4
+	var behind := point_at(fraction * total - step)
+	var ahead := point_at(fraction * total + step)
+	return clampf((ahead.y - behind.y) / (2.0 * step), -1.0, 1.0)
 
 ## How fast a car would be going at a fraction of the way round if it had come
 ## straight from the top of the lift. Kept for the checks and for anything that
 ## wants the shape of the ride without running it.
 func speed_at(fraction: float) -> float:
 	var f := fposmod(fraction, 1.0)
-	if f < LIFT_TOP:
+	if base_fraction_at(f * circuit()) < LIFT_TOP:
 		return LIFT_SPEED
-	var fallen := height_at(LIFT_TOP) - height_at(f)
+	# Off the track's own height, so a loop counts: the top of one is fifteen
+	# metres of climb like any other, and the train is slow there.
+	var fallen := height_at(LIFT_TOP) - point_at(f * circuit()).y
 	return clampf(sqrt(maxf(0.0, 2.0 * GRAVITY * fallen)), CRAWL, TOP_SPEED)
+
+## The other way about: how far along the ride a mark on the base line is.
+## The station, the lift foot and the brakes are all given as fractions of the
+## base circuit, and a car is measured in ride distance.
+static func distance_of(base_fraction: float) -> float:
+	var base := base_circuit()
+	var want := base_fraction * base
+	var distance := want
+	for loop: Array in LOOPS:
+		if base * float(loop[0]) < want:
+			distance += TAU * float(loop[1])
+	return distance
+
+## How far round the base circuit a distance along the ride is, as a fraction.
+## The station, the lift and the brakes are all marked on the base line, so
+## this is what they are compared against — a fraction of the whole ride means
+## something different now there are eighty metres of loop in it.
+static func base_fraction_at(distance: float) -> float:
+	return float(unwind(distance)[0]) / base_circuit()
 
 ## How fast the train is actually going, this moment.
 func speed() -> float:
@@ -272,7 +409,9 @@ func boarding() -> bool:
 
 func _build_track(tool: SurfaceTool) -> void:
 	var total := circuit()
-	var steps := 150
+	# Fine enough that a seven-metre loop is a circle rather than a polygon:
+	# a piece of track is about three quarters of a metre long.
+	var steps := 480
 	var step := total / float(steps)
 	for piece in steps:
 		var here := point_at(step * float(piece))
@@ -311,7 +450,11 @@ func _build_track(tool: SurfaceTool) -> void:
 		# bents closed into a thicket and the shape of the ride was lost inside
 		# its own scaffolding. Eleven metres is what a wooden coaster actually
 		# stands on, and it is still close enough that no span is unsupported.
-		if piece % 5 != 0 or middle.y < 1.6:
+		# No trestles inside a loop: it is carried by its own hoop, and a post
+		# dropped from the top of one would stand in the middle of the ride.
+		if int(unwind(step * (float(piece) + 0.5))[1]) >= 0:
+			continue
+		if piece % 16 != 0 or middle.y < 1.6:
 			continue
 		var across := Vector3(-run.z, 0.0, run.x).normalized() * PILE_OFFSET
 		var foot_height := middle.y
@@ -364,6 +507,62 @@ func _build_track(tool: SurfaceTool) -> void:
 				TIMBER
 			)
 
+## The yellow hoop that carries each loop.
+##
+## A loop is the one part of a coaster that cannot be held up by posts from
+## below — there is nothing under the top of it but the bottom of it — so it is
+## hung inside a ring of steel that stands on its own two feet. Every looping
+## coaster a child has ever seen has this ring, painted, and it is what makes a
+## loop read as a loop from the other side of the fairground rather than as a
+## rail that happens to bend.
+##
+## It is drawn just outside the rails, in the same plane, and carried down to
+## the sand on two legs at the foot of the loop — which is directly under its
+## own top, because a loop comes back to the point it left.
+func _build_hoops(tool: SurfaceTool) -> void:
+	for index in LOOPS.size():
+		var loop: Array = LOOPS[index]
+		var radius: float = float(loop[1])
+		var entry := base_point_at(base_circuit() * float(loop[0]))
+		var forward := base_heading_at(base_circuit() * float(loop[0]))
+		var up := (Vector3.UP - forward * forward.dot(Vector3.UP)).normalized()
+		var across := forward.cross(up).normalized()
+		var centre := entry + up * radius
+		var hoop_radius := radius + HOOP_OFFSET
+		# Most of a circle: it stops short at the bottom, where the legs take
+		# over, so the ring does not cut through its own entrance.
+		var arcs := 64
+		var from := deg_to_rad(28.0)
+		var to := TAU - deg_to_rad(28.0)
+		for piece in arcs:
+			var a := lerpf(from, to, float(piece) / float(arcs))
+			var b := lerpf(from, to, float(piece + 1) / float(arcs))
+			var here := centre + (forward * sin(a) - up * cos(a)) * hoop_radius
+			var next := centre + (forward * sin(b) - up * cos(b)) * hoop_radius
+			var run := next - here
+			# A flat band rather than a bar: wide in the plane of the loop and
+			# thin across it, which is how these are actually built and what
+			# makes them read as one piece of steel from a distance.
+			var band := BoxMesh.new()
+			band.size = Vector3(run.length() * 1.2, 0.95, 0.34)
+			var turn := Basis(Vector3.UP, atan2(-run.z, run.x))
+			turn = turn * Basis(Vector3.BACK, atan2(run.y, Vector2(run.x, run.z).length()))
+			Park._add(tool, band, Transform3D(turn, (here + next) * 0.5), HOOP)
+
+		# And down to the sand from each end of the ring. Short, because the
+		# ring itself comes within half a metre of the ground — a loop that
+		# starts two metres up does not need stilts.
+		for end: float in [from, to]:
+			var head := centre + (forward * sin(end) - up * cos(end)) * hoop_radius
+			var post := BoxMesh.new()
+			post.size = Vector3(0.62, head.y, 0.40)
+			var stand := Transform3D(
+				Basis(Vector3.UP, atan2(forward.x, forward.z)),
+				Vector3(head.x, head.y * 0.5, head.z)
+			)
+			Park._add(tool, post, stand, HOOP)
+			Park._solid(_frame, Vector3(0.62, head.y, 0.40), stand)
+
 ## The track a foot actually meets: one closed prism swept along the whole
 ## circuit, top, underside and both sides.
 ##
@@ -375,7 +574,7 @@ func _build_track(tool: SurfaceTool) -> void:
 func _lay_the_rails() -> void:
 	var faces := PackedVector3Array()
 	var total := circuit()
-	var pieces := 150
+	var pieces := 480
 	var step := total / float(pieces)
 	var half_wide := 0.85
 	var deep := 0.36
@@ -417,8 +616,8 @@ static func _quad(faces: PackedVector3Array, a: Vector3, b: Vector3, c: Vector3,
 ## hears before they see, and the part that says which way the ride goes.
 func _build_lift(tool: SurfaceTool) -> void:
 	var total := circuit()
-	var from := total * LIFT_FOOT
-	var to := total * LIFT_TOP
+	var from := distance_of(LIFT_FOOT)
+	var to := distance_of(LIFT_TOP)
 	var teeth := int((to - from) / 1.1)
 	for tooth in teeth:
 		var along := lerpf(from, to, float(tooth) / float(teeth))
@@ -438,7 +637,7 @@ func _build_lift(tool: SurfaceTool) -> void:
 ## The station: a platform beside the track at the start, where the cars come
 ## slowly past and a child can step into one.
 func _build_station(tool: SurfaceTool) -> void:
-	var at := point_at(circuit() * BOARDS_AT)
+	var at := point_at(distance_of(BOARDS_AT))
 	# Beside where the cars stand, and level with their floors: a platform a
 	# metre below the car is one you cannot step across from.
 	var deck := BoxMesh.new()
@@ -562,6 +761,58 @@ func _build_car(index: int) -> AnimatableBody3D:
 		Park._add(tool, panel, Transform3D(Basis(), where), colour)
 		_solid(car, size, where)
 
+	# A nose on the front and a fin at the back, so a car has a way round to
+	# it standing still. A coaster car is not a crate: the front is drawn out
+	# to a point and the tail carries the number.
+	var nose := CylinderMesh.new()
+	nose.top_radius = 0.10
+	nose.bottom_radius = 0.62
+	nose.height = 0.85
+	nose.radial_segments = 10
+	nose.rings = 1
+	Park._add(
+		tool, nose,
+		Transform3D(
+			Basis(Vector3.BACK, deg_to_rad(-90.0)).scaled(Vector3(1.0, 1.0, 1.15)),
+			Vector3(1.38, 0.42, 0.0)
+		),
+		colour
+	)
+	var fin := BoxMesh.new()
+	fin.size = Vector3(0.5, 0.42, 0.14)
+	Park._add(
+		tool, fin,
+		Transform3D(Basis(Vector3.BACK, deg_to_rad(16.0)), Vector3(-1.12, 1.24, 0.0)),
+		colour.darkened(0.25)
+	)
+
+	# The running gear: four road wheels and the upstops under them, which is
+	# the part that tells a child the car is held onto the rail rather than
+	# resting on it — and the honest answer to how it stays on through a loop.
+	for end: float in [-1.0, 1.0]:
+		for side: float in [-1.0, 1.0]:
+			var wheel := CylinderMesh.new()
+			wheel.top_radius = 0.20
+			wheel.bottom_radius = 0.20
+			wheel.height = 0.12
+			wheel.radial_segments = 10
+			wheel.rings = 1
+			Park._add(
+				tool, wheel,
+				Transform3D(
+					Basis(Vector3.RIGHT, deg_to_rad(90.0)),
+					Vector3(end * 0.66, -0.16, side * 0.62)
+				),
+				Color(0.20, 0.20, 0.23)
+			)
+			var upstop := BoxMesh.new()
+			upstop.size = Vector3(0.46, 0.10, 0.10)
+			Park._add(
+				tool, upstop,
+				Transform3D(Basis(), Vector3(end * 0.66, -0.40, side * 0.62)),
+				Color(0.30, 0.31, 0.34)
+			)
+
 	# A rail over the doorway, which is what you hold while you step in.
 	var rail := BoxMesh.new()
 	rail.size = Vector3(1.9, 0.12, 0.12)
@@ -585,6 +836,22 @@ func _build_car(index: int) -> AnimatableBody3D:
 		var back := BoxMesh.new()
 		back.size = Vector3(0.18, 1.05, 0.95)
 		Park._add(tool, back, Transform3D(Basis(), Vector3(-0.52, 1.0, 0.0)), SEAT)
+		# A headrest over it, and the bolsters either side of the shoulders
+		# that the harness closes against. A seat that holds you through a loop
+		# looks like this; a flat bench does not.
+		var headrest := BoxMesh.new()
+		headrest.size = Vector3(0.22, 0.44, 0.52)
+		Park._add(
+			tool, headrest, Transform3D(Basis(), Vector3(-0.50, 1.66, 0.0)), SEAT.lightened(0.1)
+		)
+		for shoulder: float in [-1.0, 1.0]:
+			var bolster := BoxMesh.new()
+			bolster.size = Vector3(0.22, 0.62, 0.16)
+			Park._add(
+				tool, bolster,
+				Transform3D(Basis(), Vector3(-0.44, 1.30, shoulder * 0.40)),
+				SEAT.lightened(0.1)
+			)
 		var plinth := BoxMesh.new()
 		plinth.size = Vector3(0.75, 0.44, 0.78)
 		Park._add(
@@ -628,12 +895,35 @@ func _build_car(index: int) -> AnimatableBody3D:
 		var yoke := BoxMesh.new()
 		yoke.size = Vector3(0.20, 0.18, 0.76)
 		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.06, -0.06, 0.0)), HARNESS)
+		# The lap bar, hanging off the front of the yoke, and the buckle that
+		# closes on it. Swinging the pads down brings the bar across the lap,
+		# which is the movement a child watches for: bars down, we are going.
+		var bar := BoxMesh.new()
+		bar.size = Vector3(0.18, 0.62, 0.70)
+		Park._add(
+			harness, bar,
+			Transform3D(Basis(Vector3.BACK, deg_to_rad(18.0)), Vector3(0.86, -0.34, 0.0)),
+			HARNESS
+		)
 		var clasp := BoxMesh.new()
-		clasp.size = Vector3(0.20, 0.30, 0.20)
+		clasp.size = Vector3(0.26, 0.26, 0.30)
 		Park._add(
 			harness, clasp,
-			Transform3D(Basis(), Vector3(0.80, -0.26, 0.0)), HARNESS.darkened(0.35)
+			Transform3D(Basis(), Vector3(0.92, -0.62, 0.0)), HARNESS.darkened(0.45)
 		)
+		# And a belt from the buckle back down to the seat: the thing that is
+		# actually holding, drawn so it can be seen to be there.
+		for shoulder: float in [-1.0, 1.0]:
+			var strap := BoxMesh.new()
+			strap.size = Vector3(0.09, 0.70, 0.13)
+			Park._add(
+				harness, strap,
+				Transform3D(
+					Basis(Vector3.BACK, deg_to_rad(-26.0)),
+					Vector3(0.52, -0.40, shoulder * 0.30)
+				),
+				HARNESS.darkened(0.2)
+			)
 		Park.commit(harness, hinge, "Pads")
 	return car
 
@@ -676,6 +966,28 @@ func _physics_process(delta: float) -> void:
 	for index in _cars.size():
 		_moved.append(_cars[index].position - before[index])
 
+## Where a rider stands in a car, in the car's own frame: on the floor, in
+## front of the seat back, under the harness.
+const SEAT_SPOT := Vector3(0.06, 0.12, 0.0)
+
+## Where the rider of the car this point is in belongs, in the world — or a
+## point of NANs if it is in no car at all.
+##
+## This is what holds a child in through a loop. Everywhere else on the
+## fairground a ride says how far it has moved somebody and the game moves
+## them by that much, which is right for a floor that slides along under their
+## feet. It is useless in a loop: the car is turning as well as travelling, so
+## "how far the car moved" and "how far the rider should move" stop being the
+## same number the moment the track leaves the horizontal, and the difference
+## is a child left behind in mid-air. A seat is a place, so the ride names the
+## place.
+func seat_under(at: Vector3) -> Vector3:
+	for index in _cars.size():
+		var local := _cars[index].global_transform.affine_inverse() * at
+		if absf(local.x) < 0.95 and absf(local.z) < 0.65 and local.y > -0.4 and local.y < 2.0:
+			return _cars[index].global_transform * SEAT_SPOT
+	return Vector3(NAN, NAN, NAN)
+
 ## How far each car moved on the last frame, for whoever is riding in it.
 var _moved: Array[Vector3] = []
 ## Every shoulder harness on the train, and how far down they are: nought at
@@ -711,7 +1023,7 @@ func _roll(delta: float) -> void:
 		_speed = 0.0
 		return
 
-	var fraction := _at_distance / total
+	var fraction := base_fraction_at(_at_distance)
 	if fraction < LIFT_TOP:
 		# Out of the station and up the chain: a steady pull, whatever the
 		# hill does. This has to cover the station itself as well as the lift,
@@ -726,7 +1038,7 @@ func _roll(delta: float) -> void:
 		# Free running: gravity along the slope, and a little drag. A crest
 		# taken slowly is a car still slowing as it goes over, which is the
 		# part of a coaster that makes a child hold their breath.
-		var grade := gradient_at(fraction)
+		var grade := gradient_at(_at_distance / total)
 		_speed += (-GRAVITY * grade - DRAG * _speed) * delta
 		_speed = clampf(_speed, CRAWL * 0.4, TOP_SPEED)
 
@@ -734,7 +1046,7 @@ func _roll(delta: float) -> void:
 	_at_distance = fposmod(_at_distance + _speed * delta, total)
 
 	# Pull up at the platform once a lap, on the way past it.
-	var stop_at := total * BOARDS_AT
+	var stop_at := distance_of(BOARDS_AT)
 	var passed := was < stop_at and _at_distance >= stop_at
 	if was > _at_distance:
 		# Round the end of the lap.

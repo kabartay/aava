@@ -135,6 +135,8 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_animals_keep_off_the_playing_places()
 	_check_the_coaster_runs_a_lap()
+	_check_the_loops_hold_the_train_in()
+	_check_a_rider_stays_in_through_a_loop()
 	_check_the_rides_are_paid_for()
 
 	if _failures > 0:
@@ -7680,7 +7682,7 @@ func _check_the_fairground() -> void:
 		"the wheel carries a child to %.1f m" % park.wheel.top_of_the_ride()
 	)
 	_expect(
-		park.coaster.highest() > 18.0 and park.coaster.highest() <= 20.5,
+		park.coaster.highest() > 26.0 and park.coaster.highest() <= 29.0,
 		"the coaster climbs to %.1f m" % park.coaster.highest()
 	)
 	_expect(
@@ -7788,9 +7790,11 @@ func _check_the_fairground() -> void:
 	park.wheel._physics_process(1.0)
 	_expect(park.wheel.turned() > wheel_before, "the wheel goes round")
 	_expect(
-		park.coaster.speed_at(0.46) > park.coaster.speed_at(0.30) * 1.5,
-		"the coaster runs %.1f m/s at the bottom against %.1f over the top" % [
-			park.coaster.speed_at(0.46), park.coaster.speed_at(0.30)
+		park.coaster.speed_at(RollerCoaster.distance_of(0.50) / RollerCoaster.circuit())
+		> park.coaster.speed_at(RollerCoaster.distance_of(0.28) / RollerCoaster.circuit()) * 1.5,
+		"the coaster runs %.1f m/s at the bottom of the drop against %.1f just off the lift" % [
+			park.coaster.speed_at(RollerCoaster.distance_of(0.50) / RollerCoaster.circuit()),
+			park.coaster.speed_at(RollerCoaster.distance_of(0.28) / RollerCoaster.circuit())
 		]
 	)
 	# And the track is a loop: it comes back to where it started, at the height
@@ -8253,6 +8257,96 @@ func _check_the_animals_keep_off_the_playing_places() -> void:
 ## from stalls halfway up a hill and the train stands there for ever; brakes
 ## that are too weak run the station; a dwell that never fires means a child
 ## has to step into a moving car. None of it can be seen in a screenshot.
+## The loops are fast enough to be loops.
+##
+## A car needs v² ≥ 5gR at the foot of a vertical loop, or it runs out of
+## speed somewhere up the far side and comes back down backwards. This is not
+## a matter of taste — it is the whole reason the lift is twenty-eight metres
+## and the loops stand where the drop has just finished paying out. Measured
+## by running the ride rather than by reading the profile, because drag and
+## the bend before it both take their share.
+func _check_the_loops_hold_the_train_in() -> void:
+	print("the loops hold the train in")
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	var tick := 1.0 / 120.0
+	var entered := {}
+	var weakest := 99.0
+	var weakest_loop := -1
+	for _step in int(120.0 / tick):
+		coaster._roll(tick)
+		var at := RollerCoaster.unwind(coaster.car_distance())
+		var loop := int(at[1])
+		if loop < 0:
+			continue
+		var radius: float = float(RollerCoaster.LOOPS[loop][1])
+		var angle := float(at[2])
+		if angle < 0.06 and not entered.has(loop):
+			entered[loop] = coaster.speed()
+			_expect(
+				coaster.speed() > sqrt(5.0 * RollerCoaster.GRAVITY * radius),
+				"loop %d is entered at %.1f m/s, and needs %.1f" % [
+					loop, coaster.speed(), sqrt(5.0 * RollerCoaster.GRAVITY * radius)
+				]
+			)
+		if absf(angle - PI) < 0.06:
+			# What is holding the car onto the rail over the top, in its own
+			# weights. Below one and the train is hanging off the track.
+			var pull := coaster.speed() * coaster.speed() / radius / RollerCoaster.GRAVITY
+			if pull < weakest:
+				weakest = pull
+				weakest_loop = loop
+	_expect(entered.size() == RollerCoaster.LOOPS.size(), "both loops are ridden")
+	_expect(
+		weakest > 1.5,
+		"and held in at %.1f times its own weight over the top of loop %d" % [
+			weakest, weakest_loop
+		]
+	)
+	coaster.queue_free()
+
+## A rider strapped into a car stays in it, upside down included.
+##
+## The fairground moves its passengers by telling the game how far a ride has
+## carried them, which is right for a floor sliding along under their feet and
+## worthless in a loop: the car turns as well as travels, so "how far the car
+## moved" stops being "how far the rider should move" the moment the track
+## leaves the horizontal. A coaster seat is a place, and the ride names it.
+func _check_a_rider_stays_in_through_a_loop() -> void:
+	print("a rider stays in through a loop")
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	# Aboard the leading car, at the seat, with the bars down.
+	coaster._place_cars()
+	var rider := coaster.seat_under(coaster.car_at(0).global_position)
+	_expect(not is_nan(rider.x), "a rider standing in a car is found in it")
+
+	var tick := 1.0 / 120.0
+	var worst := 0.0
+	var upside_down := 0
+	var highest := 0.0
+	var lost := 0
+	# The harnesses come down over about a second once it leaves; the ride is
+	# run long enough to reach the loops with them locked.
+	for _step in int(60.0 / tick):
+		coaster._roll(tick)
+		coaster._place_cars()
+		var seat := coaster.seat_under(rider)
+		if is_nan(seat.x):
+			lost += 1
+			continue
+		# What the game does: put the rider where the ride says.
+		worst = maxf(worst, rider.distance_to(seat))
+		rider = seat
+		highest = maxf(highest, rider.y)
+		# Genuinely over the top: the car's own up is pointing at the ground.
+		if (coaster.car_at(0).global_transform.basis * Vector3.UP).y < -0.8:
+			upside_down += 1
+	_expect(lost == 0, "the seat is never lost: %d frames without one" % lost)
+	_expect(upside_down > 60, "the car is fully inverted for %d frames of the lap" % upside_down)
+	_expect(highest > 14.0, "and is carried to %.1f m without ever being put down" % highest)
+	coaster.queue_free()
+
 func _check_the_coaster_runs_a_lap() -> void:
 	print("the coaster runs a lap")
 	var coaster := RollerCoaster.new(Vector3.ZERO)

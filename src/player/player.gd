@@ -286,11 +286,29 @@ func _build_visual() -> Node3D:
 
 	return root
 
+## Set by the game while a ride has hold of the player and will not let go —
+## the shoulder bars are down on the coaster. See the note in _physics_process.
+var strapped_in := false
+
 func _process(delta: float) -> void:
 	if _charging:
 		kick_charge = minf(kick_charge + delta / Ball.CHARGE_TIME, 1.0)
 
 func _physics_process(delta: float) -> void:
+	if strapped_in:
+		# Strapped into a ride: put where the ride says, outright, with no
+		# physics of their own at all.
+		#
+		# A coaster car goes over the top of a loop upside down at fourteen
+		# metres a second. A body eased towards its seat arrives late and
+		# catches on the car it is sitting in; a body that keeps its own
+		# gravity falls out through the floor that is now above it. Being
+		# strapped in means exactly this — the ride decides where you are, and
+		# nothing else has a vote.
+		global_position = carried_to
+		velocity = Vector3.ZERO
+		return
+
 	if is_carried:
 		# Eased rather than snapped, so a swing reads as an arc rather than as
 		# the child teleporting between two points.

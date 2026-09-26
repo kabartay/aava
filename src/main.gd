@@ -459,6 +459,18 @@ func _physics_process(delta: float) -> void:
 				_asked = &""
 				hud.stop_asking()
 
+	# Strapped in, while the bars are down: the ride puts the rider where the
+	# seat is rather than nudging them along by how far the car moved. A loop
+	# turns the car over as well as carrying it forward, and no amount of
+	# nudging keeps a child in a seat that is upside down.
+	var seat := coaster.seat_under(player.global_position)
+	var strapped := aboard == &"coaster" and coaster.locked() > 0.5 and not is_nan(seat.x)
+	if strapped:
+		player.carried_to = seat
+	player.strapped_in = strapped
+	if strapped:
+		return
+
 	var carried := world.park.carry(player.global_position, delta)
 	# A ride nobody has paid for does not carry them. It still turns: what a
 	# child sees is the roundabout going round under their feet while they
