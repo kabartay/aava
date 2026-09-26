@@ -8329,6 +8329,22 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 		"the door across the way in is up while it stands: %.2f" % coaster.door_open(0)
 	)
 
+	# The shoulder bars come down across a rider, not behind them.
+	#
+	# They were hinged behind the head and swung through seventy-four
+	# degrees, so they came to rest a hand's breadth in front of the seat
+	# back — which is behind the shoulders of whoever is sitting there. On
+	# screen a restraint that closes through a child looks very like one that
+	# holds them; measured, it is plainly neither.
+	var seat_x := RollerCoaster.SEAT_SPOT.x
+	for _step in int(2.0 * 60.0):
+		coaster._physics_process(1.0 / 60.0)
+	# Standing at the platform the bars are up and out of the way.
+	_expect(
+		coaster.harness_front(0).y > 1.2,
+		"at the platform the bars are up, at %.2f m" % coaster.harness_front(0).y
+	)
+
 	# Strapped in, they stay: this is not a rule against riding.
 	_expect(
 		not coaster.must_get_off(standing, true),
@@ -8354,6 +8370,47 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 		coaster.door_open(0) < 0.1,
 		"and shut once it has pulled out: %.2f" % coaster.door_open(0)
 	)
+	# And once it has, the bars are down across the seat: in front of where a
+	# rider sits, at the height of a lap rather than of a head or a knee.
+	var closed := coaster.harness_front(0)
+	_expect(
+		closed.x > seat_x + Player.RADIUS,
+		"the bars close in front of the rider: %.2f against the seat at %.2f" % [
+			closed.x, seat_x
+		]
+	)
+	_expect(
+		closed.y > 0.55 and closed.y < 1.15,
+		"across the lap, at %.2f m" % closed.y
+	)
+	# And it does not pull out from under somebody who is still in a car: a
+	# lap ends at the platform, the ten seconds are for getting off, and a
+	# rider slower than that used to be carried round again with no say.
+	var patient := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(patient)
+	patient.book()
+	patient.rider_aboard(true)
+	var waited_out := 0.0
+	var ran_on := 0.0
+	while ran_on < 40.0:
+		patient._physics_process(1.0 / 60.0)
+		ran_on += 1.0 / 60.0
+		if patient.boarding():
+			waited_out += 1.0 / 60.0
+	_expect(
+		waited_out > RollerCoaster.DWELL * 2.0,
+		"it stands and waits while somebody is aboard: %.0f s and counting" % waited_out
+	)
+	patient.rider_aboard(false)
+	var left := false
+	for _step in int(20.0 * 60.0):
+		patient._physics_process(1.0 / 60.0)
+		if not patient.boarding():
+			left = true
+			break
+	_expect(left, "and goes as soon as they step off")
+	patient.queue_free()
+
 	_expect(
 		put_off_after > 0,
 		"and one who has not paid is put off the moment it leaves: %d frames said so" % put_off_after

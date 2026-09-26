@@ -95,8 +95,19 @@ const DWELL := 10.0
 ## How far the door across the way in lifts.
 const DOOR_LIFT := 1.15
 
-## How far the shoulder harnesses swing down, and how long they take.
-const HARNESS_DROP := deg_to_rad(74.0)
+## How far the shoulder harnesses swing down, how far they reach, and how long
+## they take.
+##
+## The reach and the drop are what decide whether the bars land *on* a rider
+## or behind them. They were short and steep: hinged behind the head and
+## swung through seventy-four degrees, the pads came to rest a hand's breadth
+## in front of the seat back — which is behind the shoulders of whoever is
+## sitting there, so the restraint closed straight through a child and held
+## nothing. Longer arms and a shallower swing bring them down across the lap,
+## where a lap bar goes.
+const HARNESS_DROP := deg_to_rad(40.0)
+const HARNESS_REACH := 0.62
+const HARNESS_PAD := 0.95
 const HARNESS_TIME := 1.1
 
 ## The physics.
@@ -435,6 +446,17 @@ func car_within(at: Vector3, reach: float) -> bool:
 		if car.global_position.distance_to(at) < reach:
 			return true
 	return false
+
+## Where the far end of a car's shoulder bars is, in the car's own frame,
+## as they are at this moment. For the checks, which is where the question
+## "does this actually come down across a rider" has to be asked: on screen a
+## restraint that closes through somebody looks very like one that holds them.
+func harness_front(index: int) -> Vector3:
+	if index >= _harnesses.size():
+		return Vector3.ZERO
+	return _harnesses[index].transform * Vector3(
+		HARNESS_REACH + HARNESS_PAD * 0.5, -0.06, 0.0
+	)
 
 ## How far down the harnesses are: nought at the platform, one on the ride.
 ## For the checks.
@@ -1006,15 +1028,15 @@ func _build_car(index: int) -> AnimatableBody3D:
 		# brings the pads over whoever is sitting there.
 		for shoulder: float in [-1.0, 1.0]:
 			var pad := BoxMesh.new()
-			pad.size = Vector3(0.85, 0.22, 0.30)
+			pad.size = Vector3(HARNESS_PAD, 0.22, 0.30)
 			Park._add(
 				harness, pad,
-				Transform3D(Basis(), Vector3(0.42, -0.06, shoulder * 0.28)),
+				Transform3D(Basis(), Vector3(HARNESS_REACH, -0.06, shoulder * 0.28)),
 				HARNESS
 			)
 		var yoke := BoxMesh.new()
 		yoke.size = Vector3(0.20, 0.18, 0.76)
-		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.06, -0.06, 0.0)), HARNESS)
+		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.10, -0.06, 0.0)), HARNESS)
 		# The lap bar, hanging off the front of the yoke, and the buckle that
 		# closes on it. Swinging the pads down brings the bar across the lap,
 		# which is the movement a child watches for: bars down, we are going.
@@ -1022,14 +1044,18 @@ func _build_car(index: int) -> AnimatableBody3D:
 		bar.size = Vector3(0.18, 0.62, 0.70)
 		Park._add(
 			harness, bar,
-			Transform3D(Basis(Vector3.BACK, deg_to_rad(18.0)), Vector3(0.86, -0.34, 0.0)),
+			Transform3D(
+				Basis(Vector3.BACK, deg_to_rad(18.0)),
+				Vector3(HARNESS_REACH + HARNESS_PAD * 0.5 + 0.06, -0.30, 0.0)
+			),
 			HARNESS
 		)
 		var clasp := BoxMesh.new()
 		clasp.size = Vector3(0.26, 0.26, 0.30)
 		Park._add(
 			harness, clasp,
-			Transform3D(Basis(), Vector3(0.92, -0.62, 0.0)), HARNESS.darkened(0.45)
+			Transform3D(Basis(), Vector3(HARNESS_REACH + HARNESS_PAD * 0.5 + 0.12, -0.56, 0.0)),
+			HARNESS.darkened(0.45)
 		)
 		# And a belt from the buckle back down to the seat: the thing that is
 		# actually holding, drawn so it can be seen to be there.
@@ -1040,7 +1066,7 @@ func _build_car(index: int) -> AnimatableBody3D:
 				harness, strap,
 				Transform3D(
 					Basis(Vector3.BACK, deg_to_rad(-26.0)),
-					Vector3(0.52, -0.40, shoulder * 0.30)
+					Vector3(HARNESS_REACH + 0.2, -0.40, shoulder * 0.30)
 				),
 				HARNESS.darkened(0.2)
 			)
@@ -1107,7 +1133,7 @@ func _physics_process(delta: float) -> void:
 
 ## Where a rider stands in a car, in the car's own frame: on the floor, in
 ## front of the seat back, under the harness.
-const SEAT_SPOT := Vector3(0.06, 0.12, 0.0)
+const SEAT_SPOT := Vector3(-0.22, 0.12, 0.0)
 
 ## Where the rider of the car this point is in belongs, in the world — or a
 ## point of NANs if it is in no car at all.
@@ -1189,6 +1215,14 @@ func _roll(delta: float) -> void:
 	var total := circuit()
 	if _waiting > 0.0:
 		_waiting -= delta
+		# It does not pull out from under somebody. A lap ends at the
+		# platform and the ten seconds are for getting off; a rider who is
+		# slower than that was carried round a second time with no say in it.
+		# So while anybody is in a car and nobody has booked the next ride,
+		# the train simply stands there. Wanting to go round again is a thing
+		# a child says at the button, by paying for it.
+		if _waiting <= 0.0 and _rider_aboard and not _booked:
+			_waiting = 0.2
 		_speed = 0.0
 		return
 
