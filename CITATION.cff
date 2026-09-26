@@ -2,7 +2,11 @@
 # making software for children, a list of Godot projects. GitHub reads this file
 # and offers the citation on the repository page.
 cff-version: 1.2.0
-title: "Aava"
+# The title carries what the thing is, not only what it is called. A citation
+# that reads "Organokov, M. (2026). Aava" tells a reader nothing they can act
+# on; the archive, the citation box on GitHub and the BibTeX in the README all
+# take this line, so it is the one place worth spending words.
+title: "Aava: an open world that comes alive as you build in it"
 message: "If you write about this software, please cite it as below."
 type: software
 authors:
