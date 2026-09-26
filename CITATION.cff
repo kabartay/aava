@@ -15,6 +15,12 @@ abstract: >-
   building game for children, written in GDScript on Godot 4 and built around a
   procedural valley generated from a seed. Everything a child builds makes the
   valley more alive, and the more alive it is, the more it gives back.
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.22965441
+    description: >-
+      The concept DOI, which always resolves to the newest release. Cite a
+      version DOI instead when it matters which build somebody actually played.
 keywords:
   - game
   - godot

@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/kabartay/aava/actions/workflows/ci.yml/badge.svg)](https://github.com/kabartay/aava/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/kabartay/aava?color=blue)](https://github.com/kabartay/aava/releases)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22965441.svg)](https://doi.org/10.5281/zenodo.22965441)
 [![License](https://img.shields.io/badge/code-AGPL--3.0-green.svg)](LICENSE)
 [![Art](https://img.shields.io/badge/name%20%26%20art-reserved-lightgrey.svg)](NOTICE.md)
 [![Godot](https://img.shields.io/badge/Godot-4.7-478cbf.svg)](https://godotengine.org)
@@ -301,6 +302,36 @@ today.
 ## Design
 
 See [docs/DESIGN.md](docs/DESIGN.md).
+
+## Citing
+
+A [CITATION.cff](CITATION.cff) sits in the repository root, so GitHub's "Cite
+this repository" button renders BibTeX and APA directly. The same entry, to
+copy:
+
+```bibtex
+@software{Organokov_Aava_2026,
+  author    = {Organokov, Mukharbek},
+  title     = {{Aava: an open world that comes alive as you build in it}},
+  year      = {2026},
+  version   = {0.4.1},
+  doi       = {10.5281/zenodo.22965441},
+  url       = {https://github.com/kabartay/aava},
+  publisher = {Zenodo},
+}
+```
+
+There is no paper. This is a game made for two brothers, and what there is to
+cite is the thing itself — the software, and whichever build of it you played.
+
+Every release is archived on Zenodo with a DOI of its own. The concept DOI
+**10.5281/zenodo.22965441** always resolves to the newest release; cite a
+version DOI instead when it matters which build somebody actually played,
+because a valley three releases old is a different valley: it had no
+fairground, no bridge, and horses that faced the wrong way while grazing.
+
+Citing the software is not permission to use the name or the icon — those are
+reserved, and the Licence section below says what that means.
 
 ## Licence
 
