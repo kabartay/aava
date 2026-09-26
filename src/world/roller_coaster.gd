@@ -30,9 +30,9 @@ const HALF_WIDTH := 6.5
 ## because a coaster cannot climb higher than it has fallen from and a profile
 ## that pretends otherwise is the one thing a ten-year-old will notice.
 const PROFILE: Array = [
-	[0.00, 1.30], [0.05, 1.30], [0.26, 28.0], [0.34, 26.4], [0.42, 10.0],
-	[0.50, 2.20], [0.56, 2.20], [0.64, 2.40], [0.72, 12.6], [0.78, 4.20],
-	[0.84, 8.40], [0.88, 3.60], [0.92, 5.20], [0.96, 2.00], [1.00, 1.30],
+	[0.00, 1.30], [0.05, 1.30], [0.30, 48.0], [0.33, 46.5], [0.40, 28.0],
+	[0.46, 2.20], [0.66, 2.40], [0.72, 18.0], [0.78, 5.00], [0.84, 11.0],
+	[0.88, 4.00], [0.92, 6.00], [0.96, 2.00], [1.00, 1.30],
 ]
 
 ## The two loops, as [where on the base circuit they stand, their radius].
@@ -41,21 +41,23 @@ const PROFILE: Array = [
 ## over backwards, and comes down onto the same spot it left. So it is not in
 ## the height profile at all — it is spliced into the circuit, and the base
 ## line underneath it is flat, which is what the long level stretch between
-## 0.50 and 0.64 is for.
+## 0.46 and 0.66 is for.
 ##
 ## Both stand on the river side of the circuit, where the train arrives at its
-## fastest: the lift is twenty-eight metres, the drop and the bend spend it,
-## and the train enters the first loop at over twenty metres a second.
+## fastest: the lift is forty-eight metres, the drop and the bend spend it,
+## and the train enters the first loop at over twenty-nine metres a second.
 ##
 ## The radii are what the speed will carry, and that is a real sum rather than
-## a guess. A car needs v² ≥ 5gR at the bottom of a loop or it leaves the rails
-## at the top; at 22 m/s that is a radius of up to 9.9 m. Seven metres is taken
-## for the first, so the train goes over the top at about three times its own
-## weight — firmly held, not hanging — and the second is smaller again because
-## by then the train has spent some of what it had.
+## a guess. A car needs v² ≥ 5gR at the bottom of a loop or it leaves the
+## rails at the top; at 29.3 m/s that is a radius of up to 17.5 m. Fourteen is
+## taken for the first — twenty-eight metres across — so the train goes over
+## the top at twice its own weight, firmly held rather than hanging, and the
+## second is smaller again because by then the train has spent some of what it
+## had. They stand thirty-four metres apart along the base line, which is what
+## the two hoops need to avoid standing in one another.
 const LOOPS: Array = [
-	[0.53, 7.00],
-	[0.60, 5.80],
+	[0.51, 14.00],
+	[0.63, 11.60],
 ]
 
 ## How far outside the rails the yellow hoop that carries a loop stands, and
@@ -69,7 +71,7 @@ const HOOP := Color(0.96, 0.74, 0.16)
 ## take hold on the way back in.
 const BOARDS_AT := 0.02
 const LIFT_FOOT := 0.05
-const LIFT_TOP := 0.26
+const LIFT_TOP := 0.30
 const BRAKES_FROM := 0.94
 
 ## The button on the platform, and how close you have to be to press it.
@@ -116,7 +118,7 @@ const LIFT_SPEED := 3.4
 const LIFT_PULL := 2.6
 const BRAKE := 7.5
 const CRAWL := 1.6
-const TOP_SPEED := 26.0
+const TOP_SPEED := 34.0
 
 ## How far the piles stand either side of the track's own line.
 const PILE_OFFSET := 0.78
@@ -351,19 +353,35 @@ func frame_at(distance: float) -> Basis:
 		return turn
 	return turn * Basis(Vector3.BACK, float(at[2]))
 
-## How steeply the track falls or rises here: metres of height per metre along
-## the rail, which is what gravity actually pulls on.
+## How steeply the track falls or rises here: the sine of the slope, which is
+## the fraction of gravity that acts along the rail.
 ##
-## Measured off the track itself rather than off the height profile, so that a
-## loop is as real to the physics as a hill is: going up the inside of one the
-## gradient reaches a clean 1.0 — straight up — and the car slows at the full
-## pull of gravity, which is what decides whether it gets over the top at all.
+## Measured against the true length of the track between two samples rather
+## than against the parameter they are taken at, and that distinction cost a
+## whole redesign to find. The base circuit is laid out in *horizontal*
+## metres with a height profile written on top, so dy divided by the step
+## between samples is the tangent of the slope, not the sine — and on anything
+## steeper than forty-five degrees it exceeds one and was being clamped there.
+## The clamp quietly ate the extra height: thirteen more metres of lift hill
+## bought eight-tenths of a metre a second at the bottom, which is how a
+## thirty-metre drop and a forty-three-metre drop came out nearly the same
+## speed.
 func gradient_at(fraction: float) -> float:
 	var total := circuit()
 	var step := 0.4
 	var behind := point_at(fraction * total - step)
 	var ahead := point_at(fraction * total + step)
-	return clampf((ahead.y - behind.y) / (2.0 * step), -1.0, 1.0)
+	return (ahead.y - behind.y) / maxf(behind.distance_to(ahead), 0.001)
+
+## How much longer the real track is here than the distance measured along
+## it: one on the flat and in a loop, and a good deal more than one on a steep
+## drop. The car travels the real length, so its speed is divided by this to
+## work out how far along the parameter it has gone.
+func stretch_at(distance: float) -> float:
+	var step := 0.4
+	var behind := point_at(distance - step)
+	var ahead := point_at(distance + step)
+	return maxf(behind.distance_to(ahead) / (2.0 * step), 1.0)
 
 ## How fast a car would be going at a fraction of the way round if it had come
 ## straight from the top of the lift. Kept for the checks and for anything that
@@ -1148,7 +1166,10 @@ func _roll(delta: float) -> void:
 		_speed = clampf(_speed, CRAWL * 0.4, TOP_SPEED)
 
 	var was := _at_distance
-	_at_distance = fposmod(_at_distance + _speed * delta, total)
+	# Along the real track, not along the number it is measured in.
+	_at_distance = fposmod(
+		_at_distance + _speed * delta / stretch_at(_at_distance), total
+	)
 
 	# Pull up at the platform once a lap, on the way past it.
 	var stop_at := distance_of(BOARDS_AT)

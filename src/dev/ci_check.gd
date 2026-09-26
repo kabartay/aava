@@ -7688,7 +7688,7 @@ func _check_the_fairground() -> void:
 		"the wheel carries a child to %.1f m" % park.wheel.top_of_the_ride()
 	)
 	_expect(
-		park.coaster.highest() > 26.0 and park.coaster.highest() <= 29.0,
+		park.coaster.highest() > 45.0 and park.coaster.highest() <= 50.0,
 		"the coaster climbs to %.1f m" % park.coaster.highest()
 	)
 	_expect(
@@ -8839,10 +8839,21 @@ func _check_the_coaster_runs_a_lap() -> void:
 
 	# Falling makes it faster and climbing makes it slower, which is the whole
 	# of it. Checked where the track actually falls and climbs.
-	var falling := coaster.gradient_at(0.36)
-	var climbing := coaster.gradient_at(0.45)
-	_expect(falling < 0.0, "the first drop falls")
-	_expect(climbing > 0.0, "and the camelback after it climbs")
+	# Given as marks on the base line rather than as fractions of the whole
+	# ride, so that adding eighty metres of loop does not silently move them
+	# onto a different part of the track.
+	var falling := coaster.gradient_at(
+		RollerCoaster.distance_of(0.38) / RollerCoaster.circuit()
+	)
+	var climbing := coaster.gradient_at(
+		RollerCoaster.distance_of(0.70) / RollerCoaster.circuit()
+	)
+	_expect(falling < 0.0, "the first drop falls: %.2f" % falling)
+	_expect(climbing > 0.0, "and the camelback after the loops climbs: %.2f" % climbing)
+	_expect(
+		absf(falling) <= 1.0 and absf(climbing) <= 1.0,
+		"and a slope is a sine, never more than one"
+	)
 	coaster.queue_free()
 
 ## The fairground charges for its rides, and the kiosk is where you pay.
