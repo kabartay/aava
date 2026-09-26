@@ -1147,9 +1147,34 @@ func _on_ride() -> void:
 		return
 
 	var kind := world.mounts.nearest(player.global_position)
-	if kind != &"" and MountKinds.floats(kind):
+	if kind == &"":
+		return
+
+	# Refused before getting on rather than a stride afterwards.
+	#
+	# A machine parked on a river bank stands on ground it cannot be ridden
+	# over — too steep for a bicycle, too near the water for either — and what
+	# happened was: the child got on, was told they were riding it, and was
+	# then put down a metre away by the rule that takes a rider off ground
+	# their mount cannot take. From the phone that is the game saying "you are
+	# riding the motorcycle" and throwing you off in the same breath.
+	#
+	# Both spots are tried, because a machine can be parked half a step from
+	# ground that is perfectly rideable: the child's own, and the machine's.
+	var mount_at := world.mounts.position_of(kind)
+	if (
+		not world.mounts.can_ride_over(kind, player.global_position)
+		and not world.mounts.can_ride_over(kind, mount_at)
+	):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(
+			Text.format("say_not_ridden_here", [MountKinds.label(kind)]), 2.6
+		)
+		return
+
+	if MountKinds.floats(kind):
 		sounds.play(Sounds.Sound.SPLASH, 0.8)
-	if kind == &"" or not world.mounts.mount(kind):
+	if not world.mounts.mount(kind):
 		return
 	player.riding = kind
 	camera_rig.set_eye_lift(MountKinds.eye_lift(kind))

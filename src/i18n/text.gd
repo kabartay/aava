@@ -504,6 +504,14 @@ const STRINGS := {
 		FR: "%s revendu pour %d",
 		RU: "продал обратно: %s за %d",
 	},
+	# %s is the machine. Said when it is standing on ground it cannot be
+	# ridden over, so that it is refused before a child gets on rather than a
+	# stride afterwards.
+	"say_not_ridden_here": {
+		EN: "the %s cannot go from here — push it clear first",
+		FR: "le %s ne part pas d'ici — pousse-le au clair",
+		RU: "отсюда на нём не проехать: откати %s в сторону",
+	},
 	"say_too_dear": {
 		EN: "not enough coins yet",
 		FR: "pas encore assez de pièces",

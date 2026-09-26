@@ -8747,6 +8747,25 @@ func _check_the_machines_steer() -> void:
 	)
 	screen.queue_free()
 
+	# Getting on is refused before it happens, not undone a stride afterwards.
+	# A machine parked on a river bank stands on ground it cannot be ridden
+	# over, and what happened was: the child got on, was told they were
+	# riding it, and was put down a metre away by the rule that takes a rider
+	# off ground their mount cannot take.
+	var bank := Vector3(
+		field.river_centre_x(40.0) + HeightField.RIVER_HALF_WIDTH * 0.4, 0.0, 40.0
+	)
+	bank.y = field.height_at(bank.x, bank.z)
+	_expect(
+		not mounts.can_ride_over(MountKinds.BICYCLE, bank),
+		"a bicycle cannot be ridden in the river"
+	)
+	var dry := field.find_spawn_point()
+	_expect(
+		mounts.can_ride_over(MountKinds.BICYCLE, dry),
+		"and can on the dry ground a child wakes up on"
+	)
+
 	# A machine lays into its corners rather than turning bolt upright, which
 	# is what the eye reads as turning hard.
 	_expect(Player.RIDE_BANK > deg_to_rad(8.0), "a machine leans into a corner")
