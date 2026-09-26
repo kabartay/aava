@@ -887,3 +887,64 @@ func from_data(data: Dictionary) -> void:
 		if not MountKinds.floats(id) and _is_in_water(at):
 			at = _walk_out_of_the_water(at)
 		place(id, at)
+
+## Where a machine bought at the shop is left standing it,
+## along the way it is pointing. A horse two and a half metres long rides out
+## the stones between its front and back feet, and so should its rider.
+## The surface a machine of this kind, standing here and pointed this way, is
+## riding on — the height its rider is held to.
+##
+## It lives here rather than in the game loop because a check cannot start a
+## game loop, and this is exactly the kind of answer that has to be checked:
+## get it wrong by a metre and the rider is dragged through whatever he is
+## standing on, which the physics then shoves him back out of sideways.
+static func ground_under(
+	field: HeightField, kind: StringName, at: Vector3, facing: float, speed: float
+) -> float:
+	# Over the machine's own length, and never less than RIDES_OUT: a bicycle
+	# is barely two metres long, so averaging over its wheelbase alone left
+	# nearly every stone in the ground still arriving as a jolt, and riding one
+	# was being shaken about in the saddle.
+	# Over a longer stretch the faster it is going: at speed the ground under a
+	# machine changes quickly, and five samples over three metres still handed
+	# the rider a tremble. A machine doing sixteen metres a second rides out
+	# what is under six of them.
+	# On the bridge, the deck itself, and no averaging at all.
+	#
+	# The deck is a smooth arch by construction — there is nothing on it to
+	# ride out — and averaging over it did active harm. A sample taken a
+	# couple of metres off the machine's nose leaves the planks as soon as the
+	# machine is pointed even slightly across the crossing, and off the planks
+	# the surface is the riverbed three metres below: the average dropped, the
+	# rider was held below the deck he was standing on, and the physics pushed
+	# him back out through whichever face of the deck's prism was nearest —
+	# usually a side one. That push is the sliding, and being pushed sideways
+	# on a six-metre deck is what put a motorcycle into the handrail.
+	var deck := field.bridge_deck_at(at.x, at.z)
+	if not is_nan(deck) and absf(at.y - deck) < BridgeSpec.ON_DECK_REACH:
+		return deck
+
+	var span := maxf((MountKinds.body_box(kind)[0] as Vector3).z, RIDES_OUT)
+	span += clampf(speed * 0.2, 0.0, 3.0)
+	var reach: float = span * 0.5
+	var along := Vector3(-sin(facing), 0.0, -cos(facing)) * reach
+	# Nine samples, weighted towards the middle, so a bump under one wheel
+	# counts for less than the ground the whole machine is on. Five left a
+	# tremble at speed: every sample that leaves the window at one end is a
+	# step in the average, and the fewer there are the bigger each step is.
+	#
+	# The surface under it, which on the bridge is the deck. Asked with the
+	# rider's own height, because the ground under the crossing is the
+	# riverbed and a rider held to that is a rider pulled through the planks.
+	var total := field.standing_height_at(at.x, at.z, at.y) * 2.0
+	var weight := 2.0
+	for step: float in [-1.0, -0.75, -0.5, -0.25, 0.25, 0.5, 0.75, 1.0]:
+		var sample := at + along * step
+		var share := 1.0 if absf(step) < 0.6 else 0.6
+		total += field.standing_height_at(sample.x, sample.z, at.y) * share
+		weight += share
+	return total / weight
+
+## The shortest length of ground a rider is carried over, whatever they are
+## riding. A machine shorter than this still rides out what is under it.
+const RIDES_OUT := 3.2

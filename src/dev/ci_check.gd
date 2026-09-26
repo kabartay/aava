@@ -116,6 +116,8 @@ func _initialize() -> void:
 	_check_the_wheels_turn()
 	_check_the_animals_walk_at_their_own_pace()
 	_check_a_sheep_is_solid_as_wide_as_she_looks()
+	_check_a_rider_is_held_to_the_deck()
+	_check_the_engine_does_not_whistle()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
 	_check_the_lantern_is_carried()
@@ -8990,6 +8992,78 @@ func _check_the_wheels_turn() -> void:
 ## drove through the outside of the wool and touched nothing. Every animal is
 ## measured against its own mesh here rather than only the sheep, because the
 ## same mistake is waiting for anything else that is given a coat.
+## The engine does not whistle.
+##
+## It had a gear whine in it: one steady tone at nine times the firing rate,
+## kept very quiet on the theory that a trace of gear and cam is what makes an
+## engine sound expensive. A quiet pure tone does not blend — the ear picks a
+## sine out of a rumble without effort — so it sat above the engine as a
+## whistle and swept up and down with the throttle like a kettle.
+##
+## So: nothing above the firing harmonics may stand out. Measured, not read,
+## because the tone that caused this was four characters wide in the middle of
+## a line and nobody would find it again by looking.
+func _check_the_engine_does_not_whistle() -> void:
+	print("the engine does not whistle")
+	var air := Ambience.new()
+	var loudest := 0.0
+	var loudest_at := 0.0
+	# Above the fifth harmonic of the firing rate, which is where the engine's
+	# own voice has finished, up to where a phone speaker gives up.
+	var hz := 300.0
+	while hz <= 2000.0:
+		var strength := air.engine_tone_at(hz)
+		if strength > loudest:
+			loudest = strength
+			loudest_at = hz
+		hz += 20.0
+	_expect(
+		loudest < 0.03,
+		"the loudest thing above it is %.3f of the firing rate, at %.0f Hz" % [
+			loudest, loudest_at
+		]
+	)
+	air.free()
+
+## A rider crossing the bridge is held to the deck, wherever on it he is and
+## however he is pointed.
+##
+## The height a rider is carried at is the average of the ground under the
+## length of his machine, which is what stops a stone arriving as a jolt. On
+## the bridge that average was poison: a sample two metres off the nose leaves
+## the planks as soon as the machine is pointed even slightly across the
+## crossing, and beyond the planks the surface is the riverbed. Riding
+## off-centre, as everybody does, the average came out as much as two and a
+## half metres below the deck — so the rider was held inside the bridge, and
+## the physics pushed him out through the nearest face of it, which is how a
+## motorcycle ended up sliding into the handrail.
+func _check_a_rider_is_held_to_the_deck() -> void:
+	print("a rider is held to the deck, however he is pointed")
+	var field := HeightField.new(20260903)
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	var worst := 0.0
+	var worst_where := ""
+	for along: float in [-24.0, -12.0, 0.0, 12.0, 24.0]:
+		var x := river_x + along
+		var deck := field.bridge_deck_at(x, BridgeSpec.CENTRE_Z)
+		for off: float in [-2.8, -1.5, 0.0, 1.5, 2.8]:
+			var at := Vector3(x, deck, BridgeSpec.CENTRE_Z + off)
+			for heading: float in [0.0, 25.0, 45.0, 90.0, 135.0]:
+				for kind: StringName in [MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD]:
+					var held := Mounts.ground_under(
+						field, kind, at, deg_to_rad(heading), MountKinds.speed(kind)
+					)
+					var off_by := absf(held - deck)
+					if off_by > worst:
+						worst = off_by
+						worst_where = "%s %.0f m across, %.1f m off the middle, pointed %.0f deg" % [
+							kind, along, off, heading
+						]
+	_expect(
+		worst < 0.01,
+		"never more than %.3f m off it, at worst %s" % [worst, worst_where]
+	)
+
 func _check_a_sheep_is_solid_as_wide_as_she_looks() -> void:
 	print("a sheep is solid as wide as she looks")
 	for kind: StringName in AnimalKinds.ALL:

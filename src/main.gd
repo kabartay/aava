@@ -546,7 +546,10 @@ func _process(delta: float) -> void:
 		# delivered straight to the body. Anything with a wheelbase rides the
 		# average of the ground under its ends, so that is what is measured —
 		# and the bumps between them average out, while a real slope does not.
-		var under := _ground_under_the_mount(riding, player.global_position, player.facing_angle())
+		var under := Mounts.ground_under(
+			world.field, riding, player.global_position, player.facing_angle(),
+			Vector2(player.velocity.x, player.velocity.z).length()
+		)
 		if player.global_position.y - under < 1.2:
 			# Allowed to rise only as fast as a machine could actually climb.
 			# Ground that steps up — the edge of a levelled place, a boulder
@@ -1363,43 +1366,6 @@ func _catch_a_fall(at: Vector3) -> void:
 	# Told, not silently mended: a child who has just watched the world vanish
 	# deserves to know they are back rather than wondering what happened.
 	hud.announce(Text.of("say_caught"), 2.4)
-
-## Where a machine bought at the shop is left standing it,
-## along the way it is pointing. A horse two and a half metres long rides out
-## the stones between its front and back feet, and so should its rider.
-func _ground_under_the_mount(kind: StringName, at: Vector3, facing: float) -> float:
-	# Over the machine's own length, and never less than RIDES_OUT: a bicycle
-	# is barely two metres long, so averaging over its wheelbase alone left
-	# nearly every stone in the ground still arriving as a jolt, and riding one
-	# was being shaken about in the saddle.
-	# Over a longer stretch the faster it is going: at speed the ground under a
-	# machine changes quickly, and five samples over three metres still handed
-	# the rider a tremble. A machine doing sixteen metres a second rides out
-	# what is under six of them.
-	var span := maxf((MountKinds.body_box(kind)[0] as Vector3).z, RIDES_OUT)
-	span += clampf(Vector2(player.velocity.x, player.velocity.z).length() * 0.2, 0.0, 3.0)
-	var reach: float = span * 0.5
-	var along := Vector3(-sin(facing), 0.0, -cos(facing)) * reach
-	# Nine samples, weighted towards the middle, so a bump under one wheel
-	# counts for less than the ground the whole machine is on. Five left a
-	# tremble at speed: every sample that leaves the window at one end is a
-	# step in the average, and the fewer there are the bigger each step is.
-	#
-	# The surface under it, which on the bridge is the deck. Asked with the
-	# rider's own height, because the ground under the crossing is the
-	# riverbed and a rider held to that is a rider pulled through the planks.
-	var total := world.field.standing_height_at(at.x, at.z, at.y) * 2.0
-	var weight := 2.0
-	for step: float in [-1.0, -0.75, -0.5, -0.25, 0.25, 0.5, 0.75, 1.0]:
-		var sample := at + along * step
-		var share := 1.0 if absf(step) < 0.6 else 0.6
-		total += world.field.standing_height_at(sample.x, sample.z, at.y) * share
-		weight += share
-	return total / weight
-
-## The shortest length of ground a rider is carried over, whatever they are
-## riding. A machine shorter than this still rides out what is under it.
-const RIDES_OUT := 3.2
 
 ## How fast the ground a rider is held to may rise, in metres a second. A
 ## machine climbing a bank lifts its rider with it; a wheel meeting a step

@@ -161,6 +161,35 @@ var _revs := 0.0
 func engine_is_running() -> bool:
 	return _engine.playing
 
+## How much of the engine's sound sits at one frequency, against how much sits
+## at its firing rate.
+##
+## A Goertzel filter, which is one bin of a Fourier transform and about ten
+## lines. It exists so a check can ask the question a rider asked first: is
+## there a bare tone up there? A whistle is a single narrow band standing well
+## above its neighbours, and nothing here should be able to put one back.
+func engine_tone_at(hz: float) -> float:
+	return _tone(hz) / maxf(_tone(FIRINGS), 0.0001)
+
+## The firing rate the engine waveform is built on, at rest.
+const FIRINGS := 54.0
+
+func _tone(hz: float) -> float:
+	var stream := _engine.stream as AudioStreamWAV
+	var samples := stream.data.size() / 2
+	var turn := TAU * hz / float(RATE)
+	var factor := 2.0 * cos(turn)
+	var back := 0.0
+	var further_back := 0.0
+	for i in samples:
+		var value := float(stream.data.decode_s16(i * 2)) / 32768.0
+		var now := value + factor * back - further_back
+		further_back = back
+		back = now
+	return sqrt(
+		back * back + further_back * further_back - factor * back * further_back
+	) / float(samples)
+
 ## The loudest sample in the engine's waveform, as a fraction of full scale.
 ## Two voices set to the same volume are only as loud as their samples are, and
 ## the engine's first version peaked at a fifth — quieter than a wood.
@@ -241,9 +270,12 @@ func _make_exhaust() -> AudioStreamWAV:
 ##
 ## So: a high firing rate, a very short pulse (a sharp edge is harmonics, and
 ## harmonics are what carries across a valley), the odd harmonics leaned on the
-## way a four-stroke leans on them, and a thin whine of gear and cam above it
-## all. The pitch is swept by the game as the machine pulls away, over a range
-## wide enough that idling and full pelt are plainly different engines.
+## way a four-stroke leans on them, and air being drawn in above it all. The
+## pitch is swept by the game as the machine pulls away, over a range wide
+## enough that idling and full pelt are plainly different engines.
+##
+## Nothing in here is a bare tone above the firing harmonics. One was, and it
+## whistled — see the note beside the induction noise below.
 func _make_engine() -> AudioStreamWAV:
 	var seconds := 1.0
 	var samples := int(RATE * seconds)
@@ -268,24 +300,31 @@ func _make_engine() -> AudioStreamWAV:
 		# ones louder, which is the character a four-stroke has. The eighth and
 		# twelfth were what turned this into a hairdryer.
 		var wail := 0.0
-		for harmonic: int in [1, 2, 3, 4, 6]:
+		for harmonic: int in [1, 2, 3, 4]:
 			var weight := 1.0 / float(harmonic)
 			if harmonic % 2 == 1:
 				weight *= 1.4
 			wail += sin(TAU * firings * float(harmonic) * t) * weight
-		wail /= 3.2
-		# Gear whine, well above everything else and very quiet: it is what
-		# makes an engine sound expensive, and at any volume at all it is what
-		# makes it sound like a dentist.
+		wail /= 3.0
+		# There is no gear whine any more.
 		#
-		# Every part of this waveform has to complete a whole number of cycles
-		# in the loop, or the end does not meet the beginning and the join is a
-		# click — once a second, for ever.
-		var whine := sin(TAU * firings * 9.0 * t + sin(TAU * 2.0 * t) * 0.8) * 0.045
-		# Induction: noise breathing with the pulse, and smoothed, so it is air
-		# being drawn rather than static.
-		var roar := (randf() * 2.0 - 1.0) * 0.1 * pulse
-		var value := pulse * 0.5 + wail * 0.46 + whine + roar
+		# It was one steady tone nine times the firing rate, kept very quiet on
+		# the theory that a trace of gear and cam is what makes an engine sound
+		# expensive. What a quiet pure tone actually does is separate itself
+		# from everything around it: the ear has no trouble at all picking a
+		# sine out of a rumble, so instead of colouring the engine it sat on
+		# top of it as a whistle, and swept up and down with the throttle like
+		# a kettle. Noise can be quiet and blend; a tone cannot.
+		#
+		# What replaces it is more air. Induction noise breathes with the
+		# firing pulse — it is the engine drawing breath — and it carries the
+		# same brightness without anywhere for the ear to catch hold.
+		#
+		# Every remaining part of this waveform completes a whole number of
+		# cycles in the loop, or the end would not meet the beginning and the
+		# join would be a click, once a second, for ever.
+		var roar := (randf() * 2.0 - 1.0) * 0.16 * (0.25 + 0.75 * pulse)
+		var value := pulse * 0.54 + wail * 0.42 + roar
 		var sample := int(clampf(value * 1.25, -1.0, 1.0) * 32000.0)
 		data[i * 2] = sample & 0xFF
 		data[i * 2 + 1] = (sample >> 8) & 0xFF
