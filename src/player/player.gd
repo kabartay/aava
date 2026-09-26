@@ -286,6 +286,11 @@ func _build_visual() -> Node3D:
 
 	return root
 
+var _was_strapped := false
+
+## Which way a strapped-in rider is facing, and which way is up for them.
+var carried_facing := Basis()
+
 ## Set by the game while a ride has hold of the player and will not let go —
 ## the shoulder bars are down on the coaster. See the note in _physics_process.
 var strapped_in := false
@@ -305,9 +310,23 @@ func _physics_process(delta: float) -> void:
 		# gravity falls out through the floor that is now above it. Being
 		# strapped in means exactly this — the ride decides where you are, and
 		# nothing else has a vote.
-		global_position = carried_to
+		# Turned as well as placed: over the top of a loop a rider is upside
+		# down, and a child held at exactly the right point but kept
+		# resolutely upright is the one part of the ride that reads as wrong.
+		_was_strapped = true
+		global_transform = Transform3D(carried_facing, carried_to)
+		# The model's own turn is folded into the seat's, so it is not applied
+		# twice: what the seat says is the whole of the pose.
+		_visual.rotation = Vector3.ZERO
 		velocity = Vector3.ZERO
 		return
+
+	if _was_strapped:
+		# Stood up again: the body carries the seat's own turn while it is
+		# strapped in, and leaving that behind would tilt everything the
+		# player does afterwards through it.
+		_was_strapped = false
+		global_transform.basis = Basis()
 
 	if is_carried:
 		# Eased rather than snapped, so a swing reads as an arc rather than as

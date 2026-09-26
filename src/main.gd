@@ -395,6 +395,8 @@ var _riding_without_a_ticket := false
 ## Whether the ride at the coaster's platform has been paid for, and whether
 ## the child has been told they need a ticket for it.
 var _coaster_paid := false
+## And whether the child currently in a car paid to be there.
+var _coaster_rider_paid := false
 var _coaster_told := false
 ## What the game has just asked about: a ticket at the kiosk, or a ride.
 var _asked: StringName = &""
@@ -439,7 +441,16 @@ func _physics_process(delta: float) -> void:
 	# being strapped in means — they are certainly down by the time it leaves.
 	coaster.rider_aboard(aboard == &"coaster")
 	if aboard == &"coaster":
+		# Whether *this* rider paid, which lasts as long as they are in the
+		# car. Being strapped in cannot be read off the shoulder bars: they
+		# take a second to come down, and for that second a child who had paid
+		# counted as unrestrained and was put off the ride they had just
+		# bought.
+		if _coaster_paid:
+			_coaster_rider_paid = true
 		_coaster_paid = false
+	elif not coaster.boarding() or aboard == &"":
+		_coaster_rider_paid = false
 
 	if aboard != _aboard:
 		_aboard = aboard
@@ -464,10 +475,30 @@ func _physics_process(delta: float) -> void:
 	# turns the car over as well as carrying it forward, and no amount of
 	# nudging keeps a child in a seat that is upside down.
 	var seat := coaster.seat_under(player.global_position)
-	var strapped := aboard == &"coaster" and coaster.locked() > 0.5 and not is_nan(seat.x)
+	# Held from the moment it pulls out, not from the moment the bars finish
+	# coming down, and never while it is standing at the platform — a child at
+	# the boards may get in and out as they please.
+	var strapped := (
+		aboard == &"coaster" and _coaster_rider_paid and not coaster.boarding()
+		and not is_nan(seat.origin.x)
+	)
 	if strapped:
-		player.carried_to = seat
+		player.carried_to = seat.origin
+		player.carried_facing = seat.basis
 	player.strapped_in = strapped
+
+	# Nobody rides it unrestrained. The bars come down for a ticket and for
+	# nothing else, so anybody still in a car once the train has left the
+	# platform is somebody who did not pay — and they are put back on the
+	# boards rather than carried round upside down with nothing holding them.
+	if coaster.must_get_off(player.global_position, strapped):
+		player.strapped_in = false
+		player.velocity = Vector3.ZERO
+		player.global_position = coaster.platform_spot()
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_park_put_off"), 2.4)
+		return
+
 	if strapped:
 		return
 

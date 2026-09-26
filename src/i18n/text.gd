@@ -614,6 +614,11 @@ const STRINGS := {
 		EN: "this ride wants a ticket", FR: "ce manège demande un billet",
 		RU: "на этот аттракцион нужен билет"
 	},
+	"say_park_put_off": {
+		EN: "no ticket, no ride — off you get",
+		FR: "pas de billet, pas de tour — descends",
+		RU: "без билета кататься нельзя — выходим"
+	},
 	"say_park_used_ticket": {
 		EN: "enjoy the ride — %d tickets left", FR: "bon voyage — il te reste %d billets",
 		RU: "приятной поездки — билетов осталось: %d"

@@ -981,12 +981,39 @@ const SEAT_SPOT := Vector3(0.06, 0.12, 0.0)
 ## same number the moment the track leaves the horizontal, and the difference
 ## is a child left behind in mid-air. A seat is a place, so the ride names the
 ## place.
-func seat_under(at: Vector3) -> Vector3:
+## The seat carries a facing as well as a place. A rider goes over the top of
+## a loop the way the car does — upside down — and a child held at the right
+## point but kept resolutely upright is the one thing about the ride that
+## looked wrong from the phone.
+func seat_under(at: Vector3) -> Transform3D:
 	for index in _cars.size():
-		var local := _cars[index].global_transform.affine_inverse() * at
+		var frame := _cars[index].global_transform
+		var local := frame.affine_inverse() * at
 		if absf(local.x) < 0.95 and absf(local.z) < 0.65 and local.y > -0.4 and local.y < 2.0:
-			return _cars[index].global_transform * SEAT_SPOT
-	return Vector3(NAN, NAN, NAN)
+			# A car's forward is its own +x and a child's is their own -z, so
+			# the seat's facing is the car's turned a quarter.
+			return Transform3D(
+				frame.basis * Basis(Vector3.UP, -PI * 0.5), frame * SEAT_SPOT
+			)
+	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
+
+## Where a child is put down if they have to leave a car: on the platform,
+## level with its boards, beside the door they got in by.
+func platform_spot() -> Vector3:
+	var at := point_at(distance_of(BOARDS_AT))
+	return global_position + Vector3(at.x + 2.6, at.y + CAR_FLOOR + 0.15, at.z)
+
+## Should whoever is standing here be put off?
+##
+## Anybody in a car once the train has left the platform who is not strapped
+## in is somebody who did not pay: the bars come down for a ticket and for
+## nothing else. Riding a coaster unrestrained is the one thing on this
+## fairground that must not be possible, and until now it was — stand in a car
+## without paying, wait, and it set off with you.
+func must_get_off(at: Vector3, strapped: bool) -> bool:
+	if boarding() or strapped:
+		return false
+	return not is_nan(seat_under(at).origin.x)
 
 ## How far each car moved on the last frame, for whoever is riding in it.
 var _moved: Array[Vector3] = []

@@ -137,6 +137,7 @@ func _initialize() -> void:
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
 	_check_a_rider_stays_in_through_a_loop()
+	_check_nobody_rides_the_coaster_unstrapped()
 	_check_the_rides_are_paid_for()
 
 	if _failures > 0:
@@ -8257,6 +8258,63 @@ func _check_the_animals_keep_off_the_playing_places() -> void:
 ## from stalls halfway up a hill and the train stands there for ever; brakes
 ## that are too weak run the station; a dwell that never fires means a child
 ## has to step into a moving car. None of it can be seen in a screenshot.
+## Nobody rides the coaster unrestrained.
+##
+## The shoulder bars come down for a ticket and for nothing else, so anybody
+## still in a car once the train has left the platform is somebody who did not
+## pay. It used to be possible simply to stand in a car and wait: the ten
+## seconds ran out, the train set off, and it carried an unstrapped child
+## round two loops. That is the one thing on this fairground that must not be
+## possible. They are put back on the boards instead.
+func _check_nobody_rides_the_coaster_unstrapped() -> void:
+	print("nobody rides the coaster unstrapped")
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	coaster._roll(0.0)
+	coaster._place_cars()
+	var standing := coaster.seat_under(coaster.car_at(0).global_position).origin
+	_expect(not is_nan(standing.x), "somebody is standing in a car")
+
+	# Strapped in, they stay: this is not a rule against riding.
+	_expect(
+		not coaster.must_get_off(standing, true),
+		"a rider with the bars down is left alone"
+	)
+
+	# Run it to the end of the dwell and past it.
+	var tick := 1.0 / 60.0
+	var put_off_while_boarding := 0
+	var put_off_after := 0
+	for step in int(14.0 / tick):
+		coaster._roll(tick)
+		coaster._place_cars()
+		if coaster.must_get_off(standing, false):
+			if coaster.boarding():
+				put_off_while_boarding += 1
+			else:
+				put_off_after += 1
+	_expect(
+		put_off_while_boarding == 0,
+		"nobody is turned out of a car standing at the platform"
+	)
+	_expect(
+		put_off_after > 0,
+		"and one who has not paid is put off the moment it leaves: %d frames said so" % put_off_after
+	)
+
+	# And put off onto the platform, not into the air beside it.
+	var spot := coaster.platform_spot()
+	var station := coaster.point_at(RollerCoaster.distance_of(RollerCoaster.BOARDS_AT))
+	_expect(
+		absf(spot.x - (station.x + 2.6)) < 0.01 and absf(spot.z - station.z) < 8.0,
+		"the way out is onto the boards at %.1f, %.1f" % [spot.x, spot.z]
+	)
+	_expect(
+		spot.y > station.y + RollerCoaster.CAR_FLOOR - 0.01,
+		"and stood on top of them, at %.2f m" % spot.y
+	)
+	coaster.queue_free()
+
 ## The loops are fast enough to be loops.
 ##
 ## A car needs v² ≥ 5gR at the foot of a vertical loop, or it runs out of
@@ -8318,12 +8376,13 @@ func _check_a_rider_stays_in_through_a_loop() -> void:
 	get_root().add_child(coaster)
 	# Aboard the leading car, at the seat, with the bars down.
 	coaster._place_cars()
-	var rider := coaster.seat_under(coaster.car_at(0).global_position)
+	var rider := coaster.seat_under(coaster.car_at(0).global_position).origin
 	_expect(not is_nan(rider.x), "a rider standing in a car is found in it")
 
 	var tick := 1.0 / 120.0
 	var worst := 0.0
 	var upside_down := 0
+	var rolled := 0
 	var highest := 0.0
 	var lost := 0
 	# The harnesses come down over about a second once it leaves; the ride is
@@ -8332,18 +8391,25 @@ func _check_a_rider_stays_in_through_a_loop() -> void:
 		coaster._roll(tick)
 		coaster._place_cars()
 		var seat := coaster.seat_under(rider)
-		if is_nan(seat.x):
+		if is_nan(seat.origin.x):
 			lost += 1
 			continue
-		# What the game does: put the rider where the ride says.
-		worst = maxf(worst, rider.distance_to(seat))
-		rider = seat
+		# What the game does: put the rider where the ride says, facing the
+		# way it says — which over the top of a loop is upside down.
+		worst = maxf(worst, rider.distance_to(seat.origin))
+		rider = seat.origin
+		if (seat.basis * Vector3.UP).y < -0.8:
+			rolled += 1
 		highest = maxf(highest, rider.y)
 		# Genuinely over the top: the car's own up is pointing at the ground.
 		if (coaster.car_at(0).global_transform.basis * Vector3.UP).y < -0.8:
 			upside_down += 1
 	_expect(lost == 0, "the seat is never lost: %d frames without one" % lost)
 	_expect(upside_down > 60, "the car is fully inverted for %d frames of the lap" % upside_down)
+	_expect(
+		rolled > 60,
+		"and the rider is turned over with it, not held upright: %d frames head-down" % rolled
+	)
 	_expect(highest > 14.0, "and is carried to %.1f m without ever being put down" % highest)
 	coaster.queue_free()
 
