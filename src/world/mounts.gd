@@ -825,9 +825,22 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 		return false
 	if MountKinds.fords_water(kind):
 		return field.steepness_at(at.x, at.z) <= _grip(kind)
-	if at.y < field.water_level_at(at.x, at.z) + 0.4:
+	# In the water, not merely low-lying.
+	#
+	# This compared the *rider's own height* against the waterline plus a
+	# generous margin, which is not a test for water at all: the flood plain
+	# east of the camp sits four tenths of a metre above the sea, so a whole
+	# meadow sixty metres from the river refused every machine in the valley.
+	# What matters is whether there is water over the ground here.
+	var ground := field.height_at(at.x, at.z)
+	if ground < field.water_level_at(at.x, at.z) + WHEELS_STAY_DRY:
 		return false
 	return field.steepness_at(at.x, at.z) <= _grip(kind)
+
+## How far above the water the ground has to be before something on wheels
+## will ride over it. A hand's breadth: enough to keep them out of the shallows
+## at the edge of the river, little enough to leave the flood plain rideable.
+const WHEELS_STAY_DRY := 0.08
 
 ## The steepest ground this mount will take here and now — its own limit, plus
 ## the saddle if there is one under the rider. Only a horse is helped: a girth

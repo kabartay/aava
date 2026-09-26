@@ -8766,6 +8766,38 @@ func _check_the_machines_steer() -> void:
 		"and can on the dry ground a child wakes up on"
 	)
 
+	# And on the flood plain, which is dry ground that happens to sit low.
+	#
+	# The test used to compare the rider's own height against the waterline
+	# plus a generous margin, which is not a test for water at all: the meadow
+	# east of the camp sits four tenths of a metre above the sea, so a whole
+	# field sixty metres from the river refused every machine in the valley.
+	var low := Vector3(92.0, 0.0, 43.0)
+	low.y = field.height_at(low.x, low.z)
+	_expect(
+		low.y < 0.6 and field.distance_to_river(low.x, low.z) > 30.0,
+		"the flood plain is %.2f m up and %.0f m from the river" % [
+			low.y, field.distance_to_river(low.x, low.z)
+		]
+	)
+	for wheeled: StringName in [
+		MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD
+	]:
+		_expect(
+			mounts.can_ride_over(wheeled, low),
+			"a %s rides across it" % wheeled
+		)
+
+	# Riding is not stopped by the rules about *planting*. Nothing may be
+	# planted on the fairground or at the crossing; both are places to ride
+	# through, and a child asked for exactly that.
+	var fair := ParkSpec.centre()
+	fair.y = field.height_at(fair.x, fair.z)
+	_expect(
+		mounts.can_ride_over(MountKinds.QUAD, fair),
+		"a quad rides across the fairground, which only refuses saplings"
+	)
+
 	# A machine lays into its corners rather than turning bolt upright, which
 	# is what the eye reads as turning hard.
 	_expect(Player.RIDE_BANK > deg_to_rad(8.0), "a machine leans into a corner")
