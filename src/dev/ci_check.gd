@@ -8788,6 +8788,29 @@ func _check_the_machines_steer() -> void:
 			"a %s rides across it" % wheeled
 		)
 
+	# A machine stands on the deck of the bridge, not on the riverbed under it.
+	# A rider crossed on the planks while the motorcycle dropped through them
+	# into the water, because anything standing somewhere was put at the
+	# height of the *ground* there, and the ground under a bridge is a river.
+	var crossing := Vector3(field.river_centre_x(BridgeSpec.CENTRE_Z), 0.0, BridgeSpec.CENTRE_Z)
+	var deck := field.bridge_deck_at(crossing.x, crossing.z)
+	_expect(not is_nan(deck), "there is a deck over the middle of the river")
+	_expect(
+		absf(field.standing_height_at(crossing.x, crossing.z, deck) - deck) < 0.01,
+		"something standing on it stands on the planks"
+	)
+	_expect(
+		field.standing_height_at(crossing.x, crossing.z, deck) > field.height_at(crossing.x, crossing.z) + 2.0,
+		"which is well above the riverbed it arches over"
+	)
+	_expect(
+		absf(
+			field.standing_height_at(crossing.x, crossing.z, deck - 6.0)
+			- field.height_at(crossing.x, crossing.z)
+		) < 0.01,
+		"while something swimming under it stands on the bed"
+	)
+
 	# Riding is not stopped by the rules about *planting*. Nothing may be
 	# planted on the fairground or at the crossing; both are places to ride
 	# through, and a child asked for exactly that.

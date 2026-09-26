@@ -141,7 +141,11 @@ static func grip(kind: StringName) -> float:
 		QUAD:
 			return 9.5
 		MOTORCYCLE:
-			return 9.0
+			# Higher than it was. With loose grip the body came round faster
+			# than the path curved, and a machine whose nose leads its own
+			# line reads as pivoting rather than cornering — which is what was
+			# left of the spin-on-the-spot after the rest of it was fixed.
+			return 13.0
 		_:
 			return 11.0
 

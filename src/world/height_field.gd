@@ -239,6 +239,20 @@ func is_on_the_bridge(at: Vector3) -> bool:
 	var deck := bridge_deck_at(at.x, at.z)
 	return not is_nan(deck) and absf(at.y - deck) < BridgeSpec.ON_DECK_REACH
 
+## The surface a thing standing here rests on: the bridge's deck if it is on
+## the bridge, and the ground otherwise.
+##
+## The ground under the crossing is the riverbed. A rider walked onto the deck
+## and the machine under them was put at the height of the ground beneath it,
+## three metres down in the water — so the motorcycle dropped through the
+## bridge while its rider carried on across. Anything that stands on a surface
+## has to ask which surface it is standing on.
+func standing_height_at(x: float, z: float, near_y: float) -> float:
+	var deck := bridge_deck_at(x, z)
+	if not is_nan(deck) and absf(near_y - deck) < BridgeSpec.ON_DECK_REACH:
+		return deck
+	return height_at(x, z)
+
 ## And the ground at either end of it, where a rider joins and leaves.
 ##
 ## The deck is rideable and the bank it lands on was not: the approach at the

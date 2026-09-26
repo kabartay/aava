@@ -81,7 +81,9 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 ## the ground is under it. A boat left in the shallows sat on the bed with
 ## its hull half under, until this.
 func _rest_height(kind: StringName, at: Vector3) -> float:
-	var ground := field.height_at(at.x, at.z)
+	# The surface it is standing on, which over the crossing is the deck and
+	# not the riverbed three metres below it.
+	var ground := field.standing_height_at(at.x, at.z, at.y)
 	var level := field.water_level_at(at.x, at.z)
 	if MountKinds.floats(kind):
 		return maxf(ground, level)
@@ -537,6 +539,12 @@ func _stands_here(camp: Vector3, at: Vector3) -> bool:
 	if field.steepness_at(at.x, at.z) > 0.3:
 		return false
 	if PlaceSpec.reserved(at.x, at.z, camp):
+		return false
+	# Not on the bridge. The crossing is at the camp, so the nearest horse of
+	# all was being turned out on the deck — standing on the planks with the
+	# river underneath, which nothing had thought to forbid because the bridge
+	# is younger than this list.
+	if not is_nan(field.bridge_deck_at(at.x, at.z)):
 		return false
 	if field.forest_density_at(at.x, at.z) > 0.35:
 		return false

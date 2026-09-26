@@ -554,6 +554,10 @@ func _process(delta: float) -> void:
 			# rider in the saddle, and threw them into the air.
 			if _held_last > Player.NOT_HELD * 0.5:
 				under = minf(under, _held_last + RIDER_LIFTS * delta)
+				# And smoothed, so that the height a rider is held to moves
+				# like ground passing under a machine rather than like a
+				# number recomputed sixty times a second.
+				under = lerpf(_held_last, under, 1.0 - exp(-HELD_SETTLES * delta))
 			player.held_at_height = under
 			_held_last = under
 		else:
@@ -1357,16 +1361,25 @@ func _ground_under_the_mount(kind: StringName, at: Vector3, facing: float) -> fl
 	# is barely two metres long, so averaging over its wheelbase alone left
 	# nearly every stone in the ground still arriving as a jolt, and riding one
 	# was being shaken about in the saddle.
-	var reach: float = maxf((MountKinds.body_box(kind)[0] as Vector3).z, RIDES_OUT) * 0.5
+	# Over a longer stretch the faster it is going: at speed the ground under a
+	# machine changes quickly, and five samples over three metres still handed
+	# the rider a tremble. A machine doing sixteen metres a second rides out
+	# what is under six of them.
+	var span := maxf((MountKinds.body_box(kind)[0] as Vector3).z, RIDES_OUT)
+	span += clampf(Vector2(player.velocity.x, player.velocity.z).length() * 0.2, 0.0, 3.0)
+	var reach: float = span * 0.5
 	var along := Vector3(-sin(facing), 0.0, -cos(facing)) * reach
 	# Five samples rather than three, weighted towards the middle, so a bump
 	# under one wheel counts for less than the ground the whole machine is on.
-	var total := world.field.height_at(at.x, at.z) * 2.0
+	# The surface under it, which on the bridge is the deck. Asked with the
+	# rider's own height, because the ground under the crossing is the
+	# riverbed and a rider held to that is a rider pulled through the planks.
+	var total := world.field.standing_height_at(at.x, at.z, at.y) * 2.0
 	var weight := 2.0
 	for step: float in [-1.0, -0.5, 0.5, 1.0]:
 		var sample := at + along * step
 		var share := 1.0 if absf(step) < 0.75 else 0.6
-		total += world.field.height_at(sample.x, sample.z) * share
+		total += world.field.standing_height_at(sample.x, sample.z, at.y) * share
 		weight += share
 	return total / weight
 
@@ -1378,6 +1391,11 @@ const RIDES_OUT := 3.2
 ## machine climbing a bank lifts its rider with it; a wheel meeting a step
 ## should not fire them upwards.
 const RIDER_LIFTS := 6.0
+
+## How quickly the height a rider is held to follows the ground. Low enough to
+## take the tremble out of a fast machine, high enough that a real bank is
+## still a bank.
+const HELD_SETTLES := 9.0
 
 ## How long a mount may stand on ground it cannot take before its rider is put
 ## down. Long enough that crossing a lip is not an ejection, short enough that

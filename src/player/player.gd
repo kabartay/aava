@@ -168,7 +168,7 @@ var is_moving := false
 ## Paddling a stopped machine round with your feet: how slowly, and below what
 ## speed it is allowed at all. Slow enough that it never reads as spinning.
 const PADDLE_RATE := 0.55
-const PADDLE_BELOW := 1.2
+const PADDLE_BELOW := 0.8
 
 ## How hard a machine pulls, and how slowly it gives its speed back when the
 ## throttle is released. Coasting is the slower of the two by a long way,
