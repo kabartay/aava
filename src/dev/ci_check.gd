@@ -8396,8 +8396,12 @@ func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
 	var tick := 1.0 / 60.0
 
 	_expect(
-		not wheel.press(Vector3(30.0, 0.0, 0.0)),
-		"it cannot be pressed from across the fairground"
+		not wheel.at_the_button(Vector3(30.0, 0.0, 0.0)),
+		"it cannot be reached from across the fairground"
+	)
+	_expect(
+		wheel.at_the_button(wheel.button_at() + Vector3(0.7, 0.0, 0.0)),
+		"and a child standing at it is at it"
 	)
 	# Unpressed, it simply turns: twenty seconds is nearly two gondolas past.
 	var stood := 0.0
@@ -8407,11 +8411,12 @@ func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
 			stood += tick
 	_expect(stood == 0.0, "and nothing stops while nobody has asked it to")
 
+	wheel.book()
+	_expect(wheel.called(), "a ride paid for at it calls a gondola")
 	_expect(
-		wheel.press(wheel.button_at() + Vector3(0.7, 0.0, 0.0)),
-		"a child standing at it can press it"
+		not wheel.at_the_button(wheel.button_at()),
+		"and it stops asking while one is on its way"
 	)
-	_expect(not wheel.press(wheel.button_at()), "and pressing twice changes nothing")
 
 	# It comes round: a gondola every tenth of a turn, and a turn is two
 	# minutes, so never more than twelve seconds.
@@ -8439,8 +8444,29 @@ func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
 		)
 	)
 
-	# It stands there for ten seconds, and then goes on turning.
+	# The way in is open: the bar over that gondola's doorway is lifted and
+	# nothing else stands across it. A sill was, and the way into a gondola
+	# was finding the one gap in a wall a foot high.
+	var lifted := 0.0
+	# The seconds spent watching the bar come up are seconds of the wait, so
+	# they are counted into it below rather than being spent twice.
 	var held := 0.0
+	for _step in int(1.2 / tick):
+		wheel._physics_process(tick)
+		lifted = wheel.bar_open(nearest)
+		if wheel.waiting() > 0.0:
+			held += tick
+	_expect(lifted > 0.9, "the bar over the doorway is lifted: %.2f" % lifted)
+	var shut := 0
+	for index in FerrisWheel.GONDOLAS:
+		if index != nearest and wheel.bar_open(index) < 0.05:
+			shut += 1
+	_expect(
+		shut == FerrisWheel.GONDOLAS - 1,
+		"and every other gondola is shut: %d of %d" % [shut, FerrisWheel.GONDOLAS - 1]
+	)
+
+	# It stands there for ten seconds, and then goes on turning.
 	for _step in int(14.0 / tick):
 		wheel._physics_process(tick)
 		if wheel.waiting() > 0.0:
@@ -8450,6 +8476,10 @@ func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
 		"it waits %.1f s against the %.1f it is meant to" % [held, FerrisWheel.HOLD]
 	)
 	_expect(wheel.turned() > 0.0, "and then it turns again")
+	_expect(
+		wheel.bar_open(nearest) < 0.05,
+		"with the bar down again the moment it does: %.2f" % wheel.bar_open(nearest)
+	)
 	wheel.queue_free()
 
 ## The coaster's button is on its platform, where a child stands.

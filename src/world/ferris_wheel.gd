@@ -22,11 +22,11 @@ const RADIUS := 25.0
 ## wheel's radius, plus the length the cars hang, plus the step a child takes
 ## up into one. Set to the radius alone, the bottom of the ride was half a
 ## metre underground and the whole thing looked buried.
-## The gondolas are a fifth again as big as they were: two children and a
-## grown-up fit in one now rather than two children and a squeeze. Everything
+## The gondolas are half again as big as they were: a family fits in one, and
+## on a fifty-metre wheel a small car looks like a bucket anyway. Everything
 ## about a car is built through this, including how far it hangs — a bigger
 ## car with the same hanger puts its roof through the pin it swings on.
-const CAR_SCALE := 1.22
+const CAR_SCALE := 1.5
 const HANGS_BELOW := 2.0 * CAR_SCALE
 const BOARDING_HEIGHT := 0.9
 const HUB_HEIGHT := RADIUS + HANGS_BELOW + BOARDING_HEIGHT
@@ -61,6 +61,14 @@ const BUTTON := Color(0.86, 0.22, 0.20)
 const BUTTON_LIT := Color(0.42, 0.86, 0.36)
 const DECK := Color(0.58, 0.55, 0.52)
 
+## The bar across a doorway: how high it sits, how long it takes to lift, and
+## what colour it is painted.
+const BAR_HEIGHT := 0.95
+const BAR_TIME := 0.7
+const BAR_COLOUR := Color(0.94, 0.78, 0.20)
+## How far it rises out of the way.
+const BAR_LIFT := 1.25
+
 const STEEL := Color(0.72, 0.74, 0.78)
 const HUB_COLOUR := Color(0.40, 0.43, 0.48)
 ## The lamps round the rim: the one thing on the wheel that is not steel.
@@ -73,6 +81,11 @@ var _turned := 0.0
 ## to stand there.
 var _called := false
 var _holding := 0.0
+## The safety bars across the doorways, and how far each is lifted.
+var _gates: Array[Node3D] = []
+var _gate_shapes: Array[CollisionShape3D] = []
+var _gates_open: Array[float] = []
+
 ## The button's own cap, so it can be seen to go in and light up.
 var _cap: MeshInstance3D
 var _cap_paint: StandardMaterial3D
@@ -380,15 +393,29 @@ func button_at() -> Vector3:
 		0.0, boarding_floor() + BUTTON_HEIGHT + 0.06, 0.0
 	)
 
-## Somebody pressed it. Returns true if that did something — a gondola already
-## standing at the boards, or one already on its way, needs no second press.
-func press(at: Vector3) -> bool:
+## Is somebody standing at the button, with anything to ask for? A gondola
+## already on its way, or one standing at the boards, needs nothing.
+func at_the_button(at: Vector3) -> bool:
 	if at.distance_to(button_at()) > BUTTON_REACH:
 		return false
+	return not _called and _holding <= 0.0
+
+## A ride has been paid for: the next gondola comes round to the boards and
+## stands there. The paying happens at the button now rather than when a child
+## steps into a car — see the note on the coaster's, which works the same way,
+## and which this was made to match after a report that there was no way to
+## buy a ride at the wheel at all.
+func book() -> void:
 	if _called or _holding > 0.0:
-		return false
+		return
 	_called = true
-	return true
+
+## How far the bar on one gondola is lifted: nought closed, one open. For the
+## checks.
+func bar_open(index: int) -> float:
+	if index >= _gates_open.size():
+		return 0.0
+	return float(_gates_open[index])
 
 ## Is a gondola standing at the boards, and for how much longer?
 func waiting() -> float:
@@ -448,9 +475,16 @@ func _build_car(index: int) -> AnimatableBody3D:
 	# in reads as a way in rather than as a missing wall.
 	var sill := BoxMesh.new()
 	sill.size = Vector3(0.14, 0.22, 2.0) * CAR_SCALE
-	var sill_at := Vector3(-1.2, 0.11, 0.0) * CAR_SCALE
+	# Drawn, not solid.
+	#
+	# A character body climbs slopes and steps over nothing whatever, so a
+	# sill a foot high across the way in is a wall with a threshold painted on
+	# it: getting into a gondola meant finding the one gap in it. What keeps a
+	# child in is the bar that comes down over the doorway, not a lip on the
+	# floor — see the note on the bar below.
+	var sill_at := Vector3(-1.2, 0.06, 0.0) * CAR_SCALE
+	sill.size = Vector3(0.14, 0.10, 2.0) * CAR_SCALE
 	Park._add(tool, sill, Transform3D(Basis(), sill_at), HUB_COLOUR)
-	_solid(car, sill.size, sill_at)
 	for jamb: float in [-1.0, 1.0]:
 		var post := BoxMesh.new()
 		post.size = Vector3(0.16, 1.10, 0.18) * CAR_SCALE
@@ -532,6 +566,49 @@ func _build_car(index: int) -> AnimatableBody3D:
 	var drawn := MeshInstance3D.new()
 	drawn.mesh = tool.commit()
 	car.add_child(drawn)
+
+	# The safety bar: a П across the doorway at waist height, which lifts like
+	# a level-crossing gate while the gondola is standing at the boards and
+	# drops as soon as the wheel turns again.
+	#
+	# The doorway needs something across it — a gondola forty metres up with
+	# an open side is not a thing to put a six-year-old in — and it must not be
+	# something to climb over on the way in, which is what the sill was.
+	var gate := Node3D.new()
+	gate.name = "Bar"
+	gate.position = Vector3(-1.2 * CAR_SCALE, 0.0, 0.0)
+	car.add_child(gate)
+
+	var rail_tool := SurfaceTool.new()
+	rail_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var crossbar := BoxMesh.new()
+	crossbar.size = Vector3(0.14, 0.14, 2.0 * CAR_SCALE)
+	Park._add(
+		rail_tool, crossbar,
+		Transform3D(Basis(), Vector3(0.0, BAR_HEIGHT, 0.0)), BAR_COLOUR
+	)
+	for end: float in [-1.0, 1.0]:
+		var stile := BoxMesh.new()
+		stile.size = Vector3(0.12, BAR_HEIGHT * 0.5, 0.12)
+		Park._add(
+			rail_tool, stile,
+			Transform3D(Basis(), Vector3(
+				0.0, BAR_HEIGHT * 0.75, end * (0.92 * CAR_SCALE)
+			)),
+			BAR_COLOUR
+		)
+	Park.commit(rail_tool, gate, "Rail")
+
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.24, BAR_HEIGHT * 0.8, 2.0 * CAR_SCALE)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	collider.position = Vector3(0.0, BAR_HEIGHT * 0.7, 0.0)
+	gate.add_child(collider)
+
+	_gates.append(gate)
+	_gate_shapes.append(collider)
+	_gates_open.append(0.0)
 	return car
 
 func _solid(car: AnimatableBody3D, size: Vector3, where: Vector3) -> void:
@@ -579,6 +656,28 @@ func _physics_process(delta: float) -> void:
 			_holding = HOLD
 	_rim.rotation.x = -_turned
 	_place_cars()
+
+	# The bar over the doorway of whichever gondola is standing at the boards
+	# is lifted; every other one is down. Which car that is is asked of the
+	# cars themselves — the one nearest the platform — rather than worked out
+	# from the angle a second time.
+	var boarding_car := -1
+	if _holding > 0.0:
+		boarding_car = 0
+		for index in _cars.size():
+			if absf(_cars[index].position.z) < absf(_cars[boarding_car].position.z):
+				boarding_car = index
+	for index in _gates.size():
+		var wanted := 1.0 if index == boarding_car else 0.0
+		_gates_open[index] = move_toward(
+			float(_gates_open[index]), wanted, delta / BAR_TIME
+		)
+		var open := float(_gates_open[index])
+		_gates[index].position.y = open * BAR_LIFT
+		# Solid until it is most of the way up, so nobody walks through a bar
+		# that is still coming down.
+		_gate_shapes[index].disabled = open > 0.6
+
 	if _cap != null:
 		# The button goes in while a gondola is on its way and lights up while
 		# one is standing there — a control that does nothing visible when it

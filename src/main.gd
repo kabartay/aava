@@ -397,8 +397,37 @@ var _riding_without_a_ticket := false
 var _coaster_paid := false
 ## And whether the child currently in a car paid to be there.
 var _coaster_rider_paid := false
-## Whether the wheel has already said that a gondola is waiting.
+## Whether the wheel has already offered a ride at its button, whether it has
+## said that a gondola is waiting, and whether the child in a gondola paid.
 var _wheel_told := false
+var _wheel_here_told := false
+var _wheel_rider_paid := false
+## Which ride the question on screen is about.
+var _asked_ride: StringName = &""
+
+## Offer a ride at a ride's own button: use a ticket if there is one, buy one
+## with coins if there is not, and say so plainly if neither.
+##
+## One function for both buttons, because a child who has learnt what the
+## coaster's does knows what the wheel's does. Returns false when there was
+## nothing to offer — no ticket and not enough coins — so the caller can stop
+## asking until they walk away and come back.
+func _offer_a_ride(which: StringName) -> bool:
+	if _asked != &"":
+		return true
+	if wallet.tickets > 0:
+		_asked = &"ride"
+		_asked_ride = which
+		hud.ask(Text.of("ask_use_ticket"))
+		return true
+	if wallet.can_afford(Park.RIDE_PRICE):
+		_asked = &"ride"
+		_asked_ride = which
+		hud.ask(Text.format("ask_buy_ride", [Park.RIDE_PRICE]))
+		return true
+	sounds.play(Sounds.Sound.REFUSE)
+	hud.announce(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.4)
+	return false
 var _coaster_told := false
 ## What the game has just asked about: a ticket at the kiosk, or a ride.
 var _asked: StringName = &""
@@ -426,14 +455,8 @@ func _physics_process(delta: float) -> void:
 		and not coaster.boarding()
 	)
 	if at_a_car and not _coaster_paid and aboard != &"coaster" and not _coaster_told:
-		if wallet.tickets > 0:
-			if _asked == &"":
-				_asked = &"ride"
-				hud.ask(Text.of("ask_use_ticket"))
-		else:
+		if not _offer_a_ride(&"coaster"):
 			_coaster_told = true
-			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(Text.of("say_park_needs_ticket"), 2.4)
 	if not at_a_car and aboard != &"coaster":
 		_coaster_told = false
 		if _asked == &"ride":
@@ -461,8 +484,16 @@ func _physics_process(delta: float) -> void:
 		_coaster_rider_paid = false
 
 	if aboard != _aboard:
+		# Stepping out of a gondola spends the ride that was paid for at the
+		# button: the next one is a new ride and a new ticket.
+		if _aboard == &"wheel" and aboard != &"wheel":
+			_wheel_rider_paid = false
 		_aboard = aboard
-		if aboard != &"" and aboard != &"coaster" and Park.charges_for(aboard):
+		# The coaster and the wheel are both paid for at their own buttons, so
+		# stepping into one of those is not a second sale.
+		if aboard == &"wheel":
+			_riding_without_a_ticket = not _wheel_rider_paid
+		elif aboard != &"" and aboard != &"coaster" and Park.charges_for(aboard):
 			if wallet.tickets > 0:
 				_asked = &"ride"
 				hud.ask(Text.of("ask_use_ticket"))
@@ -482,18 +513,23 @@ func _physics_process(delta: float) -> void:
 	# seat is rather than nudging them along by how far the car moved. A loop
 	# turns the car over as well as carrying it forward, and no amount of
 	# nudging keeps a child in a seat that is upside down.
-	# The big wheel's button is free: it calls a gondola down to the boards
-	# and holds it there. What it costs is a ticket, and that is taken when a
-	# child steps into the gondola, exactly as it always was — a button that
-	# charged as well would charge twice for one ride.
-	if world.park.wheel.press(player.global_position):
-		sounds.play(Sounds.Sound.CHIME, 1.2)
-		hud.announce(Text.of("say_wheel_called"), 2.2)
-	if world.park.wheel.waiting() > 0.0 and not _wheel_told:
-		_wheel_told = true
-		hud.announce(Text.of("say_wheel_here"), 2.0)
-	elif world.park.wheel.waiting() <= 0.0:
+	# The big wheel's button works exactly as the coaster's does: it is where
+	# the ride is paid for and where it is asked for. It used to be free, and
+	# the ticket was taken when a child stepped into a gondola — which meant
+	# that standing at the wheel there was nothing offering to sell you a
+	# ride and nothing saying you needed one.
+	var wheel := world.park.wheel
+	if wheel.at_the_button(player.global_position) and aboard != &"wheel":
+		if not _wheel_told:
+			_wheel_told = true
+			_offer_a_ride(&"wheel")
+	elif not wheel.at_the_button(player.global_position):
 		_wheel_told = false
+	if wheel.waiting() > 0.0 and not _wheel_here_told:
+		_wheel_here_told = true
+		hud.announce(Text.of("say_wheel_here"), 2.0)
+	elif wheel.waiting() <= 0.0:
+		_wheel_here_told = false
 
 	var seat := coaster.seat_under(player.global_position)
 	# Held from the moment it pulls out, not from the moment the bars finish
@@ -1674,16 +1710,27 @@ func _on_answered(yes: bool) -> void:
 				sounds.play(Sounds.Sound.PICKUP, 1.2)
 				hud.announce(Text.format("say_park_bought", [wallet.tickets]), 2.0)
 		&"ride":
-			if wallet.use_ticket():
-				_coaster_paid = true
-				_riding_without_a_ticket = false
-				sounds.play(Sounds.Sound.CHIME, 1.1)
-				# Paid at the coaster's button: that is also the booking, and
-				# the train pulls up next time round.
-				if world.park.coaster.at_the_button(player.global_position):
+			# A ticket if there is one, bought with coins if there is not:
+			# the question said which it was asking.
+			var paid := wallet.use_ticket()
+			if not paid and wallet.buy_ticket(Park.RIDE_PRICE):
+				paid = wallet.use_ticket()
+			if not paid:
+				sounds.play(Sounds.Sound.REFUSE)
+				hud.announce(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
+				return
+			sounds.play(Sounds.Sound.CHIME, 1.1)
+			_riding_without_a_ticket = false
+			match _asked_ride:
+				&"coaster":
+					_coaster_paid = true
 					world.park.coaster.book()
 					hud.announce(Text.of("say_coaster_booked"), 2.4)
-				else:
+				&"wheel":
+					_wheel_rider_paid = true
+					world.park.wheel.book()
+					hud.announce(Text.of("say_wheel_called"), 2.2)
+				_:
 					hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
 
 ## The pool's turnstile: a child outside is offered a ticket and told the
