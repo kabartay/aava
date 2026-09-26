@@ -325,10 +325,13 @@ There is no paper. This is a game made for two brothers, and what there is to
 cite is the thing itself — the software, and whichever build of it you played.
 
 Every release is archived on Zenodo with a DOI of its own. The concept DOI
-**10.5281/zenodo.22965441** always resolves to the newest release; cite a
-version DOI instead when it matters which build somebody actually played,
-because a valley three releases old is a different valley: it had no
-fairground, no bridge, and horses that faced the wrong way while grazing.
+[**10.5281/zenodo.22965441**](https://doi.org/10.5281/zenodo.22965441) always
+resolves to the newest release; a version DOI —
+[v0.4.1, for instance](https://zenodo.org/records/22965507) — stays on the
+build it was minted for. Cite a version when it matters which one somebody
+actually played, because a valley three releases old is a different valley: it
+had no fairground, no bridge, and horses that faced the wrong way while
+grazing.
 
 Citing the software is not permission to use the name or the icon — those are
 reserved, and the Licence section below says what that means.
