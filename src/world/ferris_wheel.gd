@@ -12,12 +12,22 @@ extends Node3D
 
 ## The wheel's own size. The hub stands a little over its radius off the
 ## ground, so the top of the rim is thirty metres up.
-const RADIUS := 13.6
+## Fifty metres across, which puts the top of it at nearly fifty-three: the
+## tallest thing in the valley by a long way, and visible from the camp, which
+## is most of what a big wheel is for. A hundred was asked for and will not
+## go — the fairground is forty metres across and a hundred-metre wheel turns
+## in the same plane as the coaster runs in, so it would have swallowed it.
+const RADIUS := 25.0
 ## High enough that the lowest gondola hangs clear of the sand: the hub is the
 ## wheel's radius, plus the length the cars hang, plus the step a child takes
 ## up into one. Set to the radius alone, the bottom of the ride was half a
 ## metre underground and the whole thing looked buried.
-const HANGS_BELOW := 2.0
+## The gondolas are a fifth again as big as they were: two children and a
+## grown-up fit in one now rather than two children and a squeeze. Everything
+## about a car is built through this, including how far it hangs — a bigger
+## car with the same hanger puts its roof through the pin it swings on.
+const CAR_SCALE := 1.22
+const HANGS_BELOW := 2.0 * CAR_SCALE
 const BOARDING_HEIGHT := 0.9
 const HUB_HEIGHT := RADIUS + HANGS_BELOW + BOARDING_HEIGHT
 const GONDOLAS := 10
@@ -32,12 +42,15 @@ const TURN_RATE := deg_to_rad(3.0)
 ## the lowest car and a button on it, and the button is the whole of the
 ## mechanism — press it, the next gondola comes round to the boards and stands
 ## there for ten seconds, and if nobody presses it the wheel simply turns.
-const PLATFORM_AT := Vector3(-2.9, 0.0, 0.0)
+## Right up against the doorway: the boards reach to within a hand's breadth
+## of the sill, because a gap between a platform and a car is the one place on
+## a fairground a small foot goes down.
+const PLATFORM_AT := Vector3(-(1.2 * CAR_SCALE + 0.14 + 1.5), 0.0, 0.0)
 const PLATFORM_SIZE := Vector3(3.0, 0.24, 4.4)
 const PLATFORM_STEPS := 4
 const PLATFORM_RUN := 2.4
 ## Where the button stands, on the platform, by the doorway.
-const BUTTON_AT := Vector3(-2.0, 0.0, 1.55)
+const BUTTON_AT := Vector3(PLATFORM_AT.x - 0.9, 0.0, 1.55)
 const BUTTON_HEIGHT := 1.05
 ## How close a child has to be to press it.
 const BUTTON_REACH := 1.9
@@ -105,6 +118,14 @@ func _init(at: Vector3) -> void:
 	frame.name = "Frame"
 	add_child(frame)
 
+	# An A, not a V.
+	#
+	# The lean was applied the wrong way round, so every leg ran from a single
+	# point on the sand up to a top splayed five metres away from the axle it
+	# was supposed to be carrying: the whole wheel stood on one line of
+	# contact, the foot plates sat five metres from any foot, and the boarding
+	# platform was later put down exactly where that line was. A frame's feet
+	# are apart and its top is at the hub.
 	var spread := HUB_HEIGHT * 0.34
 	var length := sqrt(HUB_HEIGHT * HUB_HEIGHT + spread * spread)
 	for side: float in [-1.0, 1.0]:
@@ -118,7 +139,7 @@ func _init(at: Vector3) -> void:
 			Park._add(
 				still, leg,
 				Transform3D(
-					Basis(Vector3.RIGHT, lean * atan2(spread, HUB_HEIGHT)),
+					Basis(Vector3.RIGHT, -lean * atan2(spread, HUB_HEIGHT)),
 					Vector3(side * 2.6, HUB_HEIGHT * 0.5, lean * spread * 0.5)
 				),
 				STEEL
@@ -126,7 +147,7 @@ func _init(at: Vector3) -> void:
 			Park._solid(
 				frame, Vector3(0.5, length, 0.5),
 				Transform3D(
-					Basis(Vector3.RIGHT, lean * atan2(spread, HUB_HEIGHT)),
+					Basis(Vector3.RIGHT, -lean * atan2(spread, HUB_HEIGHT)),
 					Vector3(side * 2.6, HUB_HEIGHT * 0.5, lean * spread * 0.5)
 				)
 			)
@@ -351,7 +372,7 @@ func _build_platform(tool: SurfaceTool) -> void:
 ## How high the floor of the gondola at the bottom of the wheel is, in the
 ## wheel's own frame: what the platform has to be level with.
 func boarding_floor() -> float:
-	return HUB_HEIGHT - RADIUS - HANGS_BELOW + 0.08
+	return HUB_HEIGHT - RADIUS - HANGS_BELOW + 0.08 * CAR_SCALE
 
 ## Where the button is, in the world.
 func button_at() -> Vector3:
@@ -399,7 +420,7 @@ func _build_car(index: int) -> AnimatableBody3D:
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var floor_slab := BoxMesh.new()
-	floor_slab.size = Vector3(2.4, 0.16, 2.0)
+	floor_slab.size = Vector3(2.4, 0.16, 2.0) * CAR_SCALE
 	Park._add(tool, floor_slab, Transform3D(Basis(), Vector3.ZERO), HUB_COLOUR)
 	_solid(car, floor_slab.size, Vector3.ZERO)
 
@@ -412,9 +433,9 @@ func _build_car(index: int) -> AnimatableBody3D:
 	# side you walk up to the wheel from; the other three are closed, because
 	# those are the sides that are over nothing.
 	for wall: Array in [
-		[Vector3(2.4, 1.10, 0.14), Vector3(0.0, 0.55, 1.0)],
-		[Vector3(2.4, 1.10, 0.14), Vector3(0.0, 0.55, -1.0)],
-		[Vector3(0.14, 1.10, 2.0), Vector3(1.2, 0.55, 0.0)],
+		[Vector3(2.4, 1.10, 0.14) * CAR_SCALE, Vector3(0.0, 0.55, 1.0) * CAR_SCALE],
+		[Vector3(2.4, 1.10, 0.14) * CAR_SCALE, Vector3(0.0, 0.55, -1.0) * CAR_SCALE],
+		[Vector3(0.14, 1.10, 2.0) * CAR_SCALE, Vector3(1.2, 0.55, 0.0) * CAR_SCALE],
 	]:
 		var size: Vector3 = wall[0]
 		var where: Vector3 = wall[1]
@@ -426,40 +447,41 @@ func _build_car(index: int) -> AnimatableBody3D:
 	# The doorway: a sill across the floor and a post at each jamb, so the way
 	# in reads as a way in rather than as a missing wall.
 	var sill := BoxMesh.new()
-	sill.size = Vector3(0.14, 0.22, 2.0)
-	Park._add(tool, sill, Transform3D(Basis(), Vector3(-1.2, 0.11, 0.0)), HUB_COLOUR)
-	_solid(car, sill.size, Vector3(-1.2, 0.11, 0.0))
+	sill.size = Vector3(0.14, 0.22, 2.0) * CAR_SCALE
+	var sill_at := Vector3(-1.2, 0.11, 0.0) * CAR_SCALE
+	Park._add(tool, sill, Transform3D(Basis(), sill_at), HUB_COLOUR)
+	_solid(car, sill.size, sill_at)
 	for jamb: float in [-1.0, 1.0]:
 		var post := BoxMesh.new()
-		post.size = Vector3(0.16, 1.10, 0.18)
-		Park._add(
-			tool, post, Transform3D(Basis(), Vector3(-1.2, 0.55, jamb * 0.91)), STEEL
-		)
-		_solid(car, post.size, Vector3(-1.2, 0.55, jamb * 0.91))
+		post.size = Vector3(0.16, 1.10, 0.18) * CAR_SCALE
+		var jamb_at := Vector3(-1.2, 0.55, jamb * 0.91) * CAR_SCALE
+		Park._add(tool, post, Transform3D(Basis(), jamb_at), STEEL)
+		_solid(car, post.size, jamb_at)
 
 	# A bench across the back, which is what you came up here to sit on.
 	var bench := BoxMesh.new()
-	bench.size = Vector3(1.0, 0.16, 1.7)
-	Park._add(tool, bench, Transform3D(Basis(), Vector3(0.62, 0.52, 0.0)), HUB_COLOUR)
-	_solid(car, bench.size, Vector3(0.62, 0.52, 0.0))
+	bench.size = Vector3(1.0, 0.16, 1.7) * CAR_SCALE
+	var bench_at := Vector3(0.62, 0.52, 0.0) * CAR_SCALE
+	Park._add(tool, bench, Transform3D(Basis(), bench_at), HUB_COLOUR)
+	_solid(car, bench.size, bench_at)
 	var back := BoxMesh.new()
-	back.size = Vector3(0.14, 0.52, 1.7)
-	Park._add(tool, back, Transform3D(Basis(), Vector3(1.06, 0.86, 0.0)), HUB_COLOUR)
+	back.size = Vector3(0.14, 0.52, 1.7) * CAR_SCALE
+	Park._add(tool, back, Transform3D(Basis(), Vector3(1.06, 0.86, 0.0) * CAR_SCALE), HUB_COLOUR)
 
 	# Corner posts and a roof, which is what turns a box into a car.
 	for corner: Vector2 in [
 		Vector2(-1.0, -1.0), Vector2(1.0, -1.0), Vector2(-1.0, 1.0), Vector2(1.0, 1.0)
 	]:
 		var post := BoxMesh.new()
-		post.size = Vector3(0.08, 0.85, 0.08)
+		post.size = Vector3(0.08, 0.85, 0.08) * CAR_SCALE
 		Park._add(
 			tool, post,
-			Transform3D(Basis(), Vector3(corner.x * 1.15, 1.48, corner.y * 0.95)),
+			Transform3D(Basis(), Vector3(corner.x * 1.15, 1.48, corner.y * 0.95) * CAR_SCALE),
 			STEEL
 		)
 	var roof := BoxMesh.new()
-	roof.size = Vector3(2.5, 0.10, 2.1)
-	Park._add(tool, roof, Transform3D(Basis(), Vector3(0.0, 1.95, 0.0)), HUB_COLOUR)
+	roof.size = Vector3(2.5, 0.10, 2.1) * CAR_SCALE
+	Park._add(tool, roof, Transform3D(Basis(), Vector3(0.0, 1.95, 0.0) * CAR_SCALE), HUB_COLOUR)
 
 	# The hanger: two arms up to the rim, and the pin they swing on.
 	# From the top of the car's own side up to the pin, and no further: they
@@ -467,26 +489,32 @@ func _build_car(index: int) -> AnimatableBody3D:
 	# hung on nothing at all.
 	for side: float in [-1.0, 1.0]:
 		var arm := BoxMesh.new()
-		arm.size = Vector3(0.14, HANGS_BELOW - 0.55, 0.14)
+		arm.size = Vector3(0.14, HANGS_BELOW - 0.55 * CAR_SCALE, 0.14)
 		Park._add(
 			tool, arm,
 			Transform3D(
 				Basis(),
-				Vector3(side * 1.55, 0.55 + (HANGS_BELOW - 0.55) * 0.5, 0.0)
+				Vector3(
+					side * 1.55 * CAR_SCALE,
+					0.55 * CAR_SCALE + (HANGS_BELOW - 0.55 * CAR_SCALE) * 0.5,
+					0.0
+				)
 			),
 			STEEL
 		)
 		# The bracket where the arm meets the car, which is what says the two
 		# are bolted together rather than passing one another.
 		var bracket := BoxMesh.new()
-		bracket.size = Vector3(0.34, 0.26, 0.5)
+		bracket.size = Vector3(0.34, 0.26, 0.5) * CAR_SCALE
 		Park._add(
-			tool, bracket, Transform3D(Basis(), Vector3(side * 1.4, 0.62, 0.0)), HUB_COLOUR
+			tool, bracket,
+			Transform3D(Basis(), Vector3(side * 1.4, 0.62, 0.0) * CAR_SCALE),
+			HUB_COLOUR
 		)
 	var pin := CylinderMesh.new()
 	pin.top_radius = 0.16
 	pin.bottom_radius = 0.16
-	pin.height = 3.6
+	pin.height = 3.6 * CAR_SCALE
 	pin.radial_segments = 8
 	pin.rings = 1
 	Park._add(
@@ -576,10 +604,18 @@ func carry(at: Vector3, _delta: float) -> Vector3:
 	for index in _cars.size():
 		if index >= _moved.size():
 			break
-		var local := at - _cars[index].global_position
-		if absf(local.x) < 1.2 and absf(local.z) < 1.0 and local.y > -0.4 and local.y < 2.2:
+		if inside_a_gondola(at - _cars[index].global_position):
 			return _moved[index]
 	return Vector3.ZERO
+
+## Is this point, measured from a gondola's own middle, inside it? Asked by
+## the ride and by the fairground alike, so a car that grows does not leave
+## one of them testing the old box.
+static func inside_a_gondola(local: Vector3) -> bool:
+	return (
+		absf(local.x) < 1.2 * CAR_SCALE and absf(local.z) < 1.0 * CAR_SCALE
+		and local.y > -0.4 and local.y < 2.2 * CAR_SCALE
+	)
 
 ## How high the topmost gondola rides, and how far round the wheel has gone.
 ## For the checks.

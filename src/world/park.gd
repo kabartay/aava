@@ -24,7 +24,10 @@ const WALKWAY_AT := Vector3(85.0, 0.0, -25.0)
 ## Up beside the big wheel: the two things a child does standing up, together
 ## at the far end of the ground.
 const TRAMPOLINE_AT := Vector3(85.0, 0.0, -62.0)
-const WHEEL_AT := Vector3(82.0, 0.0, -84.0)
+## Right at the north end, because the wheel is fifty metres across now and
+## sweeps twenty-five of them either side of its axle: where it stood before,
+## it would have come down through the trampoline.
+const WHEEL_AT := Vector3(82.0, 0.0, -112.0)
 ## The coaster runs down the western side, along the river, the whole length of
 ## the ground.
 const COASTER_AT := Vector3(64.0, 0.0, -70.0)
@@ -150,9 +153,7 @@ func ride_under(at: Vector3) -> StringName:
 			and at.y > deck.y + Carousel.FLOOR_HEIGHT - 0.3:
 		return &"carousel"
 	for index in FerrisWheel.GONDOLAS:
-		var car := wheel.gondola(index)
-		var local := at - car.global_position
-		if absf(local.x) < 1.2 and absf(local.z) < 1.0 and local.y > -0.4 and local.y < 2.2:
+		if FerrisWheel.inside_a_gondola(at - wheel.gondola(index).global_position):
 			return &"wheel"
 	for index in coaster.car_count():
 		var seat := coaster.car_at(index)

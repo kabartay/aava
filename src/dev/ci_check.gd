@@ -138,6 +138,7 @@ func _initialize() -> void:
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
 	_check_the_wheel_stops_when_the_button_is_pressed()
+	_check_the_wheel_stands_on_an_a_frame()
 	_check_the_coasters_button_is_on_its_platform()
 	_check_a_rider_stays_in_through_a_loop()
 	_check_nobody_rides_the_coaster_unstrapped()
@@ -7682,7 +7683,7 @@ func _check_the_fairground() -> void:
 		]
 	)
 	_expect(
-		absf(park.wheel.top_of_the_ride() - 30.0) < 1.5,
+		absf(park.wheel.top_of_the_ride() - (FerrisWheel.RADIUS * 2.0 + 2.9)) < 1.5,
 		"the wheel carries a child to %.1f m" % park.wheel.top_of_the_ride()
 	)
 	_expect(
@@ -8161,7 +8162,7 @@ func _check_the_wheel_stands_on_the_sand() -> void:
 		"and the lowest gondola floor is %.2f m up, which is a step into it" % lowest_car
 	)
 	_expect(
-		absf(wheel.top_of_the_ride() - 30.0) < 1.5,
+		absf(wheel.top_of_the_ride() - (FerrisWheel.RADIUS * 2.0 + 2.9)) < 1.5,
 		"while the top of the ride is %.1f m" % wheel.top_of_the_ride()
 	)
 
@@ -8321,6 +8322,66 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 	)
 	coaster.queue_free()
 
+## The wheel stands on an A, not on a V.
+##
+## The lean of its legs was applied the wrong way round, so each one ran from
+## a single point on the sand up to a top splayed five metres clear of the
+## axle it was meant to be carrying. The whole ride stood on one line of
+## contact, its foot plates sat five metres from any foot, and the boarding
+## platform was later put down exactly on that line — which is how it was
+## found, a child reporting that the platform was standing in the piles.
+##
+## Read off the drawn mesh on the far side from the platform, so what is
+## measured is the frame and nothing else.
+func _check_the_wheel_stands_on_an_a_frame() -> void:
+	print("the wheel stands on an A, not a V")
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	# By type rather than by name: the wheel has a solid body called Frame as
+	# well as the timber, and Godot quietly renames the second of two children
+	# that ask for one name.
+	var drawn: MeshInstance3D = null
+	for child in wheel.get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mesh := child as MeshInstance3D
+		if drawn == null or mesh.mesh.get_faces().size() > drawn.mesh.get_faces().size():
+			drawn = mesh
+	_expect(drawn != null, "the frame is drawn")
+
+	var underfoot := 0
+	var out_wide := 0
+	for point in drawn.mesh.get_faces():
+		if point.x < 1.0 or point.y > 1.2:
+			continue
+		if absf(point.z) < 3.0:
+			underfoot += 1
+		if absf(point.z) > 6.0:
+			out_wide += 1
+	_expect(
+		underfoot == 0,
+		"nothing of the frame is standing in the middle of the ride: %d pieces there" % underfoot
+	)
+	_expect(out_wide > 20, "and its feet are out wide, where a frame's feet go")
+
+	# The tops meet at the axle. Measured the same way: the frame's highest
+	# timber is over the hub, not five metres off it.
+	var highest := 0.0
+	var where := 99.0
+	for point in drawn.mesh.get_faces():
+		if point.x < 1.0:
+			continue
+		if point.y > highest:
+			highest = point.y
+			where = absf(point.z)
+	_expect(
+		where < 1.5,
+		"and the top of it is over the axle, %.1f m off the middle at %.1f m up" % [
+			where, highest
+		]
+	)
+	wheel.queue_free()
+
 ## The big wheel stops for whoever presses the button, and for nobody else.
 ##
 ## A wheel that turns all day cannot be boarded: the doorway of a gondola goes
@@ -8372,8 +8433,10 @@ func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
 		"square with the platform: %.2f m off it" % absf(car.position.z)
 	)
 	_expect(
-		absf(car.position.y + 0.08 - wheel.boarding_floor()) < 0.05,
-		"and its floor is level with the boards, %.2f m up" % (car.position.y + 0.08)
+		absf(car.position.y + 0.08 * FerrisWheel.CAR_SCALE - wheel.boarding_floor()) < 0.05,
+		"and its floor is level with the boards, %.2f m up" % (
+			car.position.y + 0.08 * FerrisWheel.CAR_SCALE
+		)
 	)
 
 	# It stands there for ten seconds, and then goes on turning.
