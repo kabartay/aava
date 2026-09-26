@@ -1,0 +1,22 @@
+{
+  "upload_type": "software",
+  "title": "Aava: an open world that comes alive as you build in it",
+  "description": "<p>A 3D exploration and building game for children, written in GDScript on Godot 4. The valley is generated from a single integer seed, so the ground itself costs nothing to store or to send; everything a child builds makes it more alive, and the more alive it is the more it gives back.</p><p>It is played on a phone, by two brothers aged ten and six, and nearly every change in its history began as one of them saying what looked wrong. Its checks are written the same way: each one corresponds to a bug that actually happened.</p><p>The code is AGPL-3.0-or-later. The name Aava, the application id and the icon are reserved and are not covered by that licence; see NOTICE.md.</p>",
+  "creators": [
+    {
+      "name": "Organokov, Mukharbek",
+      "orcid": "0000-0002-3093-3456"
+    }
+  ],
+  "license": "agpl-3.0-or-later",
+  "access_right": "open",
+  "version": "0.4.1",
+  "keywords": [
+    "game",
+    "godot",
+    "gdscript",
+    "children",
+    "procedural generation",
+    "android"
+  ]
+}
