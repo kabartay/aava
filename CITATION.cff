@@ -11,16 +11,32 @@ authors:
     email: mukharbek.organokov@gmail.com
     orcid: "https://orcid.org/0000-0002-3093-3456"
 abstract: >-
-  An open world that comes alive as you build in it: a 3D exploration and
-  building game for children, written in GDScript on Godot 4 and built around a
-  procedural valley generated from a seed. Everything a child builds makes the
-  valley more alive, and the more alive it is, the more it gives back.
-identifiers:
-  - type: doi
-    value: 10.5281/zenodo.22965441
-    description: >-
-      The concept DOI, which always resolves to the newest release. Cite a
-      version DOI instead when it matters which build somebody actually played.
+  Aava is a 3D exploration and building game for children, written in GDScript
+  on Godot 4. The valley is a pure function of one integer seed: the ground,
+  the river, the forest and the mountains are computed rather than stored, so
+  nothing about the world has to be saved, sent between two machines playing
+  together, or loaded from a file. What is saved is only what a child has
+  changed.
+
+
+  The loop is creation rather than collection. Everything built makes the
+  valley more alive, and the more alive it is the more it gives back: plant a
+  grove and birds arrive, feed an animal and it becomes a friend, raise a house
+  with a bed and a fire and it becomes somewhere to spend the night. Coins come
+  from looking after things, and are spent on tools that widen what a child can
+  reach — an axe, shears, a lantern, a bicycle, a quad — rather than on numbers
+  going up.
+
+
+  It is played on a phone by two brothers, aged ten and six, and nearly every
+  change in its history began with one of them saying what looked wrong. The
+  test suite is written the same way round: each check corresponds to a bug
+  that actually happened, and says in its own words what the wrong version
+  looked like, so a regression is recognised rather than merely detected.
+
+
+  The code is AGPL-3.0-or-later. The name Aava, the application id and the icon
+  are reserved and are not covered by that licence; see NOTICE.md.
 keywords:
   - game
   - godot
