@@ -557,7 +557,18 @@ func _process(delta: float) -> void:
 				# And smoothed, so that the height a rider is held to moves
 				# like ground passing under a machine rather than like a
 				# number recomputed sixty times a second.
-				under = lerpf(_held_last, under, 1.0 - exp(-HELD_SETTLES * delta))
+				# Slower the faster it is going: at a walk a rider should
+				# follow every hummock, and at sixteen metres a second the
+				# same response is a shiver.
+				var settles := lerpf(
+					HELD_SETTLES, HELD_SETTLES * 0.45,
+					clampf(
+						Vector2(player.velocity.x, player.velocity.z).length()
+						/ MountKinds.speed(riding),
+						0.0, 1.0
+					)
+				)
+				under = lerpf(_held_last, under, 1.0 - exp(-settles * delta))
 			player.held_at_height = under
 			_held_last = under
 		else:
@@ -1369,16 +1380,19 @@ func _ground_under_the_mount(kind: StringName, at: Vector3, facing: float) -> fl
 	span += clampf(Vector2(player.velocity.x, player.velocity.z).length() * 0.2, 0.0, 3.0)
 	var reach: float = span * 0.5
 	var along := Vector3(-sin(facing), 0.0, -cos(facing)) * reach
-	# Five samples rather than three, weighted towards the middle, so a bump
-	# under one wheel counts for less than the ground the whole machine is on.
+	# Nine samples, weighted towards the middle, so a bump under one wheel
+	# counts for less than the ground the whole machine is on. Five left a
+	# tremble at speed: every sample that leaves the window at one end is a
+	# step in the average, and the fewer there are the bigger each step is.
+	#
 	# The surface under it, which on the bridge is the deck. Asked with the
 	# rider's own height, because the ground under the crossing is the
 	# riverbed and a rider held to that is a rider pulled through the planks.
 	var total := world.field.standing_height_at(at.x, at.z, at.y) * 2.0
 	var weight := 2.0
-	for step: float in [-1.0, -0.5, 0.5, 1.0]:
+	for step: float in [-1.0, -0.75, -0.5, -0.25, 0.25, 0.5, 0.75, 1.0]:
 		var sample := at + along * step
-		var share := 1.0 if absf(step) < 0.75 else 0.6
+		var share := 1.0 if absf(step) < 0.6 else 0.6
 		total += world.field.standing_height_at(sample.x, sample.z, at.y) * share
 		weight += share
 	return total / weight
