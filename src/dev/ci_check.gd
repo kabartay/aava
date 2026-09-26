@@ -8047,6 +8047,23 @@ func _check_the_rides_are_solid() -> void:
 
 	# Across the wheel's frame, at the height a child walks: the ray starts
 	# outside one pair of legs and ends outside the other.
+	# The bar across a gondola's doorway stops you too.
+	#
+	# It did not: the shape that makes it solid was hung on the plain node
+	# that lifts the bar, and a CollisionShape3D only counts as part of the
+	# body it is a *direct child of*. So the bar was drawn, it rose and fell
+	# on cue, and a child walked straight out through it forty metres up.
+	var gondola := park.wheel.gondola(0) as Node3D
+	var across := gondola.global_position + Vector3(0.0, FerrisWheel.BAR_HEIGHT * 0.7, 0.0)
+	_expect(
+		_blocked(
+			space,
+			across + Vector3(-2.6 * FerrisWheel.CAR_SCALE, 0.0, 0.0),
+			across + Vector3(0.4, 0.0, 0.0)
+		),
+		"the bar across a gondola's doorway stops you"
+	)
+
 	var wheel := park.wheel.position
 	_expect(
 		_blocked(space, wheel + Vector3(-8.0, waist, 0.0), wheel + Vector3(8.0, waist, 0.0)),
@@ -8402,6 +8419,16 @@ func _check_the_wheel_stops_when_the_button_is_pressed() -> void:
 	_expect(
 		wheel.at_the_button(wheel.button_at() + Vector3(0.7, 0.0, 0.0)),
 		"and a child standing at it is at it"
+	)
+	# Standing on the boards, in the middle of them, counts as being at it:
+	# that reach is what puts the ticket control on screen, and a button you
+	# have to stand on one exact paving stone to buy a ride at is no better
+	# than no button.
+	_expect(
+		wheel.at_the_button(Vector3(
+			FerrisWheel.PLATFORM_AT.x, wheel.boarding_floor(), FerrisWheel.BUTTON_AT.z
+		)),
+		"and so does one standing on the boards beside it"
 	)
 	# Unpressed, it simply turns: twenty seconds is nearly two gondolas past.
 	var stood := 0.0

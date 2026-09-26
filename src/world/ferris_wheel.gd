@@ -599,12 +599,19 @@ func _build_car(index: int) -> AnimatableBody3D:
 		)
 	Park.commit(rail_tool, gate, "Rail")
 
+	# The collider hangs on the car, not on the gate.
+	#
+	# A CollisionShape3D only counts as part of the body it is a direct child
+	# of. Hung under the plain node that lifts the bar, it was ignored
+	# outright — the bar was drawn, it went up and down, and a child walked
+	# straight through it. So the shape is the car's own, and it is moved by
+	# hand alongside the drawn one.
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(0.24, BAR_HEIGHT * 0.8, 2.0 * CAR_SCALE)
 	var collider := CollisionShape3D.new()
 	collider.shape = shape
-	collider.position = Vector3(0.0, BAR_HEIGHT * 0.7, 0.0)
-	gate.add_child(collider)
+	collider.position = gate.position + Vector3(0.0, BAR_HEIGHT * 0.7, 0.0)
+	car.add_child(collider)
 
 	_gates.append(gate)
 	_gate_shapes.append(collider)
@@ -674,6 +681,7 @@ func _physics_process(delta: float) -> void:
 		)
 		var open := float(_gates_open[index])
 		_gates[index].position.y = open * BAR_LIFT
+		_gate_shapes[index].position.y = BAR_HEIGHT * 0.7 + open * BAR_LIFT
 		# Solid until it is most of the way up, so nobody walks through a bar
 		# that is still coming down.
 		_gate_shapes[index].disabled = open > 0.6
@@ -685,7 +693,12 @@ func _physics_process(delta: float) -> void:
 		_cap.position.y = (
 			boarding_floor() + BUTTON_HEIGHT + (0.0 if _called else 0.06)
 		)
-		_cap_paint.albedo_color = BUTTON_LIT if _holding > 0.0 else BUTTON
+		# Green from the moment a ride is bought, not only once the gondola is
+		# standing there: what a child wants to know is that the button
+		# worked, and the gondola takes up to twelve seconds to come round.
+		_cap_paint.albedo_color = (
+			BUTTON_LIT if (_called or _holding > 0.0) else BUTTON
+		)
 	_moved.clear()
 	for index in _cars.size():
 		_moved.append(_cars[index].position - before[index])

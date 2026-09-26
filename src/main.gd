@@ -450,17 +450,21 @@ func _physics_process(delta: float) -> void:
 	# day, and the button is where both things happen: the ticket is taken and
 	# the next train is booked to pull up.
 	var coaster := world.park.coaster
-	var at_a_car := (
-		coaster.at_the_button(player.global_position) and not coaster.booked()
-		and not coaster.boarding()
+	# Nothing is asked by walking up to a button any more: the ticket control
+	# on screen is what buys a ride, at both platforms, exactly as it does at
+	# the kiosk and at the pool gate.
+	#
+	# Walking away from either platform withdraws the question, which is how
+	# every other question in this game is said no to. It has to be *either*
+	# platform: this used to ask only about the coaster's, so a ride bought at
+	# the wheel had its own question cancelled on the same frame it was asked.
+	var at_a_button := (
+		coaster.at_the_button(player.global_position)
+		or world.park.wheel.at_the_button(player.global_position)
 	)
-	if at_a_car and not _coaster_paid and aboard != &"coaster" and not _coaster_told:
-		if not _offer_a_ride(&"coaster"):
-			_coaster_told = true
-	if not at_a_car and aboard != &"coaster":
+	if not at_a_button and aboard != &"coaster" and aboard != &"wheel":
 		_coaster_told = false
 		if _asked == &"ride":
-			# Walked away from the question, which is an answer.
 			_asked = &""
 			hud.stop_asking()
 	# The ticket stays good until it is used or the child walks away from the
@@ -519,12 +523,6 @@ func _physics_process(delta: float) -> void:
 	# that standing at the wheel there was nothing offering to sell you a
 	# ride and nothing saying you needed one.
 	var wheel := world.park.wheel
-	if wheel.at_the_button(player.global_position) and aboard != &"wheel":
-		if not _wheel_told:
-			_wheel_told = true
-			_offer_a_ride(&"wheel")
-	elif not wheel.at_the_button(player.global_position):
-		_wheel_told = false
 	if wheel.waiting() > 0.0 and not _wheel_here_told:
 		_wheel_here_told = true
 		hud.announce(Text.of("say_wheel_here"), 2.0)
@@ -1746,15 +1744,24 @@ func _watch_the_turnstile() -> void:
 	# The fairground's kiosk offers the same button. One control for "pay to
 	# get on something", wherever a child is standing.
 	var at_booth := world.park.at_the_booth(at)
-	var offer := (near and not inside and not world.places.turnstile_open()) or at_booth
+	# And so do the two rides that are booked at their own platforms. The
+	# button on a platform was pressed by walking up to it, which is fine for
+	# a bell and wrong for a purchase: standing at the big wheel there was
+	# nothing on screen saying a ride could be bought, because the one control
+	# that says that lives here.
+	var at_ride := world.park.wheel.at_the_button(at) or world.park.coaster.at_the_button(at)
+	var offer := (
+		(near and not inside and not world.places.turnstile_open())
+		or at_booth or at_ride
+	)
 	hud.set_ticket_offer(offer)
 	if offer and not _ticket_told:
 		_ticket_told = true
-		if at_booth:
+		if at_booth or at_ride:
 			hud.announce(Text.format("say_park_ticket", [Park.RIDE_PRICE]), 2.6)
 		else:
 			hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
-	elif not near and not at_booth:
+	elif not near and not at_booth and not at_ride:
 		_ticket_told = false
 
 ## Turn the lantern on or off. It lights itself at dusk; this is how a child
@@ -1785,7 +1792,16 @@ func _on_snack() -> void:
 
 ## Pay for the pool. Coins come from the animals, so a swim is earned.
 func _on_ticket() -> void:
-	# At the fairground's kiosk this buys a ride rather than a swim.
+	# On a ride's own platform it buys that ride, and books it: the button on
+	# the boards turns green and the next gondola — or the next train — pulls
+	# up for ten seconds.
+	if world.park.wheel.at_the_button(player.global_position):
+		_offer_a_ride(&"wheel")
+		return
+	if world.park.coaster.at_the_button(player.global_position):
+		_offer_a_ride(&"coaster")
+		return
+	# At the fairground's kiosk this buys a ticket rather than a swim.
 	if world.park.at_the_booth(player.global_position):
 		if not wallet.can_afford(Park.RIDE_PRICE):
 			sounds.play(Sounds.Sound.REFUSE)

@@ -1024,7 +1024,9 @@ func _physics_process(delta: float) -> void:
 		# Lit while a train is standing there, pressed in while one is on its
 		# way: a button that does nothing visible is a button a child presses
 		# again and again.
-		_cap_paint.albedo_color = BUTTON_LIT if boarding() else BUTTON
+		_cap_paint.albedo_color = (
+			BUTTON_LIT if (_booked or boarding()) else BUTTON
+		)
 		_cap.position.y = (
 			point_at(distance_of(BOARDS_AT)).y + CAR_FLOOR + BUTTON_HEIGHT
 			+ (0.0 if _booked else 0.06)
