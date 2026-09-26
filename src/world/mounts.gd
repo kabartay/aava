@@ -810,7 +810,7 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	# the one place the ground underneath it has nothing to say about whether
 	# it can be ridden: the deck is level enough for anything, and the bank it
 	# arches over is not.
-	if field.is_on_the_bridge(at):
+	if field.at_the_crossing(at):
 		return true
 
 	var camp := field.camp_centre()

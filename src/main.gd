@@ -608,7 +608,19 @@ func _process(delta: float) -> void:
 		MountKinds.floats(about) if about != &"" else false,
 		MountKinds.kind_of(about) if about != &"" else &""
 	)
+	# Ground a mount cannot take, for longer than a moment.
+	#
+	# It used to put the rider down the instant a single frame said no, and a
+	# single frame is a low bar: a wheel over the lip of a bank, a body half
+	# over the edge of the bridge's apron, one physics step in which the
+	# height field is consulted at a point the machine is already leaving. A
+	# short grace means a child has to actually be somewhere impossible rather
+	# than to have passed through it.
 	if riding != &"" and not world.mounts.can_ride_over(riding, player.global_position):
+		_bad_ground += delta
+	else:
+		_bad_ground = 0.0
+	if riding != &"" and _bad_ground > STUCK_GROUND:
 		# Ridden somewhere this mount cannot go — put the child down rather than
 		# stranding them on a bicycle halfway up a cliff. Back on the last
 		# ground it was willing to stand on, not on the slope that refused it:
@@ -619,7 +631,8 @@ func _process(delta: float) -> void:
 		player.riding = &""
 		camera_rig.set_eye_lift(0.0)
 		sounds.play(Sounds.Sound.REFUSE)
-	elif riding != &"":
+		_bad_ground = 0.0
+	elif riding != &"" and _bad_ground <= 0.0:
 		world.mounts.note_good_ground(player.global_position)
 
 	# How deep the player is *submerged* — not how deep the water is where they
@@ -1365,6 +1378,12 @@ const RIDES_OUT := 3.2
 ## machine climbing a bank lifts its rider with it; a wheel meeting a step
 ## should not fire them upwards.
 const RIDER_LIFTS := 6.0
+
+## How long a mount may stand on ground it cannot take before its rider is put
+## down. Long enough that crossing a lip is not an ejection, short enough that
+## nobody rides up a cliff.
+const STUCK_GROUND := 0.45
+var _bad_ground := 0.0
 var _held_last := Player.NOT_HELD
 
 func _outside_the_shop(offset: Vector3) -> Vector3:

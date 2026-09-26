@@ -239,6 +239,35 @@ func is_on_the_bridge(at: Vector3) -> bool:
 	var deck := bridge_deck_at(at.x, at.z)
 	return not is_nan(deck) and absf(at.y - deck) < BridgeSpec.ON_DECK_REACH
 
+## And the ground at either end of it, where a rider joins and leaves.
+##
+## The deck is rideable and the bank it lands on was not: the approach at the
+## camp's end is the river's own bank, which is steeper than a bicycle will
+## take and close enough to the water to be refused outright. So a child rode
+## up to the bridge and was put on their feet in front of it, which is the one
+## place in the valley where being told "not here" makes no sense at all.
+##
+## A short apron, then: the deck's own footprint reaching a few metres past
+## each abutment and a stride either side of it, at about the height of the
+## deck. Short, because it must not become a licence to ride along the river.
+func at_the_crossing(at: Vector3) -> bool:
+	if is_on_the_bridge(at):
+		return true
+	var crossing_x := river_centre_x(BridgeSpec.CENTRE_Z)
+	if absf(at.z - BridgeSpec.CENTRE_Z) > BridgeSpec.HALF_WIDTH + CROSSING_APRON:
+		return false
+	var along := absf(at.x - crossing_x)
+	if along > BridgeSpec.HALF_SPAN + CROSSING_APRON or along < BridgeSpec.HALF_SPAN - 1.0:
+		return false
+	# Only near the height the deck lands at: the bank below it is still bank.
+	var ends := bridge_deck_at(
+		crossing_x + signf(at.x - crossing_x) * BridgeSpec.HALF_SPAN, BridgeSpec.CENTRE_Z
+	)
+	return not is_nan(ends) and absf(at.y - ends) < 2.0
+
+## How far past the crossing its apron reaches.
+const CROSSING_APRON := 4.0
+
 func height_at(x: float, z: float) -> float:
 	var floor_height := _raw_height(x, z)
 
