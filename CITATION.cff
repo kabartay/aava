@@ -15,12 +15,12 @@ authors:
     email: mukharbek.organokov@gmail.com
     orcid: "https://orcid.org/0000-0002-3093-3456"
 abstract: >-
-  Aava is a 3D exploration and building game for children, written in GDScript
-  on Godot 4. The valley is a pure function of one integer seed: the ground,
-  the river, the forest and the mountains are computed rather than stored, so
-  nothing about the world has to be saved, sent between two machines playing
-  together, or loaded from a file. What is saved is only what a child has
-  changed.
+  Aava (Finnish for vast, open expanse) is a 3D exploration and building game
+  for children, written in GDScript on Godot 4. The valley is a pure function
+  of one integer seed: the ground, the river, the forest and the mountains are
+  computed rather than stored, so nothing about the world has to be saved, sent
+  between two machines playing together, or loaded from a file. What is saved
+  is only what a child has changed.
 
 
   The loop is creation rather than collection. Everything built makes the
