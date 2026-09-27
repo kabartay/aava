@@ -119,6 +119,7 @@ func _initialize() -> void:
 	_check_what_moves_every_frame_is_not_interpolated()
 	_check_the_wheels_turn()
 	_check_the_animals_walk_at_their_own_pace()
+	_check_nothing_leans_into_the_hill()
 	_check_a_sheep_is_solid_as_wide_as_she_looks()
 	_check_a_rider_is_held_to_the_deck()
 	_check_the_engine_does_not_whistle()
@@ -10060,6 +10061,88 @@ func _check_a_sheep_is_solid_as_wide_as_she_looks() -> void:
 				kind, solid.x, widest * 2.0
 			]
 		)
+
+## Going downhill, a nose goes down.
+##
+## There was no check on which *way* anything leant, only on how far, and the
+## sign was wrong in two places at once. A positive turn about a body's own X
+## lifts whatever is at -Z, and -Z is the way a body faces, so a subtraction
+## written back-to-front made every animal and every rider put their nose up
+## going down a hill and drive their tail into the slope. On a cow that is
+## nearly half a metre of animal underground, which is exactly how it was
+## reported: half the cow is stuck in the ground.
+##
+## Measured as geometry rather than as a number with a sign: where does the
+## nose actually end up.
+func _check_nothing_leans_into_the_hill() -> void:
+	print("nothing leans into the hill")
+	var field := HeightField.new(20260903)
+
+	# A slope, and which way is downhill on it.
+	var camp := field.camp_centre()
+	var slope := camp
+	var fall := Vector3.ZERO
+	var steepest := 0.0
+	for step in 1200:
+		var angle := TAU * float(step) / 120.0
+		var out := 30.0 + 200.0 * float(step) / 1200.0
+		var at := camp + Vector3(cos(angle), 0.0, sin(angle)) * out
+		var here := field.height_at(at.x, at.z)
+		var rise_x := field.height_at(at.x + 2.0, at.z) - here
+		var rise_z := field.height_at(at.x, at.z + 2.0) - here
+		var tilt := Vector2(rise_x, rise_z).length()
+		if tilt > steepest and field.steepness_at(at.x, at.z) < 0.45:
+			steepest = tilt
+			slope = Vector3(at.x, here, at.z)
+			fall = -Vector3(rise_x, 0.0, rise_z).normalized()
+	_expect(steepest > 0.3, "there is a hill to walk down: %.2f m over two" % steepest)
+
+	# A cow put on it, pointed downhill.
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var cow := animals.put_one_at(AnimalKinds.COW, slope)
+	var node: Node3D = cow["node"]
+	node.rotation.y = atan2(-fall.x, -fall.z)
+	for _frame in 40:
+		animals._lean_with_the_ground(cow, node)
+		node.position.y = field.height_at(node.position.x, node.position.z) \
+			+ float(cow.get("lift", 0.0))
+	var half := AnimalKinds.body_size(AnimalKinds.COW).z * 0.5
+	var nose := node.global_transform * Vector3(0.0, 0.0, -half)
+	var tail := node.global_transform * Vector3(0.0, 0.0, half)
+	_expect(
+		nose.y < tail.y,
+		"walking downhill a cow's nose is below her tail: %.2f against %.2f" % [
+			nose.y, tail.y
+		]
+	)
+	# And she is on the hill rather than in it: neither end is buried.
+	_expect(
+		nose.y > field.height_at(nose.x, nose.z) - 0.05,
+		"her nose is not under the ground: %.2f against %.2f" % [
+			nose.y, field.height_at(nose.x, nose.z)
+		]
+	)
+	_expect(
+		tail.y > field.height_at(tail.x, tail.z) - 0.05,
+		"nor her tail: %.2f against %.2f" % [tail.y, field.height_at(tail.x, tail.z)]
+	)
+	animals.queue_free()
+
+	# And a rider does the same, which is the other place the sign was wrong.
+	var player := Player.new()
+	get_root().add_child(player)
+	player.global_position = slope + Vector3(0.0, 1.0, 0.0)
+	player.riding = MountKinds.HORSE
+	player.face(fall)
+	for _frame in 120:
+		player.lean_with_the_ground(true, field, 1.0 / 60.0)
+	var leaning := Basis(Vector3.RIGHT, player.ride_lean()) * Vector3.FORWARD
+	_expect(
+		leaning.y < -0.02,
+		"riding downhill a rider is tipped forward, not back: %.2f" % leaning.y
+	)
+	player.queue_free()
 
 func _check_the_animals_walk_at_their_own_pace() -> void:
 	print("the animals walk at their own pace")

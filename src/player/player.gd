@@ -735,7 +735,13 @@ func lean_with_the_ground(riding_now: bool, field: HeightField, delta: float) ->
 		var back := field.height_at(global_position.x - ahead.x, global_position.z - ahead.z)
 		# Rising ground ahead tips the rider back, falling ground tips them
 		# forward; the rise over four metres is the slope.
-		wanted = clampf(atan2(back - front, 4.0), -RIDE_LEAN_LIMIT, RIDE_LEAN_LIMIT)
+		#
+		# front - back, not back - front: a positive turn about the body's own
+		# X lifts what is at -Z, which is the way a body faces, so the
+		# subtraction written the other way leant a rider into the hill going
+		# up and out of the saddle going down. The animals had the same sign
+		# the same way round, and there it buried half a cow.
+		wanted = clampf(atan2(front - back, 4.0), -RIDE_LEAN_LIMIT, RIDE_LEAN_LIMIT)
 	_ride_lean = lerpf(_ride_lean, wanted, 1.0 - exp(-5.0 * delta))
 	_visual.rotation.x = _swim_lean + _ride_lean
 

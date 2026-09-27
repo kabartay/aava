@@ -453,6 +453,9 @@ func _step(animal: Dictionary, delta: float) -> void:
 	var hops := kind == AnimalKinds.SQUIRREL
 	node.position.y = (
 		_footing(node.position.x, node.position.z)
+		# Enough to keep a long animal on a steep hill out of the ground:
+		# see the note in _lean_with_the_ground.
+		+ float(animal.get("lift", 0.0))
 		+ sin(bob) * 0.02 * (1.0 - trot)
 		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * (0.05 if hops else 0.02)) * trot
 	)
@@ -493,8 +496,31 @@ func _lean_with_the_ground(animal: Dictionary, node: Node3D) -> void:
 	var ahead := Vector3(-sin(facing), 0.0, -cos(facing)) * half
 	var front := _footing(node.position.x + ahead.x, node.position.z + ahead.z)
 	var back := _footing(node.position.x - ahead.x, node.position.z - ahead.z)
-	var pitch := clampf(atan2(back - front, half * 2.0), -LEANS_TO, LEANS_TO)
+	# front - back, not back - front.
+	#
+	# Rotating about the body's own X by a positive angle lifts what is at -Z,
+	# and -Z is the animal's nose: so ground that falls away ahead was making
+	# her put her nose up and drive her hindquarters into the hill. On a cow
+	# that is nearly half a metre of animal underground, which is how it was
+	# reported — "half the cow is stuck in the ground" — and it is the same
+	# sign error as the cow who came down the slope looking horizontal.
+	var pitch := clampf(atan2(front - back, half * 2.0), -LEANS_TO, LEANS_TO)
 	node.rotation.x = lerpf(node.rotation.x, pitch, 0.2)
+
+	# And how high she has to stand to be on the hill rather than in it.
+	#
+	# The body is tipped about the point between her feet, and the tip is
+	# capped at LEANS_TO — so on anything steeper than that the downhill end
+	# of a long animal is left under the ground. A positive turn lifts the
+	# nose by half a body length times its sine and drops the tail by the
+	# same, so the height that clears both ends is the larger of the two
+	# demands. On a slope gentler than the cap this comes out at nought,
+	# which is what it should: a cow on a gentle hill is not on stilts.
+	var leaning := sin(node.rotation.x) * half
+	var stand := maxf(front - leaning, back + leaning)
+	animal["lift"] = maxf(
+		0.0, stand - _footing(node.position.x, node.position.z)
+	)
 
 ## How far an animal will tip to the ground under it.
 const LEANS_TO := deg_to_rad(22.0)
