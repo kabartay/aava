@@ -131,6 +131,31 @@ func set_first_person(on: bool) -> void:
 	first_person = on
 	_player.show_body(not on)
 
+## Strapped into a ride: the camera stops letting the ride push it about.
+##
+## The arm sweeps a sphere backwards and stops against anything solid, which
+## is right in a wood and wrong in a coaster car — the car's own floor, its
+## walls and the seat back are all solid, so the camera collapsed to nothing
+## and the view of the ride was the inside of a restraint. Riding, it holds
+## its length and passes through the car, and stands a little further back so
+## the train and the track ahead are both in shot. That is the view a child
+## climbed in for.
+func set_riding(on: bool) -> void:
+	if _riding == on:
+		return
+	_riding = on
+	# Nothing stops it while riding; the ordinary ground-and-walls mask back
+	# afterwards.
+	_arm.collision_mask = (
+		0 if on else (TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_WALLS)
+	)
+	_arm.spring_length = RIDE_ARM if on else _distance
+
+## How far back the camera sits while riding.
+const RIDE_ARM := 7.2
+
+var _riding := false
+
 ## Where the eyes are, measured from the feet.
 const EYE_HEIGHT := Player.HEIGHT * 0.92
 
@@ -150,7 +175,9 @@ func _process(delta: float) -> void:
 	_arm.rotation.x = pitch
 
 	_distance = lerpf(_distance, wanted_distance, 1.0 - exp(-ZOOM_LAMBDA * delta))
-	_arm.spring_length = _distance
+	# Riding, the arm keeps its own length whatever the zoom is set to: see
+	# set_riding.
+	_arm.spring_length = maxf(_distance, RIDE_ARM) if _riding else _distance
 
 	# Pulled far back, the camera also tips down a little on its own, because a
 	# wide shot of a valley taken from waist height is mostly grass. This is why

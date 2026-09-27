@@ -546,6 +546,9 @@ func _physics_process(delta: float) -> void:
 		player.carried_to = seat.origin
 		player.carried_facing = seat.basis
 	player.strapped_in = strapped
+	# And the camera stops being shoved into the seat back by the car it is
+	# riding in.
+	camera_rig.set_riding(strapped)
 
 	# Nobody rides it unrestrained. The bars come down for a ticket and for
 	# nothing else, so anybody still in a car once the train has left the

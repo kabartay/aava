@@ -161,6 +161,9 @@ const SEATS := 1
 
 const SEAT := Color(0.24, 0.25, 0.30)
 const HARNESS := Color(0.96, 0.80, 0.16)
+## The rolled rims, the bumpers and the lamp: the bits that are not painted
+## the car's own colour.
+const CHROME := Color(0.78, 0.80, 0.84)
 
 const CAR_COLOURS: Array[Color] = [
 	Color(0.88, 0.26, 0.24), Color(0.96, 0.78, 0.26), Color(0.28, 0.52, 0.84),
@@ -174,6 +177,9 @@ var _speed := 0.0
 ## booked the next one.
 var _waiting := 0.0
 var _booked := false
+## Whether the rider in a car has already been taken round: the difference
+## between somebody who has just sat down and somebody whose ride is over.
+var _carrying := false
 var _cap: MeshInstance3D
 var _cap_paint: StandardMaterial3D
 
@@ -439,6 +445,8 @@ func clear_to_board(paid: bool) -> void:
 
 func rider_aboard(aboard: bool) -> void:
 	_rider_aboard = aboard
+	if not aboard:
+		_carrying = false
 
 ## Is a child standing close enough to a car to get into it?
 func car_within(at: Vector3, reach: float) -> bool:
@@ -901,6 +909,62 @@ func _build_car(index: int) -> AnimatableBody3D:
 		colour.darkened(0.25)
 	)
 
+	# A rolled rim along the top of every panel.
+	#
+	# The body was three flat boards and a floor, which from the platform is a
+	# crate painted red. What a coaster car actually has is a padded edge you
+	# put your hands on, and one round bar along the top of each side does
+	# more for the look of it than any amount of extra panelling.
+	for rim: Array in [
+		[Vector3(0.0, 1.06, -0.65), 1.9, true],
+		[Vector3(0.95, 1.06, 0.0), 1.3, false],
+		[Vector3(-0.95, 1.06, 0.0), 1.3, false],
+	]:
+		var bar := CylinderMesh.new()
+		bar.top_radius = 0.09
+		bar.bottom_radius = 0.09
+		bar.height = float(rim[1])
+		bar.radial_segments = 8
+		bar.rings = 1
+		var lie := (
+			Basis(Vector3.BACK, deg_to_rad(90.0)) if bool(rim[2])
+			else Basis(Vector3.RIGHT, deg_to_rad(90.0))
+		)
+		Park._add(tool, bar, Transform3D(lie, rim[0]), CHROME)
+
+	# A stripe down each flank, which is what tells five cars apart at
+	# twenty-nine metres a second.
+	for side: float in [-1.0, 1.0]:
+		var flash := BoxMesh.new()
+		flash.size = Vector3(1.86, 0.22, 0.04)
+		Park._add(
+			tool, flash,
+			Transform3D(Basis(), Vector3(0.0, 0.62, side * 0.68)),
+			colour.lightened(0.42)
+		)
+
+	# Bumpers at both ends and a lamp on the nose. A coaster train is a string
+	# of cars that touch, and the bumper is the part that says so.
+	for end: float in [-1.0, 1.0]:
+		var bumper := BoxMesh.new()
+		bumper.size = Vector3(0.14, 0.22, 1.1)
+		Park._add(
+			tool, bumper,
+			Transform3D(Basis(), Vector3(end * 1.24, 0.16, 0.0)),
+			Color(0.24, 0.24, 0.27)
+		)
+	var lamp := CylinderMesh.new()
+	lamp.top_radius = 0.13
+	lamp.bottom_radius = 0.13
+	lamp.height = 0.08
+	lamp.radial_segments = 10
+	lamp.rings = 1
+	Park._add(
+		tool, lamp,
+		Transform3D(Basis(Vector3.BACK, deg_to_rad(-90.0)), Vector3(1.74, 0.46, 0.0)),
+		Color(1.0, 0.95, 0.78)
+	)
+
 	# The running gear: four road wheels and the upstops under them, which is
 	# the part that tells a child the car is held onto the rail rather than
 	# resting on it — and the honest answer to how it stays on through a loop.
@@ -1221,8 +1285,16 @@ func _roll(delta: float) -> void:
 		# So while anybody is in a car and nobody has booked the next ride,
 		# the train simply stands there. Wanting to go round again is a thing
 		# a child says at the button, by paying for it.
-		if _waiting <= 0.0 and _rider_aboard and not _booked:
-			_waiting = 0.2
+		if _waiting <= 0.0:
+			if _rider_aboard and _carrying and not _booked:
+				# The lap this rider bought is over and they are still in the
+				# car: it stands until they get out, or until they pay for
+				# another. It must not hold a rider who has only just got in —
+				# that stopped the ride leaving at all, which is worse than
+				# the fault it was fixing.
+				_waiting = 0.2
+			else:
+				_carrying = _rider_aboard
 		_speed = 0.0
 		return
 

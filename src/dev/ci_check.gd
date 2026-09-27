@@ -142,6 +142,7 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_an_a_frame()
 	_check_the_coasters_button_is_on_its_platform()
 	_check_a_rider_stays_in_through_a_loop()
+	_check_a_rider_can_see_out()
 	_check_nobody_rides_the_coaster_unstrapped()
 	_check_the_rides_are_paid_for()
 
@@ -8292,6 +8293,46 @@ func _check_the_animals_keep_off_the_playing_places() -> void:
 ## from stalls halfway up a hill and the train stands there for ever; brakes
 ## that are too weak run the station; a dwell that never fires means a child
 ## has to step into a moving car. None of it can be seen in a screenshot.
+## A rider can see out.
+##
+## The camera arm sweeps a sphere backwards from the shoulder and stops
+## against anything solid, which is right in a wood and wrong inside a coaster
+## car: the floor, the walls and the seat back are all solid, so the arm
+## collapsed to nothing and the whole view of the ride was the inside of a
+## restraint. A child climbs into that car to look at the valley going past.
+func _check_a_rider_can_see_out() -> void:
+	print("a rider can see out")
+	var player := Player.new()
+	get_root().add_child(player)
+	var rig := CameraRig.new(player)
+	get_root().add_child(rig)
+	await process_frame
+
+	var arm := rig.get_node("SpringArm3D") as SpringArm3D
+	if arm == null:
+		for child in rig.get_children():
+			if child is SpringArm3D:
+				arm = child
+	_expect(arm != null, "the camera hangs on an arm")
+	if arm == null:
+		return
+	var walking := arm.collision_mask
+	_expect(walking != 0, "walking, the arm stops against the world")
+
+	rig.set_riding(true)
+	_expect(
+		arm.collision_mask == 0,
+		"riding, nothing pushes the camera into the car"
+	)
+	_expect(
+		arm.spring_length >= CameraRig.RIDE_ARM - 0.01,
+		"and it stands %.1f m back, far enough to see the train" % arm.spring_length
+	)
+	rig.set_riding(false)
+	_expect(arm.collision_mask == walking, "and it is itself again afterwards")
+	rig.queue_free()
+	player.queue_free()
+
 ## Nobody rides the coaster unrestrained.
 ##
 ## The shoulder bars come down for a ticket and for nothing else, so anybody
@@ -8390,6 +8431,27 @@ func _check_nobody_rides_the_coaster_unstrapped() -> void:
 	get_root().add_child(patient)
 	patient.book()
 	patient.rider_aboard(true)
+	# A whole lap first: the train must leave with a rider who has just got
+	# in — holding that one was worse than the fault it fixed, and it stopped
+	# the ride from working at all.
+	var lap := 0.0
+	# Three stages, in order, because "it is not boarding" is also true of a
+	# train that has not reached the platform yet — which is what the first
+	# draft of this check tripped over, breaking at 2.3 seconds and measuring
+	# the stop it was already standing in.
+	while not patient.boarding() and lap < 60.0:
+		patient._physics_process(1.0 / 60.0)
+		lap += 1.0 / 60.0
+	_expect(patient.boarding(), "the booked train pulls up with them aboard")
+	while patient.boarding() and lap < 120.0:
+		patient._physics_process(1.0 / 60.0)
+		lap += 1.0 / 60.0
+	_expect(not patient.boarding(), "it leaves with a rider who has just sat down")
+	while not patient.boarding() and lap < 300.0:
+		patient._physics_process(1.0 / 60.0)
+		lap += 1.0 / 60.0
+	_expect(patient.boarding(), "and comes back to the platform with them")
+
 	var waited_out := 0.0
 	var ran_on := 0.0
 	while ran_on < 40.0:
