@@ -11,7 +11,7 @@
 
 An open world that comes alive as you build in it.
 
-**Aava** /ˈɑːʋɑ/ — Finnish for *vast, open expanse*, said most often of the open sea (*aava meri*) or a wide, unobstructed landscape. Where the word itself comes from is not settled: it may be a variant of *aapa*, the term for the open, treeless mires of Finland's north, shifted by association with *avata*, "to open"; or a separate borrowing from Sámi. Either root points the same way — a country you can see all the way across, and build anything in.
+**Aava** /ˈɑːʋɑ/ — Finnish for *vast, open expanse*, said most often of the open sea (*aava meri*) or a wide, unobstructed landscape. Where the word itself comes from is not settled: it may be a variant of *aapa*, the term for the open, treeless mires of Finland's north, shifted by association with *avata*, "to open"; or a separate borrowing from Sámi. Either root points the same way — a country you can see all the way across, and build anything in, which is the freedom the game is actually built around. Finland is also, out of all proportion to its size, a games country — Supercell, Rovio, Remedy — and a small project made by one person on evenings and weekends is not a strange place to borrow a word from it.
 
 Aava is a 3D exploration-and-building game for children, written in GDScript
 on Godot 4. The valley is a pure function of one integer seed: the ground, the
