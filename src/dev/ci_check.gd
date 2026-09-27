@@ -114,6 +114,7 @@ func _initialize() -> void:
 	_check_the_shop_sells_seconds_and_buys_back()
 	_check_the_machines_steer()
 	_check_a_machine_lies_on_the_hill_it_is_crossing()
+	_check_a_stranded_mount_walks_off_the_cliff()
 	_check_the_view_can_be_swapped()
 	_check_what_moves_every_frame_is_not_interpolated()
 	_check_the_wheels_turn()
@@ -4811,7 +4812,27 @@ func _check_riding() -> void:
 	# Dismounting leaves it beside where the child left it, which is where
 	# they will look for it — beside, not underneath: see
 	# `_check_getting_off_a_mount_is_safe`.
+	# Somewhere dry, and found rather than assumed: this used to be a fixed
+	# offset that happened to land in the river, and the horse left standing
+	# in it is now walked out on the next load — so the check was asserting
+	# that a rescue does not happen.
 	var elsewhere := spot + Vector3(30.0, 0.0, -18.0)
+	for ring in 20:
+		var out := 12.0 + 6.0 * float(ring)
+		var found := false
+		for step in 12:
+			var bearing := TAU * float(step) / 12.0
+			var try := spot + Vector3(cos(bearing), 0.0, sin(bearing)) * out
+			if (
+				field.height_at(try.x, try.z) > field.water_level_at(try.x, try.z) + 1.0
+				and field.steepness_at(try.x, try.z) < 0.3
+				and not field.is_pond(try.x, try.z)
+			):
+				elsewhere = try
+				found = true
+				break
+		if found:
+			break
 	_expect(mounts.dismount(elsewhere, 0.0) == MountKinds.HORSE, "it can be dismounted")
 	_expect(mounts.riding == &"", "and riding stops")
 	var left_at := mounts.position_of(MountKinds.HORSE)
@@ -9481,6 +9502,64 @@ func _check_the_shop_sells_seconds_and_buys_back() -> void:
 ## was a quad coming down a bank perfectly horizontal, and a horse doing the
 ## same — which is what a child reported. The heading is remembered now, so
 ## the basis is free to be the truth.
+## A mount left on ground it cannot stand on comes off it when the valley
+## loads.
+##
+## A machine or a horse stays wherever its rider got off, and a rider can get
+## off on the side of a cliff. Nothing in the game can then reach it to put it
+## right — which is what "the horse is stuck" meant, and it had to be mended
+## by hand through a cable. It is mended on the way in now: the nearest
+## footing that is not a cliff and not a pond, a stride or two away in the
+## ordinary case, and everything standing somewhere sensible is left alone.
+func _check_a_stranded_mount_walks_off_the_cliff() -> void:
+	print("a stranded mount walks off the cliff")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+
+	# The steepest ground within reach of the camp, which is where a rider
+	# ends up when a bank turns out to be a cliff.
+	var camp := field.camp_centre()
+	var cliff := camp
+	var steepest := 0.0
+	for step in 2000:
+		var angle := TAU * float(step) / 200.0
+		var out := 30.0 + 260.0 * float(step) / 2000.0
+		var at := camp + Vector3(cos(angle), 0.0, sin(angle)) * out
+		var slope := field.steepness_at(at.x, at.z)
+		if slope > steepest:
+			steepest = slope
+			cliff = Vector3(at.x, field.height_at(at.x, at.z), at.z)
+	_expect(steepest > 0.5, "there is a cliff to be left on: %.2f" % steepest)
+
+	mounts.from_data({"quad:0": [cliff.x, cliff.y, cliff.z]})
+	var parked := mounts.node_of(&"quad:0")
+	_expect(parked != null, "the quad is in the valley")
+	if parked == null:
+		return
+	var where := parked.global_position
+	_expect(
+		field.steepness_at(where.x, where.z) < 0.5,
+		"it comes off the cliff, onto ground of %.2f" % field.steepness_at(where.x, where.z)
+	)
+	_expect(
+		where.distance_to(cliff) < 160.0,
+		"and not to the other side of the valley: %.0f m" % where.distance_to(cliff)
+	)
+
+	# One standing somewhere ordinary is not moved at all.
+	var flat := Vector3(ParkSpec.centre().x, ParkSpec.LEVEL, ParkSpec.centre().z)
+	var settled := Mounts.new(field)
+	get_root().add_child(settled)
+	settled.from_data({"bicycle": [flat.x, flat.y, flat.z]})
+	var stayed := settled.node_of(MountKinds.BICYCLE).global_position
+	_expect(
+		Vector2(stayed.x - flat.x, stayed.z - flat.z).length() < 0.01,
+		"a bicycle on level ground is left where it was"
+	)
+	settled.queue_free()
+	mounts.queue_free()
+
 func _check_a_machine_lies_on_the_hill_it_is_crossing() -> void:
 	print("a machine lies on the hill it is crossing")
 	var field := HeightField.new(20260903)

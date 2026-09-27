@@ -917,6 +917,17 @@ func from_data(data: Dictionary) -> void:
 		# against. Boats stay where they are; a boat in a lake is a boat.
 		if not MountKinds.floats(id) and _is_in_water(at):
 			at = _walk_out_of_the_water(at)
+		# And one left on ground it cannot stand on walks off it.
+		#
+		# A machine or a horse is left wherever its rider got off, and a rider
+		# can get off on the side of a cliff — where the animal then stands
+		# for ever at an angle with nothing to do, which is what "the horse is
+		# stuck" meant. Nothing in the game could reach it to put it right, so
+		# it is put right on the way in: the nearest footing that is not a
+		# cliff and not a pond, which is a stride or two away in the ordinary
+		# case and leaves everything else exactly where it was.
+		if not MountKinds.floats(id) and not _is_dry_footing(at):
+			at = _walk_out_of_the_water(at)
 		place(id, at)
 
 ## Where a machine bought at the shop is left standing it,
