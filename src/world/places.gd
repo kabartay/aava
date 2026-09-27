@@ -382,6 +382,13 @@ const IDLE_SWAY_SPEED := 0.8
 var _wind_time := 0.0
 
 func _init(height_field: HeightField) -> void:
+	# Animated in _process, so the engine's physics interpolation must not
+	# touch it. See LESSONS.md: with interpolation on, a node's transform is
+	# sampled once a physics tick and drawn a tick late, which throws away
+	# everything moved between ticks — sixty-hertz motion on a hundred-and-
+	# twenty-hertz screen, which is the flicker a child described as the world
+	# coming in frames.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	field = height_field
 
 ## Put the three places around the camp. Called once.

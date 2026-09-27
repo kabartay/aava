@@ -45,6 +45,13 @@ var _flames: Dictionary = {}
 var _where: Dictionary = {}
 
 func _init(height_field: HeightField) -> void:
+	# Animated in _process, so the engine's physics interpolation must not
+	# touch it. See LESSONS.md: with interpolation on, a node's transform is
+	# sampled once a physics tick and drawn a tick late, which throws away
+	# everything moved between ticks — sixty-hertz motion on a hundred-and-
+	# twenty-hertz screen, which is the flicker a child described as the world
+	# coming in frames.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	field = height_field
 
 ## Every campfire that has been built, told to us by the structures.

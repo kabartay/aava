@@ -81,6 +81,18 @@ var _tip_distance := ARM_LENGTH
 
 func _init(player: Player) -> void:
 	_player = player
+	# The camera is driven every drawn frame, and must not be interpolated.
+	#
+	# Physics interpolation is on for the whole project, because
+	# get_global_transform_interpolated() — which is how this rig follows a
+	# body that moves at sixty hertz without inheriting its staircase —
+	# requires it. But a node the game itself moves in _process is a different
+	# case: the engine samples its transform once a physics tick and draws it
+	# a tick late, throwing away every frame of smoothing done in between. So
+	# all of this rig's careful per-frame easing was being quantised back to
+	# sixty hertz and delayed, which on a fast screen is exactly the flicker a
+	# child described as the world arriving in frames.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	position.y = SHOULDER_HEIGHT + _eye_lift
 
 	_arm = SpringArm3D.new()
@@ -101,6 +113,10 @@ func _init(player: Player) -> void:
 	# top_level detaches the camera from this rig's transform, which is what lets
 	# it lag behind the arm rather than being nailed to it.
 	camera.top_level = true
+	# top_level detaches it from this rig's transform, and interpolation mode
+	# is inherited down the tree rather than through the transform, so it is
+	# set here as well rather than assumed.
+	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	camera.fov = FOV_WALK
 	camera.far = 4000.0
 	add_child(camera)

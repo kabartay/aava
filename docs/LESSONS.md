@@ -484,3 +484,27 @@ private address and failed in CI, where a Docker bridge sits alongside the
 runner's real interface: the second address round-tripped through the
 first one's prefix and landed somewhere else. Fixed by testing only the
 primary address, which is the only round trip the function ever promised.
+
+## Physics interpolation is for what physics moves, and nothing else
+
+`physics/common/physics_interpolation` is on for this project because
+`Node3D.get_global_transform_interpolated()` requires it, and that call is how
+the camera follows a body moving at sixty hertz without inheriting its
+staircase. It is right for anything moved in `_physics_process` — the player,
+the coaster cars, the gondolas — and actively wrong for everything moved in
+`_process`.
+
+With it on, the engine samples a node's transform once per physics tick and
+draws an interpolation of the last two, **discarding whatever the node did
+between ticks**. So every `_process`-driven easing in the game — the camera
+rig's follow and zoom, the animals' legs, a horse's gait, the pickups' bob —
+was being quantised back to sixty hertz and drawn a tick late. On a sixty-hertz
+screen that is nearly invisible; on a phone running at ninety or a hundred and
+twenty it reads as the world arriving in frames, which is exactly how it was
+reported.
+
+The fix is per-node: `physics_interpolation_mode = PHYSICS_INTERPOLATION_MODE_OFF`
+on anything the game moves itself every drawn frame. The mode is inherited down
+the tree — but through the *tree*, not through the transform, so a `top_level`
+child (the camera) needs its own. A check walks the nodes that animate in
+`_process` and asserts it.

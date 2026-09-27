@@ -115,6 +115,7 @@ func _initialize() -> void:
 	_check_the_machines_steer()
 	_check_a_machine_lies_on_the_hill_it_is_crossing()
 	_check_the_view_can_be_swapped()
+	_check_what_moves_every_frame_is_not_interpolated()
 	_check_the_wheels_turn()
 	_check_the_animals_walk_at_their_own_pace()
 	_check_a_sheep_is_solid_as_wide_as_she_looks()
@@ -9690,6 +9691,62 @@ func _check_the_machines_steer() -> void:
 ## already set are where the head is pointed: swapping the view does not move
 ## what a child was looking at. And the body is not drawn from inside it, which
 ## would be the back of a skull filling the screen.
+## Whatever the game moves every drawn frame is not also interpolated by the
+## engine.
+##
+## Physics interpolation is on for the whole project, because
+## get_global_transform_interpolated() requires it and that is how the camera
+## follows a body moving at sixty hertz without inheriting its staircase. It
+## is right for anything moved in _physics_process and wrong for everything
+## moved in _process: the engine samples such a node once a physics tick and
+## draws it a tick late, so every frame of easing done in between is thrown
+## away. Sixty-hertz motion on a hundred-and-twenty-hertz screen is what a
+## child called the world arriving in frames.
+func _check_what_moves_every_frame_is_not_interpolated() -> void:
+	print("what moves every frame is not interpolated")
+	_expect(
+		ProjectSettings.get_setting("physics/common/physics_interpolation", false),
+		"interpolation is on for the project, as the camera needs"
+	)
+	var field := HeightField.new(20260903)
+	var player := Player.new()
+	get_root().add_child(player)
+	var rig := CameraRig.new(player)
+	get_root().add_child(rig)
+	_expect(
+		rig.physics_interpolation_mode == Node.PHYSICS_INTERPOLATION_MODE_OFF,
+		"and off for the camera rig, which moves itself every frame"
+	)
+	_expect(
+		rig.camera.physics_interpolation_mode == Node.PHYSICS_INTERPOLATION_MODE_OFF,
+		"and off for the camera, which top_level detaches but does not exempt"
+	)
+	# The player is the other way about: it moves at sixty hertz and wants
+	# every bit of the smoothing.
+	_expect(
+		player.physics_interpolation_mode != Node.PHYSICS_INTERPOLATION_MODE_OFF,
+		"the player keeps it, because the player moves with the physics"
+	)
+	rig.queue_free()
+	player.queue_free()
+
+	for named: Array in [
+		["the animals", Animals.new(field, 20260903)],
+		["the mounts", Mounts.new(field)],
+		["the ducks", Ducks.new()],
+		["the birds", Birds.new()],
+		["the pickups", Pickups.new(field, 20260903)],
+		["the hearths", Hearths.new(field)],
+		["the boulders", Boulders.new(field, 20260903)],
+	]:
+		var node: Node = named[1]
+		get_root().add_child(node)
+		_expect(
+			node.physics_interpolation_mode == Node.PHYSICS_INTERPOLATION_MODE_OFF,
+			"%s move themselves every frame, so they are not interpolated" % named[0]
+		)
+		node.queue_free()
+
 func _check_the_view_can_be_swapped() -> void:
 	print("the view can be swapped")
 	var player := Player.new()
