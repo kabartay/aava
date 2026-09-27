@@ -315,12 +315,15 @@ func _build_platform(tool: SurfaceTool) -> void:
 	for side: float in [-1.0, 1.0]:
 		var rail := BoxMesh.new()
 		rail.size = Vector3(PLATFORM_SIZE.x, 0.10, 0.10)
-		Park._add(
-			tool, rail,
-			Transform3D(Basis(), Vector3(
-				where.x, top + 0.95, where.z + side * PLATFORM_SIZE.z * 0.5
-			)),
-			STEEL
+		var rail_at := Transform3D(Basis(), Vector3(
+			where.x, top + 0.95, where.z + side * PLATFORM_SIZE.z * 0.5
+		))
+		Park._add(tool, rail, rail_at, STEEL)
+		# Solid, like any other rail. These were drawn and no more, so a
+		# machine ridden at the platform went through them.
+		Park._solid(
+			body, Vector3(PLATFORM_SIZE.x, 1.0, 0.16),
+			Transform3D(Basis(), rail_at.origin - Vector3(0.0, 0.45, 0.0))
 		)
 		for stanchion in 2:
 			var post := BoxMesh.new()

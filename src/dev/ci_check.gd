@@ -113,6 +113,7 @@ func _initialize() -> void:
 	_check_an_old_tree_is_moved_off_ground_that_is_now_kept()
 	_check_the_shop_sells_seconds_and_buys_back()
 	_check_the_machines_steer()
+	_check_a_machine_lies_on_the_hill_it_is_crossing()
 	_check_the_view_can_be_swapped()
 	_check_the_wheels_turn()
 	_check_the_animals_walk_at_their_own_pace()
@@ -8059,6 +8060,36 @@ func _check_the_rides_are_solid() -> void:
 	var space := get_root().get_world_3d().direct_space_state
 	var waist := 1.0
 
+	# The trampoline stops you at its edge.
+	#
+	# The mat was solid and so were eight legs, and eight legs round a
+	# fourteen-metre circle leave five-metre gaps: a motorcycle rode straight
+	# between them and out the other side, underneath the mat, which from the
+	# saddle looks exactly like riding through a trampoline.
+	var mat := park.trampoline_mat()
+	for angle: float in [0.0, 1.1, 2.4, 3.6, 4.9]:
+		var out := Vector3(cos(angle), 0.0, sin(angle))
+		_expect(
+			_blocked(
+				space,
+				mat + out * (Park.TRAMPOLINE_RADIUS + 3.0) + Vector3(0.0, -0.4, 0.0),
+				mat + Vector3(0.0, -0.4, 0.0)
+			),
+			"the trampoline stops you from the %.1f side" % angle
+		)
+
+	# And the boarding platform's rails do, which were drawn and no more.
+	var platform := park.wheel.global_position + FerrisWheel.PLATFORM_AT
+	var deck := park.wheel.boarding_floor()
+	_expect(
+		_blocked(
+			space,
+			platform + Vector3(0.0, deck + 0.5, FerrisWheel.PLATFORM_SIZE.z * 0.5 + 2.0),
+			platform + Vector3(0.0, deck + 0.5, 0.0)
+		),
+		"and the platform's rail stops you walking off the side of it"
+	)
+
 	# Across the wheel's frame, at the height a child walks: the ray starts
 	# outside one pair of legs and ends outside the other.
 	# The bar across a gondola's doorway stops you too.
@@ -9441,6 +9472,67 @@ func _check_the_shop_sells_seconds_and_buys_back() -> void:
 ## left out of the one list that says a thing turns by going round rather than
 ## by pointing — and it was ridden into the shop and parked between the
 ## shelves, which the building had no opinion about either.
+## A machine being ridden lies on the ground it is crossing.
+##
+## It was held dead level, on purpose, because everything used to read a
+## mount's heading back off its own basis and a basis with pitch and roll in
+## it does not decompose into the heading that was put in. The cost of that
+## was a quad coming down a bank perfectly horizontal, and a horse doing the
+## same — which is what a child reported. The heading is remembered now, so
+## the basis is free to be the truth.
+func _check_a_machine_lies_on_the_hill_it_is_crossing() -> void:
+	print("a machine lies on the hill it is crossing")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+
+	# A slope steep enough to see: found rather than assumed.
+	var camp := field.camp_centre()
+	var spot := camp
+	var steepest := 0.0
+	for step in 400:
+		var angle := TAU * float(step) / 400.0
+		var at := camp + Vector3(cos(angle), 0.0, sin(angle)) * 60.0
+		var here := field.height_at(at.x, at.z)
+		var on := field.height_at(at.x + cos(angle) * 3.0, at.z + sin(angle) * 3.0)
+		if absf(on - here) > steepest:
+			steepest = absf(on - here)
+			spot = Vector3(at.x, here, at.z)
+	_expect(steepest > 0.6, "there is a bank to ride down: %.2f m over three" % steepest)
+
+	var facing := 0.7
+	mounts.place(MountKinds.QUAD, spot, facing)
+	mounts.mount(MountKinds.QUAD)
+	mounts.carry(spot, facing)
+	var node := mounts.node_of(MountKinds.QUAD)
+	_expect(node != null, "the quad is in the valley")
+	if node == null:
+		return
+
+	var up := node.global_transform.basis * Vector3.UP
+	_expect(
+		up.angle_to(Vector3.UP) > deg_to_rad(4.0),
+		"ridden across a bank it is tipped %.0f degrees, not held flat"
+			% rad_to_deg(up.angle_to(Vector3.UP))
+	)
+	# And the heading survives being tipped, which is the thing that made
+	# anybody keep it flat in the first place.
+	_expect(
+		absf(angle_difference(mounts.facing_of(MountKinds.QUAD), facing)) < 0.001,
+		"and it still knows which way it is pointed"
+	)
+
+	# On the level it lies level, so this is the ground talking and not a
+	# permanent tilt.
+	var flat := Vector3(ParkSpec.centre().x, ParkSpec.LEVEL, ParkSpec.centre().z)
+	mounts.carry(flat, facing)
+	var level := node.global_transform.basis * Vector3.UP
+	_expect(
+		level.angle_to(Vector3.UP) < deg_to_rad(3.0),
+		"on the flat it sits flat: %.1f degrees" % rad_to_deg(level.angle_to(Vector3.UP))
+	)
+	mounts.queue_free()
+
 func _check_the_machines_steer() -> void:
 	print("the machines steer")
 	for wheeled: StringName in [

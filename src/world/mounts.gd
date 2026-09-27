@@ -21,6 +21,14 @@ const REACH := 3.2
 
 var field: HeightField
 var riding := &""
+## Which way each mount is pointed, remembered rather than read back off its
+## basis: a basis with pitch and roll in it does not decompose into the
+## heading that was put into it, and every mount here is tipped to its ground.
+var _facings: Dictionary = {}
+
+## Which way a mount is pointed.
+func facing_of(kind: StringName) -> float:
+	return float(_facings.get(kind, 0.0))
 
 ## Whether the child owns a saddle. Set by the game from the purse, because a
 ## horse does not know what is in a shop and Mounts must not depend on one.
@@ -74,6 +82,7 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 	# put the whole thing at the height of its middle, so on a slope one end
 	# was buried and the other in the air.
 	node.transform.basis = _lie_on_the_ground(grounded, facing, kind)
+	_facings[kind] = facing
 	_nodes[kind] = node
 	_positions[kind] = grounded
 
@@ -276,14 +285,17 @@ func carry(at: Vector3, facing: float) -> void:
 	var spot := at
 	spot.y = _rest_height(riding, at)
 	node.global_position = spot
-	# A ridden machine is simply pointed where its rider is pointed.
+	# A ridden machine lies on the ground it is crossing, like a parked one.
 	#
-	# It was being tipped to the ground under it here as well, and that broke
-	# two things at once: everything else in this file reads `node.rotation.y`
-	# to know which way a mount faces, and the Euler decomposition of a basis
-	# with pitch and roll in it is not the heading that was put in. Parked
-	# machines are tipped — see `place` — and ridden ones are not.
-	node.rotation = Vector3(0.0, facing, 0.0)
+	# It was kept dead level here, and the reason it was kept level is worth
+	# keeping: everything used to read `node.rotation.y` to know which way a
+	# mount faces, and the Euler decomposition of a basis with pitch and roll
+	# in it is not the heading that was put in. The heading is remembered
+	# instead, so the basis is free to be the truth — and a quad coming down
+	# a bank stays flat no longer. That was the report: "I came down the hill
+	# on the quad and it was horizontal".
+	node.transform.basis = _lie_on_the_ground(spot, facing, riding)
+	_facings[riding] = facing
 	_positions[riding] = spot
 	# How fast it is going is worked out in _process, where there is a delta
 	# worth dividing by. It was worked out here from get_process_delta_time(),
@@ -305,10 +317,21 @@ func _lie_on_the_ground(at: Vector3, facing: float, kind: StringName) -> Basis:
 	var half_long: float = (MountKinds.body_box(kind)[0] as Vector3).z * 0.5
 	var half_wide := maxf(MountKinds.girth(kind), 0.2)
 
-	var front := field.height_at(at.x + ahead.x * half_long, at.z + ahead.z * half_long)
-	var back := field.height_at(at.x - ahead.x * half_long, at.z - ahead.z * half_long)
-	var right := field.height_at(at.x + across.x * half_wide, at.z + across.z * half_wide)
-	var left := field.height_at(at.x - across.x * half_wide, at.z - across.z * half_wide)
+	# Asked of the surface it stands on rather than of the terrain: over the
+	# crossing the ground is the riverbed, and a machine tipped to that on the
+	# bridge would stand on its nose.
+	var front := field.standing_height_at(
+		at.x + ahead.x * half_long, at.z + ahead.z * half_long, at.y
+	)
+	var back := field.standing_height_at(
+		at.x - ahead.x * half_long, at.z - ahead.z * half_long, at.y
+	)
+	var right := field.standing_height_at(
+		at.x + across.x * half_wide, at.z + across.z * half_wide, at.y
+	)
+	var left := field.standing_height_at(
+		at.x - across.x * half_wide, at.z - across.z * half_wide, at.y
+	)
 
 	# Held to a limit, so that a wheel over a boulder does not stand the
 	# machine on its nose.
@@ -451,7 +474,8 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 		var spot := at + Vector3(cos(facing), 0.0, -sin(facing)) * STEP_ASIDE
 		spot.y = _rest_height(kind, spot)
 		node.global_position = spot
-		node.rotation.y = facing
+		node.transform.basis = _lie_on_the_ground(spot, facing, kind)
+		_facings[kind] = facing
 		_positions[kind] = spot
 	_waiting_to_be_solid[kind] = true
 	dismounted.emit(kind)
@@ -752,7 +776,7 @@ func nose_ahead(kind: StringName) -> float:
 	if head == null:
 		return 0.0
 	var node: Node3D = _nodes[kind]
-	var forward := Vector3.FORWARD.rotated(Vector3.UP, node.rotation.y)
+	var forward := Vector3.FORWARD.rotated(Vector3.UP, facing_of(kind))
 	return (nose_at(kind) - node.global_position).dot(forward)
 
 func _head_of(kind: StringName) -> MeshInstance3D:

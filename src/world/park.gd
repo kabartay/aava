@@ -383,6 +383,26 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		Transform3D(Basis(), at + Vector3(0.0, TRAMPOLINE_TOP - 0.05, 0.0)),
 		Color(0.13, 0.15, 0.20)
 	)
+	# The rim is solid all the way round.
+	#
+	# Only the mat and eight legs were, and eight legs round a fourteen-metre
+	# circle leave five-metre gaps: a motorcycle rode straight between them
+	# and out the other side, under the mat, which from the saddle looks
+	# exactly like riding through the trampoline. A ring of short posts closes
+	# it — you stop against the edge of the thing, as you would.
+	for piece in 28:
+		var round_it := TAU * float(piece) / 28.0
+		var on_rim := Vector2(cos(round_it), sin(round_it)) * TRAMPOLINE_RADIUS
+		# Wide enough to overlap its neighbours: a ring of posts with gaps in
+		# it is a ring with a way through, and a bicycle is narrow.
+		Park._solid(
+			solid, Vector3(1.9, TRAMPOLINE_TOP + 0.4, 0.9),
+			Transform3D(
+				Basis(Vector3.UP, -round_it),
+				at + Vector3(on_rim.x, (TRAMPOLINE_TOP + 0.4) * 0.5, on_rim.y)
+			)
+		)
+
 	# The mat is solid, so a child stands on it; the bounce is the game's
 	# business, in exactly the way the playground's is.
 	var pad := CylinderShape3D.new()
