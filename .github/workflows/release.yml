@@ -87,3 +87,14 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match .zenodo.json version $zenoded"
             exit 1
           fi
+          # A fifth: the BibTeX block in README.md is typed out by hand for
+          # anyone who copies it without clicking GitHub's "Cite this
+          # repository" button, and it is exactly the kind of copy that gets
+          # forgotten — a reader found this one lagging two releases behind
+          # after the other four copies had already been checked here.
+          cited_readme=$(grep -E '^  version   = \{' README.md | head -1 | sed -E 's/.*\{([^}]+)\}.*/\1/')
+          echo "README.md BibTeX: $cited_readme"
+          if [ "$tag" != "$cited_readme" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match README.md BibTeX version $cited_readme"
+            exit 1
+          fi
