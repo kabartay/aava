@@ -76,3 +76,14 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match CITATION.cff version $cited"
             exit 1
           fi
+          # A fourth copy: .zenodo.json carries its own version field, because
+          # Zenodo's GitHub integration reads that file rather than
+          # CITATION.cff. It is not generated from anything, so it drifted
+          # silently for two releases running — v0.4.3 was archived on
+          # Zenodo labelled "0.4.2", and nobody noticed until a reader did.
+          zenoded=$(grep -E '"version"' .zenodo.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          echo ".zenodo.json: $zenoded"
+          if [ "$tag" != "$zenoded" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match .zenodo.json version $zenoded"
+            exit 1
+          fi
