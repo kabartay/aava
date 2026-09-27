@@ -8814,6 +8814,54 @@ func _check_the_loops_hold_the_train_in() -> void:
 				weakest = pull
 				weakest_loop = loop
 	_expect(entered.size() == RollerCoaster.LOOPS.size(), "both loops are ridden")
+
+	# And nothing anywhere on the circuit pulls a rider sideways harder than a
+	# fairground ride should.
+	#
+	# A bend here is a half-circle of six and a half metres, and the first
+	# drop used to finish inside one: the train arrived at twenty-nine metres
+	# a second and pulled thirteen and a half g across the seat, which is not
+	# a ride but a centrifuge. The drop finishes on the straight now and the
+	# brakes come on before the last bend.
+	var sideways := 0.0
+	var sideways_at := 0.0
+	var tilt_wrong := 0.0
+	coaster._roll(0.0)
+	for _step in int(200.0 / tick):
+		coaster._roll(tick)
+		var where := coaster.car_distance()
+		if int(RollerCoaster.unwind(where)[1]) >= 0:
+			continue
+		var bank := absf(coaster.bank_at(where))
+		if bank < 0.01:
+			continue
+		var pull := coaster.speed() * coaster.speed() / RollerCoaster.HALF_WIDTH \
+			/ RollerCoaster.GRAVITY
+		if pull > sideways:
+			sideways = pull
+			sideways_at = RollerCoaster.base_fraction_at(where)
+
+	_expect(
+		sideways < 4.0,
+		"the hardest bend pulls %.1f g across the seat, at %.2f round" % [
+			sideways, sideways_at
+		]
+	)
+	# And in the middle of each bend, where it is fully laid over, the bank is
+	# the angle that speed asks for: tan(bank) = v²/rg, between the gentle
+	# minimum and the angle a car can hang at. Measured in the middle because
+	# the lean eases in and out at the ends of a bend, as a real one does.
+	for middle: float in [0.465, 0.965]:
+		var along := RollerCoaster.distance_of(middle)
+		var pace := coaster.speed_at(along / RollerCoaster.circuit())
+		var pull := pace * pace / RollerCoaster.HALF_WIDTH / RollerCoaster.GRAVITY
+		var wants := clampf(atan(pull), RollerCoaster.BANK, RollerCoaster.BANK_MAX)
+		tilt_wrong = maxf(tilt_wrong, absf(absf(coaster.bank_at(along)) - wants))
+	_expect(
+		tilt_wrong < deg_to_rad(3.0),
+		"and each bend is laid over by the angle its speed asks for: %.1f deg out"
+			% rad_to_deg(tilt_wrong)
+	)
 	_expect(
 		weakest > 1.5,
 		"and held in at %.1f times its own weight over the top of loop %d" % [

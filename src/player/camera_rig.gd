@@ -151,8 +151,21 @@ func set_riding(on: bool) -> void:
 	)
 	_arm.spring_length = RIDE_ARM if on else _distance
 
-## How far back the camera sits while riding.
+## How far back the camera sits while riding, and how quickly it comes round
+## to face the way the ride is going.
 const RIDE_ARM := 7.2
+## Slow on purpose. A camera nailed to the train's heading cannot be looked
+## away from, and half of a coaster is looking at the drop you are about to go
+## down; slow enough that a thumb wins for a few seconds, and then it comes
+## back round to the front by itself. Holding the view forward by hand, all
+## the way round, was the complaint.
+const RIDE_LOOK := 1.1
+
+## Told, while riding, which way the ride is pointed.
+func look_along(heading: float, delta: float) -> void:
+	if not _riding:
+		return
+	yaw = lerp_angle(yaw, heading, 1.0 - exp(-RIDE_LOOK * delta))
 
 var _riding := false
 

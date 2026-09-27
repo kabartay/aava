@@ -48,7 +48,19 @@ var _waiting_for_ground := false
 var _autosave := AUTOSAVE_SECONDS
 var _seen_first_grove := false
 
+## The game's own frame runs after everything it reads.
+##
+## A rider in a coaster car is put where the car is, and that has to be where
+## the car is *now*. Godot calls a parent's _physics_process before its
+## children's, and the game is the root of the tree, so it was placing the
+## rider from the car's position on the previous frame — at twenty-nine metres
+## a second that is half a metre of lag, arriving as a judder in the seat
+## every frame. A later priority puts this after the rides have moved.
+const RUNS_AFTER_THE_WORLD := 100
+
 func _ready() -> void:
+	process_priority = RUNS_AFTER_THE_WORLD
+	process_physics_priority = RUNS_AFTER_THE_WORLD
 	InputActions.register()
 
 	profiles = Profiles.new()
@@ -549,6 +561,11 @@ func _physics_process(delta: float) -> void:
 	# And the camera stops being shoved into the seat back by the car it is
 	# riding in.
 	camera_rig.set_riding(strapped)
+	if strapped:
+		# Which way the car is pointed: its own forward, turned into the yaw
+		# the camera is steered by.
+		var ahead := seat.basis * Vector3.FORWARD
+		camera_rig.look_along(atan2(-ahead.x, -ahead.z), delta)
 
 	# Nobody rides it unrestrained. The bars come down for a ticket and for
 	# nothing else, so anybody still in a car once the train has left the

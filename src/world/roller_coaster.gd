@@ -30,9 +30,8 @@ const HALF_WIDTH := 6.5
 ## because a coaster cannot climb higher than it has fallen from and a profile
 ## that pretends otherwise is the one thing a ten-year-old will notice.
 const PROFILE: Array = [
-	[0.00, 1.30], [0.05, 1.30], [0.30, 48.0], [0.33, 46.5], [0.40, 28.0],
-	[0.46, 2.20], [0.66, 2.40], [0.72, 18.0], [0.78, 5.00], [0.84, 11.0],
-	[0.88, 4.00], [0.92, 6.00], [0.96, 2.00], [1.00, 1.30],
+	[0.00, 1.30], [0.05, 1.30], [0.30, 50.0], [0.42, 48.0], [0.50, 40.0],
+	[0.58, 2.20], [0.80, 2.40], [0.86, 13.0], [0.92, 3.60], [1.00, 1.30],
 ]
 
 ## The two loops, as [where on the base circuit they stand, their radius].
@@ -56,8 +55,8 @@ const PROFILE: Array = [
 ## had. They stand thirty-four metres apart along the base line, which is what
 ## the two hoops need to avoid standing in one another.
 const LOOPS: Array = [
-	[0.51, 14.00],
-	[0.63, 11.60],
+	[0.63, 14.00],
+	[0.75, 11.60],
 ]
 
 ## How far outside the rails the yellow hoop that carries a loop stands, and
@@ -69,10 +68,15 @@ const HOOP := Color(0.96, 0.74, 0.16)
 
 ## Where the cars pull up, where the chain lift ends, and where the brakes
 ## take hold on the way back in.
+##
+## The brakes come on before the last bend rather than inside it. A bend here
+## is six and a half metres of radius, and a train still doing twenty through
+## one is ten g sideways — so the run home is slowed on the straight, and the
+## bend into the station is taken at a walk.
 const BOARDS_AT := 0.02
 const LIFT_FOOT := 0.05
 const LIFT_TOP := 0.30
-const BRAKES_FROM := 0.94
+const BRAKES_FROM := 0.86
 
 ## The button on the platform, and how close you have to be to press it.
 ##
@@ -329,7 +333,19 @@ func height_at(fraction: float) -> float:
 ## bank comes on where the straight ends and eases off where the next one
 ## begins; which way it leans is worked out from the track itself, by asking
 ## which way the tangent is swinging.
+## How far a bend lays the train over.
+##
+## Worked out from the speed rather than fixed at a pretty angle. A bend here
+## is a half-circle of six and a half metres, and the train used to arrive in
+## one at the bottom of the first drop doing twenty-nine metres a second —
+## thirteen and a half g sideways, which is not a fairground ride but a
+## centrifuge. Two things fix that and both are real: the drop now finishes on
+## the straight *after* the bend rather than inside it, and the bank is the
+## angle the speed actually asks for, tan(bank) = v²/(rg), so the force a
+## rider feels is through the seat rather than across it. Capped, because past
+## about sixty degrees a car is hanging off the side of the track.
 const BANK := deg_to_rad(24.0)
+const BANK_MAX := deg_to_rad(62.0)
 const BANK_EASE := 5.0
 
 func bank_at(distance: float) -> float:
@@ -345,11 +361,22 @@ func bank_at(distance: float) -> float:
 	var behind := base_point_at(base - 2.0)
 	var into := Vector2(ahead.x - here.x, ahead.z - here.z).normalized()
 	var out_of := Vector2(here.x - behind.x, here.z - behind.z).normalized()
-	# How far the heading swings over four metres: nothing on a straight, and
-	# a steady amount all the way round a bend.
+	# How far the heading swings between the two samples: nothing on a
+	# straight, and a steady amount all the way round a bend.
+	#
+	# The samples are two metres either side, so the swing between them is the
+	# turn over *two* metres, not four — the divisor said four, so a bend
+	# never counted as more than half a bend and the track laid over at half
+	# the angle it meant to.
 	var swing := out_of.angle_to(into)
-	var lean := clampf(swing / (4.0 / HALF_WIDTH), -1.0, 1.0)
-	return -lean * BANK
+	var lean := clampf(swing / (2.0 / HALF_WIDTH), -1.0, 1.0)
+	if absf(lean) < 0.01:
+		return 0.0
+	# The angle this speed asks for on this radius, and no more than a car can
+	# hang at.
+	var pace := speed_at(distance / circuit())
+	var ideal := atan2(pace * pace, HALF_WIDTH * GRAVITY)
+	return -lean * minf(maxf(ideal, BANK), BANK_MAX)
 
 ## The way a car sits at a point on the track: pointed along it, pitched with
 ## its slope, and laid over into its bend. Asked by the rails, the sleepers and
@@ -412,6 +439,11 @@ func speed_at(fraction: float) -> float:
 		return LIFT_SPEED
 	# Off the track's own height, so a loop counts: the top of one is fifteen
 	# metres of climb like any other, and the train is slow there.
+	# In the brakes it is a crawl, whatever the height says. This is read by
+	# the banking, and a bend taken at walking pace laid over at sixty degrees
+	# because the arithmetic thought the train was still doing thirty.
+	if base_fraction_at(f * circuit()) >= BRAKES_FROM:
+		return CRAWL
 	var fallen := height_at(LIFT_TOP) - point_at(f * circuit()).y
 	return clampf(sqrt(maxf(0.0, 2.0 * GRAVITY * fallen)), CRAWL, TOP_SPEED)
 
@@ -1135,6 +1167,26 @@ func _build_car(index: int) -> AnimatableBody3D:
 				HARNESS.darkened(0.2)
 			)
 		Park.commit(harness, hinge, "Pads")
+
+		# And a closed restraint is something, not nothing.
+		#
+		# The bars were drawn and no more, so a child could step out through
+		# a locked harness — which on a ride whose whole promise is that it
+		# holds you is the worst sort of scenery. The shape is the car's own
+		# and sits where the closed bars are; it is switched on once they are
+		# down, so it cannot close on somebody walking in.
+		var pad_shape := BoxShape3D.new()
+		pad_shape.size = Vector3(0.55, 0.42, 1.0)
+		var pads := CollisionShape3D.new()
+		pads.shape = pad_shape
+		pads.position = Vector3(
+			-0.46 + cos(HARNESS_DROP) * (HARNESS_REACH + HARNESS_PAD * 0.5),
+			1.42 - sin(HARNESS_DROP) * (HARNESS_REACH + HARNESS_PAD * 0.5),
+			0.0
+		)
+		pads.disabled = true
+		car.add_child(pads)
+		_harness_shapes.append(pads)
 	return car
 
 func _solid(car: AnimatableBody3D, size: Vector3, where: Vector3) -> void:
@@ -1191,6 +1243,8 @@ func _physics_process(delta: float) -> void:
 		# About the car's own across-axis, so the pads swing down in front of
 		# the rider rather than out of the side of the car.
 		hinge.rotation.z = -HARNESS_DROP * _locked
+	for shape in _harness_shapes:
+		shape.disabled = _locked < 0.75
 	_moved.clear()
 	for index in _cars.size():
 		_moved.append(_cars[index].position - before[index])
@@ -1249,6 +1303,8 @@ var _moved: Array[Vector3] = []
 ## Every shoulder harness on the train, and how far down they are: nought at
 ## the platform, one on the ride.
 var _harnesses: Array[Node3D] = []
+## What makes a closed restraint solid.
+var _harness_shapes: Array[CollisionShape3D] = []
 ## The door across each car's way in, and the shapes that make them solid.
 var _doors: Array[Node3D] = []
 var _door_shapes: Array[CollisionShape3D] = []
