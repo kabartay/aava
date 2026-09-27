@@ -11,27 +11,41 @@
 
 An open world that comes alive as you build in it.
 
-A 3D exploration-and-building game made for two brothers, aged 10 and 6, with a
-2-year-old and their parents living in the world as its first inhabitants.
+Aava is a 3D exploration-and-building game for children, written in GDScript
+on Godot 4. The valley is a pure function of one integer seed: the ground, the
+river, the forest and the mountains are computed rather than stored, so
+nothing about the world has to be saved, sent between two machines playing
+together, or loaded from a file. What is saved is only what a child has
+changed — see *Every world is one integer*, below.
 
-You arrive in an empty valley. Everything you build makes it more alive, and the
-more alive it is, the more it gives back: plant a grove and birds arrive, feed
-an animal and it becomes a friend, raise a house with a bed and a fire and it
-becomes somewhere to actually spend the night rather than a shape standing in a
-field. Creation is the engine of the game, not its decoration.
+The loop is creation rather than collection. Everything built makes the valley
+more alive, and the more alive it is the more it gives back: plant a grove and
+birds arrive, feed an animal and it becomes a friend, raise a house with a bed
+and a fire and it becomes somewhere to actually spend the night rather than a
+shape standing in a field. Coins come from looking after things, and are spent
+on tools that widen what a child can reach — an axe, shears, a lantern, a
+bicycle, a motorcycle, a quad, a horse to ford the river a wheeled machine
+cannot — rather than on numbers going up.
 
 Since the first line of this file was written, the valley has grown mountains
 with snow on their shoulders and ice in their hollows, a river long enough to
 be worth following, two lakes — one of them up a hillside, holding its own
 water at its own height — a day/night cycle with a lantern for the dark, a bow
-range, a herd of twenty horses and a shop you walk into to buy a bicycle or a
-motorcycle, a flock of sheep to shear and cows to milk, an economy where
-felling a tree costs what growing one paid, campfires that need feeding and
-beds worth sleeping in, animals that speak on their own terms, a whole ambient
-soundscape synthesised from nothing but code, and a way for a brother to invite
-the other into his own copy of the valley over the family Wi-Fi and talk to him
-while they play. None of it is loaded from disk — see *Every world is one
-integer*, below.
+range, a herd of twenty horses and a shop to buy a mount from, a flock of
+sheep to shear and cows to milk, an economy where felling a tree costs what
+growing one paid, campfires that need feeding and beds worth sleeping in,
+animals that speak on their own terms, and a whole ambient soundscape
+synthesised from nothing but code.
+
+There is a fairground across the river with a carousel, two moving walkways,
+a trampoline, a fifty-metre wheel and a wooden coaster with two vertical
+loops, whose speed is integrated from the slope of its own track — the loops
+are sized by what the drop actually pays out, v² ≥ 5gR, rather than by eye. A
+bridge crosses to it, because a machine on wheels cannot ford the river and a
+horse can; street signs stand where the four roads meet, each turned by
+asking where its own road actually goes. And a way to invite another player
+into your own copy of the valley over the local network, and talk to them
+while you play.
 
 ## Running it
 
