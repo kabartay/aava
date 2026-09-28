@@ -2351,21 +2351,23 @@ func _check_the_shop_floor_machines_do_not_overlap() -> void:
 ## are checked against the box it was asked to fit inside.
 func _check_the_shop_paintings_stay_inside_their_frames() -> void:
 	print("the shop's paintings stay inside their own frames")
-	var wall_x := 8.0
+	var art_x := 8.0
 	for spec: Array in [
-		["mountains", 3.1, 1.0, 2.0, 1.0, &"mountains"],
-		["motorcycles", 2.65, -2.0, 1.0, 0.7, &"motorcycles"],
-		["pasture", 2.65, 3.2, 1.0, 0.7, &"pasture"],
+		["mountains", Places.PAINTING_MOUNTAINS_AT, Places.PAINTING_MOUNTAINS_SIZE, &"mountains"],
+		["bicycle", Places.PAINTING_BICYCLE_AT, Places.PAINTING_BICYCLE_SIZE, &"bicycle"],
+		["pasture", Places.PAINTING_PASTURE_AT, Places.PAINTING_PASTURE_SIZE, &"pasture"],
 	]:
 		var name: String = spec[0]
-		var y: float = spec[1]
-		var z: float = spec[2]
-		var width: float = spec[3]
-		var height: float = spec[4]
-		var subject: StringName = spec[5]
+		var at: Vector3 = spec[1]
+		var size: Vector2 = spec[2]
+		var subject: StringName = spec[3]
+		var y: float = at.y
+		var z: float = at.z
+		var width: float = size.x
+		var height: float = size.y
 		var tool := SurfaceTool.new()
 		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-		Places._hang_painting(tool, wall_x, y, z, width, height, subject)
+		Places._hang_painting(tool, art_x * at.x, y, z, width, height, subject)
 		tool.generate_normals()
 		var mesh := tool.commit()
 		var points := (mesh as ArrayMesh).get_faces()

@@ -112,6 +112,19 @@ const SHOP_MOTORCYCLE_Z: Array[float] = [-0.2, 1.4]
 ## with this one the moment either changed.
 const SHOP_BICYCLE_RANK_FROM := SHOP_MID_Z - SHOP_DEPTH * 0.5 + 1.7
 const SHOP_BICYCLE_RANK_TO := SHOP_COUNTER_Z - 2.5
+
+## Where each painting hangs: which wall (+1 motorcycle side, -1 bicycle
+## side), its height and depth into the room, its width and height. Named
+## rather than left as literals scattered through _build_shop, because the
+## check that rebuilds a painting to hold it against its own frame has to
+## hang the same picture — not a second one that quietly stops matching the
+## day either changes.
+const PAINTING_MOUNTAINS_AT := Vector3(1.0, 3.0, 1.6)
+const PAINTING_MOUNTAINS_SIZE := Vector2(4.0, 2.0)
+const PAINTING_BICYCLE_AT := Vector3(-1.0, 2.8, -1.6)
+const PAINTING_BICYCLE_SIZE := Vector2(2.0, 1.4)
+const PAINTING_PASTURE_AT := Vector3(-1.0, 2.8, 4.8)
+const PAINTING_PASTURE_SIZE := Vector2(2.0, 1.4)
 ## The two stands down the middle, where the small goods are laid out.
 const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
 ## How many shelves run along the wall behind the counter.
@@ -1080,14 +1093,19 @@ func _build_shop(at: Vector3) -> void:
 		)
 		_collide(solid, _box_shape(Vector3(2.3, 1.4, 0.9)), Transform3D(Basis(), Vector3(wall_x, 0.7, along)))
 
-	# Three paintings on the wall the motor vehicles stand along, high enough
-	# to clear them: the valley the game is set in, and the two things a
-	# machine from this shop is bought to do — race, or carry you out to where
-	# the animals are.
+	# Three paintings: the valley this game is set in on the motorcycle wall,
+	# and a bicycle and a grazing herd facing it from the bicycle wall — the
+	# two things a child saving up in here is picturing themselves doing.
 	var art_x := w * 0.5 - thick * 0.5
-	_hang_painting(tool, art_x, 3.1, 1.0, 2.0, 1.0, &"mountains")
-	_hang_painting(tool, art_x, 2.65, -2.0, 1.0, 0.7, &"motorcycles")
-	_hang_painting(tool, art_x, 2.65, 3.2, 1.0, 0.7, &"pasture")
+	for painting: Array in [
+		[PAINTING_MOUNTAINS_AT, PAINTING_MOUNTAINS_SIZE, &"mountains"],
+		[PAINTING_BICYCLE_AT, PAINTING_BICYCLE_SIZE, &"bicycle"],
+		[PAINTING_PASTURE_AT, PAINTING_PASTURE_SIZE, &"pasture"],
+	]:
+		var spot: Vector3 = painting[0]
+		var size: Vector2 = painting[1]
+		var subject: StringName = painting[2]
+		_hang_painting(tool, art_x * spot.x, spot.y, spot.z, size.x, size.y, subject)
 
 	# Two stands down the middle with the small goods laid out on them, and the
 	# same goods again on the shelves behind the counter.
@@ -1266,10 +1284,15 @@ static func _hang_painting(
 	tool: SurfaceTool, wall_x: float, y: float, z: float,
 	width: float, height: float, subject: StringName
 ) -> void:
+	# Which way "into the room" is, from this wall. The shop's two side walls
+	# are mirror images of one another either side of x = 0, so the sign of
+	# wall_x itself says which one this is — no second argument needed to
+	# tell a painting on the bicycle wall from one on the motorcycle wall.
+	var facing := -signf(wall_x)
 	var frame_depth := 0.06
 	var canvas_depth := 0.03
-	var frame_x := wall_x - frame_depth * 0.5
-	var canvas_x := frame_x - frame_depth * 0.5 - canvas_depth * 0.5 + 0.01
+	var frame_x := wall_x + facing * frame_depth * 0.5
+	var canvas_x := frame_x + facing * (frame_depth * 0.5 + canvas_depth * 0.5 - 0.01)
 
 	var frame := BoxMesh.new()
 	frame.size = Vector3(frame_depth, height + 0.12, width + 0.12)
@@ -1278,9 +1301,9 @@ static func _hang_painting(
 	var sky: Color
 	var ground: Color
 	match subject:
-		&"motorcycles":
-			sky = Color(0.86, 0.58, 0.34)
-			ground = Color(0.46, 0.46, 0.48)
+		&"bicycle":
+			sky = Color(0.90, 0.70, 0.42)
+			ground = Color(0.52, 0.40, 0.28)
 		&"pasture":
 			sky = Color(0.70, 0.82, 0.90)
 			ground = Color(0.36, 0.56, 0.30)
@@ -1288,7 +1311,18 @@ static func _hang_painting(
 			sky = Color(0.62, 0.74, 0.84)
 			ground = Color(0.30, 0.42, 0.26)
 
-	var horizon := y - height * 0.5 + height * (0.62 if subject == &"mountains" else 0.5)
+	var ground_fraction := 0.5
+	match subject:
+		&"mountains":
+			ground_fraction = 0.62
+		&"bicycle":
+			# Almost the whole picture is above the ground here: a bicycle
+			# standing on it reaches nearly to the top of the frame, and
+			# giving it only the top half — which is right for a horse or a
+			# cow, most of which is leg and back above the ground — left no
+			# room for the wheels, let alone the seat and the bars above them.
+			ground_fraction = 0.12
+	var horizon := y - height * 0.5 + height * ground_fraction
 	var sky_panel := BoxMesh.new()
 	sky_panel.size = Vector3(canvas_depth, y + height * 0.5 - horizon, width)
 	_add(
@@ -1304,12 +1338,12 @@ static func _hang_painting(
 		)), ground
 	)
 
-	var out := canvas_x - canvas_depth * 0.5 - 0.01
+	var out := canvas_x + facing * (canvas_depth * 0.5 + 0.01)
 	match subject:
 		&"mountains":
 			_paint_mountains(tool, out, y, z, width, height, horizon)
-		&"motorcycles":
-			_paint_motorcycle(tool, out, y, z, width, height, horizon)
+		&"bicycle":
+			_paint_bicycle(tool, out, y, z, width, height, horizon)
 		&"pasture":
 			_paint_pasture(tool, out, y, z, width, height, horizon)
 
@@ -1320,9 +1354,33 @@ static func _hang_painting(
 static func _paint_mountains(
 	tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float, horizon: float
 ) -> void:
+	# A sliver of lake along the foot of the peaks before the forest starts,
+	# so the horizon is a shoreline rather than a flat seam between two
+	# colours — the valley this shop stands in has a river running through
+	# exactly this view.
+	var lake := BoxMesh.new()
+	lake.size = Vector3(0.008, height * 0.05, width)
+	_add(tool, lake, Transform3D(Basis(), Vector3(out + 0.002, horizon - height * 0.02, z)), Color(0.34, 0.48, 0.56))
 	var forest := BoxMesh.new()
 	forest.size = Vector3(0.01, height * 0.1, width)
-	_add(tool, forest, Transform3D(Basis(), Vector3(out, horizon - height * 0.05, z)), Color(0.16, 0.26, 0.16))
+	_add(tool, forest, Transform3D(Basis(), Vector3(out, horizon - height * 0.07, z)), Color(0.16, 0.26, 0.16))
+	# A cloud, so the sky is not empty air above the peaks: two overlapping
+	# flattened spheres rather than one, which is what stops a cloud reading
+	# as a second, paler mountain.
+	for puff: Vector2 in [Vector2(-0.09, 0.0), Vector2(0.06, 0.03)]:
+		var cloud := SphereMesh.new()
+		cloud.radius = width * 0.09
+		cloud.height = width * 0.09 * 1.4
+		cloud.radial_segments = 10
+		cloud.rings = 6
+		_add(
+			tool, cloud,
+			Transform3D(
+				Basis().scaled(Vector3(0.12, 0.7, 1.0)),
+				Vector3(out, y + height * 0.32 + puff.y * height, z + puff.x * width)
+			),
+			Color(0.98, 0.98, 0.99)
+		)
 
 	# Rises are a fraction of the headroom actually left above the horizon,
 	# not of the painting's own height: peaks sized against the whole canvas
@@ -1373,48 +1431,99 @@ static func _paint_mountains(
 			Color(0.95, 0.96, 0.98)
 		)
 
-## A single machine leant hard into a bend, with a streak of speed behind it —
-## an icon rather than a scene, the way the coaster's own direction arrows are
-## icons and not photographs.
-static func _paint_motorcycle(
+## A bar between two points in the flat Y-Z picture a painting actually is,
+## thin in X. Rotated about X — the one axis pointing straight out of the
+## canvas at the viewer — because that is the axis a segment drawn in a
+## height-and-width plane has to turn around to point anywhere but straight
+## up. `p1` and `p2` are (z, y): sideways first, then height, which is the
+## order every call below reads most naturally in.
+static func _bar(tool: SurfaceTool, out: float, p1: Vector2, p2: Vector2, thickness: float, colour: Color) -> void:
+	var delta := p2 - p1
+	var length := delta.length()
+	if length < 0.001:
+		return
+	var mid := (p1 + p2) * 0.5
+	var bar := BoxMesh.new()
+	bar.size = Vector3(thickness, length, thickness)
+	_add(
+		tool, bar,
+		Transform3D(Basis(Vector3.RIGHT, atan2(delta.x, delta.y)), Vector3(out, mid.y, mid.x)),
+		colour
+	)
+
+## A bicycle, side on: two wheels, a diamond frame, a fork, a seat and a
+## handlebar — the shape a bicycle actually is, rather than a leaning box
+## between two discs that could have been anything with two wheels. The
+## wheels are rings, not filled discs, which is what a wheel is and what a
+## solid coin painted the same colour is not.
+static func _paint_bicycle(
 	tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float, horizon: float
 ) -> void:
-	# Rotated about X, the axis pointing straight out of the canvas at the
-	# viewer: that is the one axis a lean has to turn around to show up as a
-	# lean in what is actually a flat Y-Z picture.
-	var lean := Basis(Vector3.RIGHT, deg_to_rad(22.0))
-	var body := BoxMesh.new()
-	body.size = Vector3(0.01, height * 0.22, width * 0.48)
-	_add(
-		tool, body, Transform3D(lean, Vector3(out, horizon + height * 0.22, z - width * 0.05)),
-		Color(0.78, 0.16, 0.14)
-	)
-	for wheel: float in [-1.0, 1.0]:
-		var tyre := CylinderMesh.new()
-		tyre.top_radius = height * 0.14
-		tyre.bottom_radius = height * 0.14
-		tyre.height = 0.01
-		tyre.radial_segments = 14
-		tyre.rings = 1
+	# Sized against the headroom actually left above the horizon, not against
+	# the painting's whole height — the same fix the mountains needed. A
+	# bicycle standing on the ground uses nearly all of it: the wheels touch
+	# down at the horizon and the bars reach almost to the frame's own top.
+	var headroom := (y + height * 0.5) - horizon
+	var wheel_r := headroom * 0.30
+	var rear := Vector2(z - width * 0.26, horizon + wheel_r)
+	var front := Vector2(z + width * 0.26, horizon + wheel_r)
+	var crank := Vector2(z - width * 0.02, horizon + wheel_r * 0.55)
+	var seat := Vector2(z - width * 0.20, horizon + headroom * 0.86)
+	var head := Vector2(z + width * 0.26, horizon + headroom * 0.80)
+	var bar_ends := Vector2(z + width * 0.34, horizon + headroom * 0.90)
+
+	for hub in [rear, front]:
+		var tyre := TorusMesh.new()
+		tyre.outer_radius = wheel_r
+		tyre.inner_radius = wheel_r * 0.62
+		tyre.rings = 6
+		tyre.ring_segments = 18
 		_add(
 			tool, tyre,
-			Transform3D(
-				Basis(Vector3.BACK, deg_to_rad(90.0)),
-				Vector3(out, horizon + height * 0.14, z + wheel * width * 0.24 - width * 0.05)
-			),
-			Color(0.12, 0.12, 0.13)
+			Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(out, hub.y, hub.x)),
+			Color(0.14, 0.14, 0.15)
 		)
-	for streak in 3:
-		var line := BoxMesh.new()
-		line.size = Vector3(0.005, 0.02, width * (0.3 - float(streak) * 0.06))
+		var hub_cap := SphereMesh.new()
+		hub_cap.radius = wheel_r * 0.14
+		hub_cap.height = hub_cap.radius * 1.6
+		hub_cap.radial_segments = 8
+		hub_cap.rings = 4
 		_add(
-			tool, line,
-			Transform3D(Basis(), Vector3(
-				out - 0.004, horizon + height * (0.2 + float(streak) * 0.07),
-				z + width * 0.32 + float(streak) * 0.02
-			)),
-			Color(1.0, 1.0, 1.0, 0.8)
+			tool, hub_cap, Transform3D(Basis(), Vector3(out, hub.y, hub.x)), Color(0.70, 0.72, 0.75)
 		)
+
+	var frame_colour := Color(0.16, 0.42, 0.62)
+	var frame_bars: Array = [
+		[rear, seat], [seat, crank], [crank, rear], [crank, head], [head, seat], [head, front],
+	]
+	for bar: Array in frame_bars:
+		_bar(tool, out, bar[0], bar[1], headroom * 0.05, frame_colour)
+
+	# The seat, and the handlebar and the grips at its ends: without them the
+	# top of the frame stops at bare tubes and nothing says which way is the
+	# front of the bicycle.
+	_bar(
+		tool, out, seat, seat + Vector2(-width * 0.04, headroom * 0.05),
+		headroom * 0.05, Color(0.20, 0.20, 0.22)
+	)
+	_bar(tool, out, head, bar_ends, headroom * 0.045, Color(0.20, 0.20, 0.22))
+	_bar(
+		tool, out, bar_ends + Vector2(-width * 0.03, 0.0), bar_ends + Vector2(width * 0.03, 0.0),
+		headroom * 0.05, Color(0.20, 0.20, 0.22)
+	)
+
+	# The pedal and crank arm, so the shape under the seat is plainly a
+	# bicycle's motion rather than a third, unexplained wheel.
+	var pedal := SphereMesh.new()
+	pedal.radius = headroom * 0.05
+	pedal.height = pedal.radius * 1.6
+	pedal.radial_segments = 8
+	pedal.rings = 4
+	_add(
+		tool, pedal,
+		Transform3D(Basis(), Vector3(out, crank.y - wheel_r * 0.3, crank.x + wheel_r * 0.25)),
+		Color(0.16, 0.16, 0.18)
+	)
 
 ## Horses and cows grazing, each a coloured ellipsoid rather than a drawn
 ## animal: at this size and this distance a shape and a colour is all a child
@@ -1423,16 +1532,58 @@ static func _paint_motorcycle(
 static func _paint_pasture(
 	tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float, horizon: float
 ) -> void:
+	# A sun, low over the field, and a single tree to give the meadow a
+	# horizon of its own rather than an unbroken band of green.
+	var sun := SphereMesh.new()
+	sun.radius = height * 0.14
+	sun.height = sun.radius * 1.4
+	sun.radial_segments = 12
+	sun.rings = 8
+	_add(
+		tool, sun,
+		Transform3D(
+			Basis().scaled(Vector3(0.1, 1.0, 1.0)),
+			Vector3(out, y + height * 0.3, z - width * 0.36)
+		),
+		Color(0.98, 0.86, 0.44)
+	)
+	var trunk := BoxMesh.new()
+	trunk.size = Vector3(0.012, height * 0.22, height * 0.05)
+	_add(tool, trunk, Transform3D(Basis(), Vector3(out, horizon + height * 0.11, z + width * 0.40)), Color(0.32, 0.22, 0.15))
+	var canopy := SphereMesh.new()
+	canopy.radius = height * 0.16
+	canopy.height = canopy.radius * 1.7
+	canopy.radial_segments = 10
+	canopy.rings = 6
+	_add(
+		tool, canopy,
+		Transform3D(
+			Basis().scaled(Vector3(0.14, 1.0, 1.0)),
+			Vector3(out, horizon + height * 0.30, z + width * 0.40)
+		),
+		Color(0.22, 0.40, 0.20)
+	)
+
 	var herd: Array = [
 		[-width * 0.32, Color(0.58, 0.36, 0.20), 1.0],
 		[-width * 0.10, Color(0.92, 0.90, 0.86), 0.85],
 		[width * 0.12, Color(0.92, 0.90, 0.86), 0.85],
-		[width * 0.32, Color(0.58, 0.36, 0.20), 1.05],
+		[width * 0.30, Color(0.58, 0.36, 0.20), 1.05],
 	]
 	for beast: Array in herd:
 		var across: float = beast[0]
 		var hide: Color = beast[1]
 		var built: float = beast[2]
+		# Legs first, so the body sits on something rather than floating over
+		# the grass: four short bars is all a flattened silhouette needs to
+		# read as standing.
+		for leg: float in [-0.5, -0.17, 0.17, 0.5]:
+			_bar(
+				tool, out,
+				Vector2(z + across + leg * height * 0.16 * built, horizon),
+				Vector2(z + across + leg * height * 0.16 * built, horizon + height * 0.08 * built),
+				height * 0.028, hide.darkened(0.35)
+			)
 		var body := SphereMesh.new()
 		body.radius = height * 0.16 * built
 		body.height = height * 0.24 * built
@@ -1442,7 +1593,7 @@ static func _paint_pasture(
 			tool, body,
 			Transform3D(
 				Basis().scaled(Vector3(0.4, 0.7, 1.0)),
-				Vector3(out, horizon + height * 0.1 * built, z + across)
+				Vector3(out, horizon + height * 0.08 * built + height * 0.1 * built, z + across)
 			),
 			hide
 		)
@@ -1454,7 +1605,8 @@ static func _paint_pasture(
 		_add(
 			tool, head,
 			Transform3D(Basis(), Vector3(
-				out - 0.01, horizon + height * 0.16 * built, z + across + height * 0.16 * built
+				out - 0.01, horizon + height * 0.08 * built + height * 0.16 * built,
+				z + across + height * 0.16 * built
 			)),
 			hide.darkened(0.15)
 		)
