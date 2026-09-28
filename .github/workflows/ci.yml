@@ -65,6 +65,18 @@ jobs:
             exit 1
           fi
 
+      # A debug build with no keystore still needs the right Android permissions
+      # to behave on a real device: hosting a LAN game failed silently on a phone
+      # with "could not open the valley" because the export preset's permission
+      # list never had INTERNET in it, and nothing checked for that until someone
+      # tried to host over Wi-Fi.
+      - name: Android export declares INTERNET permission
+        run: |
+          if ! grep -qE 'permissions/custom_permissions=.*android\.permission\.INTERNET' export_presets.cfg; then
+            echo "::error::export_presets.cfg is missing android.permission.INTERNET — ENetMultiplayerPeer.create_server() fails on Android without it"
+            exit 1
+          fi
+
       - name: Checks
         run: ~/godot/godot --headless --path . --script src/dev/ci_check.gd
 
