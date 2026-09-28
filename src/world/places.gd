@@ -121,9 +121,9 @@ const SHOP_BICYCLE_RANK_TO := SHOP_COUNTER_Z - 2.5
 ## day either changes.
 const PAINTING_MOUNTAINS_AT := Vector3(1.0, 3.0, 1.6)
 const PAINTING_MOUNTAINS_SIZE := Vector2(4.0, 2.0)
-const PAINTING_BICYCLE_AT := Vector3(-1.0, 2.8, -1.6)
+const PAINTING_BICYCLE_AT := Vector3(-1.0, 2.8, 0.0)
 const PAINTING_BICYCLE_SIZE := Vector2(2.0, 1.4)
-const PAINTING_PASTURE_AT := Vector3(-1.0, 2.8, 4.8)
+const PAINTING_PASTURE_AT := Vector3(-1.0, 2.8, 3.2)
 const PAINTING_PASTURE_SIZE := Vector2(2.0, 1.4)
 ## The two stands down the middle, where the small goods are laid out.
 const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
@@ -1476,8 +1476,13 @@ static func _paint_bicycle(
 		var tyre := TorusMesh.new()
 		tyre.outer_radius = wheel_r
 		tyre.inner_radius = wheel_r * 0.62
-		tyre.rings = 6
-		tyre.ring_segments = 18
+		# The wheel is the one shape here that has to read as a circle from
+		# across the room, and it was reading as a hexagon: rings is the
+		# major circle — the wheel's own outline — and ring_segments is only
+		# the tube's cross-section, so the six that mattered were on the
+		# wrong one.
+		tyre.rings = 28
+		tyre.ring_segments = 10
 		_add(
 			tool, tyre,
 			Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(out, hub.y, hub.x)),
