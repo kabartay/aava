@@ -6322,6 +6322,23 @@ func _check_playing_together() -> void:
 	visitors.clear()
 	_expect(visitors.count() == 0, "and closing the session removes everyone")
 
+	# A visitor's body is a second, hand-drawn copy of the player's — it once
+	# used the player's full collision height instead of the shorter visible
+	# capsule the player actually draws, which swallowed the head sphere
+	# whole: reported live as "red, no head, wrong size". Caught here by
+	# insisting the drawn body actually stands shorter than the head it wears.
+	visitors.add(4, "Aida")
+	var body_mesh: Mesh = (visitors._visitors[4]["node"] as MeshInstance3D).mesh
+	var aabb := body_mesh.get_aabb()
+	_expect(
+		aabb.size.y < Player.HEIGHT,
+		"a visitor's whole body doesn't stand as tall as the player's collision shape"
+	)
+	_expect(
+		aabb.position.y + aabb.size.y > Player.HEIGHT * 0.79,
+		"a visitor's head clears the top of their own torso"
+	)
+
 	# The short code. A full address is fifteen characters of dots and digits,
 	# which a six-year-old cannot read out and a ten-year-old would mistype.
 	# Two devices on one family network differ only in the last number.

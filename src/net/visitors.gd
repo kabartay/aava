@@ -98,12 +98,18 @@ func _build_body(shirt: Color) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
+	# Height and vertical offset copied from Player._build_visual() rather than
+	# derived independently: a torso the full collision height tall (instead of
+	# the shorter visible capsule the player actually draws), centred a sixth
+	# higher than the player's is, swallowed the head sphere entirely and left
+	# only the shirt-coloured torso visible — "red, no head, wrong size" was one
+	# bug, not three.
 	var torso := CapsuleMesh.new()
 	torso.radius = Player.RADIUS
-	torso.height = Player.HEIGHT
+	torso.height = Player.HEIGHT * 0.66
 	torso.radial_segments = 10
 	torso.rings = 4
-	_add(tool, torso, Transform3D(Basis(), Vector3(0.0, Player.HEIGHT * 0.5, 0.0)), shirt)
+	_add(tool, torso, Transform3D(Basis(), Vector3(0.0, Player.HEIGHT * 0.33, 0.0)), shirt)
 
 	var head := SphereMesh.new()
 	head.radius = 0.21

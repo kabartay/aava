@@ -226,6 +226,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_removed.connect(_on_remote_removed)
 	session.remote_felled.connect(_on_remote_felled)
 	session.remote_dam_stick.connect(_on_remote_dam_stick)
+	session.remote_time_of_day.connect(world.atmosphere.set_time)
 
 	world.football.goal_scored.connect(_on_goal)
 	world.places.basket.connect(func(total: int) -> void:
@@ -1144,6 +1145,8 @@ func _on_guest_arrived(id: int, name: String) -> void:
 	visitors.add(id, name)
 	sounds.play(Sounds.Sound.CHIME, 1.4)
 	hud.announce(Text.format("say_joined", [name]), 4.0)
+	if session.is_host():
+		session.report_time_of_day(id, world.atmosphere.time_of_day)
 
 func _on_guest_left(id: int, name: String) -> void:
 	visitors.remove(id)

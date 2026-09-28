@@ -37,6 +37,7 @@ signal remote_built(kind: StringName, position: Vector3, spin: float)
 signal remote_removed(position: Vector3)
 signal remote_felled(position: Vector3)
 signal remote_dam_stick(site: float)
+signal remote_time_of_day(fraction: float)
 
 ## Where another child is, so they can be drawn.
 signal guest_moved(id: int, position: Vector3, facing: float)
@@ -264,6 +265,15 @@ func report_dam_stick(site: float) -> void:
 	if is_connected_to_anyone():
 		_send_dam_stick.rpc(site)
 
+## Sent by the host alone, to one guest, the moment they arrive — the host's sky
+## is the valley's sky, or a child hosting at dusk and a child joining at noon
+## on the same machine's clock would each see a different afternoon side by
+## side. Never sent the other way: a guest's own clock, wherever it drifted to
+## before joining, is simply overridden.
+func report_time_of_day(to_peer: int, fraction: float) -> void:
+	if is_host():
+		_send_time_of_day.rpc_id(to_peer, fraction)
+
 # --- what arrives ---------------------------------------------------------
 #
 # `call_remote` on every one of these, so a machine never applies its own
@@ -292,6 +302,10 @@ func _send_felled(at: Vector3) -> void:
 @rpc("any_peer", "call_remote", "reliable")
 func _send_dam_stick(site: float) -> void:
 	remote_dam_stick.emit(site)
+
+@rpc("authority", "call_remote", "reliable")
+func _send_time_of_day(fraction: float) -> void:
+	remote_time_of_day.emit(fraction)
 
 ## Names are exchanged once on arrival rather than sent with every message.
 @rpc("any_peer", "call_remote", "reliable")

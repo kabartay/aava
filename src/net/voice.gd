@@ -220,9 +220,13 @@ func _speaker_for(id: int) -> AudioStreamGeneratorPlayback:
 
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = RATE
-	# A tenth of a second of slack. Longer would ride out worse wifi at the cost
-	# of a delay children would talk over.
-	generator.buffer_length = 0.1
+	# A tenth of a second of slack held speech to two packets' worth of buffer,
+	# so any single stutter on the sending phone — a frame the OS was slow to
+	# hand back, a scene load — arrived as a burst that filled the buffer and
+	# had the rest dropped, one lost word at a time: reported as "can hear them,
+	# just not properly." A fifth of a second rides out that kind of hitch at
+	# the cost of a little more delay, which a child mid-sentence won't notice.
+	generator.buffer_length = 0.2
 
 	var player := AudioStreamPlayer.new()
 	player.stream = generator
