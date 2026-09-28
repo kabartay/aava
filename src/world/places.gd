@@ -98,6 +98,20 @@ const SHOP_QUADS := 1
 ## motorcycle at the far end of the wall, five metres from the first.
 const SHOP_QUAD_Z := -1.8
 const SHOP_MOTORCYCLE_Z: Array[float] = [-0.2, 1.4]
+
+## Where the bicycle rank runs, front to back. Shifted half a metre nearer
+## the door than a plain margin from the front wall and the counter would
+## give: the quad stands at the front of the opposite wall, and without this
+## the nearest bicycle and the quad sat at almost the same depth into the
+## room, near enough the threshold on either hand to read as one cluttered
+## row at the door rather than two separate walls.
+##
+## Named rather than computed twice — the check that holds every machine's
+## box against every other's used to work these bounds out itself, a second
+## copy of the same arithmetic that would have gone on quietly disagreeing
+## with this one the moment either changed.
+const SHOP_BICYCLE_RANK_FROM := SHOP_MID_Z - SHOP_DEPTH * 0.5 + 1.7
+const SHOP_BICYCLE_RANK_TO := SHOP_COUNTER_Z - 2.5
 ## The two stands down the middle, where the small goods are laid out.
 const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
 ## How many shelves run along the wall behind the counter.
@@ -1036,8 +1050,8 @@ func _build_shop(at: Vector3) -> void:
 	# share the right wall, the quad nearest the door — the one machine here a
 	# child cannot yet afford is the first thing they see.
 	var wall_x := w * 0.5 - 1.5
-	var rank_from := front + 2.2
-	var rank_to := SHOP_COUNTER_Z - 2.0
+	var rank_from := SHOP_BICYCLE_RANK_FROM
+	var rank_to := SHOP_BICYCLE_RANK_TO
 	for i in SHOP_BICYCLES:
 		var along := lerpf(rank_from, rank_to, float(i) / float(maxi(SHOP_BICYCLES - 1, 1)))
 		_add_as_drawn(

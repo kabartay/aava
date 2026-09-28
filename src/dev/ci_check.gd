@@ -2315,9 +2315,8 @@ func _check_machines_on_the_shop_floor_have_wheels() -> void:
 func _check_the_shop_floor_machines_do_not_overlap() -> void:
 	print("nothing on the shop floor stands inside anything else")
 	var wall_x := Places.SHOP_WIDTH * 0.5 - 1.5
-	var front := Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5
-	var rank_from := front + 2.2
-	var rank_to := Places.SHOP_COUNTER_Z - 2.0
+	var rank_from := Places.SHOP_BICYCLE_RANK_FROM
+	var rank_to := Places.SHOP_BICYCLE_RANK_TO
 
 	var boxes: Array = []
 	for i in Places.SHOP_BICYCLES:
