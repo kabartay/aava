@@ -174,6 +174,14 @@ static func local_addresses() -> Array[String]:
 			continue
 		if address.begins_with("127."):
 			continue
+		# A phone with USB debugging on carries extra virtual interfaces (a
+		# reverse-tether link to the computer, a not-yet-configured radio) that
+		# report an address ending in .0 or .255 — the subnet and broadcast
+		# addresses, never a real host. Picking one of those as "this device's
+		# address" produces a code nobody can ever connect to. The Wi-Fi
+		# address a family network actually needs is always a host address.
+		if address.ends_with(".0") or address.ends_with(".255"):
+			continue
 		if (
 			address.begins_with("192.168.")
 			or address.begins_with("10.")
