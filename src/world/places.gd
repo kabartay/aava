@@ -1472,7 +1472,7 @@ static func _paint_bicycle(
 	var head := Vector2(z + width * 0.26, horizon + headroom * 0.80)
 	var bar_ends := Vector2(z + width * 0.34, horizon + headroom * 0.90)
 
-	for hub in [rear, front]:
+	for hub: Vector2 in [rear, front]:
 		var tyre := TorusMesh.new()
 		tyre.outer_radius = wheel_r
 		tyre.inner_radius = wheel_r * 0.62
