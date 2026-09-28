@@ -89,10 +89,15 @@ const SHOP_COUNTER_Z := SHOP_MID_Z + 4.2
 ## shelf is not.
 const SHOP_BICYCLES := 5
 const SHOP_MOTORCYCLES := 2
-## One quad on the floor, at the end of the bicycles: it is the thing between
-## the two in price, and it stands where a child walking the cheap wall meets
-## it before they reach the motorcycles.
+## One quad on the floor, on the motorcycle wall, nearest the door.
 const SHOP_QUADS := 1
+## Where the quad and the two motorcycles stand along their own wall, from
+## the door towards the counter. Fixed spots rather than an even spread: the
+## quad is the first thing to the left of the doorway, and the motorcycles
+## are close together behind it — a spread-out lerp put the second
+## motorcycle at the far end of the wall, five metres from the first.
+const SHOP_QUAD_Z := -1.8
+const SHOP_MOTORCYCLE_Z: Array[float] = [-0.2, 1.4]
 ## The two stands down the middle, where the small goods are laid out.
 const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
 ## How many shelves run along the wall behind the counter.
@@ -1027,36 +1032,48 @@ func _build_shop(at: Vector3) -> void:
 	# first thing a child walked into, which is a shop laid out by somebody who
 	# has never had to carry anything through one.
 	#
-	# Bicycles down the left wall, motorcycles down the right: the cheap thing
-	# on the way in, the dear one further back, which is how a shop is arranged
-	# and also how the saving-up reads.
+	# Bicycles down the left wall as you come in; the quad and the motorcycles
+	# share the right wall, the quad nearest the door — the one machine here a
+	# child cannot yet afford is the first thing they see.
 	var wall_x := w * 0.5 - 1.5
 	var rank_from := front + 2.2
 	var rank_to := SHOP_COUNTER_Z - 2.0
 	for i in SHOP_BICYCLES:
 		var along := lerpf(rank_from, rank_to, float(i) / float(maxi(SHOP_BICYCLES - 1, 1)))
 		_add_as_drawn(
-			tool, MountKinds.build_mesh(MountKinds.BICYCLE),
+			tool, MountKinds.display_mesh(MountKinds.BICYCLE),
 			Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), Vector3(-wall_x, 0.12, along))
 		)
 		_collide(solid, _box_shape(Vector3(1.9, 1.3, 0.7)), Transform3D(Basis(), Vector3(-wall_x, 0.65, along)))
-	for i in SHOP_QUADS:
-		var along := lerpf(rank_to - 1.2, rank_to, float(i))
-		_add_as_drawn(
-			tool, MountKinds.build_mesh(MountKinds.QUAD),
-			Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), Vector3(-wall_x + 0.4, 0.12, along))
-		)
-		_collide(
-			solid, _box_shape(Vector3(1.9, 1.3, 1.5)),
-			Transform3D(Basis(), Vector3(-wall_x + 0.4, 0.65, along))
-		)
+
+	# The quad used to stand a stride off the bicycle wall, close enough along
+	# it to overlap the nearest bicycle — the two read as one machine fused
+	# together. It belongs on the motorcycle wall regardless: it is a machine
+	# with a motor, and this is where a child comparing them stands to choose.
+	_add_as_drawn(
+		tool, MountKinds.display_mesh(MountKinds.QUAD),
+		Transform3D(Basis(Vector3.UP, deg_to_rad(-90.0)), Vector3(wall_x, 0.12, SHOP_QUAD_Z))
+	)
+	_collide(
+		solid, _box_shape(Vector3(1.9, 1.3, 1.5)),
+		Transform3D(Basis(), Vector3(wall_x, 0.65, SHOP_QUAD_Z))
+	)
 	for i in SHOP_MOTORCYCLES:
-		var along := lerpf(rank_from + 0.6, rank_to - 0.6, float(i) / float(maxi(SHOP_MOTORCYCLES - 1, 1)))
+		var along: float = SHOP_MOTORCYCLE_Z[i]
 		_add_as_drawn(
-			tool, MountKinds.build_mesh(MountKinds.MOTORCYCLE),
+			tool, MountKinds.display_mesh(MountKinds.MOTORCYCLE),
 			Transform3D(Basis(Vector3.UP, deg_to_rad(-90.0)), Vector3(wall_x, 0.12, along))
 		)
 		_collide(solid, _box_shape(Vector3(2.3, 1.4, 0.9)), Transform3D(Basis(), Vector3(wall_x, 0.7, along)))
+
+	# Three paintings on the wall the motor vehicles stand along, high enough
+	# to clear them: the valley the game is set in, and the two things a
+	# machine from this shop is bought to do — race, or carry you out to where
+	# the animals are.
+	var art_x := w * 0.5 - thick * 0.5
+	_hang_painting(tool, art_x, 3.1, 1.0, 2.0, 1.0, &"mountains")
+	_hang_painting(tool, art_x, 2.65, -2.0, 1.0, 0.7, &"motorcycles")
+	_hang_painting(tool, art_x, 2.65, 3.2, 1.0, 0.7, &"pasture")
 
 	# Two stands down the middle with the small goods laid out on them, and the
 	# same goods again on the shelves behind the counter.
@@ -1217,6 +1234,216 @@ func _build_shop(at: Vector3) -> void:
 
 	for lamp_at in SHOP_LAMPS:
 		_build_lamp(tool, at + lamp_at, at, solid, 0.5, 3.6, 9.0, 2.2)
+
+## A painting hung flush on the wall this shop's motor vehicles stand along.
+##
+## The wall runs along Z with its interior face at a fixed X, so unlike the
+## café's menu board — hung on a wall that runs along X, facing along Z — a
+## painting here is thin in X rather than in Z, and needs no rotation to face
+## into the room: a box that is thin in the direction the wall faces already
+## presents its broad side as a face, the same trick the trampoline's rim
+## posts and every axis-aligned wall in this file already rely on.
+##
+## `wall_x` is the wall's own interior surface; the frame sits proud of it
+## and the canvas sits proud of the frame, so the two read as a raised frame
+## around a recessed picture rather than as one flat slab with lines painted
+## on it.
+static func _hang_painting(
+	tool: SurfaceTool, wall_x: float, y: float, z: float,
+	width: float, height: float, subject: StringName
+) -> void:
+	var frame_depth := 0.06
+	var canvas_depth := 0.03
+	var frame_x := wall_x - frame_depth * 0.5
+	var canvas_x := frame_x - frame_depth * 0.5 - canvas_depth * 0.5 + 0.01
+
+	var frame := BoxMesh.new()
+	frame.size = Vector3(frame_depth, height + 0.12, width + 0.12)
+	_add(tool, frame, Transform3D(Basis(), Vector3(frame_x, y, z)), Color(0.30, 0.20, 0.13))
+
+	var sky: Color
+	var ground: Color
+	match subject:
+		&"motorcycles":
+			sky = Color(0.86, 0.58, 0.34)
+			ground = Color(0.46, 0.46, 0.48)
+		&"pasture":
+			sky = Color(0.70, 0.82, 0.90)
+			ground = Color(0.36, 0.56, 0.30)
+		_:
+			sky = Color(0.62, 0.74, 0.84)
+			ground = Color(0.30, 0.42, 0.26)
+
+	var horizon := y - height * 0.5 + height * (0.62 if subject == &"mountains" else 0.5)
+	var sky_panel := BoxMesh.new()
+	sky_panel.size = Vector3(canvas_depth, y + height * 0.5 - horizon, width)
+	_add(
+		tool, sky_panel, Transform3D(Basis(), Vector3(
+			canvas_x, (y + height * 0.5 + horizon) * 0.5, z
+		)), sky
+	)
+	var ground_panel := BoxMesh.new()
+	ground_panel.size = Vector3(canvas_depth, horizon - (y - height * 0.5), width)
+	_add(
+		tool, ground_panel, Transform3D(Basis(), Vector3(
+			canvas_x, (horizon + y - height * 0.5) * 0.5, z
+		)), ground
+	)
+
+	var out := canvas_x - canvas_depth * 0.5 - 0.01
+	match subject:
+		&"mountains":
+			_paint_mountains(tool, out, y, z, width, height, horizon)
+		&"motorcycles":
+			_paint_motorcycle(tool, out, y, z, width, height, horizon)
+		&"pasture":
+			_paint_pasture(tool, out, y, z, width, height, horizon)
+
+## Three peaks, snow on the tips, a dark line of forest along the foot of
+## them: the valley this game is set in, seen from the shop counter. A cone
+## flattened almost flat reads as a triangle from square on, which is the same
+## trick the walkway's direction arrows use — those are cones too.
+static func _paint_mountains(
+	tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float, horizon: float
+) -> void:
+	var forest := BoxMesh.new()
+	forest.size = Vector3(0.01, height * 0.1, width)
+	_add(tool, forest, Transform3D(Basis(), Vector3(out, horizon - height * 0.05, z)), Color(0.16, 0.26, 0.16))
+
+	# Rises are a fraction of the headroom actually left above the horizon,
+	# not of the painting's own height: peaks sized against the whole canvas
+	# came out taller than the frame and stood well clear through the top of
+	# it.
+	var headroom := (y + height * 0.5) - horizon
+	var peaks: Array = [
+		[-width * 0.28, headroom * 0.66, width * 0.42, Color(0.42, 0.38, 0.37)],
+		[width * 0.06, headroom * 0.92, width * 0.5, Color(0.48, 0.44, 0.42)],
+		[width * 0.34, headroom * 0.55, width * 0.36, Color(0.40, 0.37, 0.36)],
+	]
+	for peak: Array in peaks:
+		var across: float = peak[0]
+		var rise: float = peak[1]
+		var base: float = peak[2]
+		var stone: Color = peak[3]
+		# A cone stands upright by default — its point along local +Y, its
+		# base a circle in the local X-Z plane — which viewed along X, the
+		# direction into the wall, is already exactly a triangle: no turn is
+		# needed, only flattening in X so the peak reads as a relief rather
+		# than sticking a cone's width out into the room.
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.0
+		cone.bottom_radius = base * 0.5
+		cone.height = rise
+		cone.radial_segments = 14
+		cone.rings = 1
+		_add(
+			tool, cone,
+			Transform3D(
+				Basis().scaled(Vector3(0.16, 1.0, 1.0)),
+				Vector3(out, horizon + rise * 0.5, z + across)
+			),
+			stone
+		)
+		var snow := CylinderMesh.new()
+		snow.top_radius = 0.0
+		snow.bottom_radius = base * 0.18
+		snow.height = rise * 0.3
+		snow.radial_segments = 10
+		snow.rings = 1
+		_add(
+			tool, snow,
+			Transform3D(
+				Basis().scaled(Vector3(0.17, 1.0, 1.0)),
+				Vector3(out, horizon + rise - rise * 0.15, z + across)
+			),
+			Color(0.95, 0.96, 0.98)
+		)
+
+## A single machine leant hard into a bend, with a streak of speed behind it —
+## an icon rather than a scene, the way the coaster's own direction arrows are
+## icons and not photographs.
+static func _paint_motorcycle(
+	tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float, horizon: float
+) -> void:
+	# Rotated about X, the axis pointing straight out of the canvas at the
+	# viewer: that is the one axis a lean has to turn around to show up as a
+	# lean in what is actually a flat Y-Z picture.
+	var lean := Basis(Vector3.RIGHT, deg_to_rad(22.0))
+	var body := BoxMesh.new()
+	body.size = Vector3(0.01, height * 0.22, width * 0.48)
+	_add(
+		tool, body, Transform3D(lean, Vector3(out, horizon + height * 0.22, z - width * 0.05)),
+		Color(0.78, 0.16, 0.14)
+	)
+	for wheel: float in [-1.0, 1.0]:
+		var tyre := CylinderMesh.new()
+		tyre.top_radius = height * 0.14
+		tyre.bottom_radius = height * 0.14
+		tyre.height = 0.01
+		tyre.radial_segments = 14
+		tyre.rings = 1
+		_add(
+			tool, tyre,
+			Transform3D(
+				Basis(Vector3.BACK, deg_to_rad(90.0)),
+				Vector3(out, horizon + height * 0.14, z + wheel * width * 0.24 - width * 0.05)
+			),
+			Color(0.12, 0.12, 0.13)
+		)
+	for streak in 3:
+		var line := BoxMesh.new()
+		line.size = Vector3(0.005, 0.02, width * (0.3 - float(streak) * 0.06))
+		_add(
+			tool, line,
+			Transform3D(Basis(), Vector3(
+				out - 0.004, horizon + height * (0.2 + float(streak) * 0.07),
+				z + width * 0.32 + float(streak) * 0.02
+			)),
+			Color(1.0, 1.0, 1.0, 0.8)
+		)
+
+## Horses and cows grazing, each a coloured ellipsoid rather than a drawn
+## animal: at this size and this distance a shape and a colour is all a child
+## reads anyway, and it is the same simplification the café's menu board's
+## own little pictures already make.
+static func _paint_pasture(
+	tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float, horizon: float
+) -> void:
+	var herd: Array = [
+		[-width * 0.32, Color(0.58, 0.36, 0.20), 1.0],
+		[-width * 0.10, Color(0.92, 0.90, 0.86), 0.85],
+		[width * 0.12, Color(0.92, 0.90, 0.86), 0.85],
+		[width * 0.32, Color(0.58, 0.36, 0.20), 1.05],
+	]
+	for beast: Array in herd:
+		var across: float = beast[0]
+		var hide: Color = beast[1]
+		var built: float = beast[2]
+		var body := SphereMesh.new()
+		body.radius = height * 0.16 * built
+		body.height = height * 0.24 * built
+		body.radial_segments = 10
+		body.rings = 6
+		_add(
+			tool, body,
+			Transform3D(
+				Basis().scaled(Vector3(0.4, 0.7, 1.0)),
+				Vector3(out, horizon + height * 0.1 * built, z + across)
+			),
+			hide
+		)
+		var head := SphereMesh.new()
+		head.radius = height * 0.07 * built
+		head.height = head.radius * 1.8
+		head.radial_segments = 8
+		head.rings = 4
+		_add(
+			tool, head,
+			Transform3D(Basis(), Vector3(
+				out - 0.01, horizon + height * 0.16 * built, z + across + height * 0.16 * built
+			)),
+			hide.darkened(0.15)
+		)
 
 ## The shopkeeper: an apron, a shirt, a head and a cap, standing behind the
 ## counter. Built from the same primitives as everything else here and at the

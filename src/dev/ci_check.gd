@@ -73,6 +73,9 @@ func _initialize() -> void:
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
 	_check_the_shop_is_somewhere_you_walk_to()
+	_check_machines_on_the_shop_floor_have_wheels()
+	_check_the_shop_floor_machines_do_not_overlap()
+	_check_the_shop_paintings_stay_inside_their_frames()
 	_check_a_child_can_get_out_of_every_pond()
 	_check_the_ducks_are_only_ducks()
 	_check_the_range_is_clear()
@@ -2250,6 +2253,140 @@ func _check_the_terrace_is_off_the_doorstep() -> void:
 ## it. A child could earn coins for a week and never spend one. Nothing caught
 ## it because every check asked about the contents of the shop and none asked
 ## whether a child could get in.
+## Machines on the shop floor have wheels.
+##
+## The whole shop is one static mesh, built by copying each thing's triangles
+## into it — see _add_as_drawn in places.gd — and the bicycles, the quad and
+## the motorcycles were copied in as build_mesh(kind) alone, which is the body
+## without its wheels: those are hung on separately, as MeshInstance3D
+## children, by build_node, for the machines a child actually rides. So three
+## bicycles, a quad and the motorcycles stood on the shop floor on nothing.
+## display_mesh bakes the wheels in for exactly this case, and this checks
+## that there is geometry at each wheel spot, and that the body alone has
+## none — the shape of the bug, not just its absence.
+func _check_machines_on_the_shop_floor_have_wheels() -> void:
+	print("machines on the shop floor have wheels")
+	for kind: StringName in [MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD]:
+		var bare := MountKinds.build_mesh(kind)
+		var dressed := MountKinds.display_mesh(kind)
+		_expect(
+			dressed.get_faces().size() > bare.get_faces().size(),
+			"%s drawn for the shop has more to it than the bare body" % kind
+		)
+		var spots: Array = (
+			MountKinds.QUAD_WHEELS.map(func(v: Vector3) -> Vector3: return v * MountKinds.QUAD_SCALE)
+			if kind == MountKinds.QUAD else MountKinds.wheel_spots(kind)
+		)
+		for spot: Vector3 in spots:
+			# A wheel touches the ground directly under its own hub — that is
+			# what a wheel is for — and a fork tip or a fender does not: a
+			# fender arcs above the tyre it houses and a fork ends at the
+			# axle, at the hub's own height. So this asks what the lowest
+			# point is, straight down from the hub, rather than what is
+			# merely nearby: a fender can sit at the same distance from the
+			# spot as a tyre's rim does without ever reaching the ground.
+			var bare_lowest := 99.0
+			for p in bare.get_faces():
+				if Vector2(p.x - spot.x, p.z - spot.z).length() < 0.12:
+					bare_lowest = minf(bare_lowest, p.y)
+			var dressed_lowest := 99.0
+			for p in dressed.get_faces():
+				if Vector2(p.x - spot.x, p.z - spot.z).length() < 0.12:
+					dressed_lowest = minf(dressed_lowest, p.y)
+			_expect(
+				bare_lowest > 0.15,
+				"%s's bare body does not reach the ground under a wheel spot: lowest is %.2f m up"
+					% [kind, bare_lowest]
+			)
+			_expect(
+				dressed_lowest < 0.1,
+				"%s drawn for the shop reaches the ground under it: lowest is %.2f m up"
+					% [kind, dressed_lowest]
+			)
+
+## Nothing on the shop floor stands inside anything else.
+##
+## The quad used to stand a stride off the bicycle wall — close enough along
+## it, and close enough across it, that its box and the nearest bicycle's
+## overlapped by most of their own width. Two machines occupying the same
+## ground read as one fused shape, which is what "quad and bicycle merged"
+## meant. Checked as axis-aligned boxes, the same way the fairground's rides
+## are checked against each other.
+func _check_the_shop_floor_machines_do_not_overlap() -> void:
+	print("nothing on the shop floor stands inside anything else")
+	var wall_x := Places.SHOP_WIDTH * 0.5 - 1.5
+	var front := Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5
+	var rank_from := front + 2.2
+	var rank_to := Places.SHOP_COUNTER_Z - 2.0
+
+	var boxes: Array = []
+	for i in Places.SHOP_BICYCLES:
+		var along := lerpf(rank_from, rank_to, float(i) / float(maxi(Places.SHOP_BICYCLES - 1, 1)))
+		boxes.append(["bicycle %d" % i, Vector2(-wall_x, along), Vector2(1.9, 0.7)])
+	boxes.append(["quad", Vector2(wall_x, Places.SHOP_QUAD_Z), Vector2(1.9, 1.5)])
+	for i in Places.SHOP_MOTORCYCLES:
+		boxes.append([
+			"motorcycle %d" % i, Vector2(wall_x, Places.SHOP_MOTORCYCLE_Z[i]), Vector2(2.3, 0.9)
+		])
+
+	for first in boxes.size():
+		for second in range(first + 1, boxes.size()):
+			var a_name: String = boxes[first][0]
+			var a_at: Vector2 = boxes[first][1]
+			var a_size: Vector2 = boxes[first][2]
+			var b_name: String = boxes[second][0]
+			var b_at: Vector2 = boxes[second][1]
+			var b_size: Vector2 = boxes[second][2]
+			var apart := (a_at - b_at).abs()
+			var clear := apart.x > (a_size.x + b_size.x) * 0.5 \
+				or apart.y > (a_size.y + b_size.y) * 0.5
+			_expect(clear, "%s and %s do not stand in one another" % [a_name, b_name])
+
+## The three paintings on the shop wall stay inside their own frames.
+##
+## A mountain's rise was sized as a fraction of the whole painting's height
+## rather than of the headroom actually left above the horizon inside it, so
+## the tallest peak stood well clear through the top of its own frame — a
+## picture bursting its border reads as broken geometry, not as art. Each
+## painting is built here exactly as _build_shop builds it and its vertices
+## are checked against the box it was asked to fit inside.
+func _check_the_shop_paintings_stay_inside_their_frames() -> void:
+	print("the shop's paintings stay inside their own frames")
+	var wall_x := 8.0
+	for spec: Array in [
+		["mountains", 3.1, 1.0, 2.0, 1.0, &"mountains"],
+		["motorcycles", 2.65, -2.0, 1.0, 0.7, &"motorcycles"],
+		["pasture", 2.65, 3.2, 1.0, 0.7, &"pasture"],
+	]:
+		var name: String = spec[0]
+		var y: float = spec[1]
+		var z: float = spec[2]
+		var width: float = spec[3]
+		var height: float = spec[4]
+		var subject: StringName = spec[5]
+		var tool := SurfaceTool.new()
+		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		Places._hang_painting(tool, wall_x, y, z, width, height, subject)
+		tool.generate_normals()
+		var mesh := tool.commit()
+		var points := (mesh as ArrayMesh).get_faces()
+		_expect(points.size() > 0, "the %s painting draws something" % name)
+
+		var margin := 0.16
+		var worst_y := 0.0
+		var worst_z := 0.0
+		for p in points:
+			worst_y = maxf(worst_y, absf(p.y - y) - height * 0.5)
+			worst_z = maxf(worst_z, absf(p.z - z) - width * 0.5)
+		_expect(
+			worst_y < margin,
+			"the %s painting stays inside its frame's height: %.2f m over" % [name, worst_y]
+		)
+		_expect(
+			worst_z < margin,
+			"and inside its width: %.2f m over" % worst_z
+		)
+
 func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	print("the shop is somewhere you walk to")
 	var field := HeightField.new(20260903)

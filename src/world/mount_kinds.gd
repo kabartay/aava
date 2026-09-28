@@ -310,6 +310,50 @@ static func build_mesh(kind: StringName) -> Mesh:
 	tool.set_material(AnimalKinds.fur_material())
 	return tool.commit()
 
+## The body and its wheels, baked into one mesh: what a machine looks like
+## laid out on a shop floor, rather than what it looks like ridden.
+##
+## build_node hangs the wheels on a machine as separate MeshInstance3D
+## children, which is right for something that has to turn them as it rolls.
+## The shop floor is not built that way — the whole room is one static mesh,
+## assembled by copying each thing's vertices into it at a transform, see
+## _add_as_drawn in places.gd — so a machine shown there has to be one mesh
+## too. build_mesh alone is the body without its wheels, and using it for the
+## shop's display is exactly how three bicycles, a motorcycle and a quad came
+## to be standing on the shop floor with nothing under them.
+static func display_mesh(kind: StringName) -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_bake_into(tool, build_mesh(kind), Transform3D())
+	if kind_of(kind) == BICYCLE or kind_of(kind) == MOTORCYCLE:
+		var tyre := two_wheeler_wheel_mesh(kind)
+		for spot in wheel_spots(kind):
+			_bake_into(tool, tyre, Transform3D(Basis(), spot))
+	elif kind_of(kind) == QUAD:
+		var wheel_mesh := quad_wheel_mesh()
+		for spot in QUAD_WHEELS:
+			_bake_into(tool, wheel_mesh, Transform3D(Basis(), spot * QUAD_SCALE))
+	tool.generate_normals()
+	tool.set_material(AnimalKinds.fur_material())
+	return tool.commit()
+
+## Copy one mesh's triangles into another SurfaceTool, at a transform. The
+## same operation _add_as_drawn does for the whole shop floor, kept here as
+## well because a machine's own wheel positions are this file's to know.
+static func _bake_into(tool: SurfaceTool, mesh: Mesh, where: Transform3D) -> void:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var indices = arrays[Mesh.ARRAY_INDEX]
+	if indices == null:
+		for i in vertices.size():
+			tool.set_color(colours[i] if i < colours.size() else Color.WHITE)
+			tool.add_vertex(where * vertices[i])
+		return
+	for index in indices as PackedInt32Array:
+		tool.set_color(colours[index] if index < colours.size() else Color.WHITE)
+		tool.add_vertex(where * vertices[index])
+
 ## Where the horse's head and tail pivot, in the body's frame: the head and
 ## neck turn about the shoulder, the tail about the root of the dock.
 const HORSE_HEAD_PIVOT := Vector3(0.0, 1.872, -0.744)
