@@ -1558,6 +1558,14 @@ func _on_care() -> void:
 			_refresh_vitals()
 			sounds.play(Sounds.Sound.SPLASH, 1.3)
 			hud.announce(Text.of("say_milk"), 2.0)
+			# And she says so, once. A cow that is milked in silence and then
+			# goes on mooing to herself on the ambient timer has the sound and
+			# the moment the wrong way round.
+			var milked = animal.get("node")
+			if milked != null and is_instance_valid(milked):
+				animal_voices.speak(
+					animal["kind"], (milked as Node3D).global_position, 0.96
+				)
 		journal.record(Journal.CARED)
 		today.record(Today.CARE)
 		return

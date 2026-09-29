@@ -84,6 +84,17 @@ func positions() -> Array[Vector3]:
 		out.append(record["position"])
 	return out
 
+## Where everything a child has planted stands, as opposed to everything they
+## have built. The map draws the two in different colours: a grove of your own
+## trees and a house you raised are both yours, but they are not the same
+## answer to "what is that yellow patch".
+func planted() -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for record in _records:
+		if BuildKinds.is_plant(record["kind"]):
+			out.append(record["position"])
+	return out
+
 ## Where every piece of one kind stands. Used by the fires, which need to know
 ## which of the things a child has built are campfires.
 func positions_of(kind: StringName) -> Array[Vector3]:

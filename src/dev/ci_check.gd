@@ -51,6 +51,7 @@ func _initialize() -> void:
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
 	await _check_the_valley_is_not_silent()
+	_check_an_animal_greets_you_once()
 	_check_trees_are_capital()
 	await _check_a_fire_needs_feeding()
 	_check_a_house_is_worth_having()
@@ -7054,6 +7055,58 @@ func _a_tap() -> InputEventMouseButton:
 ## Every sound before this was an event — a kick, a coin, a piece going down —
 ## and between them the game was perfectly silent. Silence is what a picture of
 ## a place sounds like, not the place.
+## An animal notices a child who walks up to it, once.
+##
+## The ambient voices are a valley with things living in it; this is one cow
+## answering one child standing in front of her. The whole difficulty is the
+## "once": a greeting that repeats while somebody stands beside the animal is
+## an alarm, so it only fires again after they have actually gone away.
+func _check_an_animal_greets_you_once() -> void:
+	print("an animal greets you once")
+	var voices := AnimalVoices.new()
+	get_root().add_child(voices)
+
+	var cow := Node3D.new()
+	get_root().add_child(cow)
+	cow.global_position = Vector3(0.0, 0.0, 0.0)
+	var herd: Array[Dictionary] = [{"kind": &"cow", "node": cow}]
+
+	var near := Vector3(0.0, 0.0, 2.0)
+	var far := Vector3(0.0, 0.0, AnimalVoices.GREET_FORGET + 4.0)
+
+	voices._greet(herd, near)
+	_expect(
+		voices._greeted.has(cow.get_instance_id()),
+		"walking up to a cow is noticed"
+	)
+	voices._greet(herd, near)
+	voices._greet(herd, near)
+	_expect(
+		voices._greeted.size() == 1,
+		"and standing there is not noticed over and over"
+	)
+
+	voices._greet(herd, far)
+	_expect(
+		voices._greeted.is_empty(),
+		"walking away forgets you"
+	)
+	voices._greet(herd, near)
+	_expect(
+		voices._greeted.has(cow.get_instance_id()),
+		"and coming back is a fresh arrival"
+	)
+
+	# The greeting distance has to be shorter than the one that forgets you, or
+	# a child standing still between the two is greeted every single frame.
+	_expect(
+		AnimalVoices.GREET < AnimalVoices.GREET_FORGET,
+		"there is hysteresis between noticing and forgetting"
+	)
+
+	cow.queue_free()
+	voices.queue_free()
+
 func _check_the_valley_is_not_silent() -> void:
 	print("the valley makes a sound of its own")
 	var field := HeightField.new(20260903)

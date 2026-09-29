@@ -60,7 +60,16 @@ const SNOW := Color(0.90, 0.92, 0.95)
 const PITCH := Color(0.30, 0.62, 0.30)
 ## The worn routes between the places, which are the answer to "which way".
 const PATH := Color(0.74, 0.64, 0.44)
+## What a child has raised: warm, and the brightest thing on the map, because
+## the first thing anybody looks for is their own house.
 const BUILT := Color(1.0, 0.86, 0.42)
+
+## And what they have planted. The same yellow was used for both, so a grove a
+## child had grown and the house they had built were one indistinguishable
+## patch — "is that yellow stuff the trees we planted?" was asked of a map that
+## could not answer. A green bright enough to read against the forest behind
+## it, and unmistakably not the buildings.
+const PLANTED := Color(0.52, 0.90, 0.40)
 
 var _size := Size.SMALL
 var _field: HeightField
@@ -70,6 +79,7 @@ var _texture: ImageTexture
 var _player_dot: Control
 var _compass: Label
 var _built: Array[Vector3] = []
+var _planted: Array[Vector3] = []
 
 ## Where each destination is in the world, and the glyph that stands for it.
 var _destinations: Array[Dictionary] = []
@@ -143,10 +153,9 @@ func _init(field: HeightField) -> void:
 		)
 	)
 
-	# The player is always at the centre of his own map, so this is a fixed
-	# marker rather than something that has to be positioned each frame. An
-	# arrow rather than a dot, because it has to say which way as well as
-	# where — see the note on _orient.
+	# An arrow rather than a dot, because it has to say which way as well as
+	# where — see the note on _orient. It sits in the middle of the maps that
+	# follow the child and moves about on the whole-valley one, which does not.
 	_player_dot = MapArrow.new()
 	_canvas.add_child(_player_dot)
 
@@ -238,6 +247,10 @@ func follow(player: Node3D, camera: CameraRig, structures: Structures) -> void:
 func _process(_delta: float) -> void:
 	if _follow_player == null or not is_instance_valid(_follow_player):
 		return
+	_planted = (
+		_follow_structures.planted() if _follow_structures != null
+		else ([] as Array[Vector3])
+	)
 	track(
 		_follow_player.global_position,
 		_follow_camera.yaw if _follow_camera != null else 0.0,
@@ -251,13 +264,15 @@ func track(world_position: Vector3, yaw: float, built: Array[Vector3]) -> void:
 	_built = built
 	_collect_bake()
 	var range_metres := range_of(_size)
+	var centre := centre_for(_size, world_position)
 	# Redraw after real movement — a fiftieth of the map's width — or at a new
-	# size, and never while a bake is already on its way.
-	var stale := _size != _drawn_size or world_position.distance_to(_drawn_at) > range_metres / 50.0
+	# size, and never while a bake is already on its way. The whole-valley map
+	# never moves, so once it is drawn it is done.
+	var stale := _size != _drawn_size or centre.distance_to(_drawn_at) > range_metres / 50.0
 	if stale and _bake_task < 0:
-		_start_bake(world_position)
-	_place_destinations(world_position, range_metres)
-	_orient(yaw)
+		_start_bake(centre)
+	_place_destinations(centre, range_metres)
+	_orient(yaw, world_position, centre, range_metres)
 
 ## Wait for the picture, for a screenshot or a check that wants it now.
 func wait_for_bake() -> void:
@@ -357,15 +372,23 @@ func _colour_at(x: float, z: float) -> Color:
 ## it read as the map spinning when it was not. Now the map is fixed, north is
 ## fixed above it, and the only thing that turns is the little arrow that is
 ## you, which is the one thing that really is turning.
-func _orient(yaw: float) -> void:
-	var centre := size * 0.5
-	_player_dot.position = centre - _player_dot.size * 0.5
+func _orient(yaw: float, world_position: Vector3, centre: Vector3, range_metres: float) -> void:
+	var middle := size * 0.5
+	# Where the child actually is on this map. On the maps that follow them
+	# that is always the middle; on the whole-valley map it is wherever they
+	# have got to, which is the entire point of that map.
+	var scale := size.x / range_metres
+	var offset := Vector2(world_position.x - centre.x, world_position.z - centre.z) * scale
+	var rim := middle.x - _player_dot.size.x * 0.5 - 2.0
+	offset.x = clampf(offset.x, -rim, rim)
+	offset.y = clampf(offset.y, -rim, rim)
+	_player_dot.position = middle + offset - _player_dot.size * 0.5
 	# The map is drawn with world north up, and the camera's yaw is measured the
 	# other way round from screen rotation — so the arrow pointed exactly
 	# backwards until this was negated.
 	_player_dot.rotation = -yaw
 	_player_dot.pivot_offset = _player_dot.size * 0.5
-	_compass.position = Vector2(centre.x - _compass.size.x * 0.5, 4.0)
+	_compass.position = Vector2(middle.x - _compass.size.x * 0.5, 4.0)
 
 ## Put each destination's picture where the place is on the map — or, if the
 ## place is off the map, on the edge of it in that direction, pointing.
@@ -386,6 +409,22 @@ func _place_destinations(centre: Vector3, range_metres: float) -> void:
 		glyph.point(off_map, offset.angle())
 		glyph.position = Vector2(half, half) + offset - glyph.size * 0.5
 
+## What the map is drawn around.
+##
+## The small and large maps follow the child, which is what a map in the corner
+## is for: what is near me. The whole-valley map does not — it is pinned to the
+## valley itself, so it shows all of it however far from the middle a child has
+## wandered. It used to follow them at every size, which meant "the whole map"
+## was really a 1,100-metre window centred on wherever they happened to be
+## standing: walk out towards the mountains and half of it was blank hillside
+## while the far side of the valley was off the edge, with no way to shift it
+## back. Fixed to the middle, the whole valley is always on it and there is
+## nothing left to pan to.
+static func centre_for(size: Size, world_position: Vector3) -> Vector3:
+	if size == Size.FULL:
+		return Vector3.ZERO
+	return world_position
+
 ## How many metres across the map shows at a given size.
 static func range_of(size: Size) -> float:
 	match size:
@@ -402,12 +441,22 @@ static func range_of(size: Size) -> float:
 func _mark_buildings(centre: Vector3, range_metres: float) -> void:
 	var step := range_metres / float(CELLS)
 	var half := range_metres * 0.5
-	for at in _built:
-		var column := int((at.x - centre.x + half) / step)
-		var row := int((at.z - centre.z + half) / step)
-		if column < 1 or row < 1 or column >= CELLS - 1 or row >= CELLS - 1:
-			continue
-		var spread := PackedInt32Array([-1, 0, 1])
-		for dx in spread:
-			for dz in spread:
-				_image.set_pixel(column + dx, row + dz, BUILT)
+	# Planted first, built over the top: where a child has raised a house in
+	# among their own trees, the house is the thing they are looking for.
+	var planted_lookup := {}
+	for at in _planted:
+		planted_lookup[Vector2i(int(at.x), int(at.z))] = true
+	for pass_over: int in [0, 1]:
+		var marks := _planted if pass_over == 0 else _built
+		var ink := PLANTED if pass_over == 0 else BUILT
+		for at in marks:
+			if pass_over == 1 and planted_lookup.has(Vector2i(int(at.x), int(at.z))):
+				continue
+			var column := int((at.x - centre.x + half) / step)
+			var row := int((at.z - centre.z + half) / step)
+			if column < 1 or row < 1 or column >= CELLS - 1 or row >= CELLS - 1:
+				continue
+			var spread := PackedInt32Array([-1, 0, 1])
+			for dx in spread:
+				for dz in spread:
+					_image.set_pixel(column + dx, row + dz, ink)

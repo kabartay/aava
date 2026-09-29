@@ -42,6 +42,21 @@ const GAPS := {
 	&"cow": [24.0, 58.0],
 }
 
+## How close a child has to come before an animal notices them, and how far
+## away they have to go before it will notice them again.
+##
+## A greeting, rather than the ambient voices above: those are a valley with
+## things living in it, and this is one animal answering one child who has
+## walked right up to it. The gap between the two numbers is what stops a cow
+## mooing over and over at somebody standing beside it.
+const GREET := 5.5
+const GREET_FORGET := 10.0
+
+## Only ever the nearest one. A child crossing a field of a hundred sheep who
+## was greeted by every sheep they passed within five metres of would be
+## walking through an alarm rather than a meadow.
+var _greeted: Dictionary = {}
+
 ## How many can be speaking at once. Beyond a handful it is a chorus.
 const VOICES := 4
 
@@ -123,6 +138,34 @@ func bake_now() -> void:
 func voices() -> Array:
 	return _sounds.keys()
 
+## The nearest animal notices a child who has come right up to it, once, and
+## not again until they have gone away and come back.
+func _greet(near: Array[Dictionary], listener: Vector3) -> void:
+	var closest: Dictionary = {}
+	var closest_at := GREET
+	for animal in near:
+		var node = animal.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		var kind: StringName = animal["kind"]
+		if not GAPS.has(kind):
+			continue
+		var away := (node as Node3D).global_position.distance_to(listener)
+		var id := (node as Node3D).get_instance_id()
+		# Gone far enough that walking back is a fresh arrival.
+		if away > GREET_FORGET:
+			_greeted.erase(id)
+			continue
+		if away < closest_at and not _greeted.has(id):
+			closest_at = away
+			closest = animal
+
+	if closest.is_empty():
+		return
+	var node: Node3D = closest["node"]
+	_greeted[node.get_instance_id()] = true
+	_play(closest["kind"], node.global_position, _rng.randf_range(0.95, 1.06))
+
 ## Say something, from where the creature is. Used directly for the purr, and by
 ## the timer below for everything else.
 func speak(kind: StringName, at: Vector3, pitch := 1.0) -> void:
@@ -159,6 +202,7 @@ func _play(kind: StringName, at: Vector3, pitch: float) -> void:
 ## hearing.
 func watch(near: Array[Dictionary], listener: Vector3, delta: float) -> void:
 	_beg(near, listener, delta)
+	_greet(near, listener)
 	_wait -= delta
 	if _wait > 0.0:
 		return
