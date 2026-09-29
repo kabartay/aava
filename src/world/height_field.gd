@@ -65,8 +65,13 @@ const RANGE_WALL := 0.42
 ## between them, the same lines running on from one summit to the next for
 ## miles. It is the single thing that makes those mountains look like *those*
 ## mountains rather than generic alps, and it costs one function.
-const TERRACE := 44.0
-const TERRACE_BITE := 0.5
+## Deliberately coarse. The far ring samples the ground every forty metres, so
+## shelves any thinner than this simply fall between the samples and the range
+## comes out as smooth as it ever was — which is what happened at forty-four.
+## At ninety there are half a dozen bands up a mountainside, which is about
+## what the photographs show.
+const TERRACE := 92.0
+const TERRACE_BITE := 0.62
 
 ## The twin-domed mountain on the northern skyline.
 ##
@@ -162,10 +167,20 @@ static func ice_at(height: float, steep: float) -> float:
 ## Where snow stops holding, and where ice does. Gradients, on the same scale
 ## steepness_at answers with: 0.85 is about forty degrees and 1.35 about
 ## fifty-four, which is where a slope stops keeping anything at all.
-const SNOW_HOLDS_TO := 0.85
-const SNOW_SLIDES_AT := 1.35
-const ICE_GATHERS_TO := 0.45
-const ICE_SLIDES_AT := 0.95
+## Raised from 0.85/1.35. The range came out grey more than white — rock with
+## snow in the gullies — and the Caucasus from the north is the other way
+## about: white, with rock showing through where a face is too steep to hold
+## anything. Snow now holds to about fifty degrees and only lets go past
+## sixty-five, which on this range leaves the crags bare and covers the rest.
+const SNOW_HOLDS_TO := 1.2
+const SNOW_SLIDES_AT := 2.2
+const ICE_GATHERS_TO := 0.55
+const ICE_SLIDES_AT := 1.15
+
+## Left where it is. Lowering it to deepen the white band put snow below the
+## treeline, and the bands have an order — wood, spruce, pasture, crag, snow —
+## that a check holds to. How much white there is comes from the steepness
+## above, not from moving this.
 const SNOWLINE := 138.0
 
 ## How much of the trees are spruce at a height: a third down in the warm

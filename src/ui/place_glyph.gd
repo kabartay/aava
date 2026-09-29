@@ -13,7 +13,7 @@ extends Control
 ## map's edge pointing at itself, so the answer to "which way" is on the
 ## small map too, where a child actually looks.
 
-enum Kind {HOME, PLAYGROUND, CAFE, POOL, PITCH, RANGE, SHOP, BRIDGE}
+enum Kind {HOME, PLAYGROUND, CAFE, POOL, PITCH, RANGE, SHOP, BRIDGE, MOUNTAIN}
 
 const SIZE := 28.0
 const INK := Color(0.10, 0.08, 0.06)
@@ -29,6 +29,8 @@ const COLOURS := {
 	Kind.SHOP: Color(1.0, 0.86, 0.36),
 	# Timber, against the blue of the river it stands over.
 	Kind.BRIDGE: Color(0.78, 0.58, 0.36),
+	# Snow, because that is what the thing itself is.
+	Kind.MOUNTAIN: Color(0.94, 0.96, 0.99),
 }
 
 var kind: Kind = Kind.HOME
@@ -117,6 +119,20 @@ func _draw() -> void:
 			draw_arc(centre, unit * 0.62, 0.0, TAU, 20, INK, maxf(1.5, unit * 0.14))
 			draw_arc(centre, unit * 0.34, 0.0, TAU, 14, INK, maxf(1.5, unit * 0.14))
 			draw_circle(centre, unit * 0.12, INK)
+		Kind.MOUNTAIN:
+			# Two summits with a saddle between them: the mountain's own
+			# outline, so that the mark on the rim of the map and the thing on
+			# the skyline are recognisably each other. It is always off the map
+			# — it stands a kilometre beyond the valley — so in practice this
+			# is only ever drawn as a pointer with this shape inside it, which
+			# is the answer to "which way is the big mountain".
+			draw_colored_polygon(PackedVector2Array([
+				centre + Vector2(-unit * 0.78, unit * 0.46),
+				centre + Vector2(-unit * 0.22, -unit * 0.52),
+				centre + Vector2(0.06, -unit * 0.02),
+				centre + Vector2(0.30, -unit * 0.38),
+				centre + Vector2(unit * 0.78, unit * 0.46),
+			]), INK)
 		Kind.BRIDGE:
 			# An arch over water: the shape of the thing itself, seen from the
 			# bank. A child looking for a way across the river is looking for

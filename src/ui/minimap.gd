@@ -143,6 +143,17 @@ func _init(field: HeightField) -> void:
 	_add_destination(PlaceGlyph.Kind.PITCH, Pitch.centre())
 	_add_destination(PlaceGlyph.Kind.RANGE, camp + PlaceSpec.RANGE_OFFSET)
 	_add_destination(PlaceGlyph.Kind.SHOP, PlaceSpec.centre_of(&"shop", camp))
+	# The great mountain. It is the one landmark in the world that cannot be
+	# walked to and is not on the map at any size — it stands a kilometre past
+	# the valley, and the map's widest view is eleven hundred metres across —
+	# so without this there was nothing anywhere to answer "which way is it",
+	# and the first thing asked about it was exactly that. Off the map is
+	# precisely what the rim pointers are for.
+	_add_destination(
+		PlaceGlyph.Kind.MOUNTAIN,
+		Vector3(HeightField.ELBRUS_AT.x, 0.0, HeightField.ELBRUS_AT.y)
+	)
+
 	# The crossing. It is the only way over the river on anything with wheels,
 	# and a child who has just bought a bicycle has no way of guessing where it
 	# is — the river looks the same for a kilometre in both directions.
