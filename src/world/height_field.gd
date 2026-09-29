@@ -647,7 +647,16 @@ func _raw_height(x: float, z: float) -> float:
 	var mountain_mask := pow(
 		smoothstep(MOUNTAIN_START, MOUNTAIN_START + 450.0, from_origin), 1.8
 	)
-	var dome := _twin_domed_mountain(x, z)
+	# Gated on the distance already worked out above. The great mountain's
+	# skirts reach 620 m from a centre that is itself 1,053 m from the origin,
+	# so nothing inside 400 m can possibly be on it — and height_at is the
+	# hottest function in this project by a long way: every animal samples it
+	# several times a frame and one whole-valley map bake asks it seventy-five
+	# thousand times. Measured, the call alone cost a ninth of the function
+	# even when it returned zero immediately.
+	var dome := 0.0
+	if from_origin > 400.0:
+		dome = _twin_domed_mountain(x, z)
 	# How much of this point belongs to the great mountain rather than to the
 	# range around it. Both kinds of noise are turned off across it: the ridged
 	# noise because a snow dome with ridgelines on it is just another crag, and

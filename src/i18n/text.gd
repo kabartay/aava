@@ -148,6 +148,11 @@ const STRINGS := {
 		FR: "bonjour %s — c'est le nom qu'ils verront",
 		RU: "привет, %s — это имя они и увидят",
 	},
+	"say_name_taken": {
+		EN: "%s is already somebody here — pick another",
+		FR: "%s est déjà quelqu'un ici — choisis-en un autre",
+		RU: "%s здесь уже есть — выбери другое",
+	},
 	"say_name_no": {
 		EN: "letters, numbers and spaces, up to 16",
 		FR: "lettres, chiffres et espaces, 16 au plus",

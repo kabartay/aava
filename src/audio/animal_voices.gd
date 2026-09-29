@@ -141,6 +141,14 @@ func voices() -> Array:
 ## The nearest animal notices a child who has come right up to it, once, and
 ## not again until they have gone away and come back.
 func _greet(near: Array[Dictionary], listener: Vector3) -> void:
+	# Anything that has been freed since it was greeted is forgotten here. An
+	# animal whose tile unloads is never in `near` again, so it can never walk
+	# far enough away to be forgotten the ordinary way, and the list would
+	# otherwise grow for as long as the game was left running.
+	for id: int in _greeted.keys():
+		if not is_instance_id_valid(id):
+			_greeted.erase(id)
+
 	var closest: Dictionary = {}
 	var closest_at := GREET
 	for animal in near:

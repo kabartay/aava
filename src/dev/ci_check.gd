@@ -4410,6 +4410,39 @@ func _check_a_child_can_say_who_they_are() -> void:
 		"a named child's progress is kept apart from a nameless one's"
 	)
 
+	# Every point in a drawn glyph is measured in `unit`, which is what makes
+	# the picture scale with the button it is on. Two points of the mountain
+	# were written as bare numbers instead — Vector2(0.06, -unit * 0.02) — so
+	# they sat a fraction of a pixel from the centre whatever the size, and the
+	# outline collapsed from two summits to one peak with a hairline notch.
+	# A raw decimal beside a scaled one is always that mistake.
+	for path: String in [
+		"res://src/ui/place_glyph.gd", "res://src/ui/action_icon.gd",
+	]:
+		var drawing := _code_only(FileAccess.get_file_as_string(path))
+		var unscaled := 0
+		for line in drawing.split("\n"):
+			if not line.contains("unit"):
+				continue
+			# A Vector2 with a bare decimal on one side and a scaled value on
+			# the other: the two are not in the same units and one of them is
+			# wrong.
+			for piece in line.split("Vector2("):
+				if not piece.contains("unit *"):
+					continue
+				var inside := piece.split(")")[0]
+				var halves := inside.split(",")
+				if halves.size() != 2:
+					continue
+				for half: String in halves:
+					var trimmed := half.strip_edges().trim_prefix("-")
+					if trimmed.is_valid_float() and not is_zero_approx(trimmed.to_float()):
+						unscaled += 1
+		_expect(
+			unscaled == 0,
+			"%s measures every point of every glyph in `unit`" % path.get_file()
+		)
+
 	# The shirt a child picks is the shirt the others see, rather than one
 	# worked out from the order they happened to arrive in.
 	var visitors := Visitors.new()

@@ -129,8 +129,8 @@ func _draw() -> void:
 			draw_colored_polygon(PackedVector2Array([
 				centre + Vector2(-unit * 0.78, unit * 0.46),
 				centre + Vector2(-unit * 0.22, -unit * 0.52),
-				centre + Vector2(0.06, -unit * 0.02),
-				centre + Vector2(0.30, -unit * 0.38),
+				centre + Vector2(unit * 0.06, -unit * 0.02),
+				centre + Vector2(unit * 0.30, -unit * 0.38),
 				centre + Vector2(unit * 0.78, unit * 0.46),
 			]), INK)
 		Kind.BRIDGE:

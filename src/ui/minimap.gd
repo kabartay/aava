@@ -89,6 +89,12 @@ var _destinations: Array[Dictionary] = []
 var _drawn_at := Vector3(1e9, 1e9, 1e9)
 var _drawn_size := Size.HIDDEN
 
+## How many things were built when the picture was drawn. The whole-valley map
+## is pinned to the valley, so its centre never moves and "have we walked far
+## enough to redraw" is false for ever — a house built with that map open never
+## appeared on it until the child cycled the map to another size and back.
+var _drawn_built := -1
+
 ## The bake in flight, if any: which size and centre it is for, and the bytes
 ## it produces, handed across under the mutex.
 var _bake_task := -1
@@ -279,7 +285,11 @@ func track(world_position: Vector3, yaw: float, built: Array[Vector3]) -> void:
 	# Redraw after real movement — a fiftieth of the map's width — or at a new
 	# size, and never while a bake is already on its way. The whole-valley map
 	# never moves, so once it is drawn it is done.
-	var stale := _size != _drawn_size or centre.distance_to(_drawn_at) > range_metres / 50.0
+	var stale := (
+		_size != _drawn_size
+		or centre.distance_to(_drawn_at) > range_metres / 50.0
+		or _built.size() != _drawn_built
+	)
 	if stale and _bake_task < 0:
 		_start_bake(centre)
 	_place_destinations(centre, range_metres)
@@ -343,6 +353,7 @@ func _finish_bake() -> void:
 	_mark_buildings(_bake_centre, range_of(_bake_size))
 	_texture.update(_image)
 	_drawn_at = _bake_centre
+	_drawn_built = _built.size()
 	_drawn_size = _bake_size
 
 func _colour_at(x: float, z: float) -> Color:

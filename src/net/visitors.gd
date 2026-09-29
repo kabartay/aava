@@ -86,9 +86,16 @@ func add(id: int, who: String, chose := -1) -> void:
 func shirt_for(id: int, chose: int) -> Color:
 	if chose >= 0 and chose < SHIRTS.size():
 		return SHIRTS[chose]
+	# Everyone else's shirt, and deliberately not this child's own. Counting
+	# their current colour as taken meant that asking again — which is what
+	# happens when they type their name, because the name and the shirt travel
+	# together — was guaranteed to hand back a different one, and a brother
+	# changed colour every time he renamed himself.
 	var worn := {}
-	for other: Dictionary in _visitors.values():
-		worn[other["shirt"]] = true
+	for other_id: int in _visitors:
+		if other_id == id:
+			continue
+		worn[_visitors[other_id]["shirt"]] = true
 	for step in SHIRTS.size():
 		var candidate := SHIRTS[(absi(id) + step) % SHIRTS.size()]
 		if not worn.has(candidate):

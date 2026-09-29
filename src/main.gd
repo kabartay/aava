@@ -100,7 +100,13 @@ func _ready() -> void:
 	# remembered: a switch that forgets is a switch nobody trusts.
 	_voice_allowed = bool(save.get("voice_allowed", true))
 	_first_person = bool(save.get("first_person", false))
+	# Clamped, not just checked for -1. The index off the network is validated
+	# in session.gd and this one was not, so a hand-edited save — or the
+	# palette ever losing a colour — indexed off the end of SHIRTS during
+	# startup and the game never reached the valley at all.
 	_shirt = int(save.get("shirt", -1))
+	if _shirt >= Visitors.SHIRTS.size():
+		_shirt = -1
 
 	# The world's map decides the seed, not the save: everyone in one copy of the
 	# valley must get the same ground, even though their own progress is in
@@ -1170,6 +1176,21 @@ func _on_name_chosen(typed: String) -> void:
 		hud.announce(Text.of("say_name_no"), 3.5)
 		hud.set_player_name(profiles.current_player)
 		return
+	# Somebody else's afternoon is not written over.
+	#
+	# The save path is built from the name, and the write below puts *this*
+	# child's state at it. If a brother has already played under that name on
+	# this device, that file is his bag, his coins and his journal, and this
+	# would be the end of them. The name is refused instead — which is the
+	# right answer anyway, because two children on one device answering to one
+	# name is the quarrel profiles were written to stop.
+	var taken := profiles.save_path_for(name, profiles.current_world)
+	if taken != profiles.current_save_path() and FileAccess.file_exists(taken):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.format("say_name_taken", [name]), 4.0)
+		hud.set_player_name(profiles.current_player)
+		return
+
 	if not profiles.players.has(name):
 		profiles.add_player(name)
 	profiles.choose_player(name)
