@@ -47,6 +47,7 @@ func _initialize() -> void:
 	_check_everything_the_network_can_say_is_said()
 	_check_every_kind_of_day_can_be_finished()
 	_check_every_button_glyph_is_drawn()
+	_check_a_child_can_say_who_they_are()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
 	await _check_the_valley_is_not_silent()
@@ -4268,6 +4269,88 @@ func _check_every_kind_of_day_can_be_finished() -> void:
 ## no part is drawn as the fallback post); this closes it before it happens
 ## here. A glyph is also the one thing in this project no check can actually
 ## look at, so dev/interface.tscn renders them to a PNG for a person to judge.
+## A child can say who they are, and be seen as it.
+##
+## Profiles had add_player() and choose_player() written and nothing calling
+## either, so current_player stayed empty for ever and every brother in the
+## valley was labelled with the fallback word "player". The name and the shirt
+## are the whole answer to "which one is you", so both are checked here: that a
+## name can be set, that setting one does not lose the afternoon, and that a
+## chosen shirt is the shirt a visitor is actually drawn in.
+func _check_a_child_can_say_who_they_are() -> void:
+	print("a child can say who they are")
+
+	var every_shirt_is_named := Visitors.SHIRTS.size() == Visitors.SHIRT_NAMES.size()
+	_expect(
+		every_shirt_is_named,
+		"all %d shirts have a name a child can say" % Visitors.SHIRTS.size()
+	)
+
+	_expect(Profiles.is_valid_name("Мурат"), "a Russian name is a name")
+	_expect(Profiles.is_valid_name("Amir"), "and a Latin one")
+	_expect(not Profiles.is_valid_name(""), "but nothing is not")
+	_expect(not Profiles.is_valid_name("🙂"), "and neither is an emoji")
+
+	# add_player() writes the index to disk, so this check has to put back
+	# whatever was there — a later check loads that same file, and finding this
+	# one's leftovers in it failed it.
+	var had_index := FileAccess.file_exists(Profiles.INDEX)
+	var index_was := (
+		FileAccess.get_file_as_string(Profiles.INDEX) if had_index else ""
+	)
+
+	var profiles := Profiles.new()
+	_expect(profiles.add_player("Amir"), "a name can be added")
+	_expect(not profiles.add_player("Amir"), "and not twice")
+	_expect(profiles.choose_player("Amir"), "and chosen")
+	_expect(profiles.current_player == "Amir", "and it is then who you are")
+
+	# Naming yourself moves where your progress is written — the path is built
+	# from the name — so the game writes the afternoon out again straight
+	# afterwards. If these two ever stop differing, that write is pointless and
+	# somebody has quietly changed what a save path means.
+	_expect(
+		profiles.save_path_for("", "home-1") != profiles.save_path_for("Amir", "home-1"),
+		"a named child's progress is kept apart from a nameless one's"
+	)
+
+	# The shirt a child picks is the shirt the others see, rather than one
+	# worked out from the order they happened to arrive in.
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	var blue := Visitors.SHIRT_NAMES.find(&"blue")
+	visitors.add(7, "Amir", blue)
+	_expect(
+		visitors.shirt_of(7) == Visitors.SHIRTS[blue],
+		"a child who picks blue is drawn in blue"
+	)
+	# And two who pick nothing are still told apart. Asked of what they are
+	# wearing, not of what they would be given now: the second depends on who
+	# else is standing there, so by the time both have arrived it answers the
+	# same for each of them.
+	visitors.add(8, "Мурат")
+	visitors.add(9, "Aida")
+	_expect(
+		visitors.shirt_of(8) != visitors.shirt_of(9),
+		"two who pick nothing are still different colours"
+	)
+	# And somebody who changes their mind changes colour.
+	var pink := Visitors.SHIRT_NAMES.find(&"pink")
+	visitors.reshirt(8, pink)
+	_expect(
+		visitors.shirt_of(8) == Visitors.SHIRTS[pink],
+		"and changing your mind changes your shirt"
+	)
+	visitors.queue_free()
+
+	if had_index:
+		var restore := FileAccess.open(Profiles.INDEX, FileAccess.WRITE)
+		if restore != null:
+			restore.store_string(index_was)
+			restore.close()
+	else:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(Profiles.INDEX))
+
 func _check_every_button_glyph_is_drawn() -> void:
 	print("every button glyph is drawn")
 	var source := _code_only(

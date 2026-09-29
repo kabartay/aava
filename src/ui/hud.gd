@@ -57,6 +57,12 @@ signal dam_stick()
 signal fire_fed()
 signal slept()
 signal together_opened()
+
+## A child typed their name in the settings panel.
+signal name_chosen(name: String)
+
+## A child picked a shirt in the settings, as an index into Visitors.SHIRTS.
+signal shirt_chosen(which: int)
 signal talk_started()
 signal talk_released()
 
@@ -77,6 +83,9 @@ var _map_button: Button
 var _view_button: Button
 var _voice_button: Button
 var _together_button: Button
+var _name_field: LineEdit
+var _shirt_swatches: Array[Button] = []
+var _player_name := ""
 ## How long the reset must be held. Long enough that a child cannot do it by
 ## accident or by curiosity, short enough that a parent does not wonder whether
 ## it is working.
@@ -499,6 +508,69 @@ func _build_menu() -> VBoxContainer:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 8)
 	column.visible = false
+
+	var who := Label.new()
+	who.text = Text.of("ui_your_name")
+	who.add_theme_font_size_override("font_size", 20)
+	who.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.55))
+	column.add_child(who)
+
+	# The one place in this game with a keyboard in it.
+	#
+	# Everything else a child touches is a button or a keypad, because a
+	# six-year-old cannot type — but a name has to be typed once by somebody,
+	# and the alternative is that every brother in the valley is called
+	# "Игрок". Typed once, in the settings, and then never again: what the
+	# join screen asks for afterwards is a tap on a name that already exists.
+	_name_field = LineEdit.new()
+	_name_field.placeholder_text = Text.of("ui_name_hint")
+	_name_field.max_length = Profiles.MAX_NAME
+	_name_field.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_name_field.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
+	_name_field.add_theme_font_size_override("font_size", 22)
+	_name_field.text_submitted.connect(func(typed: String) -> void:
+		name_chosen.emit(typed)
+		_name_field.release_focus())
+	# Leaving the field counts as finishing with it: a child who types their
+	# name and then taps the map has still told us their name.
+	_name_field.focus_exited.connect(func() -> void:
+		if _name_field.text.strip_edges() != _player_name:
+			name_chosen.emit(_name_field.text))
+	column.add_child(_name_field)
+
+	# The shirt, under the name, because the two together are the answer to
+	# "which one is you" — the name floats over the head and the colour is what
+	# carries across a valley, where the name is a smudge.
+	var shirt_label := Label.new()
+	shirt_label.text = Text.of("ui_your_colour")
+	shirt_label.add_theme_font_size_override("font_size", 20)
+	shirt_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.55))
+	column.add_child(shirt_label)
+
+	_shirt_swatches.clear()
+	var swatches := GridContainer.new()
+	swatches.columns = 6
+	swatches.add_theme_constant_override("h_separation", 6)
+	swatches.add_theme_constant_override("v_separation", 6)
+	for i in Visitors.SHIRTS.size():
+		var swatch := Button.new()
+		swatch.focus_mode = Control.FOCUS_NONE
+		swatch.custom_minimum_size = Vector2(BUTTON * 0.52, BUTTON * 0.52)
+		swatch.tooltip_text = String(Visitors.SHIRT_NAMES[i])
+		var face := StyleBoxFlat.new()
+		face.bg_color = Visitors.SHIRTS[i]
+		face.set_corner_radius_all(8)
+		# The ring round the chosen one is drawn in the border, which is the
+		# only part of a swatch that is not the colour itself.
+		face.border_color = Color(1.0, 1.0, 1.0, 0.9)
+		face.set_border_width_all(0)
+		swatch.add_theme_stylebox_override("normal", face)
+		swatch.add_theme_stylebox_override("hover", face)
+		swatch.add_theme_stylebox_override("pressed", face)
+		swatch.pressed.connect(func() -> void: shirt_chosen.emit(i))
+		swatches.add_child(swatch)
+		_shirt_swatches.append(swatch)
+	column.add_child(swatches)
 
 	var heading := Label.new()
 	heading.text = Text.of("ui_language")
@@ -1323,6 +1395,21 @@ func set_voice_allowed(allowed: bool) -> void:
 	if not allowed and _talk_button.visible:
 		_talk_button.visible = false
 		_layout()
+
+## The name this child is known by, shown in the settings field.
+func set_player_name(name: String) -> void:
+	_player_name = name
+	if _name_field != null and _name_field.text != name:
+		_name_field.text = name
+
+## Ring the shirt this child is wearing, and unring the rest.
+func set_shirt(which: int) -> void:
+	for i in _shirt_swatches.size():
+		var face: StyleBoxFlat = _shirt_swatches[i].get_theme_stylebox("normal")
+		face.set_border_width_all(4 if i == which else 0)
+
+func player_name() -> String:
+	return _player_name
 
 func voice_allowed() -> bool:
 	return _voice_allowed

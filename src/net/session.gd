@@ -28,8 +28,12 @@ signal failed(reason: String)
 signal closed()
 
 ## Somebody arrived or left. `who` is the display name they chose.
-signal guest_arrived(id: int, who: String)
+signal guest_arrived(id: int, who: String, shirt: int)
 signal guest_left(id: int, who: String)
+
+## Somebody already here changed their name or their shirt in their own
+## settings. Both travel together, because both answer "who is that".
+signal guest_renamed(id: int, who: String, shirt: int)
 
 ## The valley changed, on some other machine. The game applies these exactly as
 ## if the local child had done them.
@@ -60,6 +64,10 @@ enum Role { ALONE, HOSTING, VISITING }
 var role := Role.ALONE
 var who := ""
 
+## Which shirt this child picked for themselves, as an index into the palette,
+## or -1 for whoever has not picked one.
+var shirt := -1
+
 ## Everyone else currently in the valley, by peer id.
 var guests: Dictionary = {}
 
@@ -88,11 +96,12 @@ func is_host() -> bool:
 
 ## Open this valley to the other device. Returns false if the port is busy,
 ## which on a family network almost always means the game is already running.
-func host(display_name: String) -> bool:
+func host(display_name: String, wearing := -1) -> bool:
 	if not _ready_to_connect():
 		return false
 	close()
 	who = display_name
+	shirt = wearing
 	_peer = ENetMultiplayerPeer.new()
 	var error := _peer.create_server(PORT, MAX_GUESTS)
 	if error != OK:
@@ -108,7 +117,7 @@ func host(display_name: String) -> bool:
 	return true
 
 ## Walk into somebody else's valley.
-func join(address: String, display_name: String) -> bool:
+func join(address: String, display_name: String, wearing := -1) -> bool:
 	if not _ready_to_connect():
 		return false
 	if address.strip_edges().is_empty():
@@ -116,6 +125,7 @@ func join(address: String, display_name: String) -> bool:
 		return false
 	close()
 	who = display_name
+	shirt = wearing
 	_peer = ENetMultiplayerPeer.new()
 	var error := _peer.create_client(address, PORT)
 	if error != OK:
@@ -265,6 +275,15 @@ func report_dam_stick(site: float) -> void:
 	if is_connected_to_anyone():
 		_send_dam_stick.rpc(site)
 
+## This child has renamed themselves, or changed their shirt. Sent to everyone
+## already here, so what is over their head changes where it is being read
+## rather than at the next time somebody joins.
+func report_name(display_name: String, chose: int) -> void:
+	who = display_name
+	shirt = chose
+	if is_connected_to_anyone():
+		_send_name.rpc(display_name, chose)
+
 ## The sky, which is one sky for everyone in the valley.
 ##
 ## Sent by the host to a guest the moment they arrive — a child hosting at dusk
@@ -317,19 +336,30 @@ func _send_time_of_day(fraction: float) -> void:
 
 ## Names are exchanged once on arrival rather than sent with every message.
 @rpc("any_peer", "call_remote", "reliable")
-func _send_name(display_name: String) -> void:
+func _send_name(display_name: String, chose: int) -> void:
 	var from := multiplayer.get_remote_sender_id()
 	# Validated on arrival: a name becomes a label on screen, and this is the
 	# one piece of data that comes from another machine and is shown to a child.
 	var safe := display_name.strip_edges()
 	if not Profiles.is_valid_name(safe):
 		safe = "?"
+	# And a shirt becomes an index into an array, which is the other thing that
+	# arrives from another machine — out of range would be a crash rather than
+	# a wrong colour.
+	var wearing := chose if chose >= 0 and chose < Visitors.SHIRTS.size() else -1
+	# A name arriving from somebody already in the valley is a rename, not an
+	# arrival: announcing "Amir joined" a second time and then quietly failing
+	# to change the label over his head is the worst of both.
+	var known := guests.has(from)
 	guests[from] = safe
-	guest_arrived.emit(from, safe)
+	if known:
+		guest_renamed.emit(from, safe, wearing)
+	else:
+		guest_arrived.emit(from, safe, wearing)
 
 func _on_peer_connected(id: int) -> void:
-	# Our name goes to them; theirs comes back the same way.
-	_send_name.rpc_id(id, who)
+	# Our name and shirt go to them; theirs come back the same way.
+	_send_name.rpc_id(id, who, shirt)
 	# And where we are goes with it. Positions are only sent when somebody has
 	# actually moved, which is the right rule for traffic and the wrong one for
 	# somebody who has just arrived: a new visitor is drawn at the world origin

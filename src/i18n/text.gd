@@ -137,6 +137,22 @@ const STRINGS := {
 	"ui_things": {EN: "things", FR: "objets", RU: "вещи"},
 	"ui_house": {EN: "house", FR: "maison", RU: "дом"},
 	"ui_language": {EN: "language", FR: "langue", RU: "язык"},
+	# Who is playing. The name a child types here is the name that floats over
+	# their head in somebody else's valley, which is the whole reason to ask
+	# for one: "Игрок" above a brother tells you nothing you did not know.
+	"ui_your_name": {EN: "your name", FR: "ton prénom", RU: "твоё имя"},
+	"ui_name_hint": {EN: "tap to type it", FR: "appuie pour écrire", RU: "нажми и напиши"},
+	"ui_your_colour": {EN: "your colour", FR: "ta couleur", RU: "твой цвет"},
+	"say_name_set": {
+		EN: "hello, %s — that is the name they will see",
+		FR: "bonjour %s — c'est le nom qu'ils verront",
+		RU: "привет, %s — это имя они и увидят",
+	},
+	"say_name_no": {
+		EN: "letters, numbers and spaces, up to 16",
+		FR: "lettres, chiffres et espaces, 16 au plus",
+		RU: "буквы, цифры и пробелы, не больше 16",
+	},
 	"ui_reset": {EN: "start again", FR: "recommencer", RU: "начать заново"},
 	"ui_settings": {EN: "settings", FR: "réglages", RU: "настройки"},
 	"ui_back": {EN: "back", FR: "retour", RU: "назад"},

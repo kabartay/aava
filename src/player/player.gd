@@ -56,6 +56,9 @@ const MAX_LIFT_DEPTH := 0.9
 ## velocity, so surfacing is a bob and never a launch.
 const MAX_RISE := 3.4
 
+## What a child wears before they have chosen anything.
+const DEFAULT_SHIRT := Color(0.30, 0.47, 0.72)
+
 const HEIGHT := 1.55
 const RADIUS := 0.34
 
@@ -137,6 +140,7 @@ var _ride_lift := 0.0
 ## How far the body is dropped into the water while swimming, and how far it
 ## is tipped forward.
 var _swim_sink := 0.0
+var _cloth: StandardMaterial3D = null
 var _swim_lean := 0.0
 var _ride_lean := 0.0
 ## The bow, and how far the string is drawn back: nothing while it hangs at
@@ -247,9 +251,10 @@ func _build_visual() -> Node3D:
 	# hovering a hand's width above it.
 	body.position.y = HEIGHT * 0.33
 	var cloth := StandardMaterial3D.new()
-	cloth.albedo_color = Color(0.30, 0.47, 0.72)
+	cloth.albedo_color = DEFAULT_SHIRT
 	cloth.roughness = 0.9
 	body.material_override = cloth
+	_cloth = cloth
 	root.add_child(body)
 
 	# The bow, held out at the child's left side and drawn as the string is
@@ -869,6 +874,12 @@ func face(direction: Vector3, delta: float) -> void:
 		atan2(-direction.x, -direction.z),
 		1.0 - exp(-12.0 * delta)
 	)
+
+## The shirt this child picked for themselves. Their own body, not just the one
+## the others see: "I am the blue one" has to be true on their own screen.
+func set_shirt(colour: Color) -> void:
+	if _cloth != null:
+		_cloth.albedo_color = colour
 
 func is_sprinting() -> bool:
 	return Input.is_action_pressed(InputActions.SPRINT) and run_fraction() > 0.4

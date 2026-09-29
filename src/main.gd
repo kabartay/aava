@@ -100,6 +100,7 @@ func _ready() -> void:
 	# remembered: a switch that forgets is a switch nobody trusts.
 	_voice_allowed = bool(save.get("voice_allowed", true))
 	_first_person = bool(save.get("first_person", false))
+	_shirt = int(save.get("shirt", -1))
 
 	# The world's map decides the seed, not the save: everyone in one copy of the
 	# valley must get the same ground, even though their own progress is in
@@ -213,6 +214,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 
 	session.guest_arrived.connect(_on_guest_arrived)
 	session.guest_left.connect(_on_guest_left)
+	session.guest_renamed.connect(_on_guest_renamed)
 	session.guest_moved.connect(visitors.move)
 	session.failed.connect(_on_session_failed)
 	session.closed.connect(visitors.clear)
@@ -935,6 +937,11 @@ func _connect_the_rest_of_the_hud() -> void:
 	hud.talk_started.connect(voice.start_talking)
 	hud.talk_released.connect(voice.stop_talking)
 	hud.together_opened.connect(_on_together_opened)
+	hud.name_chosen.connect(_on_name_chosen)
+	hud.shirt_chosen.connect(_on_shirt_chosen)
+	hud.set_player_name(profiles.current_player)
+	hud.set_shirt(_shirt)
+	player.set_shirt(Visitors.SHIRTS[_shirt] if _shirt >= 0 else Player.DEFAULT_SHIRT)
 	hud.together.host_requested.connect(_on_host_requested)
 	hud.together.join_requested.connect(_on_join_requested)
 	hud.together.leave_requested.connect(_on_leave_requested)
@@ -1128,6 +1135,53 @@ func _display_name() -> String:
 		return profiles.current_player
 	return Text.of("ui_player")
 
+## A child picked a shirt in the settings.
+##
+## Their own body changes at once — "I am the blue one" has to be true on their
+## own screen before it means anything — and everyone already in the valley is
+## told, so it changes over there too without waiting for a rejoin.
+func _on_shirt_chosen(which: int) -> void:
+	_shirt = which
+	player.set_shirt(Visitors.SHIRTS[which] if which >= 0 else Player.DEFAULT_SHIRT)
+	hud.set_shirt(which)
+	sounds.play(Sounds.Sound.CHIME, 1.35)
+	_write_save()
+	if session.is_connected_to_anyone():
+		session.report_name(_display_name(), _shirt)
+
+## A child named themselves in the settings.
+##
+## The name is what floats over their head in their brother's valley, and until
+## now nothing could set it: Profiles had add_player() and choose_player() and
+## no caller for either, so current_player stayed empty for ever and every
+## child in the valley was labelled "player".
+##
+## Choosing a name changes where this child's progress is written — the save
+## path is built from it — so the afternoon is written straight back out
+## afterwards. The state is all in memory, so writing it to the new path
+## carries the bag, the coins and the journal across; the world itself is
+## keyed by the valley rather than by the child and does not move at all.
+func _on_name_chosen(typed: String) -> void:
+	var name := typed.strip_edges()
+	if name == profiles.current_player:
+		return
+	if not Profiles.is_valid_name(name):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_name_no"), 3.5)
+		hud.set_player_name(profiles.current_player)
+		return
+	if not profiles.players.has(name):
+		profiles.add_player(name)
+	profiles.choose_player(name)
+	_write_save()
+	hud.set_player_name(name)
+	sounds.play(Sounds.Sound.CHIME, 1.2)
+	hud.announce(Text.format("say_name_set", [name]), 3.5)
+	# Anybody already in the valley is told, so the label over this child
+	# changes there and then rather than at the next join.
+	if session.is_connected_to_anyone():
+		session.report_name(name, _shirt)
+
 func _on_together_opened() -> void:
 	# Opened on the page that matches what is already happening, so a child who
 	# is hosting and reopens this sees their number instead of being asked again
@@ -1140,7 +1194,7 @@ func _on_together_opened() -> void:
 		hud.together.open()
 
 func _on_host_requested() -> void:
-	if session.host(_display_name()):
+	if session.host(_display_name(), _shirt):
 		hud.together.show_hosting()
 
 func _on_join_requested(code: int) -> void:
@@ -1149,7 +1203,7 @@ func _on_join_requested(code: int) -> void:
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.of("say_no_network"), 3.0)
 		return
-	session.join(address, _display_name())
+	session.join(address, _display_name(), _shirt)
 
 func _on_leave_requested() -> void:
 	session.close()
@@ -1165,8 +1219,8 @@ func _on_session_joined() -> void:
 	hud.together.close()
 	hud.announce(Text.of("say_visiting"), 3.0)
 
-func _on_guest_arrived(id: int, name: String) -> void:
-	visitors.add(id, name)
+func _on_guest_arrived(id: int, name: String, shirt: int) -> void:
+	visitors.add(id, name, shirt)
 	sounds.play(Sounds.Sound.CHIME, 1.4)
 	hud.announce(Text.format("say_joined", [name]), 4.0)
 	if session.is_host():
@@ -1175,6 +1229,11 @@ func _on_guest_arrived(id: int, name: String) -> void:
 ## Everybody's sky, set to this machine's. Sent when somebody sleeps.
 func _tell_everyone_the_time() -> void:
 	session.report_time_of_day(world.atmosphere.time_of_day)
+
+## Somebody already here renamed themselves: their label changes, quietly.
+func _on_guest_renamed(id: int, name: String, shirt: int) -> void:
+	visitors.rename(id, name)
+	visitors.reshirt(id, shirt)
 
 func _on_guest_left(id: int, name: String) -> void:
 	visitors.remove(id)
@@ -1572,6 +1631,10 @@ func _on_view_toggled() -> void:
 
 ## Which way round the camera is sitting, remembered between days.
 var _first_person := false
+
+## Which shirt this child picked, as an index into Visitors.SHIRTS, or -1 for
+## a child who has not been asked yet.
+var _shirt := -1
 
 func _on_sell_back(item: StringName) -> void:
 	if not wallet.has(item):
@@ -2033,6 +2096,7 @@ func _save_data() -> Dictionary:
 		"language": String(Text.language()),
 		"voice_allowed": _voice_allowed,
 		"first_person": _first_person,
+		"shirt": _shirt,
 		"player": {"x": at.x, "y": at.y, "z": at.z},
 		"camera_yaw": camera_rig.yaw,
 		"inventory": inventory.to_data(),

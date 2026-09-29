@@ -17,34 +17,42 @@ extends Node3D
 ## a stride rather than a jump.
 const SMOOTHING := 12.0
 
-## Colours, assigned in arrival order so two children are never the same shade.
+## The shirts a child can choose from, and the fallback for anyone who has not.
+##
+## The plain colours by name — red is red — so that "I am the blue one" is a
+## thing a six-year-old can say and be right about. Black and white are pulled
+## a little off the ends of the range: a pure black shirt disappears entirely
+## in a valley at night, and a pure white one blows out to a flat shape in
+## sunlight, and in both cases what a child loses is the person they were
+## looking for.
 const SHIRTS: Array[Color] = [
-	Color(0.86, 0.36, 0.32),
-	Color(0.42, 0.72, 0.44),
-	Color(0.90, 0.66, 0.28),
-	Color(0.62, 0.44, 0.80),
+	Color8(220, 50, 47),
+	Color8(60, 180, 75),
+	Color8(60, 110, 220),
+	Color8(240, 200, 50),
+	Color8(245, 150, 40),
+	Color8(150, 70, 190),
+	Color8(245, 160, 190),
+	Color8(60, 200, 210),
+	Color8(40, 40, 46),
+	Color8(238, 238, 240),
+	Color8(140, 140, 146),
+]
+
+## What the shirts are called, so a child picks "blue" and not a swatch.
+const SHIRT_NAMES: Array[StringName] = [
+	&"red", &"green", &"blue", &"yellow", &"orange",
+	&"purple", &"pink", &"cyan", &"black", &"white", &"grey",
 ]
 
 var _visitors: Dictionary = {}
 
-func add(id: int, who: String) -> void:
+## `chose` is the shirt that child picked for themselves, or -1 if they are
+## playing on a version that never asked them.
+func add(id: int, who: String, chose := -1) -> void:
 	if _visitors.has(id):
 		return
-	# Keyed off the peer id rather than off how many are here, so that the same
-	# child is the same colour on every phone in the valley — and so that two
-	# children are never handed the same shirt. Counting arrivals did both
-	# wrong: the count goes down when somebody leaves, so the next to join took
-	# a colour already being worn, and arrival order differs per machine, so a
-	# brother was green on one phone and orange on the other.
-	var shirt := SHIRTS[absi(id) % SHIRTS.size()]
-	var worn := {}
-	for other: Dictionary in _visitors.values():
-		worn[other["shirt"]] = true
-	for step in SHIRTS.size():
-		var candidate := SHIRTS[(absi(id) + step) % SHIRTS.size()]
-		if not worn.has(candidate):
-			shirt = candidate
-			break
+	var shirt := shirt_for(id, chose)
 
 	var body := MeshInstance3D.new()
 	body.mesh = _build_body(shirt)
@@ -67,6 +75,57 @@ func add(id: int, who: String) -> void:
 		"node": body, "wanted": Vector3.ZERO, "facing": 0.0, "seen": false,
 		"shirt": shirt,
 	}
+
+## Which shirt to draw somebody in.
+##
+## Their own choice, when they have made one. Failing that, one keyed off the
+## peer id rather than off how many are already here — the count goes down when
+## somebody leaves, so the next to join took a colour already being worn, and
+## arrival order differs per machine, so a brother was green on one phone and
+## orange on the other.
+func shirt_for(id: int, chose: int) -> Color:
+	if chose >= 0 and chose < SHIRTS.size():
+		return SHIRTS[chose]
+	var worn := {}
+	for other: Dictionary in _visitors.values():
+		worn[other["shirt"]] = true
+	for step in SHIRTS.size():
+		var candidate := SHIRTS[(absi(id) + step) % SHIRTS.size()]
+		if not worn.has(candidate):
+			return candidate
+	return SHIRTS[absi(id) % SHIRTS.size()]
+
+## What somebody is actually wearing, as opposed to what they would be given if
+## they arrived now — those differ, because the second depends on who else is
+## already here.
+func shirt_of(id: int) -> Color:
+	if not _visitors.has(id):
+		return Color.BLACK
+	return _visitors[id]["shirt"]
+
+## Somebody changed their name, or their shirt, while standing in the valley.
+func reshirt(id: int, chose: int) -> void:
+	if not _visitors.has(id):
+		return
+	var record: Dictionary = _visitors[id]
+	var node: Node3D = record["node"]
+	if not is_instance_valid(node) or not (node is MeshInstance3D):
+		return
+	var shirt := shirt_for(id, chose)
+	record["shirt"] = shirt
+	(node as MeshInstance3D).mesh = _build_body(shirt)
+
+## Somebody changed their name while standing in the valley.
+func rename(id: int, who: String) -> void:
+	if not _visitors.has(id):
+		return
+	var node: Node3D = _visitors[id]["node"]
+	if not is_instance_valid(node):
+		return
+	for child in node.get_children():
+		if child is Label3D:
+			(child as Label3D).text = who
+			return
 
 func remove(id: int) -> void:
 	if not _visitors.has(id):
