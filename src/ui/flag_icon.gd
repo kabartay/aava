@@ -118,7 +118,10 @@ func _circassian(box: Rect2) -> void:
 
 	var w := box.size.x
 	var h := box.size.y
-	var star := minf(w, h) * 0.068
+	# Bold rather than to scale. This is an icon of the flag, not a drawing of
+	# it: at the size a language button actually is, marks in true proportion
+	# fall below a pixel and the whole thing goes plain green.
+	var star := maxf(1.6, minf(w, h) * 0.082)
 
 	# The arc of nine, swept over the upper half and flattened, because the arc
 	# on the flag is a shallow bow across a wide field rather than half a
@@ -145,11 +148,11 @@ func _circassian(box: Rect2) -> void:
 		)
 		var along := (head - foot).normalized()
 		var across := Vector2(-along.y, along.x)
-		draw_line(foot, head, gold, maxf(1.0, h * 0.028))
+		draw_line(foot, head, gold, maxf(1.6, h * 0.04))
 		draw_colored_polygon(PackedVector2Array([
 			head,
-			head - along * (h * 0.13) + across * (w * 0.038),
-			head - along * (h * 0.13) - across * (w * 0.038),
+			head - along * maxf(4.0, h * 0.15) + across * maxf(2.0, w * 0.05),
+			head - along * maxf(4.0, h * 0.15) - across * maxf(2.0, w * 0.05),
 		]), gold)
 
 ## A five-pointed star, point upwards.

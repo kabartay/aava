@@ -621,7 +621,11 @@ func _build_menu() -> VBoxContainer:
 	for code: StringName in Text.LANGUAGES:
 		var button := Button.new()
 		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(BUTTON * 0.62, BUTTON * 0.46)
+		# Bigger than the first attempt. Three of these are three stripes and
+		# survive being tiny; the Circassian one is twelve stars and three
+		# arrows over a green field, and at fifty pixels across it was a green
+		# rectangle with nothing on it at all.
+		button.custom_minimum_size = Vector2(BUTTON * 0.95, BUTTON * 0.66)
 		button.tooltip_text = Text.ENDONYM[code]
 		var flag := FlagIcon.new(FlagIcon.for_language(code))
 		flag.set_anchors_preset(Control.PRESET_FULL_RECT)

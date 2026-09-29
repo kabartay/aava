@@ -146,6 +146,9 @@ var _seat_up := Vector3.UP
 var _cloth: StandardMaterial3D = null
 var _swim_lean := 0.0
 var _ride_lean := 0.0
+## Leaning side to side with the ground, as opposed to _ride_bank, which is
+## leaning into a turn. They add.
+var _ride_roll := 0.0
 ## The bow, and how far the string is drawn back: nothing while it hangs at
 ## the child's side, one at full draw.
 var _bow: Node3D
@@ -617,7 +620,8 @@ func _physics_process(delta: float) -> void:
 	else:
 		_ride_bank = lerpf(_ride_bank, 0.0, 1.0 - exp(-6.0 * delta))
 		_bars = move_toward(_bars, 0.0, BARS_SPEED * delta)
-	_visual.rotation.z = _ride_bank
+	# _ride_roll is added in lean_with_the_ground, which runs after this.
+	_visual.rotation.z = _ride_bank + _ride_roll
 
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
 	# On foot there is nothing under you to lean with, and a seat direction
@@ -756,25 +760,39 @@ func is_held(thing: Node3D) -> bool:
 ## Lean with the slope while riding: down the hill going down, back going
 ## up, the way a rider does. The body alone leans — the collider stays
 ## upright, since a capsule tipped over catches on everything.
-const RIDE_LEAN_LIMIT := deg_to_rad(22.0)
+const RIDE_LEAN_LIMIT := deg_to_rad(34.0)
 
-func lean_with_the_ground(riding_now: bool, field: HeightField, delta: float) -> void:
+## How much of the animal's own lean the rider takes. Not all of it: a person
+## on a horse sits straighter than the horse does, and at 1.0 a steep bank
+## reads as falling off rather than as riding down it.
+const SITS_WITH := 0.82
+
+func lean_with_the_ground(riding_now: bool, _field: HeightField, delta: float) -> void:
 	var wanted := 0.0
+	var wanted_roll := 0.0
 	if riding_now:
-		var ahead := facing() * 2.0
-		var front := field.height_at(global_position.x + ahead.x, global_position.z + ahead.z)
-		var back := field.height_at(global_position.x - ahead.x, global_position.z - ahead.z)
-		# Rising ground ahead tips the rider back, falling ground tips them
-		# forward; the rise over four metres is the slope.
+		# Taken from the animal, not from the ground.
 		#
-		# front - back, not back - front: a positive turn about the body's own
-		# X lifts what is at -Z, which is the way a body faces, so the
-		# subtraction written the other way leant a rider into the hill going
-		# up and out of the saddle going down. The animals had the same sign
-		# the same way round, and there it buried half a cow.
-		wanted = clampf(atan2(front - back, 4.0), -RIDE_LEAN_LIMIT, RIDE_LEAN_LIMIT)
-	_ride_lean = lerpf(_ride_lean, wanted, 1.0 - exp(-5.0 * delta))
+		# This used to sample the ground two metres fore and aft and work out
+		# its own angle, clamped to its own limit and eased at its own rate —
+		# and the horse works out its own tilt from the ground under its own
+		# ends, unclamped. So the two were never the same angle, and riding
+		# down a bank the child sat bolt upright while the animal underneath
+		# them leant: "я вертикально а конь под уклоном". The mount hands over
+		# which way up it is; leaning is then a matter of turning to match it,
+		# and cannot disagree with it by construction.
+		var heading := _visual.rotation.y
+		var local_up := Basis(Vector3.UP, -heading) * _seat_up
+		var upright := maxf(local_up.y, 0.1)
+		# A rider is not rigid — they sit a little straighter than the animal,
+		# which is what a person on a horse actually does and also keeps a
+		# steep bank from looking like a fall.
+		wanted = clampf(atan2(local_up.z, upright), -RIDE_LEAN_LIMIT, RIDE_LEAN_LIMIT) * SITS_WITH
+		wanted_roll = clampf(-atan2(local_up.x, upright), -RIDE_LEAN_LIMIT, RIDE_LEAN_LIMIT) * SITS_WITH
+	_ride_lean = lerpf(_ride_lean, wanted, 1.0 - exp(-9.0 * delta))
+	_ride_roll = lerpf(_ride_roll, wanted_roll, 1.0 - exp(-9.0 * delta))
 	_visual.rotation.x = _swim_lean + _ride_lean
+	_visual.rotation.z = _ride_bank + _ride_roll
 
 ## How far the rider is leaning with the slope. For the checks.
 func ride_lean() -> float:

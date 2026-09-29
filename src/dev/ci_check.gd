@@ -10818,12 +10818,29 @@ func _check_nothing_leans_into_the_hill() -> void:
 	animals.queue_free()
 
 	# And a rider does the same, which is the other place the sign was wrong.
+	#
+	# Driven the way the game drives it: the rider's lean comes from the
+	# animal's own up now, not from sampling the ground a second time with its
+	# own limits and its own easing — which is why a child rode down a bank
+	# sitting bolt upright while the horse under them leant. The mount standing
+	# on this slope is tilted by it, so that is what is handed over.
 	var player := Player.new()
 	get_root().add_child(player)
 	player.global_position = slope + Vector3(0.0, 1.0, 0.0)
 	player.riding = MountKinds.HORSE
-	player.face(fall, 1.0 / 60.0)
+	# The angle a mount standing on this slope lies at, built from the very
+	# rise the hill was found by — rather than from normal_at, which samples
+	# three quarters of a metre either side and on this particular hillside
+	# comes back dead level.
+	var pitched := atan2(steepest, 2.0)
+	var sideways := Vector3(-fall.z, 0.0, fall.x).normalized()
+	player.set_seat_up(Vector3.UP.rotated(sideways, -pitched))
 	for _frame in 120:
+		# Turned every frame, not once: the lean is worked out by decomposing
+		# the animal's up in the rider's own heading, so a heading that has not
+		# yet swung round to the fall line decomposes it about the wrong axis
+		# and the slope comes out as no slope at all.
+		player.face(fall, 1.0 / 60.0)
 		player.lean_with_the_ground(true, field, 1.0 / 60.0)
 	var leaning := Basis(Vector3.RIGHT, player.ride_lean()) * Vector3.FORWARD
 	_expect(

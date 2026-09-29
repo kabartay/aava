@@ -1,0 +1,4 @@
+# GDScript and GAP — a computer algebra system — both claim the .gd extension,
+# and GitHub reports a share of this repository as GAP because of it. Every .gd
+# file here is GDScript.
+*.gd linguist-language=GDScript
