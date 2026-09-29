@@ -23,6 +23,12 @@ extends PanelContainer
 ## Width of the panel. Wide enough for a two-digit count without the number
 ## jumping about as it changes.
 const WIDTH := 190.0
+
+## How wide the bag is while it is shut: the drawn bag, the count, and the
+## arrow. It used to stay the full open width whatever was in it, which with a
+## word in the header was fair enough and with a picture left most of a panel
+## sitting empty in the corner.
+const SHUT_WIDTH := 104.0
 const ROW_HEIGHT := 46.0
 
 var _rows: Dictionary = {}
@@ -50,7 +56,7 @@ func _init() -> void:
 	style.set_border_width_all(1)
 	add_theme_stylebox_override("panel", style)
 
-	custom_minimum_size = Vector2(WIDTH, 0.0)
+	custom_minimum_size = Vector2(SHUT_WIDTH, 0.0)
 	# Over everything on that side of the screen, because the open list is an
 	# overlay across the purse and the gauges rather than a thing they make
 	# room for.
@@ -72,6 +78,14 @@ func _init() -> void:
 	_title.add_theme_color_override("font_hover_color", Color.WHITE)
 	_title.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_title.pressed.connect(toggle)
+	# The bag itself, drawn on the button, because "рюкзак" is a reading task in
+	# the corner of a game whose youngest player cannot read.
+	var glyph := ActionIcon.new(ActionIcon.Kind.BAG)
+	glyph.custom_minimum_size = Vector2(34.0, 34.0)
+	glyph.size = Vector2(34.0, 34.0)
+	glyph.position = Vector2(2.0, 2.0)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_title.add_child(glyph)
 	_column.add_child(_title)
 	_refresh_title()
 
@@ -88,6 +102,8 @@ func toggle() -> void:
 	# thinner than usual: a child watching their coins while they sort the bag
 	# should still be able to read them through it.
 	modulate.a = 0.86 if _open else 1.0
+	custom_minimum_size.x = WIDTH if _open else SHUT_WIDTH
+	size.x = custom_minimum_size.x
 	_refresh_title()
 
 ## Is the bag open? For the checks.
@@ -116,7 +132,8 @@ func _refresh_title() -> void:
 	var kinds := 0
 	for kind in _seen:
 		kinds += 1
-	_title.text = "%s  %d  %s" % [Text.of("ui_bag"), kinds, "▾" if _open else "▸"]
+	# Padded past the drawn bag on the left of the button.
+	_title.text = "      %d  %s" % [kinds, "▾" if _open else "▸"]
 
 ## One item's count changed.
 func set_count(kind: StringName, total: int) -> void:

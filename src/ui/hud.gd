@@ -13,6 +13,9 @@ extends CanvasLayer
 ## and the stick has to be findable without looking down at it.
 const STICK_SIZE := 250.0
 const BUTTON := 96.0
+
+## The purse: a coin, a gap, and four digits at font 26.
+const PURSE_WIDTH := 132.0
 const MARGIN := 26.0
 
 signal camera_dragged(delta: Vector2)
@@ -304,7 +307,11 @@ func _init() -> void:
 	purse_style.border_color = Color(1.0, 0.90, 0.52, 0.30)
 	purse_style.set_border_width_all(1)
 	_purse.add_theme_stylebox_override("panel", purse_style)
-	_purse.custom_minimum_size = Vector2(Backpack.WIDTH, 0.0)
+	# Wide enough for the coin and four digits, which is the most a child can
+	# have — see Wallet.MAX_COINS. Sized to the number rather than to the bag
+	# below it, so the corner holds still instead of the purse growing as the
+	# afternoon goes on.
+	_purse.custom_minimum_size = Vector2(PURSE_WIDTH, 0.0)
 	_purse.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var purse_line := HBoxContainer.new()
 	purse_line.add_theme_constant_override("separation", 10)
@@ -528,12 +535,35 @@ func _build_menu() -> VBoxContainer:
 	_name_field.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_name_field.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
 	_name_field.add_theme_font_size_override("font_size", 22)
+	# Tapping it has to be made to work by hand.
+	#
+	# `pointing/emulate_mouse_from_touch` is off in project.godot — deliberately,
+	# because it fires a synthetic click before the real touch and every tap
+	# arrives twice — and a LineEdit only takes focus from a *mouse* button.
+	# Buttons handle a touch themselves, so every other control on this panel
+	# worked and this one did nothing at all: a child tapped "tap to type it"
+	# and no keyboard came up.
+	_name_field.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed:
+			_name_field.grab_focus()
+			if DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+				DisplayServer.virtual_keyboard_show(
+					_name_field.text, Rect2(), DisplayServer.KEYBOARD_TYPE_DEFAULT,
+					Profiles.MAX_NAME
+				))
 	_name_field.text_submitted.connect(func(typed: String) -> void:
 		name_chosen.emit(typed)
-		_name_field.release_focus())
+		_name_field.release_focus()
+		# Put back whatever was accepted. Dismissing the on-screen keyboard
+		# leaves the field empty, so a child who typed their name, pressed the
+		# tick and looked back saw "tap to type it" again and no reason to
+		# believe it had worked.
+		_name_field.text = _player_name)
 	# Leaving the field counts as finishing with it: a child who types their
 	# name and then taps the map has still told us their name.
 	_name_field.focus_exited.connect(func() -> void:
+		if DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+			DisplayServer.virtual_keyboard_hide()
 		if _name_field.text.strip_edges() != _player_name:
 			name_chosen.emit(_name_field.text))
 	column.add_child(_name_field)
@@ -585,14 +615,9 @@ func _build_menu() -> VBoxContainer:
 		button.pressed.connect(func() -> void: language_chosen.emit(code))
 		column.add_child(button)
 
-	# Playing together is an ordinary thing to want, so it sits above the quiet
-	# door and is coloured like something to press rather than something to
-	# avoid.
-	var share := _button(Text.of("ui_together"), Color(0.62, 0.88, 0.68))
-	share.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
-	share.add_theme_font_size_override("font_size", 20)
-	share.pressed.connect(_open_together)
-	column.add_child(share)
+	# Playing together used to have a row here. It has its own button in the top
+	# bar now, beside the map and the microphone, and a second way in from two
+	# taps down inside the settings is just somewhere else for it to be.
 
 	# A quiet way through to the dangerous room, worded so an adult knows it is
 	# for them and a child has no reason to want it.
@@ -1110,8 +1135,11 @@ func set_animal_in_reach(wish: String) -> void:
 	_care_button.text = wish
 	_layout()
 
+## The purse is a fixed width sized for four digits, so four digits is what it
+## is allowed to print. Wallet caps what a child can hold at the same number;
+## this is the panel keeping its own promise rather than trusting the caller.
 func set_coins(total: int) -> void:
-	_coins_label.text = str(total)
+	_coins_label.text = str(clampi(total, 0, Wallet.MAX_COINS))
 	_layout()
 
 func _toggle_map() -> void:
@@ -1140,6 +1168,12 @@ func _open_together() -> void:
 
 func _toggle_menu() -> void:
 	_menu.visible = not _menu.visible
+	# Over the map rather than under it. The minimap is added last so that it
+	# draws above the rest of the interface, which is right until something
+	# opens underneath it: settings came up behind the open map, and the name
+	# field and half the colours were simply not there to be tapped.
+	if _menu.visible:
+		_menu.move_to_front()
 	# Opening or closing the menu always shuts the dangerous room behind it.
 	_danger.visible = false
 	_reset_held = 0.0
@@ -1399,7 +1433,7 @@ func set_voice_allowed(allowed: bool) -> void:
 ## The name this child is known by, shown in the settings field.
 func set_player_name(name: String) -> void:
 	_player_name = name
-	if _name_field != null and _name_field.text != name:
+	if _name_field != null:
 		_name_field.text = name
 
 ## Ring the shirt this child is wearing, and unring the rest.
@@ -1532,9 +1566,32 @@ func _layout() -> void:
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
 	_danger.position = _menu.position
 
+	# The corner opposite the menu: how you are, then what you have, on the one
+	# line and level with the buttons on the left. These used to run down the
+	# right-hand edge under the bag — bag, then purse, then health — so the two
+	# numbers a child actually watches were third and fourth in a stack, and
+	# the whole column shifted down the moment the bag appeared.
+	_purse.size = Vector2(PURSE_WIDTH, _purse.get_combined_minimum_size().y)
+	_purse.position = Vector2(
+		safe.position.x + safe.size.x - PURSE_WIDTH - MARGIN,
+		safe.position.y + MARGIN
+	)
+
+	_vitals.size = _vitals.custom_minimum_size
+	_vitals.position = Vector2(
+		_purse.position.x - VitalsGauge.WIDTH - 10.0,
+		# Centred on the purse rather than sharing its top edge, because the
+		# two are different heights and a shared top reads as a mistake.
+		_purse.position.y + (_purse.size.y - _vitals.size.y) * 0.5
+	)
+	# Below the purse and the health, with a clear gap: the bag is something a
+	# child opens now and then, and those two are read at a glance.
+	# Aligned by its own width rather than by the open one: the bag is narrower
+	# while it is shut, and pinning it to the wide measurement left it hanging
+	# a hand's breadth off the edge of the screen.
 	_backpack.position = Vector2(
-		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
-		safe.position.y + MARGIN + 52.0
+		safe.position.x + safe.size.x - _backpack.custom_minimum_size.x - MARGIN,
+		_purse.position.y + _purse.size.y + 26.0
 	)
 
 	_build_button.position = Vector2(
@@ -1578,22 +1635,6 @@ func _layout() -> void:
 	_task_label.size.x = view.x
 	_task_label.position = Vector2(0.0, safe.position.y + MARGIN + 44.0)
 
-	# Under the bag, aligned to its right edge.
-	# The purse sits between the bag and the health, at the same right edge.
-	_purse.size = Vector2(Backpack.WIDTH, _purse.get_combined_minimum_size().y)
-	_purse.position = Vector2(
-		safe.position.x + safe.size.x - Backpack.WIDTH - MARGIN,
-		# Against the folded height, not the real one: the open bag is an overlay
-		# that covers the purse rather than something the purse moves for.
-		_backpack.position.y + _backpack.shut_height() + 8.0
-	)
-
-	# Under the purse, at the same right edge as the bag above it.
-	_vitals.size = _vitals.custom_minimum_size
-	_vitals.position = Vector2(
-		safe.position.x + safe.size.x - VitalsGauge.WIDTH - MARGIN,
-		_purse.position.y + _purse.size.y + 10.0
-	)
 
 	# The things you carry, down the right-hand edge under the gauges.
 	#
@@ -1608,7 +1649,7 @@ func _layout() -> void:
 	# Now the column lays itself out: every button that is showing takes the
 	# next slot, and when the next slot would reach the row along the bottom it
 	# starts a second column inwards instead.
-	var column_top := _vitals.position.y + _vitals.size.y + 10.0
+	var column_top := _backpack.position.y + _backpack.shut_height() + 10.0
 	var column_x := safe.position.x + safe.size.x - BUTTON - MARGIN
 	var floor_y := safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN
 	var next_y := column_top

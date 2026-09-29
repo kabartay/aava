@@ -2469,11 +2469,11 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	)
 	_expect(Places.SHOP_STAND_Z.size() >= 2, "and the small goods are out on stands")
 
-	# What is in the purse is on the screen at all times, in its own panel
-	# between the bag and the health. It was a bare number in warm type over
-	# whatever the sky was doing, and it was missed — which matters, because
-	# knowing what you have is what decides whether to look after another
-	# animal before walking four hundred metres to the shop.
+	# What is in the purse is on the screen at all times, in its own panel in
+	# the top corner with the health beside it. It was a bare number in warm
+	# type over whatever the sky was doing, and it was missed — which matters,
+	# because knowing what you have is what decides whether to look after
+	# another animal before walking four hundred metres to the shop.
 	var screen := Hud.new()
 	get_root().add_child(screen)
 	screen.set_coins(0)
@@ -2481,10 +2481,33 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	_expect(screen._purse.visible, "and it is there before the first coin is earned")
 	screen.set_coins(766)
 	_expect(screen._coins_label.text == "766", "it says %s" % screen._coins_label.text)
+	# Four digits is the most it ever has to print, so the panel is a fixed
+	# width and the corner holds still — a purse that grew as the afternoon
+	# went on used to push the whole right-hand column about.
+	screen.set_coins(Wallet.MAX_COINS + 500)
+	_expect(
+		screen._coins_label.text.length() <= 4,
+		"it never prints more than four digits: %s" % screen._coins_label.text
+	)
+	screen.set_coins(766)
+
+	# The two numbers a child actually watches are in the corner, level with
+	# each other, and the bag is below them rather than above: the bag used to
+	# come first and the whole column moved down the moment it appeared.
 	var purse_at := screen._purse.position.y
 	var bag_at := screen._backpack.position.y
-	_expect(purse_at > bag_at, "it sits below the bag")
-	_expect(screen._vitals.position.y > purse_at, "and above the health")
+	_expect(bag_at > purse_at, "the bag sits below the purse")
+	_expect(
+		absf(
+			(screen._vitals.position.y + screen._vitals.size.y * 0.5)
+			- (purse_at + screen._purse.size.y * 0.5)
+		) < 2.0,
+		"the health sits level with the purse"
+	)
+	_expect(
+		screen._vitals.position.x < screen._purse.position.x,
+		"and to the left of it"
+	)
 	screen.queue_free()
 
 	# Everything the shop has is on the shelf at once. A tile is a button and a

@@ -11,6 +11,11 @@ extends RefCounted
 signal changed(total: int)
 signal bought(item: StringName)
 
+## The most a child can have. Four digits, so the purse in the corner is a
+## fixed width and never grows into the rest of the screen — and nine thousand
+## coins is already far more than anything in the shop asks for.
+const MAX_COINS := 9999
+
 var coins := 0
 
 ## What the child has, and how many of each.
@@ -31,7 +36,7 @@ var tickets := 0
 func earn(amount: int) -> void:
 	if amount <= 0:
 		return
-	coins += amount
+	coins = mini(coins + amount, MAX_COINS)
 	changed.emit(coins)
 
 func can_afford(price: int) -> bool:
@@ -118,7 +123,9 @@ func to_data() -> Dictionary:
 	return {"coins": coins, "owned": owned.duplicate(), "tickets": tickets}
 
 func from_data(data: Dictionary) -> void:
-	coins = int(data.get("coins", 0))
+	# Clamped on the way in as well as on the way up: a save written before
+	# there was a ceiling can hold more than the purse has room to print.
+	coins = clampi(int(data.get("coins", 0)), 0, MAX_COINS)
 	tickets = int(data.get("tickets", 0))
 	owned.clear()
 	# Two shapes. A dictionary of counts is what is written now; a bare list of

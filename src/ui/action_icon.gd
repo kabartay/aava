@@ -26,7 +26,7 @@ enum Kind {
 	LEAVE_BICYCLE, LEAVE_MOTORCYCLE, LEAVE_QUAD,
 	VIEW_FIRST, VIEW_THIRD,
 	MIC_ON, MIC_OFF,
-	MAP, TOGETHER,
+	MAP, TOGETHER, BAG,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -141,6 +141,8 @@ func _draw() -> void:
 			_globe(box)
 		Kind.TOGETHER:
 			_two_of_you(box)
+		Kind.BAG:
+			_satchel(box)
 
 ## The mark that turns a machine into "get off it": an arrow rising away from
 ## it, up and to the side, which is the way somebody actually leaves one.
@@ -762,6 +764,57 @@ func _sleep(box: Rect2) -> void:
 ## A speech bubble with three dots: someone is saying something. Lit up while
 ## the microphone is actually running — that part is done by the HUD, on the
 ## button as a whole.
+## The bag: a satchel with a flap and two straps over the shoulders.
+##
+## The word "рюкзак" with a count beside it was doing this job, which is a
+## reading task in the corner of a game played by a six-year-old who cannot
+## read yet. The shape is the label now and the count sits on it.
+func _satchel(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var half_width := unit * 0.23
+	var top := centre.y - unit * 0.14
+	var bottom := centre.y + unit * 0.3
+	var thick := maxf(2.0, unit * 0.07)
+
+	# The grab handle, one loop at the top. This was a strap over each shoulder
+	# and the pair of them read as a ribbon: the bag came out a wrapped present.
+	draw_arc(
+		Vector2(centre.x, top + thick * 0.5),
+		unit * 0.11, PI, TAU, 14, tint, thick
+	)
+
+	# The body, with its corners taken off so it is a bag and not a crate.
+	var body := PackedVector2Array()
+	var round_by := unit * 0.07
+	for corner: Vector4 in [
+		Vector4(centre.x + half_width - round_by, bottom - round_by, 0.0, 1.0),
+		Vector4(centre.x - half_width + round_by, bottom - round_by, 1.0, 2.0),
+		Vector4(centre.x - half_width + round_by, top + round_by, 2.0, 3.0),
+		Vector4(centre.x + half_width - round_by, top + round_by, 3.0, 4.0),
+	]:
+		for i in 5:
+			var angle := (corner.z + float(i) / 4.0) * PI * 0.5
+			body.append(Vector2(corner.x, corner.y) + Vector2(cos(angle), sin(angle)) * round_by)
+	draw_colored_polygon(body, tint)
+
+	# The flap across the top and the buckle under it, cut out of the bag
+	# rather than laid over it, so the whole thing stays one silhouette.
+	draw_rect(
+		Rect2(
+			Vector2(centre.x - half_width, top + unit * 0.15),
+			Vector2(half_width * 2.0, thick * 0.9)
+		),
+		HOLE
+	)
+	draw_rect(
+		Rect2(
+			Vector2(centre.x - unit * 0.045, top + unit * 0.19),
+			Vector2(unit * 0.09, unit * 0.07)
+		),
+		HOLE
+	)
+
 ## Two children, one behind the other: playing together.
 ##
 ## Up beside the map and the eye, because inviting a brother into the valley is
