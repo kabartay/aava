@@ -100,10 +100,10 @@ const ELBRUS_SHIELD := 405.0
 ## as on the real one, where the difference is about twenty metres in
 ## five and a half thousand.
 const ELBRUS_AXIS := Vector2(0.94, -0.34)
-const ELBRUS_SADDLE := 215.0
-const ELBRUS_DOME := 210.0
-const ELBRUS_WEST := 128.0
-const ELBRUS_EAST := 121.0
+const ELBRUS_SADDLE := 242.0
+const ELBRUS_DOME := 186.0
+const ELBRUS_WEST := 138.0
+const ELBRUS_EAST := 128.0
 
 ## Nothing grows above this. A bare treeline is what makes a mountain read as
 ## high rather than as a big green lump.
