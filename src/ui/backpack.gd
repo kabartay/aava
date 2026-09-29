@@ -1,6 +1,10 @@
 class_name Backpack
 extends PanelContainer
 
+## Opened or shut. Whoever positions this has to be told, because it is a
+## different width open and is pinned to the edge of the screen by that width.
+signal opened_changed()
+
 ## What the player is carrying, shown as a small panel down the right-hand side.
 ##
 ## It replaces a row of numbers along the top, which was legible but told a
@@ -22,7 +26,11 @@ extends PanelContainer
 
 ## Width of the panel. Wide enough for a two-digit count without the number
 ## jumping about as it changes.
-const WIDTH := 190.0
+## A quarter wider than it was. Open, the rows have to hold an item's picture,
+## its name and its count, and "pomme de pin" ran off the end of the old width
+## — and since the panel is pinned to the right-hand edge, what ran off was off
+## the side of the screen.
+const WIDTH := 238.0
 
 ## How wide the bag is while it is shut: the drawn bag, the count, and the
 ## arrow. It used to stay the full open width whatever was in it, which with a
@@ -105,6 +113,7 @@ func toggle() -> void:
 	custom_minimum_size.x = WIDTH if _open else SHUT_WIDTH
 	size.x = custom_minimum_size.x
 	_refresh_title()
+	opened_changed.emit()
 
 ## Is the bag open? For the checks.
 func is_open() -> bool:

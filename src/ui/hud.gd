@@ -190,7 +190,11 @@ func _init() -> void:
 
 	_backpack = Backpack.new()
 	# The bag changes height as it is opened and shut, and everything down the
-	# right-hand edge is placed under it.
+	# right-hand edge is placed under it. It changes *width* too, and is pinned
+	# to the edge of the screen by that width — so without laying out again on
+	# the change, an opened bag kept the shut bag's position and the extra
+	# width went off the side of the screen, taking the item names with it.
+	_backpack.opened_changed.connect(_layout)
 	add_child(_backpack)
 
 	_palette = _build_palette()
@@ -410,7 +414,7 @@ func _init() -> void:
 	_shop = _build_shop()
 	add_child(_shop)
 
-	_menu_button = _button("≡", Color(0.86, 0.90, 0.96))
+	_menu_button = _icon_button(ActionIcon.Kind.SETTINGS)
 	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_menu_button.pressed.connect(_toggle_menu)
 	add_child(_menu_button)
@@ -608,12 +612,27 @@ func _build_menu() -> VBoxContainer:
 	heading.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.55))
 	column.add_child(heading)
 
-	for code in Text.LANGUAGES:
-		var button := _button(Text.ENDONYM[code], Color(0.90, 0.93, 0.97))
-		button.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
-		button.add_theme_font_size_override("font_size", 22)
+	# Flags rather than the names of the languages. "English", "Français",
+	# "Русский" is a reading task standing in front of the button that makes
+	# the game readable — and a child who cannot yet read "Русский" can pick
+	# the white-blue-red one out of a row without being taught.
+	var flags := HBoxContainer.new()
+	flags.add_theme_constant_override("separation", 8)
+	for code: StringName in Text.LANGUAGES:
+		var button := Button.new()
+		button.focus_mode = Control.FOCUS_NONE
+		button.custom_minimum_size = Vector2(BUTTON * 0.62, BUTTON * 0.46)
+		button.tooltip_text = Text.ENDONYM[code]
+		var flag := FlagIcon.new(FlagIcon.for_language(code))
+		flag.set_anchors_preset(Control.PRESET_FULL_RECT)
+		flag.offset_left = 4.0
+		flag.offset_top = 4.0
+		flag.offset_right = -4.0
+		flag.offset_bottom = -4.0
+		button.add_child(flag)
 		button.pressed.connect(func() -> void: language_chosen.emit(code))
-		column.add_child(button)
+		flags.add_child(button)
+	column.add_child(flags)
 
 	# Playing together used to have a row here. It has its own button in the top
 	# bar now, beside the map and the microphone, and a second way in from two

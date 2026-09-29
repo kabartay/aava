@@ -26,7 +26,7 @@ enum Kind {
 	LEAVE_BICYCLE, LEAVE_MOTORCYCLE, LEAVE_QUAD,
 	VIEW_FIRST, VIEW_THIRD,
 	MIC_ON, MIC_OFF,
-	MAP, TOGETHER, BAG,
+	MAP, TOGETHER, BAG, SETTINGS,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -143,6 +143,8 @@ func _draw() -> void:
 			_two_of_you(box)
 		Kind.BAG:
 			_satchel(box)
+		Kind.SETTINGS:
+			_gear(box)
 
 ## The mark that turns a machine into "get off it": an arrow rising away from
 ## it, up and to the side, which is the way somebody actually leaves one.
@@ -842,6 +844,36 @@ func _person(at: Vector2, unit: float, colour: Color) -> void:
 	shoulders.append(at + Vector2(width, unit * 0.24))
 	shoulders.append(at + Vector2(-width, unit * 0.24))
 	draw_colored_polygon(shoulders, colour)
+
+## A gear: settings.
+##
+## It was "≡", which says "more things behind this" — and behind it is a
+## child's name, the colour they wear and the language the game speaks, which
+## is not a list of more things but how the game is set up. It was also the
+## last letter left in a row where everything else is drawn.
+func _gear(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var teeth := 8
+	var inner := unit * 0.23
+	var outer := unit * 0.33
+
+	# The rim, as one polygon that steps in and out: a ring with separate teeth
+	# laid on it leaves seams wherever a tooth meets the ring.
+	var rim := PackedVector2Array()
+	var steps := teeth * 4
+	for i in steps:
+		var angle := TAU * float(i) / float(steps)
+		# Two of every four samples sit on the tooth, two in the gap, with the
+		# change happening between them — which is what makes a square tooth
+		# rather than a wavy one.
+		var reach := outer if (i % 4) < 2 else inner
+		rim.append(centre + Vector2(cos(angle), sin(angle)) * reach)
+	draw_colored_polygon(rim, tint)
+
+	# And the hole through the middle, cut in the button's own dark rather than
+	# drawn in the ink, so the gear reads as a ring.
+	draw_circle(centre, unit * 0.115, HOLE)
 
 ## The valley, as a globe: a circle with a meridian down it and two parallels
 ## across. It was the character "▣" set in the interface font — the one button
