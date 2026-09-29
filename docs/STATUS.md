@@ -180,9 +180,9 @@ Last updated: 2026-09-21.
 | Invitations | Done | Being invited puts you in *that* copy — you walk into your friend's house, not a picture of it. |
 | Shared vs private state | Done | Buildings, felled trees, campfires and dams belong to the world; bag, coins and journal belong to the child. |
 | Migration | Done | A valley built before profiles existed becomes the first world rather than being abandoned. |
-| Networking | Done (LAN) | One device hosts, others join on the family network. Verified across two processes on one machine; not yet tried between two physical devices over real Wi-Fi. |
+| Networking | Done (LAN) | One device hosts, others join on the family network. Verified across three physical phones over real Wi-Fi, which turned up and fixed bugs the two-process test on one machine couldn't: a missing Android INTERNET permission, a hosting code that could land on a subnet or broadcast address, and each device's day/night clock running independently instead of the host's being authoritative. |
 | Play-together screen | Done | The host shows one big number; the guest taps it on a keypad. No text entry anywhere. |
-| Visitors | Done | Other children drawn where they stand, with their name above them, eased between updates. |
+| Visitors | Done | Other children drawn where they stand, with their name above them, eased between updates. The body is drawn to the same proportions as the player's own, which drifted apart once and left a visitor red and headless. |
 | Voice chat | Done | Push-to-talk only; the microphone is stopped, not merely muted, between presses. Only to children already in the valley. Never recorded. |
 
 ## Android
