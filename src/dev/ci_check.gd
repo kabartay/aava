@@ -53,6 +53,7 @@ func _initialize() -> void:
 	_check_sounds_exist()
 	await _check_the_valley_is_not_silent()
 	_check_an_animal_greets_you_once()
+	_check_a_rider_sits_in_the_saddle()
 	_check_trees_are_capital()
 	await _check_a_fire_needs_feeding()
 	_check_a_house_is_worth_having()
@@ -4571,13 +4572,32 @@ func _check_every_language_is_complete() -> void:
 	var missing := PackedStringArray()
 	for key in Text.STRINGS:
 		var entry: Dictionary = Text.STRINGS[key]
-		for code in Text.LANGUAGES:
+		for code in Text.FINISHED_LANGUAGES:
 			if not entry.has(code) or String(entry[code]).strip_edges().is_empty():
 				missing.append("%s/%s" % [key, code])
 	if missing.is_empty():
-		_ok("%d strings, all present in %d languages" % [Text.STRINGS.size(), Text.LANGUAGES.size()])
+		_ok("%d strings, all present in %d languages" % [
+			Text.STRINGS.size(), Text.FINISHED_LANGUAGES.size()
+		])
 	else:
 		_fail("missing translations: %s" % ", ".join(missing))
+
+	# Circassian is being written, so it is allowed to be short — but what it
+	# does have must be real. An empty string is worse than the Russian it
+	# would otherwise have fallen back to: it is a blank label on screen.
+	var written := 0
+	for key in Text.STRINGS:
+		var entry: Dictionary = Text.STRINGS[key]
+		if not entry.has(Text.AD):
+			continue
+		written += 1
+		_expect(
+			not String(entry[Text.AD]).strip_edges().is_empty(),
+			"the Circassian for '%s' is not blank" % key
+		)
+	_ok("Circassian has %d of %d strings so far; the rest fall back to Russian" % [
+		written, Text.STRINGS.size()
+	])
 
 	# A format string that takes a value must take it in every language, or the
 	# translated one silently drops the number it was meant to show.
@@ -4586,6 +4606,8 @@ func _check_every_language_is_complete() -> void:
 		var english := String(entry[Text.EN])
 		var slots := english.count("%")
 		for code in Text.LANGUAGES:
+			if not entry.has(code):
+				continue
 			if String(entry[code]).count("%") != slots:
 				_fail("'%s' has %d value slots in English but a different number in %s" % [key, slots, code])
 
@@ -4659,10 +4681,12 @@ func _check_the_opening_leads_somewhere() -> void:
 	else:
 		_ok("four steps, each completed by doing it, then the valley is handed over")
 
-	# Every step must say something in every language.
+	# Every step must say something in every finished language — Circassian is
+	# still being written and falls back to Russian, which is a sentence a
+	# child can read rather than a blank.
 	var steps := PackedStringArray(["task_gather", "task_build", "task_pitch", "task_plant"])
 	for key in steps:
-		for code in Text.LANGUAGES:
+		for code in Text.FINISHED_LANGUAGES:
 			var entry: Dictionary = Text.STRINGS[key]
 			if String(entry.get(code, "")).strip_edges().is_empty():
 				_fail("%s has no %s text" % [key, code])
@@ -7166,6 +7190,61 @@ func _a_tap() -> InputEventMouseButton:
 ## answering one child standing in front of her. The whole difficulty is the
 ## "once": a greeting that repeats while somebody stands beside the animal is
 ## an alarm, so it only fires again after they have actually gone away.
+## A rider sits in the saddle, and stays there on a hill.
+##
+## Two faults, reported together from the phone as "I got on the horse and it
+## does not sit down properly, it is crooked and I seem to be detached, and the
+## horse is tilted oddly".
+##
+## The seat was a number of its own, fourteen centimetres below the saddle that
+## is actually drawn — while the constant written expressly so that could not
+## happen sat in the same file with no callers at all.
+##
+## And the body was lifted straight up the world's Y while the horse lies over
+## to whatever ground it stands on, so on a slope the rider was beside the
+## saddle rather than on it. Two and a quarter metres of lift at twenty degrees
+## is three quarters of a metre out sideways, which is a child riding alongside
+## their own horse.
+func _check_a_rider_sits_in_the_saddle() -> void:
+	print("a rider sits in the saddle")
+
+	_expect(
+		is_equal_approx(MountKinds.eye_lift(MountKinds.HORSE), MountKinds.HORSE_SADDLE_Y),
+		"the seat is the saddle the horse is drawn with, not a second number"
+	)
+
+	var player := Player.new()
+	get_root().add_child(player)
+	player.riding = MountKinds.HORSE
+	# Level ground first: straight up, and as high as the saddle.
+	for _frame in 240:
+		player.lean_with_the_ground(false, null, 1.0 / 60.0)
+		player._physics_process(1.0 / 60.0)
+	var level := player.visual_offset()
+	_expect(
+		absf(level.y - MountKinds.HORSE_SADDLE_Y) < 0.06,
+		"on the flat the rider sits %.2f m up, at the saddle" % level.y
+	)
+	_expect(
+		Vector2(level.x, level.z).length() < 0.02,
+		"and directly over it"
+	)
+
+	# Then tipped, as a horse on a bank is. The seat has to lean with it.
+	player.set_ride_lean_for_check(deg_to_rad(20.0))
+	for _frame in 4:
+		player._physics_process(1.0 / 60.0)
+	var tipped := player.visual_offset()
+	_expect(
+		Vector2(tipped.x, tipped.z).length() > 0.5,
+		"tipped twenty degrees the seat moves %.2f m with the horse" % Vector2(tipped.x, tipped.z).length()
+	)
+	_expect(
+		absf(tipped.length() - level.length()) < 0.06,
+		"and stays the same distance from the horse's back"
+	)
+	player.queue_free()
+
 func _check_an_animal_greets_you_once() -> void:
 	print("an animal greets you once")
 	var voices := AnimalVoices.new()

@@ -124,6 +124,22 @@ func _collect_baked() -> void:
 	_baked = {}
 	_bake_mutex.unlock()
 
+## Never go away while the bake is still running.
+##
+## The voices are baked on a worker thread started in _init, and that thread
+## reads this object. Freeing it first leaves the pool running a task against
+## memory that is no longer there — which is a crash, and one that only
+## appears when the machine is slow enough for the free to win the race. It
+## cost a green build on CI and nothing at all on the machine it was written
+## on, which is exactly the shape of bug worth closing in the class rather
+## than at each call site.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_PREDELETE:
+		return
+	if _bake_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_bake_task)
+		_bake_task = -1
+
 ## Wait for the voices, for a check that wants them now.
 func bake_now() -> void:
 	if _bake_task >= 0:

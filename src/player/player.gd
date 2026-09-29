@@ -619,7 +619,20 @@ func _physics_process(delta: float) -> void:
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
 	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
 	_settle_in_water(delta)
-	_visual.position.y = _ride_lift - _swim_sink - _swim_bob()
+	# Lifted along the mount's own up, not the world's.
+	#
+	# The body sits two and a quarter metres above the horse, and the horse
+	# lies over to whatever ground it is standing on — so on a slope the saddle
+	# is not overhead, it is overhead *and off to one side*. Lifting straight
+	# up the world's Y put the rider beside the saddle rather than on it, by
+	# most of a metre on a steep bank, which is exactly the "sitting crooked,
+	# as if I am not attached to it" that came back from the phone. The same
+	# lean and bank the body is already turned by decide which way is up.
+	var tilt := Basis.from_euler(Vector3(_swim_lean + _ride_lean, 0.0, _ride_bank))
+	_visual.position = (
+		tilt * Vector3.UP * _ride_lift
+		- Vector3(0.0, _swim_sink + _swim_bob(), 0.0)
+	)
 
 	# The world streams around wherever the player is, but only when they have
 	# actually gone somewhere worth regenerating for.
@@ -880,6 +893,16 @@ func face(direction: Vector3, delta: float) -> void:
 func set_shirt(colour: Color) -> void:
 	if _cloth != null:
 		_cloth.albedo_color = colour
+
+## Where the drawn body sits relative to the physics body. For the checks: the
+## seat is the whole of what "sitting in the saddle" means and it is otherwise
+## only visible by looking at the game.
+func visual_offset() -> Vector3:
+	return _visual.position
+
+## Force the ride lean, so a check can put a rider on a hill without a hill.
+func set_ride_lean_for_check(radians: float) -> void:
+	_ride_lean = radians
 
 func is_sprinting() -> bool:
 	return Input.is_action_pressed(InputActions.SPRINT) and run_fraction() > 0.4

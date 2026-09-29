@@ -176,7 +176,14 @@ const INFO := {
 		"floats": false,
 		# Up to the saddle: the child's feet at the stirrups, body above the
 		# horse's back. At 1.26 the rider was inside the horse to the neck.
-		"eye": 2.1,
+		#
+		# HORSE_SADDLE_Y, not a number of its own. That constant was written
+		# precisely so the seat is taken from where the saddle is drawn rather
+		# than guessed at "with a second number that can drift away from the
+		# first" — and then nothing ever called it, and the second number sat
+		# here fourteen centimetres lower, which is a rider sunk into the
+		# horse's back.
+		"eye": HORSE_SADDLE_Y,
 		"colour": Color(0.42, 0.29, 0.20),
 	},
 	BICYCLE: {

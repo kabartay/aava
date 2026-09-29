@@ -18,7 +18,23 @@ const EN := &"en"
 const FR := &"fr"
 const RU := &"ru"
 
-const LANGUAGES: Array[StringName] = [EN, FR, RU]
+## Circassian — Adyghe and Kabardian, which are the same language written the
+## same way either side of a border.
+##
+## Being written. Every string it does not have yet falls back to Russian
+## rather than to English: this is the language of a place where Russian is the
+## one everybody also reads, and a half-translated game that falls back to
+## English there would be less use, not more. Nothing here is guessed — a
+## string arrives when somebody who speaks it writes it.
+const AD := &"ad"
+
+const LANGUAGES: Array[StringName] = [EN, FR, RU, AD]
+
+## The languages that must be complete. Circassian is left out of it while it
+## is being filled in, and its fallback keeps the game entirely playable
+## meanwhile — but every other language has to answer for every string, which
+## is the check that has caught missing translations before.
+const FINISHED_LANGUAGES: Array[StringName] = [EN, FR, RU]
 
 ## What each language calls itself. A child picking a language recognises
 ## "Русский", not "Russian".
@@ -26,6 +42,7 @@ const ENDONYM := {
 	EN: "English",
 	FR: "Français",
 	RU: "Русский",
+	AD: "Адыгэбзэ",
 }
 
 static var _language: StringName = EN
@@ -732,6 +749,11 @@ static func of(key: String) -> String:
 		# for exactly this shape on screen.
 		push_warning("no text for '%s'" % key)
 		return "?" + key
+	# Circassian falls back to Russian and everything else to English: see the
+	# note on AD. `entry.get(RU, entry[EN])` rather than entry[RU] because the
+	# fallback must not itself be able to fail.
+	if _language == AD and not entry.has(AD):
+		return entry.get(RU, entry[EN])
 	return entry.get(_language, entry[EN])
 
 ## The same, with arguments — so a caller never has to remember which strings
