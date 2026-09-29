@@ -22,6 +22,7 @@ func _initialize() -> void:
 
 	_check_every_script_loads()
 	_check_world_has_relief()
+	_check_the_great_mountain_stands()
 	_check_chunks_have_geometry()
 	_check_ground_rejects_what_it_cannot_touch()
 	_check_baking_on_threads_changes_nothing()
@@ -255,6 +256,77 @@ func _find_scripts(directory: String) -> PackedStringArray:
 
 ## The valley was once flat enough to be a table top, because fractal noise
 ## spends most of its time near zero and the hills never rose.
+## The twin-domed mountain on the northern skyline.
+##
+## Every other peak here is ridged noise, which gives crags and never gives the
+## one shape a child recognises through a window: two snow domes with a saddle
+## between them on one enormous shield. It is built by hand, so every part of it
+## is a number that can drift — and the ways it can go wrong are all silent.
+## It can stop being two summits and become one cone with a bump; it can stop
+## being the highest thing and disappear into the range; or it can grow inwards
+## and lift ground a child is supposed to be able to walk on.
+func _check_the_great_mountain_stands() -> void:
+	print("the great mountain stands")
+	var field := HeightField.new(20260903)
+	var axis := HeightField.ELBRUS_AXIS
+
+	# Walked along the line through both summits: the highest point either side
+	# of the middle, and the lowest point between them.
+	var west_top := 0.0
+	var east_top := 0.0
+	var saddle := 1e9
+	for i in range(-40, 41):
+		var along := float(i) * 8.0
+		var at := HeightField.ELBRUS_AT + axis * along
+		var here := field.height_at(at.x, at.y)
+		if along < -60.0:
+			west_top = maxf(west_top, here)
+		elif along > 60.0:
+			east_top = maxf(east_top, here)
+		else:
+			saddle = minf(saddle, here)
+
+	_expect(
+		west_top > HeightField.SNOWLINE and east_top > HeightField.SNOWLINE,
+		"both summits stand above the snow line (%.0f m and %.0f m)" % [west_top, east_top]
+	)
+	_expect(
+		minf(west_top, east_top) - saddle > 40.0,
+		"there is a real saddle between them, %.0f m deep" % (minf(west_top, east_top) - saddle)
+	)
+	_expect(
+		west_top > east_top,
+		"the western summit is the higher, as on the mountain this is taken from"
+	)
+	_expect(
+		absf(west_top - east_top) < 90.0,
+		"but only by %.0f m, so they read as twins rather than a peak and a shoulder"
+			% absf(west_top - east_top)
+	)
+
+	# The highest thing in the world, and by a clear margin — a mountain that
+	# merely ties with the ridges around it is not a landmark.
+	var tallest_elsewhere := 0.0
+	for step in 720:
+		var bearing := TAU * float(step) / 720.0
+		for out in range(500, 1600, 40):
+			var at := Vector2(cos(bearing), sin(bearing)) * float(out)
+			if at.distance_to(HeightField.ELBRUS_AT) < HeightField.ELBRUS_REACH:
+				continue
+			tallest_elsewhere = maxf(tallest_elsewhere, field.height_at(at.x, at.y))
+	_expect(
+		west_top > tallest_elsewhere + 60.0,
+		"it stands %.0f m over everything else" % (west_top - tallest_elsewhere)
+	)
+
+	# And it keeps out of the valley. Its skirts fall away to nothing before
+	# they reach the ground the game is played on.
+	var rim := HeightField.ELBRUS_AT.normalized() * HeightField.MOUNTAIN_START
+	_expect(
+		field.height_at(rim.x, rim.y) < 40.0,
+		"and lifts the valley rim by only %.0f m" % field.height_at(rim.x, rim.y)
+	)
+
 func _check_world_has_relief() -> void:
 	print("world has relief")
 	var field := HeightField.new(20260903)

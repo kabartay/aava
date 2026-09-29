@@ -355,6 +355,15 @@ func _wait_for_world() -> void:
 			break
 	if not _world.terrain.is_idle() or not _world.vegetation.is_idle():
 		printerr("world still streaming after %d frames" % frames)
+
+	# The far country, which every screenshot this tool has ever taken was
+	# missing. DistantLand collects its finished ring inside follow(), and the
+	# game calls follow() on every step a child takes — but this tool calls it
+	# once and then waits, so the ring was baked and never collected and the
+	# horizon came out as bare haze in shot after shot. wait_for_it() exists
+	# for exactly this and nothing had ever called it.
+	_world.distant_land.wait_for_it()
+	await RenderingServer.frame_post_draw
 	# Let the player fall the last centimetres onto ground that now exists, and
 	# the camera settle behind them.
 	if _player != null:

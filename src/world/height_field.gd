@@ -37,6 +37,69 @@ const VALLEY_HALF_WIDTH := 96.0
 ## half of why the valley is worth being in.
 const MOUNTAIN_START := 460.0
 
+## The range itself, as the Caucasus stands over Nalchik: a long wall with a
+## fairly even crest, not a scattering of separate cones.
+##
+## Ridged noise alone gives every peak its own height, and the skyline comes out
+## as a row of tents. The range this valley is borrowed from reads as one wall
+## most of the way along, with the summits within a hundred metres or so of each
+## other — so heights above the crest are pulled back towards it, which evens
+## the line without flattening it.
+const RANGE_CREST := 300.0
+const RANGE_PULL := 0.42
+
+## How much of the range stands up even where the noise says nothing should.
+##
+## Ridged noise runs to zero between its peaks, and a range built from it alone
+## has daylight and green hillside showing through the gaps — a row of separate
+## mountains. The Caucasus from the north is a *wall*: it meets the sky as one
+## line from one end of the horizon to the other, and the summits are the top
+## of that wall rather than things standing on a plain. So the noise only
+## decides the upper part, and the rest is always there.
+const RANGE_WALL := 0.42
+
+## And the bands of rock across its faces.
+##
+## The near range above Nalchik is limestone lying in tilted beds, and what that
+## does to a mountainside is unmistakable: level shelves with steep risers
+## between them, the same lines running on from one summit to the next for
+## miles. It is the single thing that makes those mountains look like *those*
+## mountains rather than generic alps, and it costs one function.
+const TERRACE := 44.0
+const TERRACE_BITE := 0.5
+
+## The twin-domed mountain on the northern skyline.
+##
+## Every other peak here is ridged noise, which gives ridgelines and crags and
+## never gives the one shape a child recognises from a window: a single
+## enormous snow dome standing clear of everything around it. This is that
+## mountain — two summits with a saddle between them on one very broad shield,
+## which is what Elbrus is and what makes it unmistakable from fifty miles off.
+##
+## Placed so its skirts stay well outside MOUNTAIN_START: the whole point is
+## that it is far away and enormous, and a shield this wide any closer would
+## push its lower slopes into ground a child is meant to be able to walk on.
+const ELBRUS_AT := Vector2(-330.0, -1000.0)
+
+## The shield: very wide and very gentle, which is why the snow stays on it.
+const ELBRUS_REACH := 620.0
+
+## The summit plateau: the shield is level inside this, and the two domes stand
+## on that level. Without it the shield is highest at its own centre, which is
+## exactly where the saddle is meant to be — the mountain came out as one cone
+## with a bump on its shoulder instead of two summits with a dip between them.
+const ELBRUS_PLATEAU := 150.0
+const ELBRUS_SHIELD := 405.0
+
+## The two summits, along a roughly east-west line, the western the higher —
+## as on the real one, where the difference is about twenty metres in
+## five and a half thousand.
+const ELBRUS_AXIS := Vector2(0.94, -0.34)
+const ELBRUS_SADDLE := 215.0
+const ELBRUS_DOME := 210.0
+const ELBRUS_WEST := 128.0
+const ELBRUS_EAST := 121.0
+
 ## Nothing grows above this. A bare treeline is what makes a mountain read as
 ## high rather than as a big green lump.
 ##
@@ -167,8 +230,16 @@ func _init(world_seed: int) -> void:
 	_mountains.seed = world_seed + 2
 	_mountains.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	_mountains.fractal_type = FastNoiseLite.FRACTAL_RIDGED
-	_mountains.frequency = 0.0012
-	_mountains.fractal_octaves = 5
+	# Raised from 0.0012, which put roughly one summit every eight hundred
+	# metres: across the arc of sky the range actually fills that is three or
+	# four separate mountains with green hillside between them, which reads as
+	# hills rather than as a range. The Caucasus from the northern plain is a
+	# crest carrying a summit every mile or so — a long serrated line, not a
+	# handful of cones — and this is that spacing.
+	_mountains.frequency = 0.0031
+	_mountains.fractal_octaves = 6
+	_mountains.fractal_lacunarity = 2.1
+	_mountains.fractal_gain = 0.46
 
 	# Where the forest wants to be thick. Low frequency, so woods come in stands
 	# of a few hundred metres with meadows between them, rather than as an even
@@ -561,15 +632,87 @@ func _raw_height(x: float, z: float) -> float:
 	var mountain_mask := pow(
 		smoothstep(MOUNTAIN_START, MOUNTAIN_START + 450.0, from_origin), 1.8
 	)
+	var dome := _twin_domed_mountain(x, z)
+	# How much of this point belongs to the great mountain rather than to the
+	# range around it. Both kinds of noise are turned off across it: the ridged
+	# noise because a snow dome with ridgelines on it is just another crag, and
+	# the fine detail because snow and rock are chosen from the *steepness*,
+	# and half a metre of wobble sampled three quarters of a metre apart is a
+	# steep slope however gentle the mountain underneath it really is. That is
+	# what put bare rock in patches all over a dome that should be white.
+	var smoothed := 1.0 - clampf(dome / 120.0, 0.0, 1.0)
 	if mountain_mask > 0.0:
 		var ridge := (_mountains.get_noise_2d(x, z) + 1.0) * 0.5
 		# Taller as well, so the highest carry snow and the lowest stay green:
 		# the range wants a mix, not one uniform altitude.
-		floor_height += pow(ridge, 1.12) * 430.0 * mountain_mask
+		floor_height += (
+			RANGE_WALL + (1.0 - RANGE_WALL) * pow(ridge, 1.12)
+		) * 430.0 * mountain_mask * smoothed
 
-	floor_height += _detail.get_noise_2d(x, z) * 0.5
+		# Drawn back towards the crest, so the range is a wall rather than a
+		# row of tents, and then cut into shelves. Both are scaled by
+		# `smoothed`, which is zero across the great mountain: a snow dome with
+		# terraces cut into it would be a wedding cake.
+		var above := floor_height - RANGE_CREST
+		if above > 0.0:
+			floor_height = RANGE_CREST + above * (
+				1.0 - RANGE_PULL * mountain_mask * smoothed
+			)
+		floor_height = _terraced(floor_height, mountain_mask * smoothed)
+	floor_height += dome
+
+	floor_height += _detail.get_noise_2d(x, z) * 0.5 * smoothed
 
 	return floor_height
+
+## Level shelves with steep risers between them, the way bedded rock weathers.
+##
+## `amount` is how much of this to apply: none on the valley floor, none on the
+## great mountain, and full on the faces of the range between them.
+func _terraced(height: float, amount: float) -> float:
+	if amount <= 0.0:
+		return height
+	var band := height / TERRACE
+	# floorf, not floor: the untyped one returns a Variant and every expression
+	# downstream of it becomes a Variant too. See LESSONS.md.
+	var whole := floorf(band)
+	var part := band - whole
+	# Flat for most of the band and then a quick rise, rather than a straight
+	# ramp: a linear step is a staircase and this is a shelf with a cliff at
+	# the back of it.
+	var shaped := smoothstep(0.52, 0.98, part)
+	return lerpf(height, (whole + shaped) * TERRACE, TERRACE_BITE * amount)
+
+## How much the twin-domed mountain lifts the ground here.
+##
+## A broad shield with two domes standing on it, and the domes taken as the
+## higher of the two rather than added together — added, the saddle between
+## them fills in and the whole thing becomes one lump, which is precisely the
+## shape it is meant not to be. The saddle is the mountain.
+func _twin_domed_mountain(x: float, z: float) -> float:
+	var dx := x - ELBRUS_AT.x
+	var dz := z - ELBRUS_AT.y
+	var from_middle := sqrt(dx * dx + dz * dz)
+	if from_middle > ELBRUS_REACH:
+		return 0.0
+
+	# The shield: level across the summit plateau, then falling away to nothing
+	# at the rim. Raised to a power so it meets the plain at a shallow angle
+	# rather than at a hard edge.
+	var shield := ELBRUS_SHIELD * pow(
+		1.0 - smoothstep(ELBRUS_PLATEAU, ELBRUS_REACH, from_middle), 1.2
+	)
+
+	var half := ELBRUS_AXIS * (ELBRUS_SADDLE * 0.5)
+	var to_west := Vector2(dx + half.x, dz + half.y).length()
+	var to_east := Vector2(dx - half.x, dz - half.y).length()
+	# A gentle exponent, so each summit is a rounded dome rather than a cone.
+	# The two are within a few metres of each other, as the real pair are —
+	# twenty-one metres apart in five and a half thousand — which is what makes
+	# them read as twin summits instead of a peak with a shoulder.
+	var west := ELBRUS_WEST * pow(1.0 - smoothstep(0.0, ELBRUS_DOME, to_west), 1.35)
+	var east := ELBRUS_EAST * pow(1.0 - smoothstep(0.0, ELBRUS_DOME, to_east), 1.35)
+	return shield + maxf(west, east)
 
 ## Surface normal from the analytic gradient of the height function.
 ## Cheaper and smoother than averaging face normals, and it stays correct at
