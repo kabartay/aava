@@ -273,6 +273,13 @@ func mount(kind: StringName) -> bool:
 	_pace = 0.0
 	_carried_to = _positions[kind]
 	_paced_from = _positions[kind]
+	# And the last good ground is forgotten with it. It was remembered across
+	# every ride a child ever took, so a bicycle stuck on a bank could set its
+	# rider down on the last spot a *horse* had been happy — and a horse fords
+	# the river, so that spot could be the middle of it, a hundred metres away.
+	# Each ride starts with nowhere remembered, which falls back to putting a
+	# child down where they actually are.
+	_last_good = Vector3(1e9, 1e9, 1e9)
 	# The mount stays visible and is carried along under the child. Hiding it
 	# was the first version, on the reasoning that the player "becomes" the
 	# horse — but the child's own body is still drawn, so what a rider actually

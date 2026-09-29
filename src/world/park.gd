@@ -38,7 +38,18 @@ const TRAMPOLINE_TOP := 1.05
 ## How much of a fall it gives back, and the least bounce it will give a child
 ## who merely steps onto it.
 const TRAMPOLINE_REBOUND := 0.72
+## The least a landing throws back, in metres per second. Note the unit: this
+## is a floor on a speed, while Places.TRAMPOLINE_JUMP next door is a multiplier
+## on one. They were given the same name meaning different things, which is how
+## the boost below came to be missing — the one that reads as a multiplier was
+## already taken.
 const TRAMPOLINE_JUMP := 2.1
+
+## What jumping off the mat is worth, as a multiple of an ordinary jump. The
+## playground's little trampoline had one of these and the fairground's big one
+## did not, so deliberately jumping on the larger, better trampoline — the one
+## a ten-year-old crosses the bridge for — did exactly nothing.
+const TRAMPOLINE_BOOST := 1.9
 
 const FENCE_HEIGHT := 1.5
 const FENCE_STEP := 4.0

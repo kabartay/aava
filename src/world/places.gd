@@ -497,9 +497,20 @@ func water_depth_at(x: float, z: float) -> float:
 ##
 ## Returns zero when the body is above the surface, which is what makes gravity
 ## start again.
-func submersion(at: Vector3, body_height: float) -> float:
+## Takes where the feet are, which is what a player's `global_position` is: the
+## body's origin sits on the ground and its capsule is hung half its height
+## above. This used to take the body's *centre* and subtract half a height to
+## get back to the feet — and the game passed it `player.global_position`, the
+## feet, so every depth came out 0.775 m deeper than it was. A child standing on
+## the bottom in twenty-eight centimetres of river was reported as being in
+## 1.055 m of it, past SWIM_DEPTH, and started swimming in a puddle. The checks
+## missed it for four hundred runs because they were written to the convention
+## the function documented rather than the one the game used, and passed a
+## centre; there is now no second convention to disagree with.
+func submersion(feet_at: Vector3) -> float:
+	var at := feet_at
 	var ground := field.height_at(at.x, at.z)
-	var feet := at.y - body_height * 0.5
+	var feet := at.y
 
 	var surface := -1e9
 	# The river and the ponds. The surface is the world's waterline for the

@@ -622,7 +622,12 @@ func _process(delta: float) -> void:
 		player.is_running, player.is_moving
 	)
 	player.may_run = vitals.can_run()
-	player.jump_boost = Places.TRAMPOLINE_JUMP if world.places.on_trampoline(player.global_position) else 1.0
+	if world.park.on_trampoline(player.global_position):
+		player.jump_boost = Park.TRAMPOLINE_BOOST
+	elif world.places.on_trampoline(player.global_position):
+		player.jump_boost = Places.TRAMPOLINE_JUMP
+	else:
+		player.jump_boost = 1.0
 
 	# Standing in the shallows fills the bottle without a button. A child who
 	# walks into the river to fill up has already expressed the intent; asking
@@ -781,7 +786,7 @@ func _process(delta: float) -> void:
 	# are standing. Those agree only while a child is on the bottom, and the
 	# difference is what sent one into the sky. See Places.submersion.
 	var at := player.global_position
-	player.water_depth = world.places.submersion(at, Player.HEIGHT)
+	player.water_depth = world.places.submersion(at)
 
 	# A child on the swing or on the slide is carried. Both end on their own —
 	# there is no way to be stuck on a ride.
@@ -966,8 +971,7 @@ func _greet_on_arrival(save: Dictionary) -> void:
 
 	var grown := 0
 	if journal.last_seen > 0 and journal.days_away >= 0:
-		var away := float(Time.get_unix_time_from_system() - journal.last_seen)
-		grown = structures.advance_offline(away)
+		grown = structures.advance_offline(journal.seconds_away)
 
 	var line := ""
 	if journal.has_last_visit():
@@ -1042,7 +1046,7 @@ func _carry(delta: float, at: Vector3) -> void:
 			var over := foot + along * minf(_slid - journey, Places.SLIDE_RUN_OUT)
 			over.y = world.field.height_at(over.x, over.z)
 			player.carried_to = over
-		player.face(along)
+		player.face(along, delta)
 		player.is_carried = true
 		if _slid > journey and pace < 0.5:
 			_sliding = -1.0
@@ -1055,7 +1059,7 @@ func _carry(delta: float, at: Vector3) -> void:
 		_dining -= delta
 		player.carried_to = _dining_seat + Vector3(0.0, -0.3, 0.0)
 		player.is_carried = true
-		player.face(Vector3(-sin(_dining_facing), 0.0, -cos(_dining_facing)))
+		player.face(Vector3(-sin(_dining_facing), 0.0, -cos(_dining_facing)), delta)
 		if _dining <= 0.0:
 			player.is_carried = false
 			player.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
@@ -1146,7 +1150,11 @@ func _on_guest_arrived(id: int, name: String) -> void:
 	sounds.play(Sounds.Sound.CHIME, 1.4)
 	hud.announce(Text.format("say_joined", [name]), 4.0)
 	if session.is_host():
-		session.report_time_of_day(id, world.atmosphere.time_of_day)
+		session.report_time_of_day(world.atmosphere.time_of_day, id)
+
+## Everybody's sky, set to this machine's. Sent when somebody sleeps.
+func _tell_everyone_the_time() -> void:
+	session.report_time_of_day(world.atmosphere.time_of_day)
 
 func _on_guest_left(id: int, name: String) -> void:
 	visitors.remove(id)
@@ -1199,6 +1207,11 @@ func _on_sleep() -> void:
 
 	# Dawn, not noon: waking to a whole day is the point.
 	world.atmosphere.set_time(0.26)
+	# And everyone else wakes up with them. The sky is synced when a guest
+	# arrives, but sleeping jumps this machine's clock hours forward without
+	# telling anyone, which put the two children back in different halves of
+	# the day — the exact bug the arrival sync was added to fix.
+	_tell_everyone_the_time()
 	vitals.energy = Vitals.MAX_ENERGY
 	_refresh_vitals()
 	sounds.play(Sounds.Sound.CHIME, 0.7)
@@ -1405,6 +1418,11 @@ func _fell_a_planted_tree(record: Dictionary) -> void:
 	# A stump stays where it stood, the same as a wild tree's: something was
 	# here, and the ground should say so.
 	world.felled.fell(at)
+	# A planted tree is a structure, and taking one down has to say so. Sending
+	# report_felled alone told the other machine to fell a *wild* tree here: the
+	# pine a child had planted went on standing in their brother's valley, and a
+	# forest tree near it disappeared instead.
+	session.report_removed(at)
 	session.report_felled(at)
 	world.vegetation.rebuild_around(at)
 	sounds.play(Sounds.Sound.REMOVE, 0.7)
@@ -1646,12 +1664,18 @@ func _on_remove() -> void:
 	if record.is_empty():
 		hud.announce(Text.of("say_nothing_here"))
 		return
+	var at: Vector3 = record["position"]
 	var kind := structures.remove(record)
 	if kind == BuildKinds.CAMPFIRE:
 		# A fire whose campfire has been taken down cannot go on burning.
 		_refresh_fires()
 	if kind == &"":
 		return
+	# Putting something up crossed the network and taking it down did not:
+	# Session.report_removed() was written, and the other machine's handler for
+	# it was wired up, but nothing ever called it. A wall a child took down
+	# stayed standing in their brother's valley, solid enough to walk into.
+	session.report_removed(at)
 	sounds.play(Sounds.Sound.REMOVE)
 	var cost := (
 		HouseParts.cost(kind) if HouseParts.is_house_part(kind)
@@ -1956,9 +1980,20 @@ func _on_groves_changed(centres: Array) -> void:
 			hud.announce(Text.of("say_grove"), 5.0)
 
 func _notification(what: int) -> void:
-	# Both of these arrive when the game is closing: the desktop window button,
+	# The first two arrive when the game is closing: the desktop window button,
 	# and Android's back gesture.
-	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_WM_GO_BACK_REQUEST:
+	#
+	# The third is the one that actually matters on a phone, and it was missing.
+	# Pressing Home, opening the app switcher, or taking a call sends neither of
+	# the other two — it sends APPLICATION_PAUSED, and Android is then free to
+	# kill the process without another word. A child who built a house and went
+	# to show somebody lost up to a whole autosave interval of it, and left the
+	# game in exactly the state where a kill corrupts the file.
+	if (
+		what == NOTIFICATION_WM_CLOSE_REQUEST
+		or what == NOTIFICATION_WM_GO_BACK_REQUEST
+		or what == NOTIFICATION_APPLICATION_PAUSED
+	):
 		_write_save()
 
 func _write_save() -> void:

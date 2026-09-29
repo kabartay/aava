@@ -429,7 +429,7 @@ func _step(animal: Dictionary, delta: float) -> void:
 			# downhill stayed dead level, hanging in the air at the front and
 			# buried at the back, which reads as a cardboard cut-out being slid
 			# along rather than an animal walking.
-			_lean_with_the_ground(animal, node)
+			_lean_with_the_ground(animal, node, delta)
 			animal["stuck"] = 0.0
 		node.rotation.y = heading
 
@@ -489,7 +489,7 @@ func _stride(node: Node3D, kind: StringName, bob: float, trot: float, delta: flo
 ## Sampled over the animal's own length, so a sheep notices a bank a cat walks
 ## over, and held to a limit so nothing stands on its nose at the foot of a
 ## slope.
-func _lean_with_the_ground(animal: Dictionary, node: Node3D) -> void:
+func _lean_with_the_ground(animal: Dictionary, node: Node3D, delta: float) -> void:
 	var kind: StringName = animal["kind"]
 	var half := AnimalKinds.body_size(kind).z * 0.5
 	var facing := node.rotation.y
@@ -505,7 +505,12 @@ func _lean_with_the_ground(animal: Dictionary, node: Node3D) -> void:
 	# reported — "half the cow is stuck in the ground" — and it is the same
 	# sign error as the cow who came down the slope looking horizontal.
 	var pitch := clampf(atan2(front - back, half * 2.0), -LEANS_TO, LEANS_TO)
-	node.rotation.x = lerpf(node.rotation.x, pitch, 0.2)
+	# 1 - exp(-k*delta), like the leg swing two functions up and everything else
+	# eased in this project. A flat 0.2 a frame settles twice as fast on a
+	# 120 Hz phone as on a 60 Hz one — and since the height an animal stands at
+	# is read back off this same rotation just below, a cow on a hill stood at a
+	# different height depending on the screen she was drawn on.
+	node.rotation.x = lerpf(node.rotation.x, pitch, 1.0 - exp(-12.0 * delta))
 
 	# And how high she has to stand to be on the hill rather than in it.
 	#

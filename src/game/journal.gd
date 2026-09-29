@@ -36,6 +36,15 @@ var session: Dictionary = {}
 ## Unix time of the previous visit, and how many calendar days ago that was.
 var last_seen := 0
 var days_away := 0
+
+## How long the child was gone, in seconds, measured at the moment of arrival.
+##
+## Kept because `arrive()` immediately overwrites `last_seen` with the present,
+## which left the one caller that wanted the gap — the saplings that grow while
+## nobody is watching — subtracting the current time from the current time and
+## being told the child had been away for no time at all. Trees planted a week
+## ago were exactly as they were left.
+var seconds_away := 0.0
 var visits := 0
 
 func _init() -> void:
@@ -107,6 +116,7 @@ func arrive(now: int) -> void:
 	visits += 1
 	if last_seen > 0:
 		var elapsed := now - last_seen
+		seconds_away = maxf(0.0, float(elapsed))
 		days_away = int(floor(float(elapsed) / 86400.0))
 	last_seen = now
 	for key in ALL:

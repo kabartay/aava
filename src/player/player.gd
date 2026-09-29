@@ -679,7 +679,12 @@ func _settle_in_water(delta: float) -> void:
 	var wanted := SWIM_SINK if is_swimming else 0.0
 	_swim_sink = lerpf(_swim_sink, wanted, 1.0 - exp(-SWIM_SETTLE * delta))
 	_swim_lean = lerpf(_swim_lean, SWIM_LEAN if is_swimming else 0.0, 1.0 - exp(-SWIM_SETTLE * delta))
-	_visual.rotation.x = _swim_lean
+	# Both leans, not just this one. This runs in _physics_process and the ride
+	# lean is applied in _process, so writing the swim lean alone here threw the
+	# rider upright again on every physics tick — on a 120 Hz screen that is
+	# every other drawn frame, which is a judder down the length of any slope
+	# taken on a horse.
+	_visual.rotation.x = _swim_lean + _ride_lean
 
 ## Riding the surface, which is what tells a child the water is water. An
 ## offset worked out fresh each frame, never added into `_swim_sink`: added
@@ -852,10 +857,18 @@ func facing() -> Vector3:
 
 ## Turn the body towards a direction while being carried, when there is no
 ## walking to turn it — down the slide, for one. Eased, like walking is.
-func face(direction: Vector3) -> void:
+## The weight is 1 - exp(-k*delta) rather than a bare 0.2, like every other
+## easing in this project. A flat per-frame fraction turns at a rate set by the
+## frame rate: on the 120 Hz phone the valley is actually played on, a child on
+## the slide swung round twice as fast as on a 60 Hz screen.
+func face(direction: Vector3, delta: float) -> void:
 	if direction.length_squared() < 0.0001:
 		return
-	_visual.rotation.y = lerp_angle(_visual.rotation.y, atan2(-direction.x, -direction.z), 0.2)
+	_visual.rotation.y = lerp_angle(
+		_visual.rotation.y,
+		atan2(-direction.x, -direction.z),
+		1.0 - exp(-12.0 * delta)
+	)
 
 func is_sprinting() -> bool:
 	return Input.is_action_pressed(InputActions.SPRINT) and run_fraction() > 0.4

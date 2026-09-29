@@ -83,6 +83,13 @@ func _init() -> void:
 	_environment.adjustment_saturation = 1.12
 	_environment.adjustment_contrast = 1.04
 
+	# The sun is turned by hand in _process, like everything else this project
+	# animates itself, so it opts out of the engine's physics interpolation for
+	# the same reason they all do: interpolation resamples it at the physics
+	# tick and draws it a tick late, which is the wrong treatment for a node
+	# nothing in the physics world is moving.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+
 	var holder := WorldEnvironment.new()
 	holder.environment = _environment
 	add_child(holder)

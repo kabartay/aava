@@ -78,6 +78,14 @@ const STRINGS := {
 		FR: "il fait jour — toute une vallée t'attend",
 		RU: "сейчас день — вон целая долина ждёт",
 	},
+	# Shown when a child falls out of the world and is put back on top of it.
+	# main.gd asked for this key and nothing here answered, so what a child
+	# actually saw at the worst possible moment was the literal "?say_caught".
+	"say_caught": {
+		EN: "caught you — back on solid ground",
+		FR: "rattrapé — te revoilà sur la terre ferme",
+		RU: "поймали — снова на твёрдой земле",
+	},
 	"ui_feed_fire": {
 		EN: "add wood", FR: "mettre du bois", RU: "подбросить дров",
 	},

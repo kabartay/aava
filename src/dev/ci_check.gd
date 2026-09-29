@@ -11,6 +11,15 @@ extends SceneTree
 var _failures := 0
 
 func _initialize() -> void:
+	# The game registers its input actions in code rather than in project.godot,
+	# and main.gd does it on startup — which the checks never run. Every check
+	# that ticks a player's _physics_process was therefore asking InputMap for
+	# actions that did not exist, and 474 of the 481 red ERROR lines a *passing*
+	# run printed were that one omission. A green build that prints five hundred
+	# errors teaches everyone to read past errors, which is how the next real
+	# one gets missed.
+	InputActions.register()
+
 	_check_every_script_loads()
 	_check_world_has_relief()
 	_check_chunks_have_geometry()
@@ -34,6 +43,8 @@ func _initialize() -> void:
 	_check_the_camera_zooms()
 	_check_a_house_can_be_built_and_unbuilt()
 	_check_every_language_is_complete()
+	_check_every_text_key_exists()
+	_check_everything_the_network_can_say_is_said()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
 	await _check_the_valley_is_not_silent()
@@ -2792,8 +2803,8 @@ func _check_a_child_can_get_out_of_every_pond() -> void:
 		var middle := Vector3(
 			Lakes.at(pond, Lakes.POND_X), 0.0, Lakes.at(pond, Lakes.POND_Z)
 		)
-		middle.y = field.height_at(middle.x, middle.z) + Player.HEIGHT * 0.5
-		var depth := places.submersion(middle, Player.HEIGHT)
+		middle.y = field.height_at(middle.x, middle.z)
+		var depth := places.submersion(middle)
 		_expect(depth > Player.SWIM_DEPTH, "a child in the middle of it is %.2f m under and swimming" % depth)
 	places.queue_free()
 
@@ -4198,6 +4209,83 @@ func _check_a_house_can_be_built_and_unbuilt() -> void:
 ## A half-translated interface is worse than an untranslated one: a child sees
 ## his own language and then a word of someone else's, and concludes the game is
 ## broken. These checks make a missing translation a build failure.
+## Every key the game asks for is a key the table answers.
+##
+## Text.of() returns "?" + key for anything it does not know, so a missing entry
+## is not a crash and not a blank — it is the literal "?say_caught" printed
+## across the screen at the moment a child has just fallen out of the world.
+## That one sat in main.gd unnoticed because the existing language check walks
+## the table and asks whether its entries are complete, which cannot see a key
+## that was never added to it. This walks the other way: from what the code
+## asks for to what the table has.
+func _check_every_text_key_exists() -> void:
+	print("every text key exists")
+	var asked := {}
+	for path in _find_scripts("res://src"):
+		if path.ends_with("ci_check.gd") or path.ends_with("text.gd"):
+			continue
+		var source := _code_only(FileAccess.get_file_as_string(path))
+		for call: String in ["Text.of(\"", "Text.format(\""]:
+			var from := source.find(call)
+			while from >= 0:
+				var start := from + call.length()
+				var end := source.find("\"", start)
+				if end > start:
+					# A key glued together from a literal and a variable —
+					# Text.of("shop_" + kind) — is not a key, it is a prefix.
+					# What follows the closing quote tells them apart.
+					var after := source.substr(end + 1, 12).strip_edges()
+					if not after.begins_with("+"):
+						asked[source.substr(start, end - start)] = path
+				from = source.find(call, from + 1)
+
+	var missing: Array[String] = []
+	for key: String in asked:
+		# Keys assembled at run time ("today_%s") are checked by their own
+		# callers; only the literal ones can be looked up from here.
+		if key.contains("%"):
+			continue
+		if Text.of(key).begins_with("?"):
+			missing.append("%s (%s)" % [key, asked[key]])
+	_expect(
+		missing.is_empty(),
+		"all %d text keys the code asks for are in the table" % asked.size()
+	)
+	for entry in missing:
+		_fail("no translation for %s" % entry)
+
+## Everything the valley can say over the network, something actually says.
+##
+## Session grew a report_removed() with a signal behind it and a handler wired
+## up to that signal on the far side — and nothing ever called it, so taking a
+## wall down was the one change to a valley that never crossed the wire. It
+## stood a fence in a brother's game that could be walked into and never taken
+## away. Nothing caught it because every piece of the path existed except the
+## first, and each piece looked right on its own.
+func _check_everything_the_network_can_say_is_said() -> void:
+	print("everything the network can say is said")
+	var session_source := _code_only(
+		FileAccess.get_file_as_string("res://src/net/session.gd")
+	)
+	var callers := ""
+	for path in _find_scripts("res://src"):
+		if path.ends_with("session.gd") or path.ends_with("ci_check.gd"):
+			continue
+		callers += _code_only(FileAccess.get_file_as_string(path))
+
+	var reports := 0
+	for line in session_source.split("\n"):
+		var trimmed := line.strip_edges()
+		if not trimmed.begins_with("func report_"):
+			continue
+		var name := trimmed.substr(5, trimmed.find("(") - 5)
+		reports += 1
+		_expect(
+			callers.contains("." + name + "("),
+			"something calls Session.%s()" % name
+		)
+	_expect(reports > 0, "and there are %d things it can report" % reports)
+
 func _check_every_language_is_complete() -> void:
 	print("every language is complete")
 
@@ -5305,16 +5393,30 @@ func _check_places_worth_walking_to() -> void:
 	# a child 1,445 m into the sky: being above the surface must mean being out
 	# of the water, whatever the depth beneath.
 	var pool_at := places.position_of(Places.POOL)
-	var bottom := Vector3(pool_at.x, field.height_at(pool_at.x, pool_at.z) + Player.HEIGHT * 0.5, pool_at.z)
+	var bottom := Vector3(pool_at.x, field.height_at(pool_at.x, pool_at.z), pool_at.z)
 	_expect(
-		places.submersion(bottom, Player.HEIGHT) > Player.SWIM_DEPTH,
+		places.submersion(bottom) > Player.SWIM_DEPTH,
 		"standing on the bottom of the pool is deep enough to swim"
+	)
+
+	# Shallow water is shallow. submersion() used to be handed the body's centre
+	# and work back to the feet, while the game handed it `global_position`,
+	# which *is* the feet — so every depth came out 0.775 m too deep and a child
+	# standing in a hand's depth of river began swimming in it. The checks did
+	# not catch it because they were written to the same convention as the
+	# function rather than to the one the game used. This one is written the way
+	# the game calls it, with the feet on the bottom, and a shallow puddle.
+	var ankle := Vector3(pool_at.x, 0.0, pool_at.z)
+	ankle.y = field.height_at(ankle.x, ankle.z) + Places.POOL_DEPTH - 0.28
+	_expect(
+		places.submersion(ankle) < Player.SWIM_DEPTH,
+		"standing in 0.28 m of water is not deep enough to swim in"
 	)
 
 	var floating := bottom
 	floating.y = field.height_at(pool_at.x, pool_at.z) + Places.POOL_DEPTH
 	_expect(
-		places.submersion(floating, Player.HEIGHT) < Player.SWIM_DEPTH,
+		places.submersion(floating) < Player.SWIM_DEPTH,
 		"at the surface it is no longer deep enough, so buoyancy stops"
 	)
 
@@ -5322,19 +5424,19 @@ func _check_places_worth_walking_to() -> void:
 		var above := bottom
 		above.y = field.height_at(pool_at.x, pool_at.z) + Places.POOL_DEPTH + height
 		_expect(
-			is_zero_approx(places.submersion(above, Player.HEIGHT)),
+			is_zero_approx(places.submersion(above)),
 			"%d m above the pool is not in the pool" % int(height)
 		)
 
 	# The same over the river, since it has its own surface.
 	var river_z := 40.0
 	var river_x := field.river_centre_x(river_z)
-	var in_river := Vector3(river_x, field.height_at(river_x, river_z) + Player.HEIGHT * 0.5, river_z)
-	_expect(places.submersion(in_river, Player.HEIGHT) > 0.0, "the river is water too")
+	var in_river := Vector3(river_x, field.height_at(river_x, river_z), river_z)
+	_expect(places.submersion(in_river) > 0.0, "the river is water too")
 	var over_river := in_river
 	over_river.y = HeightField.WATER_LEVEL + 60.0
 	_expect(
-		is_zero_approx(places.submersion(over_river, Player.HEIGHT)),
+		is_zero_approx(places.submersion(over_river)),
 		"but sixty metres above it is not"
 	)
 
@@ -6951,10 +7053,23 @@ func _check_a_fire_needs_feeding() -> void:
 func _check_a_house_is_worth_having() -> void:
 	print("a house is worth having")
 	_expect(HouseParts.ALL.has(HouseParts.BED), "a bed is one of the pieces")
-	_expect(
-		HouseParts.build_mesh(HouseParts.BED) != null,
-		"and it has something to look at"
-	)
+	# Not merely "!= null". build_mesh() ends in a `_:` that returns a plain
+	# post, so every kind it has no branch for is silently a post — and a bed
+	# was one, for as long as beds have existed, while this check watched it
+	# and passed. A part is only allowed to look like a post if it is one.
+	var post_mesh := HouseParts.build_mesh(HouseParts.POST)
+	var post_box := post_mesh.get_aabb()
+	for kind: StringName in HouseParts.ALL:
+		if kind == HouseParts.POST:
+			continue
+		var mesh := HouseParts.build_mesh(kind)
+		_expect(mesh != null, "%s has something to look at" % kind)
+		if mesh == null:
+			continue
+		_expect(
+			not mesh.get_aabb().is_equal_approx(post_box),
+			"%s is drawn as itself and not as the fallback post" % kind
+		)
 
 	var cost: Dictionary = HouseParts.INFO[HouseParts.BED]["cost"]
 	_expect(not cost.is_empty(), "it costs something to make")
@@ -8517,7 +8632,10 @@ func _check_a_rider_can_see_out() -> void:
 	get_root().add_child(rig)
 	await process_frame
 
-	var arm := rig.get_node("SpringArm3D") as SpringArm3D
+	# get_node_or_null, because the arm is not required to be called that — the
+	# loop below finds it by type either way, and the plain get_node() this used
+	# to be printed a red error on every run for a lookup it was prepared to miss.
+	var arm := rig.get_node_or_null("SpringArm3D") as SpringArm3D
 	if arm == null:
 		for child in rig.get_children():
 			if child is SpringArm3D:
@@ -10259,7 +10377,7 @@ func _check_nothing_leans_into_the_hill() -> void:
 	var node: Node3D = cow["node"]
 	node.rotation.y = atan2(-fall.x, -fall.z)
 	for _frame in 40:
-		animals._lean_with_the_ground(cow, node)
+		animals._lean_with_the_ground(cow, node, 1.0 / 60.0)
 		node.position.y = field.height_at(node.position.x, node.position.z) \
 			+ float(cow.get("lift", 0.0))
 	var half := AnimalKinds.body_size(AnimalKinds.COW).z * 0.5
@@ -10289,7 +10407,7 @@ func _check_nothing_leans_into_the_hill() -> void:
 	get_root().add_child(player)
 	player.global_position = slope + Vector3(0.0, 1.0, 0.0)
 	player.riding = MountKinds.HORSE
-	player.face(fall)
+	player.face(fall, 1.0 / 60.0)
 	for _frame in 120:
 		player.lean_with_the_ground(true, field, 1.0 / 60.0)
 	var leaning := Basis(Vector3.RIGHT, player.ride_lean()) * Vector3.FORWARD

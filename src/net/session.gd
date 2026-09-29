@@ -265,13 +265,21 @@ func report_dam_stick(site: float) -> void:
 	if is_connected_to_anyone():
 		_send_dam_stick.rpc(site)
 
-## Sent by the host alone, to one guest, the moment they arrive — the host's sky
-## is the valley's sky, or a child hosting at dusk and a child joining at noon
-## on the same machine's clock would each see a different afternoon side by
-## side. Never sent the other way: a guest's own clock, wherever it drifted to
-## before joining, is simply overridden.
-func report_time_of_day(to_peer: int, fraction: float) -> void:
-	if is_host():
+## The sky, which is one sky for everyone in the valley.
+##
+## Sent by the host to a guest the moment they arrive — a child hosting at dusk
+## and a child joining at noon on their own machine's clock would otherwise each
+## see a different afternoon, standing next to each other. And sent to everybody
+## whenever somebody sleeps, because sleeping jumps this machine's clock to dawn
+## and would put the two children back in different halves of the day. Anyone
+## may send that one: a valley where only the host can bring the morning is a
+## valley where the younger brother's bed does nothing.
+func report_time_of_day(fraction: float, to_peer := 0) -> void:
+	if not is_connected_to_anyone():
+		return
+	if to_peer == 0:
+		_send_time_of_day.rpc(fraction)
+	else:
 		_send_time_of_day.rpc_id(to_peer, fraction)
 
 # --- what arrives ---------------------------------------------------------
@@ -303,7 +311,7 @@ func _send_felled(at: Vector3) -> void:
 func _send_dam_stick(site: float) -> void:
 	remote_dam_stick.emit(site)
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("any_peer", "call_remote", "reliable")
 func _send_time_of_day(fraction: float) -> void:
 	remote_time_of_day.emit(fraction)
 
@@ -322,6 +330,16 @@ func _send_name(display_name: String) -> void:
 func _on_peer_connected(id: int) -> void:
 	# Our name goes to them; theirs comes back the same way.
 	_send_name.rpc_id(id, who)
+	# And where we are goes with it. Positions are only sent when somebody has
+	# actually moved, which is the right rule for traffic and the wrong one for
+	# somebody who has just arrived: a new visitor is drawn at the world origin
+	# until their first update lands, and the child hosting is by definition
+	# standing still — holding the phone up, reading out the number. So the
+	# brother who joins sees them buried at the middle of the valley rather
+	# than standing where they are. Forgetting the last position sent makes the
+	# next frame send one whether they have moved or not.
+	_last_sent = Vector3(1e9, 1e9, 1e9)
+	_since_move = MOVE_INTERVAL
 
 func _on_peer_disconnected(id: int) -> void:
 	var name: String = guests.get(id, "?")

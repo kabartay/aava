@@ -141,6 +141,13 @@ static func build_mesh(kind: StringName) -> Mesh:
 			return _roof(true)
 		STAIRS:
 			return _stairs()
+		BED:
+			# _bed() has been sitting here unreferenced since it was written.
+			# Without this branch a bed fell through to `_post()`, so three
+			# sticks and three reeds — spent on the one piece that turns a
+			# shelter into somewhere to spend the night — bought a two-metre
+			# dark fence post standing in the middle of the room.
+			return _bed()
 		_:
 			return _post()
 

@@ -185,7 +185,11 @@ func _press(key: String) -> void:
 			if code >= 1 and code <= 254:
 				join_requested.emit(code)
 			_typed = ""
-			return
+			# No early return. Clearing what was typed and then skipping the
+			# redraw left the old digits on screen with nothing behind them, so
+			# a child who tapped the tick on an out-of-range number saw it sit
+			# there unchanged, and the next digit they pressed replaced the lot
+			# instead of being added to it.
 		_:
 			# Three digits is the whole range; a fourth would be a typo, and
 			# refusing it silently is kinder than clearing what was typed.

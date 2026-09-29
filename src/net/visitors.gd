@@ -30,7 +30,21 @@ var _visitors: Dictionary = {}
 func add(id: int, who: String) -> void:
 	if _visitors.has(id):
 		return
-	var shirt := SHIRTS[_visitors.size() % SHIRTS.size()]
+	# Keyed off the peer id rather than off how many are here, so that the same
+	# child is the same colour on every phone in the valley — and so that two
+	# children are never handed the same shirt. Counting arrivals did both
+	# wrong: the count goes down when somebody leaves, so the next to join took
+	# a colour already being worn, and arrival order differs per machine, so a
+	# brother was green on one phone and orange on the other.
+	var shirt := SHIRTS[absi(id) % SHIRTS.size()]
+	var worn := {}
+	for other: Dictionary in _visitors.values():
+		worn[other["shirt"]] = true
+	for step in SHIRTS.size():
+		var candidate := SHIRTS[(absi(id) + step) % SHIRTS.size()]
+		if not worn.has(candidate):
+			shirt = candidate
+			break
 
 	var body := MeshInstance3D.new()
 	body.mesh = _build_body(shirt)
@@ -49,7 +63,10 @@ func add(id: int, who: String) -> void:
 	label.outline_modulate = Color(0.06, 0.08, 0.11, 0.85)
 	body.add_child(label)
 
-	_visitors[id] = {"node": body, "wanted": Vector3.ZERO, "facing": 0.0, "seen": false}
+	_visitors[id] = {
+		"node": body, "wanted": Vector3.ZERO, "facing": 0.0, "seen": false,
+		"shirt": shirt,
+	}
 
 func remove(id: int) -> void:
 	if not _visitors.has(id):

@@ -334,7 +334,12 @@ func _colour_at(x: float, z: float) -> Color:
 		return PITCH
 	if height < HeightField.WATER_LEVEL + 1.0:
 		return SAND
-	if height > 100.0:
+	# Asked of the world rather than written down again here. The map carried a
+	# hard 100 m from before the ground did, and the ground now starts its snow
+	# ten metres above a treeline of 118 — so everything between 100 and 128 m
+	# was spruce forest underfoot and an ice cap on the map a child was reading
+	# to find their way through it.
+	if height > HeightField.SNOWLINE - 10.0:
 		return SNOW
 	if _field.path_at(x, z, height) > 0.35:
 		return PATH
