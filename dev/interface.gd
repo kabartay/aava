@@ -13,19 +13,25 @@ extends Node2D
 ##         --out=/tmp/hud.png [--icons=1]
 ##
 ##   --icons=1  the glyph sheet on its own, large, instead of the whole screen.
+##   --flags=1  the language flags, large.
 
 const DEFAULT_OUT := "user://interface.png"
 
 func _ready() -> void:
 	var out := DEFAULT_OUT
 	var icons_only := false
+	var flags_only := false
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--out="):
 			out = argument.trim_prefix("--out=")
 		elif argument == "--icons=1":
 			icons_only = true
+		elif argument == "--flags=1":
+			flags_only = true
 
-	if icons_only:
+	if flags_only:
+		_build_flag_sheet()
+	elif icons_only:
 		_build_icon_sheet()
 	else:
 		_build_screen()
@@ -36,6 +42,16 @@ func _ready() -> void:
 	get_viewport().get_texture().get_image().save_png(out)
 	print("wrote %s" % out)
 	get_tree().quit()
+
+## The language flags, big enough to judge. They are drawn rather than loaded,
+## so this is the only way to look at one.
+func _build_flag_sheet() -> void:
+	var cell := Vector2(300.0, 200.0)
+	for i in FlagIcon.Kind.size():
+		var flag := FlagIcon.new(i as FlagIcon.Kind)
+		flag.position = Vector2(24.0 + float(i) * (cell.x + 24.0), 24.0)
+		flag.size = cell
+		add_child(flag)
 
 ## Every glyph side by side, on the dark the buttons actually use.
 func _build_icon_sheet() -> void:

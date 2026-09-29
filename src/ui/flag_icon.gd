@@ -109,48 +109,47 @@ func _union_jack(box: Rect2) -> void:
 ## The Circassian flag: twelve gold stars over three crossed arrows, on green.
 ##
 ## Nine of the stars stand in an arc and three in a line beneath it, one for
-## each of the twelve princedoms, and the three arrows lie across the flag
-## under them pointing to the hoist. There is no country to take a flag from
-## for Adyghe and Kabardian, and this is the flag those languages have.
+## each of the twelve princedoms, and the three arrows stand upright beneath
+## them. There is no country to take a flag from for Adyghe and Kabardian, and
+## this is the flag those languages have.
 func _circassian(box: Rect2) -> void:
 	var gold := Color8(255, 203, 5)
 	draw_rect(box, Color8(0, 128, 62))
 
 	var w := box.size.x
 	var h := box.size.y
-	var middle := box.position + Vector2(w * 0.5, h * 0.52)
-	var star := w * 0.055
+	var star := minf(w, h) * 0.068
 
-	# The arc of nine, swept across the upper half.
+	# The arc of nine, swept over the upper half and flattened, because the arc
+	# on the flag is a shallow bow across a wide field rather than half a
+	# circle — drawn as a true semicircle on a flag half as tall as it is wide
+	# the end stars fall almost to the bottom of it.
+	var bow := box.position + Vector2(w * 0.5, h * 0.62)
 	for i in 9:
-		var t := float(i) / 8.0
-		var angle := PI * (1.0 - t)
-		_star(
-			middle + Vector2(cos(angle) * w * 0.38, -sin(angle) * h * 0.34 - h * 0.08),
-			star, gold
-		)
-	# And the three beneath it.
+		var angle := PI * (1.0 - float(i) / 8.0)
+		_star(bow + Vector2(cos(angle) * w * 0.37, -sin(angle) * h * 0.4), star, gold)
+
+	# The three under the bow, in a line.
 	for i in 3:
 		_star(
-			middle + Vector2((float(i) - 1.0) * w * 0.15, -h * 0.02),
+			box.position + Vector2(w * (0.365 + 0.135 * float(i)), h * 0.42),
 			star, gold
 		)
 
-	# The arrows: three shafts lying across the flag with their heads to the
-	# left. Fanned from a common tail rather than crossed through each other —
-	# at the size this is actually drawn, three crossing shafts and three
-	# arrowheads on top of one another turn into a single gold smudge.
-	var tail := Vector2(box.position.x + w * 0.8, box.position.y + h * 0.78)
+	# And the three arrows standing under them, heads up, fanned from one point
+	# so that the shafts cross.
+	var foot := box.position + Vector2(w * 0.5, h * 0.95)
 	for i in 3:
-		var spread := (float(i) - 1.0) * h * 0.1
-		var head := Vector2(box.position.x + w * 0.22, box.position.y + h * 0.78 + spread)
-		draw_line(tail, head, gold, maxf(1.0, h * 0.03))
-		var along := (head - tail).normalized()
+		var head := box.position + Vector2(
+			w * (0.5 + 0.145 * (float(i) - 1.0)), h * 0.62
+		)
+		var along := (head - foot).normalized()
 		var across := Vector2(-along.y, along.x)
+		draw_line(foot, head, gold, maxf(1.0, h * 0.028))
 		draw_colored_polygon(PackedVector2Array([
 			head,
-			head - along * (w * 0.085) + across * (h * 0.055),
-			head - along * (w * 0.085) - across * (h * 0.055),
+			head - along * (h * 0.13) + across * (w * 0.038),
+			head - along * (h * 0.13) - across * (w * 0.038),
 		]), gold)
 
 ## A five-pointed star, point upwards.

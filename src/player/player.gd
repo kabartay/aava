@@ -140,6 +140,9 @@ var _ride_lift := 0.0
 ## How far the body is dropped into the water while swimming, and how far it
 ## is tipped forward.
 var _swim_sink := 0.0
+## Which way up the thing being ridden is. Set by the game each frame while
+## riding, and straight up the rest of the time.
+var _seat_up := Vector3.UP
 var _cloth: StandardMaterial3D = null
 var _swim_lean := 0.0
 var _ride_lean := 0.0
@@ -617,21 +620,26 @@ func _physics_process(delta: float) -> void:
 	_visual.rotation.z = _ride_bank
 
 	var wanted_lift := MountKinds.eye_lift(riding) if riding != &"" else 0.0
+	# On foot there is nothing under you to lean with, and a seat direction
+	# left over from the last horse would hold the body at an angle.
+	if riding == &"":
+		_seat_up = Vector3.UP
 	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
 	_settle_in_water(delta)
-	# Lifted along the mount's own up, not the world's.
+	# Lifted along the mount's own up, not the world's and not the rider's.
 	#
 	# The body sits two and a quarter metres above the horse, and the horse
-	# lies over to whatever ground it is standing on — so on a slope the saddle
-	# is not overhead, it is overhead *and off to one side*. Lifting straight
-	# up the world's Y put the rider beside the saddle rather than on it, by
-	# most of a metre on a steep bank, which is exactly the "sitting crooked,
-	# as if I am not attached to it" that came back from the phone. The same
-	# lean and bank the body is already turned by decide which way is up.
-	var tilt := Basis.from_euler(Vector3(_swim_lean + _ride_lean, 0.0, _ride_bank))
+	# lies over to whatever ground it is standing on — so the saddle is not
+	# overhead, it is overhead *and off to one side*. Lifting straight up put
+	# the rider beside the saddle; lifting along the rider's *own* lean put
+	# them somewhere else again, because that lean is measured over four
+	# metres, clamped, and eased at its own rate, and so is never quite the
+	# angle the horse is actually lying at. Both came back from the phone as
+	# hanging in the air beside the horse. This is the horse's own up, handed
+	# over by whatever is carrying the rider, so the seat is where the saddle
+	# is by construction.
 	_visual.position = (
-		tilt * Vector3.UP * _ride_lift
-		- Vector3(0.0, _swim_sink + _swim_bob(), 0.0)
+		_seat_up * _ride_lift - Vector3(0.0, _swim_sink + _swim_bob(), 0.0)
 	)
 
 	# The world streams around wherever the player is, but only when they have
@@ -900,9 +908,11 @@ func set_shirt(colour: Color) -> void:
 func visual_offset() -> Vector3:
 	return _visual.position
 
-## Force the ride lean, so a check can put a rider on a hill without a hill.
-func set_ride_lean_for_check(radians: float) -> void:
-	_ride_lean = radians
+## Which way up the mount under this rider is lying. Normalised here rather
+## than trusting the caller: a zero vector would drop the rider through the
+## horse and a long one would shoot them into the sky.
+func set_seat_up(up: Vector3) -> void:
+	_seat_up = up.normalized() if up.length_squared() > 0.01 else Vector3.UP
 
 func is_sprinting() -> bool:
 	return Input.is_action_pressed(InputActions.SPRINT) and run_fraction() > 0.4

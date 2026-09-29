@@ -741,6 +741,9 @@ func _process(delta: float) -> void:
 	# parented to it.
 	if riding != &"":
 		world.mounts.carry(player.global_position, player.facing_angle())
+		# Told after it is carried, so the seat follows the ground the horse is
+		# lying on this frame rather than the ground it was on last one.
+		player.set_seat_up(world.mounts.up_of(player.riding))
 	_watch_the_turnstile()
 	world.mounts.watch(player.global_position)
 	var offered := world.mounts.nearest(player.global_position)

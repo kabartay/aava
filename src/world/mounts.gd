@@ -26,6 +26,22 @@ var riding := &""
 ## heading that was put into it, and every mount here is tipped to its ground.
 var _facings: Dictionary = {}
 
+## Which way is up for this mount — its own up, not the world's.
+##
+## A mount lies over to the ground it is standing on, so the saddle on its back
+## is not directly above the point it stands on: it is above it *and off to one
+## side*. Whoever puts a rider in that saddle has to be told which way the
+## horse thinks up is, rather than working it out from the rider's own lean,
+## which is sampled over a different distance, clamped, and eased at a
+## different rate — and so is never quite the same angle.
+func up_of(kind: StringName) -> Vector3:
+	if not _nodes.has(kind):
+		return Vector3.UP
+	var node: Node3D = _nodes[kind]
+	if not is_instance_valid(node):
+		return Vector3.UP
+	return node.transform.basis.y.normalized()
+
 ## Which way a mount is pointed.
 func facing_of(kind: StringName) -> float:
 	return float(_facings.get(kind, 0.0))

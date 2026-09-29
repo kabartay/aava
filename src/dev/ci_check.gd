@@ -7230,8 +7230,13 @@ func _check_a_rider_sits_in_the_saddle() -> void:
 		"and directly over it"
 	)
 
-	# Then tipped, as a horse on a bank is. The seat has to lean with it.
-	player.set_ride_lean_for_check(deg_to_rad(20.0))
+	# Then tipped, as a horse on a bank is. The seat has to lean with the
+	# *horse* — told to the rider rather than worked out from their own lean,
+	# which is measured over a different distance and clamped, and so is never
+	# quite the angle the horse is really lying at. Both earlier attempts put
+	# the child in the air beside the animal.
+	var tipped_by := deg_to_rad(20.0)
+	player.set_seat_up(Basis(Vector3.RIGHT, tipped_by) * Vector3.UP)
 	for _frame in 4:
 		player._physics_process(1.0 / 60.0)
 	var tipped := player.visual_offset()
