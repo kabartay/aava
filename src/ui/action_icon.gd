@@ -25,6 +25,8 @@ enum Kind {
 	SNACK, LANTERN, RIDE_BICYCLE, RIDE_MOTORCYCLE, RIDE_QUAD,
 	LEAVE_BICYCLE, LEAVE_MOTORCYCLE, LEAVE_QUAD,
 	VIEW_FIRST, VIEW_THIRD,
+	MIC_ON, MIC_OFF,
+	MAP, TOGETHER,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -131,6 +133,14 @@ func _draw() -> void:
 			_eye(box)
 		Kind.VIEW_THIRD:
 			_over_the_shoulder(box)
+		Kind.MIC_ON:
+			_microphone(box, true)
+		Kind.MIC_OFF:
+			_microphone(box, false)
+		Kind.MAP:
+			_globe(box)
+		Kind.TOGETHER:
+			_two_of_you(box)
 
 ## The mark that turns a machine into "get off it": an arrow rising away from
 ## it, up and to the side, which is the way somebody actually leaves one.
@@ -158,22 +168,15 @@ func _eye(box: Rect2) -> void:
 	draw_arc(centre - Vector2(0.0, tall * 0.6), wide, PI * 0.15, PI * 0.85, 14, tint, thick)
 	draw_circle(centre, unit * 0.1, tint)
 
-## A figure with the camera behind it: the view a child has now.
+## The far view: the same eye, barred.
+##
+## It was a figure with a camera framed behind it, which is an accurate picture
+## of a third-person camera and a poor one at thumbnail size on a phone — three
+## shapes in the space the eye uses one. The eye and its barred twin read at a
+## glance and, being the same drawing, read as two settings of one thing.
 func _over_the_shoulder(box: Rect2) -> void:
-	var unit := minf(box.size.x, box.size.y)
-	var centre := box.get_center()
-	var thick := maxf(2.0, unit * 0.07)
-	# The child, small and ahead.
-	draw_circle(centre + Vector2(unit * 0.12, -unit * 0.16), unit * 0.09, tint)
-	draw_rect(
-		Rect2(centre + Vector2(unit * 0.03, -unit * 0.04), Vector2(unit * 0.18, unit * 0.26)),
-		tint
-	)
-	# And the frame of the shot behind them.
-	draw_rect(
-		Rect2(centre + Vector2(-unit * 0.38, -unit * 0.3), Vector2(unit * 0.34, unit * 0.3)),
-		tint, false, thick
-	)
+	_eye(box)
+	_barred(box)
 
 ## A quad seen from the front: four fat tyres at the corners, a body between
 ## them and bars across the top. Head-on rather than from the side, because
@@ -356,27 +359,62 @@ func _close(box: Rect2) -> void:
 func _jump(box: Rect2) -> void:
 	var centre := box.get_center()
 	var unit := minf(box.size.x, box.size.y)
-	var half := unit * 0.30
+	var thick := maxf(2.5, unit * 0.095)
+	var ground := centre.y + unit * 0.35
 
-	var head := PackedVector2Array([
-		centre + Vector2(0.0, -half * 1.15),
-		centre + Vector2(-half * 0.78, -half * 0.10),
-		centre + Vector2(half * 0.78, -half * 0.10),
-	])
-	draw_colored_polygon(head, tint)
-
-	var shaft := Rect2(
-		centre + Vector2(-half * 0.26, -half * 0.10),
-		Vector2(half * 0.52, half * 0.72)
-	)
-	draw_rect(shaft, tint)
-
-	# The ground it leaves.
+	# The ground, and a shadow on it with daylight in between. The shadow is
+	# what makes this icon work: an arrow over a line — which is what it was —
+	# is the picture every other application on the phone uses for "upload",
+	# and a child hunting for the button that makes them jump was shown one of
+	# those. A body clear of its own shadow can only be off the ground.
 	draw_line(
-		centre + Vector2(-half * 0.95, half * 0.95),
-		centre + Vector2(half * 0.95, half * 0.95),
-		tint, maxf(2.0, unit * 0.07)
+		Vector2(centre.x - unit * 0.34, ground),
+		Vector2(centre.x + unit * 0.34, ground),
+		tint, thick * 0.8
 	)
+	var shadow := PackedVector2Array()
+	for i in 20:
+		var angle := TAU * float(i) / 20.0
+		shadow.append(
+			Vector2(centre.x + unit * 0.02, ground - thick * 1.5)
+			+ Vector2(cos(angle) * unit * 0.15, sin(angle) * unit * 0.04)
+		)
+	draw_colored_polygon(shadow, INK_SOFT)
+
+	# Seen from the side, mid-leap: leading knee up, trailing leg stretched
+	# behind, arms swinging through. A figure drawn square-on with both arms up
+	# and both knees tucked reads as a star-jump or a dance; in profile there is
+	# only one thing it can be doing.
+	var hips := centre + Vector2(-unit * 0.03, -unit * 0.05)
+	var shoulders := hips + Vector2(unit * 0.04, -unit * 0.17)
+
+	draw_line(hips, shoulders, tint, thick)
+	draw_circle(shoulders + Vector2(unit * 0.03, -unit * 0.11), unit * 0.1, tint)
+
+	# The leading arm, thrown forward and up; the other swings back.
+	draw_polyline(PackedVector2Array([
+		shoulders,
+		shoulders + Vector2(unit * 0.13, -unit * 0.07),
+		shoulders + Vector2(unit * 0.21, -unit * 0.19),
+	]), tint, thick * 0.8)
+	draw_polyline(PackedVector2Array([
+		shoulders,
+		shoulders + Vector2(-unit * 0.13, unit * 0.01),
+		shoulders + Vector2(-unit * 0.21, -unit * 0.06),
+	]), tint, thick * 0.8)
+
+	# The leading leg, knee high and shin forward.
+	draw_polyline(PackedVector2Array([
+		hips,
+		hips + Vector2(unit * 0.15, unit * 0.02),
+		hips + Vector2(unit * 0.21, unit * 0.16),
+	]), tint, thick * 0.8)
+	# And the trailing leg, straight out behind.
+	draw_polyline(PackedVector2Array([
+		hips,
+		hips + Vector2(-unit * 0.13, unit * 0.13),
+		hips + Vector2(-unit * 0.24, unit * 0.19),
+	]), tint, thick * 0.8)
 
 ## A ball, already moving. The ball alone reads as "a ball"; the three lines
 ## behind it are what make it "kick".
@@ -724,6 +762,119 @@ func _sleep(box: Rect2) -> void:
 ## A speech bubble with three dots: someone is saying something. Lit up while
 ## the microphone is actually running — that part is done by the HUD, on the
 ## button as a whole.
+## Two children, one behind the other: playing together.
+##
+## Up beside the map and the eye, because inviting a brother into the valley is
+## something a child decides to do mid-game, and it used to be two taps down
+## inside the menu — the same objection as the microphone had.
+func _two_of_you(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	# The one behind is drawn first, smaller and offset, then the one in front
+	# is drawn over a dark outline of itself so the two do not merge into one
+	# lumpy shape at the size a thumb actually sees.
+	_person(centre + Vector2(-unit * 0.15, -unit * 0.04), unit * 0.82, tint)
+	_person(centre + Vector2(unit * 0.14, unit * 0.03), unit * 1.06, HOLE)
+	_person(centre + Vector2(unit * 0.14, unit * 0.03), unit * 0.94, tint)
+
+## One head and a pair of shoulders, sized to `unit`.
+func _person(at: Vector2, unit: float, colour: Color) -> void:
+	draw_circle(at + Vector2(0.0, -unit * 0.16), unit * 0.13, colour)
+	# The shoulders: a half-disc, which reads as a body without needing arms.
+	var shoulders := PackedVector2Array()
+	var width := unit * 0.22
+	for i in 17:
+		var angle := PI + PI * float(i) / 16.0
+		shoulders.append(at + Vector2(cos(angle) * width, unit * 0.22 + sin(angle) * unit * 0.2))
+	shoulders.append(at + Vector2(width, unit * 0.24))
+	shoulders.append(at + Vector2(-width, unit * 0.24))
+	draw_colored_polygon(shoulders, colour)
+
+## The valley, as a globe: a circle with a meridian down it and two parallels
+## across. It was the character "▣" set in the interface font — the one button
+## in this family that was a letter rather than a drawing, which meant it was
+## also the one whose weight and size came from a font rather than from the
+## same hand as its neighbours.
+func _globe(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var radius := unit * 0.34
+	var thick := maxf(2.0, unit * 0.07)
+	draw_arc(centre, radius, 0.0, TAU, 32, tint, thick)
+	# The meridian: an ellipse narrow enough to read as a sphere turned towards
+	# you rather than as a second circle drawn inside the first.
+	var meridian := PackedVector2Array()
+	for i in 33:
+		var angle := TAU * float(i) / 32.0
+		meridian.append(centre + Vector2(cos(angle) * radius * 0.42, sin(angle) * radius))
+	draw_polyline(meridian, tint, thick * 0.8)
+	# Two parallels, above and below the equator, bowed the way lines of
+	# latitude bow on a ball.
+	for side: float in [-1.0, 1.0]:
+		var parallel := PackedVector2Array()
+		for i in 13:
+			var t := float(i) / 12.0
+			var x := lerpf(-radius * 0.93, radius * 0.93, t)
+			var bow := sin(t * PI) * radius * 0.12 * side
+			parallel.append(centre + Vector2(x, radius * 0.42 * side + bow))
+		draw_polyline(parallel, tint, thick * 0.8)
+
+## The stroke that turns a picture into its own negative, drawn with a dark
+## edge under it so it reads against whatever it crosses instead of merging
+## into it. Shared by the microphone and the eye, which sit next to each other
+## and must cancel themselves out the same way.
+func _barred(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var from := centre + Vector2(-unit * 0.28, unit * 0.28)
+	var to := centre + Vector2(unit * 0.28, -unit * 0.28)
+	draw_line(from, to, HOLE, unit * 0.12)
+	draw_line(from, to, tint, unit * 0.06)
+
+## The microphone, with a stroke through it when it is switched off.
+##
+## A microphone rather than a loudspeaker, though a speaker is the more familiar
+## picture: this switch has only ever controlled what this phone *sends*, and
+## drawing it as a speaker would say it controls what this phone *hears*. That
+## exact misreading is why the wording beside it was changed from "talking" to
+## "my mic" — a child turned it off expecting quiet and instead went silent to
+## everybody else.
+func _microphone(box: Rect2, on: bool) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var capsule := centre + Vector2(0.0, -unit * 0.08)
+	var half_width := unit * 0.12
+	var half_height := unit * 0.2
+
+	# The barrel: a rounded upright, drawn as a ring of points so its top and
+	# bottom are domed rather than cut off square.
+	var points := PackedVector2Array()
+	for i in 28:
+		var angle := TAU * float(i) / 28.0
+		var x := cos(angle) * half_width
+		var y := sin(angle) * half_width
+		# Stretched in the middle, so the circle becomes a capsule.
+		y += half_height - half_width if sin(angle) > 0.0 else -(half_height - half_width)
+		points.append(capsule + Vector2(x, y))
+	draw_colored_polygon(points, tint)
+
+	# The cradle it hangs in, and the stem down to a foot.
+	var cradle := capsule + Vector2(0.0, half_height * 0.25)
+	draw_arc(cradle, unit * 0.2, 0.0, PI, 24, tint, unit * 0.045)
+	draw_line(
+		cradle + Vector2(0.0, unit * 0.2),
+		cradle + Vector2(0.0, unit * 0.31),
+		tint, unit * 0.045
+	)
+	draw_line(
+		cradle + Vector2(-unit * 0.11, unit * 0.31),
+		cradle + Vector2(unit * 0.11, unit * 0.31),
+		tint, unit * 0.045
+	)
+
+	if not on:
+		_barred(box)
+
 func _talk(box: Rect2) -> void:
 	var unit := minf(box.size.x, box.size.y)
 	var centre := box.get_center() + Vector2(0.0, -unit * 0.05)

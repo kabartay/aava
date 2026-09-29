@@ -23,7 +23,6 @@ const TILES_PER_FRAME := 1
 ## 1.4 m, and a rock at 1.15 m left a 25 cm margin — thin enough that a child
 ## who mistimed slightly would clip it and not understand why. At 0.85 m the
 ## margin is comfortable, and clearing one still feels like clearing something.
-const MIN_HEIGHT := 0.4
 const MAX_HEIGHT := 0.85
 
 ## How far past a rock the player must land for the jump to count.

@@ -40,6 +40,12 @@ func _init() -> void:
 
 	var sky := Sky.new()
 	sky.sky_material = _sky_material
+	# The ambient light in this valley comes entirely from the sky (see the
+	# ambient settings below), which means every change to the sky material
+	# makes the engine re-render a radiance cubemap. At the default size that
+	# is a real cost on a phone for a sky that is a smooth gradient with no
+	# detail in it to lose.
+	sky.radiance_size = Sky.RADIANCE_SIZE_64
 
 	_environment = Environment.new()
 	_environment.background_mode = Environment.BG_SKY
@@ -110,8 +116,25 @@ func _init() -> void:
 
 	_apply_time()
 
+## How much the day must move before the sky is redrawn.
+##
+## Writing to the sky material dirties the sky, and with ambient light coming
+## from the sky that means re-rendering a radiance cubemap — which was happening
+## every single frame, 120 times a second on the phone this is played on, for a
+## day that takes twenty minutes to go round. A fiftieth of a second of daylight
+## is far below anything an eye can catch, and it turns that into about ten
+## redraws a second.
+const SKY_STEP := 1.0 / (DAY_LENGTH * 10.0)
+
+var _drawn_at := -1.0
+
 func _process(delta: float) -> void:
 	time_of_day = fposmod(time_of_day + delta / DAY_LENGTH, 1.0)
+	# Crossing midnight takes the difference to nearly a whole day rather than
+	# to nearly nothing, so the wrap redraws rather than sticking.
+	if absf(time_of_day - _drawn_at) < SKY_STEP:
+		return
+	_drawn_at = time_of_day
 	_apply_time()
 
 func _apply_time() -> void:
@@ -186,4 +209,5 @@ func _sun_color(day: float) -> Color:
 ## can be judged at a chosen hour instead of whenever the capture happened to run.
 func set_time(fraction: float) -> void:
 	time_of_day = fposmod(fraction, 1.0)
+	_drawn_at = time_of_day
 	_apply_time()

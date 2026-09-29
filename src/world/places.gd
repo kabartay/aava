@@ -90,7 +90,6 @@ const SHOP_COUNTER_Z := SHOP_MID_Z + 4.2
 const SHOP_BICYCLES := 5
 const SHOP_MOTORCYCLES := 2
 ## One quad on the floor, on the motorcycle wall, nearest the door.
-const SHOP_QUADS := 1
 ## Where the quad and the two motorcycles stand along their own wall, from
 ## the door towards the counter. Fixed spots rather than an even spread: the
 ## quad is the first thing to the left of the doorway, and the motorcycles

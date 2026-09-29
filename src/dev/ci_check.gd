@@ -45,6 +45,8 @@ func _initialize() -> void:
 	_check_every_language_is_complete()
 	_check_every_text_key_exists()
 	_check_everything_the_network_can_say_is_said()
+	_check_every_kind_of_day_can_be_finished()
+	_check_every_button_glyph_is_drawn()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
 	await _check_the_valley_is_not_silent()
@@ -2017,6 +2019,17 @@ func _check_the_horses_are_spread_and_grazing() -> void:
 		if PlaceSpec.reserved(at.x, at.z, camp):
 			standing = false
 			printerr("  horse %d stands on somebody's ground" % i)
+		# The fairground and the pitch, which are somebody's ground too. The
+		# rule that turns horses out knew about the camp's places and not
+		# about these, and the park sits 110-170 m from camp — exactly the
+		# rings the herd is spread along — so horses could be grazing under
+		# the roller coaster and in the goalmouth.
+		if KeepOut.inside_the_park(at.x, at.z):
+			standing = false
+			printerr("  horse %d stands on the fairground" % i)
+		if Pitch.is_levelled(at.x, at.z):
+			standing = false
+			printerr("  horse %d stands on the football pitch" % i)
 		if not is_equal_approx(at.y, ground):
 			standing = false
 			printerr("  horse %d floats %.2f m above the ground" % [i, at.y - ground])
@@ -4218,6 +4231,60 @@ func _check_a_house_can_be_built_and_unbuilt() -> void:
 ## the table and asks whether its entries are complete, which cannot see a key
 ## that was never added to it. This walks the other way: from what the code
 ## asks for to what the table has.
+## Every kind of day is a day a child can actually finish.
+##
+## Today asks for a different thing each day, cycling through its KINDS, and
+## each has to be recorded by something the game does. A visiting day asks only
+## that a child turns up — and nothing ever told Today that anybody had, so one
+## day in six the task sat there with its eight coins unreachable. The task line
+## said what to do and doing it did nothing.
+func _check_every_kind_of_day_can_be_finished() -> void:
+	print("every kind of day can be finished")
+	var callers := ""
+	for path in _find_scripts("res://src"):
+		if path.ends_with("today.gd") or path.ends_with("ci_check.gd"):
+			continue
+		callers += _code_only(FileAccess.get_file_as_string(path))
+
+	for kind: StringName in Today.KINDS:
+		# A visiting day is recorded by arrive() rather than by naming the kind.
+		if kind == Today.VISIT:
+			_expect(
+				callers.contains("today.arrive()"),
+				"a visiting day is finished by turning up"
+			)
+			continue
+		_expect(
+			callers.contains("Today." + String(kind).to_upper()),
+			"a %s day is finished by something the game does" % kind
+		)
+
+## Every glyph a button can ask for is a glyph something draws.
+##
+## ActionIcon._draw() is one big match on the kind, and it has no fallback
+## branch — a kind nobody wrote a case for draws precisely nothing, which on a
+## phone is a button that looks like a button and has no picture on it. The
+## house parts had the same shape of hole and it cost a bed (see the check that
+## no part is drawn as the fallback post); this closes it before it happens
+## here. A glyph is also the one thing in this project no check can actually
+## look at, so dev/interface.tscn renders them to a PNG for a person to judge.
+func _check_every_button_glyph_is_drawn() -> void:
+	print("every button glyph is drawn")
+	var source := _code_only(
+		FileAccess.get_file_as_string("res://src/ui/action_icon.gd")
+	)
+	var drawn := source.substr(source.find("func _draw()"))
+	var missing: Array[String] = []
+	for name: String in ActionIcon.Kind.keys():
+		if not drawn.contains("Kind." + name + ":"):
+			missing.append(name)
+	_expect(
+		missing.is_empty(),
+		"all %d button glyphs have something that draws them" % ActionIcon.Kind.size()
+	)
+	for name in missing:
+		_fail("nothing draws the %s glyph" % name)
+
 func _check_every_text_key_exists() -> void:
 	print("every text key exists")
 	var asked := {}

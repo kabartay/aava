@@ -75,6 +75,8 @@ var _danger: PanelContainer
 var _menu_button: Button
 var _map_button: Button
 var _view_button: Button
+var _voice_button: Button
+var _together_button: Button
 ## How long the reset must be held. Long enough that a child cannot do it by
 ## accident or by curiosity, short enough that a parent does not wonder whether
 ## it is working.
@@ -114,7 +116,6 @@ var _lantern_button: Button
 var _sleep_button: Button
 var together: TogetherPanel
 var _talk_button: Button
-var _voice_switch: Button
 var _voice_allowed := true
 var _shop: PanelContainer
 ## The shelf the stock sits on, which scrolls when there is more of it than
@@ -419,7 +420,7 @@ func _init() -> void:
 
 	# A toggle of its own, next to the menu, so the map can always be brought
 	# back. It shows its state: filled when the map is open.
-	_map_button = _button("▣", Color(0.86, 0.90, 0.96))
+	_map_button = _icon_button(ActionIcon.Kind.MAP)
 	_map_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_map_button.pressed.connect(_toggle_map)
 	add_child(_map_button)
@@ -431,6 +432,26 @@ func _init() -> void:
 	_view_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_view_button.pressed.connect(func() -> void: view_toggled.emit())
 	add_child(_view_button)
+
+	# And the fourth: the microphone. It lived at the bottom of the menu, two
+	# taps away behind a button a child does not open mid-game — which is no
+	# use for the one control somebody wants the instant they decide they would
+	# rather not be heard. Up here it is always in sight and always one tap,
+	# and it shows its own state: barred means nobody can hear you.
+	# Playing together, in the same family and for the same reason: deciding to
+	# invite a brother in happens mid-game, and it used to be two taps down
+	# inside the menu.
+	_together_button = _icon_button(ActionIcon.Kind.TOGETHER)
+	_together_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
+	_together_button.pressed.connect(_open_together)
+	add_child(_together_button)
+
+	_voice_button = _icon_button(ActionIcon.Kind.MIC_ON)
+	_voice_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
+	_voice_button.pressed.connect(func() -> void:
+		set_voice_allowed(not _voice_allowed)
+		voice_allowed_changed.emit(_voice_allowed))
+	add_child(_voice_button)
 
 func _ready() -> void:
 	# Everything above is built in _init, so a caller can use this HUD's
@@ -491,19 +512,6 @@ func _build_menu() -> VBoxContainer:
 		button.add_theme_font_size_override("font_size", 22)
 		button.pressed.connect(func() -> void: language_chosen.emit(code))
 		column.add_child(button)
-
-	# The switch for talking. In the menu with the languages rather than behind
-	# the quiet door, because it is a setting a parent may want on purpose and
-	# not a thing to be warned about — but it is worded so it is plainly about
-	# the microphone.
-	_voice_switch = _button("", Color(0.90, 0.93, 0.97))
-	_voice_switch.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
-	_voice_switch.add_theme_font_size_override("font_size", 19)
-	_voice_switch.pressed.connect(func() -> void:
-		set_voice_allowed(not _voice_allowed)
-		voice_allowed_changed.emit(_voice_allowed))
-	column.add_child(_voice_switch)
-	_refresh_voice_switch()
 
 	# Playing together is an ordinary thing to want, so it sits above the quiet
 	# door and is coloured like something to press rather than something to
@@ -920,13 +928,18 @@ func set_place_offer(place: StringName) -> void:
 		_visit_button.visible = wanted
 		_layout()
 
-## Which way round the camera is sitting. The button shows the view it would
-## give you, not the one you are in: a picture of what pressing it does.
+## Which way round the camera is sitting.
+##
+## The button shows the view you are *in*, not the one pressing it would give
+## you. It used to show the other one — a picture of what the press does — but
+## it now sits beside the microphone, which shows its own state, and two
+## neighbouring buttons that answer opposite questions is worse than either
+## rule on its own. An open eye is the near view; a barred one is the far one.
 func set_first_person(on: bool) -> void:
 	var face := _face_of(_view_button)
 	if face != null:
 		face.show_kind(
-			ActionIcon.Kind.VIEW_THIRD if on else ActionIcon.Kind.VIEW_FIRST
+			ActionIcon.Kind.VIEW_FIRST if on else ActionIcon.Kind.VIEW_THIRD
 		)
 
 ## Whether a lantern is owned, and whether it is alight. The button appears
@@ -1315,13 +1328,9 @@ func voice_allowed() -> bool:
 	return _voice_allowed
 
 func _refresh_voice_switch() -> void:
-	if _voice_switch == null:
-		return
-	_voice_switch.text = Text.of("ui_talk_on" if _voice_allowed else "ui_talk_off")
-	_voice_switch.add_theme_color_override(
-		"font_color",
-		Color(0.62, 0.88, 0.68) if _voice_allowed else Color(1.0, 1.0, 1.0, 0.45)
-	)
+	var face := _face_of(_voice_button) if _voice_button != null else null
+	if face != null:
+		face.show_kind(ActionIcon.Kind.MIC_ON if _voice_allowed else ActionIcon.Kind.MIC_OFF)
 
 ## Ask a yes-or-no question, with a cross and a tick under it.
 ##
@@ -1403,6 +1412,8 @@ func _layout() -> void:
 		)
 	_map_button.position = _menu_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
 	_view_button.position = _map_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
+	_voice_button.position = _view_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
+	_together_button.position = _voice_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
 	# Bottom left, above the stick, where a thumb already rests — and far from
 	# the buttons on the right that a child presses while playing.
 	_talk_button.position = Vector2(

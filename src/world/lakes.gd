@@ -168,10 +168,16 @@ static func influence(x: float, z: float) -> float:
 
 ## How strongly the shore's levelling applies here, from 1 at the water's edge
 ## to 0 where the hillside takes over again — and the height it levels to, as
-## one answer: [shore_height, strength].
-static func shore_at(x: float, z: float) -> Array:
+## one answer: Vector2(shore_height, strength).
+##
+## A Vector2 rather than an Array, because this is called from height_at(),
+## which is the hottest function in the game — every animal samples the ground
+## three or four times a frame, and so does every chunk being baked. An Array
+## is heap-allocated and a Vector2 is not, so this was tens of thousands of
+## allocations a second handed to the collector for two floats.
+static func shore_at(x: float, z: float) -> Vector2:
 	if absf(x) > BOUNDS or absf(z) > BOUNDS:
-		return [0.0, 0.0]
+		return Vector2.ZERO
 	var strongest := 0.0
 	var height := 0.0
 	var i := 0
@@ -197,7 +203,7 @@ static func shore_at(x: float, z: float) -> Array:
 			strongest = here
 			height = PONDS[i + POND_LEVEL] + SHORE_RISE
 		i += POND_STRIDE
-	return [height, strongest]
+	return Vector2(height, strongest)
 
 ## How far out a point is in a pond's own frame, where 1.0 is the basin's edge.
 ## Both the basin and the shore are measured from this, so the two cannot drift
@@ -212,12 +218,12 @@ static func _reach_of(
 	return sqrt(along * along + across * across)
 
 ## The height the water stands at here, and how much of a pond is here, as one
-## answer: [level, influence]. Everything that used to compare against the
+## answer: Vector2(level, influence). Everything that used to compare against the
 ## world's waterline asks this instead, because the world's waterline is only
 ## the answer for the river and for ponds that happen to sit beside it.
-static func water_at(x: float, z: float, world_level: float) -> Array:
+static func water_at(x: float, z: float, world_level: float) -> Vector2:
 	if absf(x) > BOUNDS or absf(z) > BOUNDS:
-		return [world_level, 0.0]
+		return Vector2(world_level, 0.0)
 	var best := world_level
 	var deepest := 0.0
 	var i := 0
@@ -230,12 +236,12 @@ static func water_at(x: float, z: float, world_level: float) -> Array:
 			deepest = here
 			best = PONDS[i + POND_LEVEL]
 		i += POND_STRIDE
-	return [best, deepest]
+	return Vector2(best, deepest)
 
 ## The height of the water covering this point, or the world's own waterline
 ## where no pond does.
 static func level_at(x: float, z: float, world_level: float) -> float:
-	return water_at(x, z, world_level)[0]
+	return water_at(x, z, world_level).x
 
 ## Is this pond's water above the world's waterline? Those are the ones that
 ## need a surface of their own drawn at their own height, because the world's

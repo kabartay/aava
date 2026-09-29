@@ -576,12 +576,17 @@ func _stands_here(camp: Vector3, at: Vector3) -> bool:
 		return false
 	if field.steepness_at(at.x, at.z) > 0.3:
 		return false
-	if PlaceSpec.reserved(at.x, at.z, camp):
+	# Ground that belongs to something else, asked of KeepOut rather than
+	# listed again here. This was a third copy of that rule and it had the
+	# same gap the other two were written to close: it knew about the camp's
+	# places and the bridge, and nothing about the fairground, the pitch or
+	# the signs. The park sits 110-170 m from camp, squarely inside the rings
+	# horses are turned out along, and passed every remaining test — so a herd
+	# could be grazing under the roller coaster and on the football pitch.
+	if KeepOut.kept(at.x, at.z, camp, field.river_centre_x(at.z)):
 		return false
-	# Not on the bridge. The crossing is at the camp, so the nearest horse of
-	# all was being turned out on the deck — standing on the planks with the
-	# river underneath, which nothing had thought to forbid because the bridge
-	# is younger than this list.
+	# And not on the deck itself, which is the real geometry rather than the
+	# box KeepOut keeps clear around it.
 	if not is_nan(field.bridge_deck_at(at.x, at.z)):
 		return false
 	if field.forest_density_at(at.x, at.z) > 0.35:

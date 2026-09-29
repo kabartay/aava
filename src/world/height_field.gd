@@ -317,17 +317,17 @@ func height_at(x: float, z: float) -> float:
 	# Cut only, never filled. A lake in a meadow needs no shore built for it,
 	# and filling would have lifted the western pond's whole valley floor.
 	var shore := Lakes.shore_at(x, z)
-	if float(shore[1]) > 0.0:
-		var eased := lerpf(floor_height, float(shore[0]), float(shore[1]))
+	if shore.y > 0.0:
+		var eased := lerpf(floor_height, shore.x, shore.y)
 		floor_height = minf(floor_height, eased)
 
 	# Then the basin. A pond's bed is dug below the pond's own water, which is
 	# not always the world's: digging every pond down to sea level turned the
 	# one up the hill into a crater with no way out of it.
 	var water := Lakes.water_at(x, z, WATER_LEVEL)
-	var lake: float = water[1]
+	var lake := water.y
 	if lake > 0.0:
-		floor_height = lerpf(floor_height, float(water[0]) - Lakes.DEPTH, lake)
+		floor_height = lerpf(floor_height, water.x - Lakes.DEPTH, lake)
 
 	# The playground, pool and café stand on levelled ground the same way. The
 	# camp is a constant rather than the result of find_spawn_point(), because
@@ -440,12 +440,12 @@ func fill_grid(
 			var lake := 0.0
 			if lakes_here:
 				var shore := Lakes.shore_at(x, z)
-				if float(shore[1]) > 0.0:
-					height = minf(height, lerpf(height, float(shore[0]), float(shore[1])))
+				if shore.y > 0.0:
+					height = minf(height, lerpf(height, shore.x, shore.y))
 				var water := Lakes.water_at(x, z, WATER_LEVEL)
-				lake = float(water[1])
+				lake = water.y
 				if lake > 0.0:
-					height = lerpf(height, float(water[0]) - Lakes.DEPTH, lake)
+					height = lerpf(height, water.x - Lakes.DEPTH, lake)
 			if places_here and PlaceSpec.influence(x, z, camp) > 0.0:
 				for place in PlaceSpec.OFFSETS:
 					var pull := PlaceSpec.influence_of(place, x, z, camp)

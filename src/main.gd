@@ -6,7 +6,6 @@ extends Node3D
 ## sticks and asks nothing of anyone. The game — carrying, building, and the
 ## world's answer to it — is wired together here.
 
-const DEFAULT_SEED := 20260903
 
 ## How far above the ground the player is placed, so they settle onto the
 ## terrain rather than starting a fraction of a metre inside it.
@@ -368,23 +367,15 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# button and its entire play-together panel connected to nothing at all.
 	hud.set_voice_allowed(_voice_allowed)
 	hud.set_first_person(_first_person)
-	voice.allowed = _voice_allowed
-	hud.voice_allowed_changed.connect(func(allowed: bool) -> void:
-		_voice_allowed = allowed
-		voice.allowed = allowed
-		_write_save())
-	hud.shop_sold_back.connect(_on_sell_back)
-	hud.view_toggled.connect(_on_view_toggled)
-	hud.confirmed.connect(_on_answered.bind(true))
-	hud.refused.connect(_on_answered.bind(false))
-	hud.fire_fed.connect(_on_feed_fire)
-	hud.slept.connect(_on_sleep)
-	hud.talk_started.connect(voice.start_talking)
-	hud.talk_released.connect(voice.stop_talking)
-	hud.together_opened.connect(_on_together_opened)
-	hud.together.host_requested.connect(_on_host_requested)
-	hud.together.join_requested.connect(_on_join_requested)
-	hud.together.leave_requested.connect(_on_leave_requested)
+	# Turning up is the whole of a visiting day, and nothing was ever telling
+	# today that anybody had: one day in six asks only that a child opens the
+	# game, and on that day the task sat there uncompletable and its eight
+	# coins could not be earned. Here rather than beside today.begin(), for the
+	# reason written just above — finishing a task announces itself and rewrites
+	# the task line, and up there the HUD it would announce into is still null.
+	# `record()` refuses a day already finished, so this cannot pay twice.
+	today.arrive()
+	_connect_the_rest_of_the_hud()
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, player '%s' in world '%s', save at %s" % [
@@ -922,6 +913,32 @@ func _on_reset() -> void:
 	_rebuild_hud()
 	hud.announce(Text.of("say_reset"), 3.0)
 
+## Everything on the HUD that Wiring.connect_hud does not cover.
+##
+## In its own function because there are two places a HUD comes into being —
+## starting up, and resetting the valley — and only the first of them did this.
+## After a reset the talk button and the whole play-together panel were
+## connected to nothing: a child could press talk and never be heard, and open
+## "play together" onto a page whose buttons did nothing at all.
+func _connect_the_rest_of_the_hud() -> void:
+	voice.allowed = _voice_allowed
+	hud.voice_allowed_changed.connect(func(allowed: bool) -> void:
+		_voice_allowed = allowed
+		voice.allowed = allowed
+		_write_save())
+	hud.shop_sold_back.connect(_on_sell_back)
+	hud.view_toggled.connect(_on_view_toggled)
+	hud.confirmed.connect(_on_answered.bind(true))
+	hud.refused.connect(_on_answered.bind(false))
+	hud.fire_fed.connect(_on_feed_fire)
+	hud.slept.connect(_on_sleep)
+	hud.talk_started.connect(voice.start_talking)
+	hud.talk_released.connect(voice.stop_talking)
+	hud.together_opened.connect(_on_together_opened)
+	hud.together.host_requested.connect(_on_host_requested)
+	hud.together.join_requested.connect(_on_join_requested)
+	hud.together.leave_requested.connect(_on_leave_requested)
+
 func _rebuild_hud() -> void:
 	var was_building := build_mode.active
 	if hud != null:
@@ -930,6 +947,9 @@ func _rebuild_hud() -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
+	_connect_the_rest_of_the_hud()
+	hud.set_voice_allowed(_voice_allowed)
+	hud.set_first_person(_first_person)
 	hud.set_score(world.football.score)
 	if was_building:
 		hud.set_building(true)

@@ -26,7 +26,6 @@ const FEATHER := 1.4
 
 ## How much a path sinks into the ground. Small — a worn route is compacted, not
 ## a trench, and anything deeper makes a child stumble at the edge.
-const SINK := 0.09
 
 ## What each route joins. Named rather than given as coordinates, and resolved
 ## through PlaceSpec, so moving a destination moves the path to it — writing the

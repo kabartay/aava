@@ -40,7 +40,6 @@ const OFF_WHITE := Color(0.92, 0.93, 0.90)
 const POLE_GREY := Color(0.62, 0.61, 0.56)
 ## The green of an enamel street plaque, which is the one colour on the whole
 ## post that is not blue or white.
-const PLAQUE_GREEN := Color(0.11, 0.26, 0.18)
 
 ## What the square itself is called.
 const PLACE_NAME := "PLACE DES SPORTS"

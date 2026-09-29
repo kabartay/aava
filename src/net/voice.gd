@@ -38,7 +38,19 @@ signal someone_spoke(id: int)
 ## for one child shouting about a football; it is a quarter of the data of the
 ## mix rate, which matters on a tablet's wifi.
 const RATE := 11025
-const DOWNSAMPLE := 4
+
+## How many captured frames make one sent frame. Derived from the rate the
+## audio server is actually mixing at, not assumed.
+##
+## This was a constant 4, which is only right if the mix rate is 44,100 — and
+## nothing in this project sets a mix rate, so it is whatever the device hands
+## back. Android phones commonly mix at 48,000, where taking four frames at a
+## time produces 12,000 samples of speech a second and hands them to a stream
+## declared at 11,025: the voice comes out slow and low, and the extra ninth of
+## it overflows the playback buffer and is dropped. Which is to say it sounded
+## wrong in a way nobody could name.
+static func downsample() -> int:
+	return maxi(1, int(round(AudioServer.get_mix_rate() / float(RATE))))
 
 ## How much audio goes in one packet. About a twentieth of a second, so a lost
 ## packet is a click rather than a missing word.
@@ -144,6 +156,7 @@ func start_talking() -> void:
 	_talking = true
 	_capture.clear_buffer()
 	_microphone.play()
+	_hush_the_others(true)
 	talking_changed.emit(true)
 
 ## Let go. The microphone stops here, and this is the only place it can be
@@ -156,6 +169,7 @@ func stop_talking() -> void:
 		_microphone.stop()
 	if _capture != null:
 		_capture.clear_buffer()
+	_hush_the_others(false)
 	talking_changed.emit(false)
 
 func _process(_delta: float) -> void:
@@ -168,24 +182,25 @@ func _process(_delta: float) -> void:
 		stop_talking()
 		return
 
-	var wanted := FRAMES_PER_PACKET * DOWNSAMPLE
+	var step_size := downsample()
+	var wanted := FRAMES_PER_PACKET * step_size
 	while _capture.get_frames_available() >= wanted:
 		var frames := _capture.get_buffer(wanted)
-		_send_voice.rpc(_pack(frames))
+		_send_voice.rpc(_pack(frames, step_size))
 
 ## Stereo float frames at the mix rate become mono 16-bit at a quarter of it.
 ##
 ## Averaged rather than sampled, because taking every fourth frame aliases:
 ## high frequencies fold down into the voice and it sounds like a robot.
-func _pack(frames: PackedVector2Array) -> PackedByteArray:
+func _pack(frames: PackedVector2Array, step_size: int) -> PackedByteArray:
 	var out := PackedByteArray()
 	out.resize(FRAMES_PER_PACKET * 2)
 	for i in FRAMES_PER_PACKET:
 		var sum := 0.0
-		for step in DOWNSAMPLE:
-			var frame := frames[i * DOWNSAMPLE + step]
+		for step in step_size:
+			var frame := frames[i * step_size + step]
 			sum += (frame.x + frame.y) * 0.5
-		var value := clampf(sum / float(DOWNSAMPLE), -1.0, 1.0)
+		var value := clampf(sum / float(step_size), -1.0, 1.0)
 		out.encode_s16(i * 2, int(value * 32767.0))
 	return out
 
@@ -210,6 +225,21 @@ func _play(from: int, packet: PackedByteArray) -> void:
 		var value := float(packet.decode_s16(i * 2)) / 32767.0
 		playback.push_frame(Vector2(value, value))
 
+## Silence the other children while this child is holding the button.
+##
+## The phones are in one room. Everyone hears the talker through the air at
+## once and again out of their own phone a third of a second later, and with
+## three devices that is two late copies — which is the "weird echo" a child
+## described. There is no acoustic echo cancellation to be had here, but
+## push-to-talk gives the next best thing for nothing: while you are talking,
+## you are not listening, so the room stops answering itself. Let go and
+## everyone comes back.
+func _hush_the_others(quiet: bool) -> void:
+	for id in _speakers:
+		var player: AudioStreamPlayer = _speakers[id]
+		if is_instance_valid(player):
+			player.volume_db = -80.0 if quiet else 0.0
+
 ## One player per speaker, made on first hearing them.
 func _speaker_for(id: int) -> AudioStreamGeneratorPlayback:
 	if _speakers.has(id):
@@ -230,6 +260,10 @@ func _speaker_for(id: int) -> AudioStreamGeneratorPlayback:
 
 	var player := AudioStreamPlayer.new()
 	player.stream = generator
+	# Somebody who starts speaking while this child is mid-sentence is held
+	# quiet like everyone else, rather than arriving at full volume into the
+	# one moment the room is meant to be listening to one voice.
+	player.volume_db = -80.0 if _talking else 0.0
 	add_child(player)
 	player.play()
 	_speakers[id] = player

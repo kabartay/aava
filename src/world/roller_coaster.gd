@@ -346,7 +346,6 @@ func height_at(fraction: float) -> float:
 ## about sixty degrees a car is hanging off the side of the track.
 const BANK := deg_to_rad(24.0)
 const BANK_MAX := deg_to_rad(62.0)
-const BANK_EASE := 5.0
 
 func bank_at(distance: float) -> float:
 	# Read off the base line, not the track: inside a loop the track's heading
