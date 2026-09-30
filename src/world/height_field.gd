@@ -773,6 +773,12 @@ func steepness_at(x: float, z: float) -> float:
 static func slope_of(steepness: float) -> float:
 	return acos(clampf(1.0 - SHEER * steepness, 0.0, 1.0))
 
+## And the same the other way: what steepness_at would read on ground standing
+## at this angle. So that a limit written as an angle — what a character body
+## deals in — can be compared against the limits the mounts declare.
+static func steepness_of(slope: float) -> float:
+	return clampf(1.0 - cos(slope), 0.0, 1.0) / SHEER
+
 ## How thick the forest wants to be at this point, from 0 to 1.
 ##
 ## Part of the height field rather than of the planting code, because it is a

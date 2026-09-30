@@ -137,6 +137,21 @@ static func swims(kind: StringName) -> bool:
 func afloat(kind: StringName, at: Vector3) -> bool:
 	if not swims(kind):
 		return false
+	# Not while it is on the crossing.
+	#
+	# The water under the arch is three metres deep and a horse standing on the
+	# planks over it is in none of it. Asked without this, a horse ridden
+	# across the bridge was declared to be swimming: its rider was held down at
+	# the waterline, the horse was put in the river at its own draught, and the
+	# child carried on over on the deck without it. The bridge is not permeable
+	# — this was the one question about it that had never been asked.
+	#
+	# standing_height_at already carries the same fact for anything on wheels,
+	# and the comment above it describes this exact failure happening to a
+	# motorcycle. A horse has a second door into the water that nothing else
+	# here has, and it was not fitted with the same lock.
+	if field.is_on_the_bridge(at):
+		return false
 	return (
 		field.water_level_at(at.x, at.z) - field.height_at(at.x, at.z)
 		> MountKinds.HORSE_SWIMS_AT
@@ -313,6 +328,10 @@ func carry(at: Vector3, facing: float) -> void:
 		return
 	var node: Node3D = _nodes[riding]
 	var spot := at
+	# `at` is where the rider's own body actually ended up after the physics
+	# resolved it, not the smoothed height the seat was aiming for — which
+	# matters, because on the bridge those are different numbers and only the
+	# first of them is standing on the planks.
 	spot.y = _rest_height(riding, at)
 	node.global_position = spot
 	# A ridden machine lies on the ground it is crossing, like a parked one.
@@ -912,11 +931,32 @@ const WHEELS_STAY_DRY := 0.08
 ## The steepest ground this mount will take here and now — its own limit, plus
 ## the saddle if there is one under the rider. Only a horse is helped: a girth
 ## does nothing for a bicycle.
+##
+## And never steeper than a child manages on their own two feet, whatever the
+## table says.
+##
+## That ceiling is not a safety margin, it is the rule: wherever a machine can
+## be ridden, it will one day be left, and a machine left on ground its owner
+## slides off is a machine they cannot walk back up to. A quad was allowed onto
+## 55 degrees and a child onto 52; it was put down on a bank in that band, the
+## child was put down beside it, the child slid to the bottom of the hill and
+## the quad stayed where it was. Player.CLIMBS_TO says as much in its own note
+## — "a machine that climbs better than legs would be a strange thing to put in
+## a valley children are meant to walk about in" — and nothing enforced it.
+##
+## With the saddle on, a horse reaches exactly that ceiling, which is a thing
+## worth being able to say: a saddled horse goes anywhere you could walk.
 func steepest_ground(kind: StringName) -> float:
 	var limit := MountKinds.max_slope(kind)
 	if saddled and MountKinds.kind_of(kind) == MountKinds.HORSE:
 		limit += SADDLE_GRIP
-	return limit
+	return minf(limit, no_steeper_than_a_child())
+
+## The steepest ground a child stands on, in the units the mounts declare
+## theirs in. A function rather than a constant because it is worked out from
+## Player.CLIMBS_TO, and GDScript will not call anything to build a const.
+static func no_steeper_than_a_child() -> float:
+	return HeightField.steepness_of(Player.CLIMBS_TO)
 
 func to_data() -> Dictionary:
 	var out: Dictionary = {}

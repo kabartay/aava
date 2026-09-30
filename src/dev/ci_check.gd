@@ -180,6 +180,7 @@ func _initialize() -> void:
 	await _check_a_jump_from_the_saddle_is_a_jump()
 	await _check_a_child_can_swim_down()
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
+	_check_the_bridge_carries_what_crosses_it()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -4121,18 +4122,93 @@ static func _anything_in_the_way(parts: Array[Dictionary], from: Vector3, to: Ve
 			return true
 	return false
 
+## The bridge holds up everything that goes over it, not only the rider.
+##
+## A horse ridden across it fell into the river while the child carried on over
+## on the planks. The bridge is the one place in the valley where the ground
+## underfoot is not the ground: under the arch is three metres of water, and
+## every question about "where is the surface here" has to know that. Two
+## already did. This one did not: a horse is the only thing here that swims, so
+## it is the only thing that asks whether it is afloat, and that question
+## looked straight past the crossing at the riverbed underneath it. The rider
+## was then held down at the waterline, their own collider kept them up on the
+## deck, and the horse went into the water on its own.
+##
+## Walked across in steps, because the failure was not at one point but over
+## the middle of the span where the deck stands highest above the bed.
+func _check_the_bridge_carries_what_crosses_it() -> void:
+	print("the bridge carries what crosses it")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	var start := Vector3(river_x - BridgeSpec.HALF_SPAN - 4.0, 0.0, BridgeSpec.CENTRE_Z)
+	start.y = field.height_at(start.x, start.z)
+	mounts.place(MountKinds.HORSE, start)
+	_expect(mounts.mount(MountKinds.HORSE), "a horse is got on at the near end of the bridge")
+
+	var deepest := 0.0
+	var dropped := 0
+	var swam := 0
+	var steps := 0
+	var held_low := 0
+	var x := river_x - BridgeSpec.HALF_SPAN
+	while x <= river_x + BridgeSpec.HALF_SPAN:
+		var deck := field.bridge_deck_at(x, BridgeSpec.CENTRE_Z)
+		if is_nan(deck):
+			x += 1.0
+			continue
+		steps += 1
+		deepest = maxf(deepest, deck - field.height_at(x, BridgeSpec.CENTRE_Z))
+		# Where the rider's own body is: on the planks, which is what their
+		# collider resolves to and what the game hands to carry().
+		var rider := Vector3(x, deck, BridgeSpec.CENTRE_Z)
+		if mounts.afloat(MountKinds.HORSE, rider):
+			swam += 1
+		# What the game would hold the rider at, by whichever branch applies.
+		var held := (
+			Mounts.saddle_afloat(field.water_level_at(x, BridgeSpec.CENTRE_Z))
+			if mounts.afloat(MountKinds.HORSE, rider)
+			else Mounts.ground_under(field, MountKinds.HORSE, rider, 0.0, 6.0)
+		)
+		if held < deck - 0.5:
+			held_low += 1
+		mounts.carry(rider, 0.0)
+		if mounts.position_of(MountKinds.HORSE).y < deck - 0.5:
+			dropped += 1
+		x += 1.0
+
+	_expect(steps > 20, "the deck is %d paces across" % steps)
+	_expect(deepest > 3.0, "and stands %.1f m over the riverbed at its highest" % deepest)
+	_expect(swam == 0, "a horse on the planks is never swimming, whatever is under them")
+	_expect(held_low == 0, "so its rider is held to the deck and not down at the waterline")
+	_expect(dropped == 0, "and the horse itself stays on the bridge the whole way across")
+
+	# Off the end of it, the river is the river again.
+	var midstream := Vector3(river_x, HeightField.WATER_LEVEL, BridgeSpec.CENTRE_Z + 120.0)
+	_expect(
+		field.water_level_at(midstream.x, midstream.z) - field.height_at(midstream.x, midstream.z)
+		> MountKinds.HORSE_SWIMS_AT,
+		"the river away from the crossing is deep enough to swim"
+	)
+	_expect(
+		mounts.afloat(MountKinds.HORSE, midstream),
+		"and a horse in it still swims — the bridge is an exception, not a way out of the water"
+	)
+	mounts.queue_free()
+
 ## A machine on ground it cannot climb slides back down it.
 ##
 ## Every mount declares the steepest ground it will take, in the height field's
 ## own units. A CharacterBody3D declares the steepest it will stand on, as an
 ## angle. The two were separate numbers, written by hand, and nobody had put
-## them side by side: a quad was allowed onto 55 degrees while the body under
-## it treated anything past 52 as a wall. In that band a quad could not climb
-## the slope and could not fall off it either — the seat held it to the
-## hillside — so it simply stopped. "Застрял", which is exactly what it was.
+## them side by side — a bicycle was allowed 0.28 while the body under it stood
+## on anything up to 52 degrees, so a bicycle ridden at a bank it has no
+## business on neither climbed it nor fell off it. It stopped, held to the
+## hillside by the very thing meant to keep a rider in the saddle.
 ##
-## The same ramp is put to the same body twice, once told what a quad climbs
-## and once what a child on foot does. One holds and one slides; that they
+## The same bank is put to the same body twice, once told what a bicycle climbs
+## and once what a child on foot does. One slides and one holds; that they
 ## differ is the whole point, and that the body is told which applies is what
 ## was missing.
 func _check_a_machine_slides_off_ground_it_cannot_climb() -> void:
@@ -4140,28 +4216,28 @@ func _check_a_machine_slides_off_ground_it_cannot_climb() -> void:
 	var field := HeightField.new(20260903)
 	var mounts := Mounts.new(field)
 	get_root().add_child(mounts)
-	var takes := HeightField.slope_of(mounts.steepest_ground(MountKinds.QUAD))
+	var bicycle_takes := HeightField.slope_of(mounts.steepest_ground(MountKinds.BICYCLE))
 	mounts.queue_free()
 	_expect(
-		takes > Player.CLIMBS_TO,
-		"a quad takes ground steeper than a child on foot — %.0f° against %.0f°" % [
-			rad_to_deg(takes), rad_to_deg(Player.CLIMBS_TO)
+		bicycle_takes < Player.CLIMBS_TO,
+		"a bicycle gives up on ground a child would walk up — %.0f° against %.0f°" % [
+			rad_to_deg(bicycle_takes), rad_to_deg(Player.CLIMBS_TO)
 		]
 	)
 
-	var inside := takes - deg_to_rad(2.0)
-	var beyond := takes + deg_to_rad(5.0)
+	# A bank between the two: a child stands on it, a bicycle must not.
+	var between := (bicycle_takes + Player.CLIMBS_TO) * 0.5
 	_expect(
-		await _stays_put_on(inside, takes),
+		await _stays_put_on(bicycle_takes - deg_to_rad(4.0), bicycle_takes),
 		"and stands on a bank just inside its own limit"
 	)
 	_expect(
-		not await _stays_put_on(beyond, takes),
-		"slides back down one just past it, rather than sticking to it"
+		not await _stays_put_on(between, bicycle_takes),
+		"slides back down one past it, rather than sticking to it"
 	)
 	_expect(
-		not await _stays_put_on(inside, Player.CLIMBS_TO),
-		"the same bank a child's own feet would slide off — the two limits differ, and the body has to be told which one is in force"
+		await _stays_put_on(between, Player.CLIMBS_TO),
+		"which is a bank the child's own feet hold — the two limits differ, and the body has to be told which one is in force"
 	)
 
 	# And somebody has to tell it. This is the half that was missing: the
@@ -5610,24 +5686,63 @@ func _check_riding() -> void:
 		absf(MountKinds.speed(MountKinds.BICYCLE) - MountKinds.speed(MountKinds.MOTORCYCLE) * 0.5) < 0.2,
 		"and half the motorcycle's %.1f m/s" % MountKinds.speed(MountKinds.MOTORCYCLE)
 	)
-	# The motorcycle is the climber: an engine and a knobbly tyre beat a horse
-	# up a bank, and a machine costing three hundred coins that stopped at the
-	# first slope would be a strange reward.
+	# The motorcycle is the climbing machine: an engine and a knobbly tyre beat
+	# a quad up a bank, and a machine costing three hundred coins that stopped
+	# at the first slope would be a strange reward.
 	_expect(
-		MountKinds.max_slope(MountKinds.MOTORCYCLE) > MountKinds.max_slope(MountKinds.HORSE) + Mounts.SADDLE_GRIP,
-		"a motorcycle takes %.2f, steeper than a saddled horse's %.2f" % [
+		MountKinds.max_slope(MountKinds.MOTORCYCLE) > MountKinds.max_slope(MountKinds.QUAD),
+		"a motorcycle takes %.2f, steeper than a quad's %.2f" % [
 			MountKinds.max_slope(MountKinds.MOTORCYCLE),
-			MountKinds.max_slope(MountKinds.HORSE) + Mounts.SADDLE_GRIP
+			MountKinds.max_slope(MountKinds.QUAD)
 		]
 	)
 	_expect(
-		MountKinds.max_slope(MountKinds.MOTORCYCLE) < tan(Player.CLIMBS_TO),
-		"and still less than a child manages on their own feet"
-	)
-	_expect(
 		MountKinds.max_slope(MountKinds.HORSE) > MountKinds.max_slope(MountKinds.BICYCLE),
-		"but the horse climbs what the bicycle cannot"
+		"and the horse climbs what the bicycle cannot"
 	)
+
+	# Nothing climbs better than the child riding it.
+	#
+	# This was here already and was wrong in a way that is worth keeping a note
+	# of: it compared a limit written in the height field's steepness against
+	# tan(52°), which is 1.28, when the same 52 degrees is 0.70 in those units.
+	# So it read as "no machine goes where a child cannot" and asserted nothing
+	# of the sort — the motorcycle's 0.95 sailed under 1.28, and a quad at 0.78
+	# was left standing on banks its owner slid off. A unit conversion now has
+	# a name, and it is used here.
+	var walks_to := Mounts.no_steeper_than_a_child()
+	_expect(
+		absf(walks_to - HeightField.steepness_of(Player.CLIMBS_TO)) < 0.0001,
+		"a child walks up %.2f of steepness, which is their %.0f°" % [
+			walks_to, rad_to_deg(Player.CLIMBS_TO)
+		]
+	)
+	var field_for_slopes := HeightField.new(20260903)
+	var stable := Mounts.new(field_for_slopes)
+	get_root().add_child(stable)
+	for kind: StringName in [
+		MountKinds.HORSE, MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD
+	]:
+		for with_a_saddle: bool in [false, true]:
+			stable.saddled = with_a_saddle
+			_expect(
+				stable.steepest_ground(kind) <= walks_to + 0.0001,
+				"a %s takes %.2f, which is ground a child can walk back up%s" % [
+					kind, stable.steepest_ground(kind),
+					" even with the saddle bought" if with_a_saddle else ""
+				]
+			)
+	stable.saddled = true
+	_expect(
+		absf(stable.steepest_ground(MountKinds.HORSE) - walks_to) < 0.0001,
+		"and with the saddle a horse goes anywhere a child could walk, which is the top of the range"
+	)
+	stable.saddled = false
+	_expect(
+		stable.steepest_ground(MountKinds.HORSE) < stable.steepest_ground(MountKinds.MOTORCYCLE),
+		"bareback it takes less than the motorcycle, so the saddle is worth buying"
+	)
+	stable.queue_free()
 	_expect(MountKinds.fords_water(MountKinds.HORSE), "the horse fords the river")
 
 	# Anything with wheels is longer than it is wide, because its wheels turn

@@ -207,12 +207,16 @@ const INFO := {
 		# motorcycle that pivots on the spot is a bicycle that goes fast.
 		"speed": 16.5,
 		"turn": 1.5,
-		# The best climber here, by some way: steeper than a horse with a
-		# saddle on it and not far off what a child manages on their own feet.
-		# An engine and a knobbly tyre is exactly the thing for getting up a
-		# bank, and it would be a strange machine that cost three hundred coins
-		# and stopped at the first slope.
-		"max_slope": 0.95,
+		# The best machine here for a bank, and stopping just short of what a
+		# child manages on their own feet. An engine and a knobbly tyre is
+		# exactly the thing for getting up a slope, and it would be a strange
+		# machine that cost three hundred coins and stopped at the first one.
+		#
+		# It said 0.95, which was meant to read as "about what a child can
+		# walk up" and does not: a child walks up 52 degrees, and 0.95 in these
+		# units is 61. Everything a machine can reach, a child has to be able
+		# to reach on foot — see Mounts.steepest_ground.
+		"max_slope": 0.68,
 		"fords": false,
 		"floats": false,
 		"eye": 0.62,
@@ -230,7 +234,12 @@ const INFO := {
 		# seconds, which at twelve metres a second is not a corner but a
 		# skid — the rider is flung round rather than steering.
 		"turn": 1.35,
-		"max_slope": 0.78,
+		# Just under the motorcycle, and for the same reason it is not higher:
+		# a machine may go wherever a child's own feet could follow it, and no
+		# further. At 0.78 it went onto 55-degree banks a child slides off,
+		# which is how one came to be left standing on a hillside its owner
+		# could not walk back up to.
+		"max_slope": 0.66,
 		"fords": false,
 		"floats": false,
 		"eye": 0.72,
