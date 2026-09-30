@@ -891,7 +891,7 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	if PlaceSpec.inside_the_pool_fence(at.x, at.z, camp):
 		return false
 	if MountKinds.fords_water(kind):
-		return field.steepness_at(at.x, at.z) <= _grip(kind)
+		return field.steepness_at(at.x, at.z) <= steepest_ground(kind)
 	# In the water, not merely low-lying.
 	#
 	# This compared the *rider's own height* against the waterline plus a
@@ -902,7 +902,7 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	var ground := field.height_at(at.x, at.z)
 	if ground < field.water_level_at(at.x, at.z) + WHEELS_STAY_DRY:
 		return false
-	return field.steepness_at(at.x, at.z) <= _grip(kind)
+	return field.steepness_at(at.x, at.z) <= steepest_ground(kind)
 
 ## How far above the water the ground has to be before something on wheels
 ## will ride over it. A hand's breadth: enough to keep them out of the shallows
@@ -912,7 +912,7 @@ const WHEELS_STAY_DRY := 0.08
 ## The steepest ground this mount will take here and now — its own limit, plus
 ## the saddle if there is one under the rider. Only a horse is helped: a girth
 ## does nothing for a bicycle.
-func _grip(kind: StringName) -> float:
+func steepest_ground(kind: StringName) -> float:
 	var limit := MountKinds.max_slope(kind)
 	if saddled and MountKinds.kind_of(kind) == MountKinds.HORSE:
 		limit += SADDLE_GRIP

@@ -654,12 +654,39 @@ func _process(delta: float) -> void:
 	# parented to a moving node inherits its rotation and fights its own
 	# gravity, which is a bigger problem than the one it would solve.
 	var riding := player.riding
+	# The steepest ground the body under the rider will stand on is the
+	# steepest the machine will take. One fact, asked of one place, rather than
+	# a number in the mount's table and another in the character body that
+	# nobody had ever compared — see HeightField.slope_of.
+	player.climbs_ground = (
+		HeightField.slope_of(world.mounts.steepest_ground(riding)) if riding != &""
+		else Player.CLIMBS_TO
+	)
+	# Whether the ground under the machine is ground it can be on at all. Asked
+	# here rather than further down where it is counted, because the answer
+	# decides whether the rider is held to the hillside, and being held to a
+	# hillside a machine cannot climb is exactly what it means to be stuck on
+	# one.
+	var refused := riding != &"" and not world.mounts.can_ride_over(
+		riding, player.global_position
+	)
 	# A horse in deep water swims, and its rider stays in the saddle rather
 	# than floating off it.
 	if riding != &"" and world.mounts.afloat(riding, player.global_position):
 		player.held_at_height = Mounts.saddle_afloat(
 			world.field.water_level_at(player.global_position.x, player.global_position.z)
 		)
+	elif refused:
+		# Ground this machine cannot be on. Let go of the rider entirely: the
+		# seat is what holds a machine against a slope, and held against a
+		# slope too steep to climb it goes nowhere at all — it cannot go up,
+		# and nothing is pulling it down. Released, gravity has it, and a bank
+		# steeper than the body will stand on is a bank the body slides back
+		# down, which is what a quad nosed at one should do. It is put down on
+		# the last good ground a moment later either way; this is what those
+		# few tenths of a second look like.
+		player.held_at_height = Player.NOT_HELD
+		_held_last = Player.NOT_HELD
 	elif riding != &"":
 		# A rider follows the ground the horse is walking on. Left to
 		# ordinary physics, going downhill the child carried on in a straight
@@ -765,7 +792,7 @@ func _process(delta: float) -> void:
 	# height field is consulted at a point the machine is already leaving. A
 	# short grace means a child has to actually be somewhere impossible rather
 	# than to have passed through it.
-	if riding != &"" and not world.mounts.can_ride_over(riding, player.global_position):
+	if refused:
 		_bad_ground += delta
 	else:
 		_bad_ground = 0.0
@@ -789,6 +816,21 @@ func _process(delta: float) -> void:
 	# difference is what sent one into the sky. See Places.submersion.
 	var at := player.global_position
 	player.water_depth = world.places.submersion(at)
+
+	# Going under.
+	#
+	# Offered whenever there is water to go under, and taken away the moment
+	# there is not, so a child standing on the bank is never shown a button
+	# that would do nothing. The player clears the dive flag itself when the
+	# water runs out — this only decides whether the button is on the screen.
+	hud.set_dive_offer(player.is_swimming, player.diving)
+	# The view is drawn from where the camera is, not from where the swimmer
+	# is: over the shoulder, a child's head goes under a second before the
+	# camera does, and tinting the whole world green while the camera is still
+	# in the air is a green flash across the middle of a dive.
+	var eye_under := world.places.submersion(camera_rig.camera.global_position)
+	world.atmosphere.go_under(eye_under, delta)
+	world.water.set_seen_from_below(eye_under > 0.0)
 
 	# A child on the swing or on the slide is carried. Both end on their own —
 	# there is no way to be stuck on a ride.
@@ -977,6 +1019,7 @@ func _handlers() -> Dictionary:
 		&"kick_start": _on_kick_start,
 		&"kick_release": _on_kick_release,
 		&"jump": _on_jump,
+		&"dive": _on_dive,
 		&"remove": _on_remove,
 		&"language": _on_language,
 		&"reset": _on_reset,
@@ -1768,6 +1811,12 @@ func _on_buy(item: StringName) -> void:
 
 func _on_jump() -> void:
 	player.request_jump()
+
+## Go under, or come back up. A toggle rather than a button held down: both of
+## a child's thumbs are already busy in the water — one on the stick, one
+## turning the view — and neither is free to be held on a third control.
+func _on_dive() -> void:
+	player.diving = not player.diving
 
 ## Take down the nearest piece and give the materials back in full.
 ##

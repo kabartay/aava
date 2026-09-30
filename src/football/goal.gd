@@ -19,6 +19,15 @@ const NET_COLOR := Color(0.90, 0.93, 0.96)
 ## How much of the ball's speed survives the netting. Almost none.
 const NET_BOUNCE := 0.04
 
+## How thick the walls behind the strings are.
+##
+## Invisible — the net a child sees is the strings — so the only thing this
+## number has to do is be too thick to miss. A ball leaves a full swing at
+## 26 m/s and crosses 0.43 m in a physics tick; it has continuous collision
+## turned on and so is caught anyway, but a wall four centimetres thick is
+## asking that machinery to be perfect for no gain at all.
+const NET_THICKNESS := 0.12
+
 var index: int
 
 var _frame_material: StandardMaterial3D
@@ -64,12 +73,16 @@ func _init(goal_index: int, at: Vector3) -> void:
 	var slope_length := slope.length()
 	_solid_turned(
 		(top_back + ground_back) * 0.5,
-		Vector3(0.04, slope_length, Pitch.GOAL_WIDTH),
-		Basis.looking_at(slope.normalized(), Vector3.RIGHT) * Basis(Vector3.RIGHT, PI * 0.5),
+		Vector3(NET_THICKNESS, slope_length, Pitch.GOAL_WIDTH),
+		_lying_along(slope),
 		NET_BOUNCE
 	)
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		_solid(Vector3(depth * 0.5, height * 0.5, side * half), Vector3(depth, height, 0.04), NET_BOUNCE)
+		_solid(
+			Vector3(depth * 0.5, height * 0.5, side * half),
+			Vector3(depth, height, NET_THICKNESS),
+			NET_BOUNCE
+		)
 
 ## A strut from `from` to `to`, drawn and solid.
 func _strut(from: Vector3, to: Vector3) -> void:
@@ -84,11 +97,28 @@ func _strut(from: Vector3, to: Vector3) -> void:
 	visual.mesh = mesh
 	visual.material_override = _frame_material
 	# A cylinder stands along its own Y; laid along the run.
-	visual.transform = Transform3D(
-		Basis.looking_at(run.normalized(), Vector3.RIGHT) * Basis(Vector3.RIGHT, PI * 0.5),
-		from + run * 0.5
-	)
+	visual.transform = Transform3D(_lying_along(run), from + run * 0.5)
 	add_child(visual)
+
+## The way something lying along `direction` is turned: its own y runs along
+## the slope, its own z straight across the goal mouth, its own x through the
+## thickness.
+##
+## `direction` has to lie in the x-y plane, which everything sloping in a goal
+## does — the goal only slopes backwards, never sideways.
+##
+## This exists because a cylinder and a box do not want the same thing from a
+## basis. A cylinder only cares where its y points, so the struts were laid
+## with Basis.looking_at, which is free to pick the other two axes however it
+## likes. The back of the goal was then built the same way, and a box cares
+## about all three: its 5.2 m of width came out lying in the x-y plane and its
+## thickness came out along z. The back of the goal was a blade standing
+## edge-on down the middle of it, four centimetres wide, and every shot that
+## was not dead centre flew straight through the net and out the other side.
+static func _lying_along(direction: Vector3) -> Basis:
+	var along := direction.normalized()
+	var across := Vector3(0.0, 0.0, 1.0)
+	return Basis(along.cross(across), along, across)
 
 ## The net: strings down the slope of the back and across it, and strings
 ## across and up each triangular side, all in one mesh.
@@ -99,7 +129,7 @@ func _string_the_net(half: float, depth: float, height: float, foot_y: float) ->
 	var thickness := 0.018
 	var slope := Vector3(depth, foot_y - height, 0.0)
 	var slope_length := slope.length()
-	var along := Basis.looking_at(slope.normalized(), Vector3.RIGHT) * Basis(Vector3.RIGHT, PI * 0.5)
+	var along := _lying_along(slope)
 	var top_back := Vector3(0.0, height, 0.0)
 
 	# Down the back, one string per span of width.

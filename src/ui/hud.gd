@@ -25,6 +25,8 @@ signal camera_zoomed(amount: float)
 signal kick_started()
 signal kick_released()
 signal jump_pressed()
+## Going under the water, or coming back up: one button, both ways.
+signal dive_toggled()
 signal build_toggled(enabled: bool)
 signal build_selected(kind: StringName)
 signal build_place()
@@ -113,6 +115,7 @@ var _coins_label: Label
 var _purse: PanelContainer
 var _vitals: VitalsGauge
 var _drink_button: Button
+var _dive_button: Button
 var _whistle_button: Button
 var _chop_button: Button
 var _ride_button: Button
@@ -409,6 +412,13 @@ func _init() -> void:
 	_sleep_button.visible = false
 	_sleep_button.pressed.connect(func() -> void: slept.emit())
 	add_child(_sleep_button)
+
+	# Only while swimming, and beside the jump button, because going down is
+	# the other half of what that thumb already does in the water.
+	_dive_button = _icon_button(ActionIcon.Kind.DIVE)
+	_dive_button.visible = false
+	_dive_button.pressed.connect(func() -> void: dive_toggled.emit())
+	add_child(_dive_button)
 	add_child(_purse)
 
 	_shop = _build_shop()
@@ -1015,6 +1025,21 @@ func set_voice(offered: bool, speaking: bool) -> void:
 func set_sleep_offer(offered: bool) -> void:
 	if _sleep_button.visible != offered:
 		_sleep_button.visible = offered
+		_layout()
+
+## Whether the child is in water deep enough to swim down in, and whether they
+## are already going down.
+##
+## One button rather than two, showing the way they are about to travel: a
+## child who is on the surface sees an arrow going under, and a child who is
+## under sees one coming up. Two buttons would mean one of them is always the
+## wrong one to press, which on a phone is a button pressed by mistake.
+func set_dive_offer(offered: bool, going_down: bool) -> void:
+	var face := _face_of(_dive_button)
+	if face != null:
+		face.show_kind(ActionIcon.Kind.SURFACE if going_down else ActionIcon.Kind.DIVE)
+	if _dive_button.visible != offered:
+		_dive_button.visible = offered
 		_layout()
 
 ## Whether there is a fire here that would take a log.
@@ -1708,7 +1733,10 @@ func _layout() -> void:
 	# ordinary house pieces built side by side. Two buttons on one spot means
 	# one is invisible and unpressable.
 	var context_x := _jump_button.position.x
-	for button: Button in [_visit_button, _ticket_button, _dam_button, _fire_button, _sleep_button]:
+	for button: Button in [
+		_dive_button, _visit_button, _ticket_button, _dam_button,
+		_fire_button, _sleep_button,
+	]:
 		if not button.visible:
 			continue
 		context_x -= button.size.x + 16.0

@@ -27,6 +27,7 @@ enum Kind {
 	VIEW_FIRST, VIEW_THIRD,
 	MIC_ON, MIC_OFF,
 	MAP, TOGETHER, BAG, SETTINGS,
+	DIVE, SURFACE,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -143,6 +144,10 @@ func _draw() -> void:
 			_two_of_you(box)
 		Kind.BAG:
 			_satchel(box)
+		Kind.DIVE:
+			_across_the_water(box, true)
+		Kind.SURFACE:
+			_across_the_water(box, false)
 		Kind.SETTINGS:
 			_gear(box)
 
@@ -171,6 +176,39 @@ func _eye(box: Rect2) -> void:
 	draw_arc(centre + Vector2(0.0, tall * 0.6), wide, PI * 1.15, PI * 1.85, 14, tint, thick)
 	draw_arc(centre - Vector2(0.0, tall * 0.6), wide, PI * 0.15, PI * 0.85, 14, tint, thick)
 	draw_circle(centre, unit * 0.1, tint)
+
+## Going under, and coming back up: a waterline with a ripple in it and an
+## arrow crossing it, pointing down to dive and up to surface.
+##
+## The waterline is what carries the meaning — an arrow on its own is the
+## build palette scrolling — so it is drawn as the wave it is, and the arrow
+## starts on the side of it the child is on now and ends on the side they are
+## going to.
+func _across_the_water(box: Rect2, down: bool) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var thick := maxf(2.0, unit * 0.075)
+
+	# A short run of wave through the middle of the button.
+	var wave := PackedVector2Array()
+	var half := unit * 0.34
+	for step in 17:
+		var t := float(step) / 16.0
+		var x := -half + half * 2.0 * t
+		wave.append(centre + Vector2(x, sin(t * TAU) * unit * 0.055))
+	draw_polyline(wave, tint, thick)
+
+	# The arrow, crossing it. It reaches further on the side being travelled to
+	# than the side being left, so the picture reads before the arrowhead does.
+	var from := centre + Vector2(0.0, unit * (-0.2 if down else 0.24))
+	var to := centre + Vector2(0.0, unit * (0.3 if down else -0.28))
+	draw_line(from, to, tint, thick)
+	var point := unit * (0.11 if down else -0.11)
+	draw_colored_polygon(PackedVector2Array([
+		to,
+		to + Vector2(-unit * 0.1, -point),
+		to + Vector2(unit * 0.1, -point),
+	]), tint)
 
 ## The far view: the same eye, barred.
 ##

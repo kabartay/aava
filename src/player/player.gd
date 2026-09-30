@@ -56,6 +56,21 @@ const MAX_LIFT_DEPTH := 0.9
 ## velocity, so surfacing is a bob and never a launch.
 const MAX_RISE := 3.4
 
+## How fast a child swims down when they have asked to go under, and how
+## quickly they get up to that speed.
+##
+## Slower than they swim along the surface. Going down is the part a child
+## wants to watch — the light changing, the bed coming up out of the green —
+## and a dive that is over before it has begun shows them none of it.
+const DIVE_SPEED := 1.9
+const DIVE_SETTLE := 4.5
+
+## How far the body tips over while diving, against the gentler lean of a
+## swimmer at the surface. Head down and feet up, which is what going under
+## looks like and, more usefully, tells a child which way they are about to go
+## before they have gone.
+const DIVE_LEAN := deg_to_rad(58.0)
+
 ## What a child wears before they have chosen anything.
 const DEFAULT_SHIRT := Color(0.30, 0.47, 0.72)
 
@@ -81,6 +96,16 @@ const CAUGHT_BELOW := 4.0
 ## against — a machine that climbs better than legs would be a strange thing to
 ## put in a valley children are meant to walk about in.
 const CLIMBS_TO := deg_to_rad(52.0)
+
+## The steepest ground this body will stand on rather than slide off, right
+## now. The child's own limit on foot, and the mount's while riding one — set
+## by the game, which is the only thing that knows what is being ridden.
+##
+## It has to be set from the mount's own limit rather than left alone, because
+## the two are the same fact written twice: a machine allowed onto ground the
+## body beneath it treats as a wall can neither climb it nor fall off it. That
+## was a quad stuck on a bank — see HeightField.slope_of.
+var climbs_ground := CLIMBS_TO
 
 signal moved(world_position: Vector3)
 
@@ -129,6 +154,16 @@ var held_spring := HOLD_SPRING
 ## nudge rather than a launch.
 const HOLD_FOLLOW := 14.0
 var is_swimming := false
+
+## Swimming down rather than along the surface. Set from the interface, and
+## cleared by the water itself the moment there is no longer any to be under —
+## a child who swims into the shallows and walks out should not still be trying
+## to dive when they next step into a pond.
+##
+## Deliberately without a breath meter, for the same reason there is no
+## drowning: see the note on SWIM_DEPTH. Going under is a place to visit, not a
+## clock to beat.
+var diving := false
 
 ## Multiplies the next jump. 1.0 everywhere but on the trampoline, where the
 ## game sets it higher while the child stands on the mat.
@@ -365,6 +400,12 @@ func _physics_process(delta: float) -> void:
 	# Sitting on something that floats: neither swimming nor falling, held at
 	# the height of the saddle. Without this the horse swam and the child
 	# swam separately, a metre apart, with open water between them.
+	# What the body will stand on. Written every tick rather than when a child
+	# gets on or off, because the saddle can be bought while sitting on the
+	# horse and the limit moves when it is.
+	if not is_equal_approx(floor_max_angle, climbs_ground):
+		floor_max_angle = climbs_ground
+
 	var held := held_at_height > NOT_HELD * 0.5
 	var afloat := water_depth > (SWIM_DEPTH if not is_swimming else SWIM_DEPTH - SWIM_HYSTERESIS)
 	if held:
@@ -376,14 +417,27 @@ func _physics_process(delta: float) -> void:
 		afloat = false
 	if is_swimming != afloat:
 		is_swimming = afloat
+	if not afloat:
+		diving = false
 
-	var grounded := (is_on_floor() and not afloat) or boating or held
+	# Whether the seat is actually holding the rider this frame. A rider who has
+	# just pushed off is rising under their own power and the seat has let go
+	# of them — which is exactly why this is not the same thing as `held`, and
+	# why the distinction has to reach `grounded` as well as the branch below.
+	#
+	# It did not, and so a jump from the saddle had no gravity acting on it for
+	# as long as the hold lasted: the rider went up at a flat 8.2 m/s until
+	# they cleared the mount, and a jump that should have reached 1.4 m reached
+	# 2.6. From the saddle of a horse, with the body drawn another two metres
+	# above that, the child was launched into the sky.
+	var carried := held and velocity.y <= JUMP_VELOCITY * 0.25
+	var grounded := (is_on_floor() and not afloat) or boating or carried
 	_coyote = COYOTE_TIME if grounded else maxf(0.0, _coyote - delta)
 	_buffered_jump = maxf(0.0, _buffered_jump - delta)
 	if Input.is_action_just_pressed(InputActions.JUMP):
 		_buffered_jump = JUMP_BUFFER
 
-	if held and velocity.y <= JUMP_VELOCITY * 0.25:
+	if carried:
 		# Carried to the saddle rather than sprung to it.
 		#
 		# A spring is a spring: hand it a step in the ground — the edge of a
@@ -404,6 +458,24 @@ func _physics_process(delta: float) -> void:
 		# climbing in and a wave of the pond's surface would read as a wave.
 		var seat := HeightField.WATER_LEVEL + MountKinds.BOAT_SEAT
 		velocity.y = (seat - global_position.y) * 8.0
+	elif afloat and diving:
+		# Swimming down. Buoyancy is not fought with a bigger number — it is
+		# simply not applied, because a tug-of-war between two forces is what
+		# makes a body hover and shudder at the point they balance, and that
+		# point moves with depth.
+		#
+		# The bed stops the descent, not a depth limit: the collider is still
+		# the collider, so a child swims down until there is no more down, and
+		# the deepest place in the valley is the deepest place they can go.
+		velocity.y = lerpf(velocity.y, -DIVE_SPEED, 1.0 - exp(-DIVE_SETTLE * delta))
+		# A stroke upwards is how you come back, and it is the same button that
+		# means "up" everywhere else in the game. Reaching for the dive button
+		# again works too, but a child who is under and wants out should not
+		# have to find a particular one.
+		if _buffered_jump > 0.0:
+			diving = false
+			velocity.y = maxf(velocity.y, JUMP_VELOCITY * 0.42)
+			_buffered_jump = 0.0
 	elif afloat:
 		# Pushed towards the surface rather than pulled to the bed, and damped
 		# so the child settles at the waterline instead of bobbing forever.
@@ -707,8 +779,14 @@ const SWIM_SETTLE := 4.0
 
 func _settle_in_water(delta: float) -> void:
 	var wanted := SWIM_SINK if is_swimming else 0.0
+	# Nothing extra is dropped while diving. How deep a diver is drawn is how
+	# deep they actually are, and adding half a metre of drawn sink on top of
+	# that would put the body through the bed at the bottom of a dive.
 	_swim_sink = lerpf(_swim_sink, wanted, 1.0 - exp(-SWIM_SETTLE * delta))
-	_swim_lean = lerpf(_swim_lean, SWIM_LEAN if is_swimming else 0.0, 1.0 - exp(-SWIM_SETTLE * delta))
+	var lean := 0.0
+	if is_swimming:
+		lean = DIVE_LEAN if diving else SWIM_LEAN
+	_swim_lean = lerpf(_swim_lean, lean, 1.0 - exp(-SWIM_SETTLE * delta))
 	# Both leans, not just this one. This runs in _physics_process and the ride
 	# lean is applied in _process, so writing the swim lean alone here threw the
 	# rider upright again on every physics tick — on a 120 Hz screen that is

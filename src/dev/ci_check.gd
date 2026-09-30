@@ -38,6 +38,7 @@ func _initialize() -> void:
 	_check_save_round_trip()
 	_check_nothing_is_missing()
 	_check_the_pitch_is_playable()
+	_check_a_shot_stays_in_the_goal()
 	_check_goals_are_judged()
 	_check_kick_can_be_aimed()
 	_check_rocks_are_jumpable()
@@ -169,6 +170,16 @@ func _initialize() -> void:
 	_check_a_rider_can_see_out()
 	_check_nobody_rides_the_coaster_unstrapped()
 	_check_the_rides_are_paid_for()
+
+	# Last, and deliberately: these two run a body through real physics frames,
+	# and the scene tree's own root is not yet in the tree while the first of
+	# the checks above are running. A node added to it before then has no
+	# global transform to ask for, which is a page of engine errors on a run
+	# that passes — and a green build that prints errors teaches everyone to
+	# read past them.
+	await _check_a_jump_from_the_saddle_is_a_jump()
+	await _check_a_child_can_swim_down()
+	await _check_a_machine_slides_off_ground_it_cannot_climb()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -4008,6 +4019,376 @@ func _check_the_pitch_is_playable() -> void:
 		_fail("the pitch is on the far bank, so a child needs a bridge to reach it")
 	else:
 		_ok("%.0f m walk from the spawn, same side of the river" % walk)
+
+## The net has to be a net, not a curtain rail.
+##
+## Every shot that goes in between the posts and under the bar has to meet
+## something before it leaves the far side. The back of the goal was built by
+## copying the transform that lays a strut along its slope — right for a
+## cylinder, which only cares where its own y points, and wrong for a box,
+## which cares about all three axes. The 5.2 m width came out lying in the x-y
+## plane and the four centimetres of thickness came out across the mouth: the
+## back of the goal was a blade standing edge-on down the middle of it, and
+## every shot that was not dead centre flew straight through the net.
+##
+## Tested as geometry rather than by kicking a ball at it, because the answer
+## has to be the same for every shot rather than for the one a physics step
+## happened to take.
+func _check_a_shot_stays_in_the_goal() -> void:
+	print("a shot stays in the goal")
+	for index in 2:
+		var mouth := Pitch.goal_centre(index)
+		mouth.y = 0.0
+		var goal := Goal.new(index, mouth)
+		var parts := _solid_parts_of(goal)
+		_expect(parts.size() >= 7, "goal %d is built from %d solid parts" % [index, parts.size()])
+
+		# Out of the pitch and into the goal is +x at one end and -x at the
+		# other, the same way Pitch.is_goal reads it.
+		var outward := -1.0 if index == 0 else 1.0
+		var half := Pitch.GOAL_WIDTH * 0.5
+		var through := 0
+		var shots := 0
+		var z := -half + Ball.RADIUS
+		while z <= half - Ball.RADIUS + 0.001:
+			var y := Ball.RADIUS
+			while y <= Pitch.GOAL_HEIGHT - Ball.RADIUS + 0.001:
+				shots += 1
+				var from := mouth + Vector3(outward * 0.02, y, z)
+				# Twenty metres past the goal: anything that gets that far has
+				# gone through it.
+				if not _anything_in_the_way(parts, from, from + Vector3(outward * 20.0, 0.0, 0.0)):
+					through += 1
+				y += 0.2
+			z += 0.2
+		_expect(
+			through == 0,
+			"goal %d: all %d shots into the mouth are stopped inside it" % [index, shots]
+		)
+
+		# And across the goal, not only straight at the back: a shot from the
+		# near post towards the far corner has to meet the far side.
+		var wide_misses := 0
+		for corner: float in [-1.0, 1.0]:
+			var from := mouth + Vector3(outward * 0.02, 0.4, -corner * (half - Ball.RADIUS))
+			var to := mouth + Vector3(
+				outward * (Pitch.GOAL_DEPTH + 6.0), 0.4, corner * (half + 6.0)
+			)
+			if not _anything_in_the_way(parts, from, to):
+				wide_misses += 1
+		_expect(wide_misses == 0, "goal %d: and a shot across the goal meets the side of it" % index)
+
+		# The mouth itself is open, or nothing could be scored at all.
+		var in_front := mouth + Vector3(-outward * 4.0, 0.9, 0.0)
+		_expect(
+			not _anything_in_the_way(parts, in_front, mouth + Vector3(0.0, 0.9, 0.0)),
+			"goal %d: and the mouth is open to be shot at" % index
+		)
+		goal.free()
+
+## Every box of collision hung on a node, in that node's own frame.
+##
+## Built from `transform` rather than `global_transform`: a check makes a goal
+## without putting it in a scene, and a node outside the tree has no global
+## transform to ask for.
+func _solid_parts_of(node: Node3D) -> Array[Dictionary]:
+	var parts: Array[Dictionary] = []
+	for child in node.get_children():
+		var body := child as StaticBody3D
+		if body == null:
+			continue
+		for piece in body.get_children():
+			var collider := piece as CollisionShape3D
+			if collider == null:
+				continue
+			var box := collider.shape as BoxShape3D
+			if box == null:
+				continue
+			parts.append({
+				"where": node.transform * body.transform * collider.transform,
+				"size": box.size,
+			})
+	return parts
+
+## Does the line from `from` to `to` meet any of them?
+static func _anything_in_the_way(parts: Array[Dictionary], from: Vector3, to: Vector3) -> bool:
+	for part in parts:
+		var place: Transform3D = part["where"]
+		var size: Vector3 = part["size"]
+		var into_the_box := place.affine_inverse()
+		var room := AABB(-size * 0.5, size)
+		if room.intersects_segment(into_the_box * from, into_the_box * to):
+			return true
+	return false
+
+## A machine on ground it cannot climb slides back down it.
+##
+## Every mount declares the steepest ground it will take, in the height field's
+## own units. A CharacterBody3D declares the steepest it will stand on, as an
+## angle. The two were separate numbers, written by hand, and nobody had put
+## them side by side: a quad was allowed onto 55 degrees while the body under
+## it treated anything past 52 as a wall. In that band a quad could not climb
+## the slope and could not fall off it either — the seat held it to the
+## hillside — so it simply stopped. "Застрял", which is exactly what it was.
+##
+## The same ramp is put to the same body twice, once told what a quad climbs
+## and once what a child on foot does. One holds and one slides; that they
+## differ is the whole point, and that the body is told which applies is what
+## was missing.
+func _check_a_machine_slides_off_ground_it_cannot_climb() -> void:
+	print("a machine slides off ground it cannot climb")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var takes := HeightField.slope_of(mounts.steepest_ground(MountKinds.QUAD))
+	mounts.queue_free()
+	_expect(
+		takes > Player.CLIMBS_TO,
+		"a quad takes ground steeper than a child on foot — %.0f° against %.0f°" % [
+			rad_to_deg(takes), rad_to_deg(Player.CLIMBS_TO)
+		]
+	)
+
+	var inside := takes - deg_to_rad(2.0)
+	var beyond := takes + deg_to_rad(5.0)
+	_expect(
+		await _stays_put_on(inside, takes),
+		"and stands on a bank just inside its own limit"
+	)
+	_expect(
+		not await _stays_put_on(beyond, takes),
+		"slides back down one just past it, rather than sticking to it"
+	)
+	_expect(
+		not await _stays_put_on(inside, Player.CLIMBS_TO),
+		"the same bank a child's own feet would slide off — the two limits differ, and the body has to be told which one is in force"
+	)
+
+	# And somebody has to tell it. This is the half that was missing: the
+	# numbers were both there and nothing carried one to the other.
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		loop.contains("player.climbs_ground") and loop.contains("steepest_ground"),
+		"which the game does, from the mount's own limit"
+	)
+
+## Does a body left standing on a bank of `ramp` radians stay where it was put?
+##
+## `climbs` is the steepest ground it has been told it will stand on — what the
+## game sets from whatever is being ridden.
+##
+## "Stayed put" is measured in three dimensions and not two: a body that slides
+## off the bank and then falls past the end of it is going straight down by the
+## time it is looked at, and across the ground it has not moved at all.
+func _stays_put_on(ramp: float, climbs: float) -> bool:
+	# Each bank gets its own patch of nowhere. They are freed afterwards, but
+	# freeing is deferred and two slabs in one place is a body landing on
+	# somebody else's hillside.
+	_banks += 1
+	var away := Vector3(900.0 + 400.0 * float(_banks), -20.0, 0.0)
+
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(400.0, 6.0, 400.0)
+	var shape := CollisionShape3D.new()
+	shape.shape = slab
+	var bank := StaticBody3D.new()
+	bank.add_child(shape)
+	bank.position = away
+	bank.rotation.z = ramp
+	get_root().add_child(bank)
+
+	var rider := Player.new()
+	rider.climbs_ground = climbs
+	get_root().add_child(rider)
+	# Directly over the middle of the slab, a stride above its surface.
+	rider.global_position = away + Vector3(0.0, 3.0 / cos(ramp) + 1.0, 0.0)
+	# Long enough to land and settle.
+	for frame in 90:
+		rider.climbs_ground = climbs
+		await physics_frame
+	var settled := rider.global_position
+	for frame in 30:
+		rider.climbs_ground = climbs
+		await physics_frame
+	var travelled := rider.global_position.distance_to(settled)
+	var resting := rider.is_on_floor()
+	rider.queue_free()
+	bank.queue_free()
+	return travelled < 0.1 and resting
+
+## How many test banks have been raised, so no two share a place.
+var _banks := 0
+
+## A jump out of the saddle is a jump, not a launch.
+##
+## The seat holds a rider to the ground the mount is crossing, and lets go of
+## them while they are rising under their own power — that much was right. What
+## was wrong is that letting go of the *height* was not letting go of the
+## *gravity*: the rider still counted as standing on something, so nothing
+## pulled them back down, and they climbed at a flat 8.2 m/s for as long as the
+## hold lasted. On a horse, with the body drawn two metres above that again,
+## the child went into the sky.
+##
+## Measured against the same child jumping on foot in the same place rather
+## than against a number written here. A jump is a jump; being on a horse does
+## not add to it, and if one day it should, the two are meant to be changed
+## together.
+func _check_a_jump_from_the_saddle_is_a_jump() -> void:
+	print("a jump from the saddle is a jump")
+	var ground := 0.0
+	var floor_body := StaticBody3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(200.0, 4.0, 200.0)
+	var floor_shape := CollisionShape3D.new()
+	floor_shape.shape = slab
+	floor_shape.position = Vector3(0.0, ground - 2.0, 0.0)
+	floor_body.add_child(floor_shape)
+	get_root().add_child(floor_body)
+
+	var on_foot := await _how_high_they_jump(false, ground)
+	var in_the_saddle := await _how_high_they_jump(true, ground)
+	floor_body.queue_free()
+
+	_expect(on_foot > 0.7, "a child on foot jumps %.2f m" % on_foot)
+	_expect(
+		in_the_saddle > 0.3,
+		"and a rider can still hop out of the saddle (%.2f m)" % in_the_saddle
+	)
+	_expect(
+		in_the_saddle <= on_foot + 0.1,
+		"no higher than they jump on their own feet — %.2f m against %.2f" % [
+			in_the_saddle, on_foot
+		]
+	)
+
+## How high one jump goes, on foot or out of the saddle of something.
+##
+## The seat is driven the way the game drives it — held to the ground under the
+## mount while the rider is near it, released once they are well clear — so the
+## check is asking the question the game asks rather than one of its own.
+func _how_high_they_jump(mounted: bool, ground: float) -> float:
+	var jumper := Player.new()
+	get_root().add_child(jumper)
+	jumper.global_position = Vector3(0.0, ground + 0.05, 0.0)
+	if mounted:
+		jumper.riding = MountKinds.HORSE
+	# Let it settle onto the ground before asking anything of it.
+	for frame in 20:
+		if mounted:
+			jumper.held_at_height = ground
+		await physics_frame
+
+	var started := jumper.global_position.y
+	var peak := 0.0
+	jumper.request_jump()
+	for frame in 150:
+		if mounted:
+			jumper.held_at_height = (
+				ground if jumper.global_position.y - ground < 1.2 else Player.NOT_HELD
+			)
+		await physics_frame
+		peak = maxf(peak, jumper.global_position.y - started)
+	jumper.queue_free()
+	return peak
+
+## Going under the water, and coming back up.
+func _check_a_child_can_swim_down() -> void:
+	print("a child can swim down")
+	var swimmer := Player.new()
+	get_root().add_child(swimmer)
+	swimmer.global_position = Vector3(400.0, 0.0, 400.0)
+	swimmer.water_depth = 3.0
+	await physics_frame
+	_expect(swimmer.is_swimming, "deep water is swum in")
+	_expect(not swimmer.diving, "and a swimmer floats until they ask to go under")
+
+	# Floating: the water holds them up.
+	for frame in 30:
+		swimmer.water_depth = 3.0
+		await physics_frame
+	_expect(
+		swimmer.velocity.y > 0.0,
+		"the water pushes a floating child towards the surface (%.2f m/s)" % swimmer.velocity.y
+	)
+
+	# Asked to go under, they go down — and buoyancy does not fight them for it.
+	swimmer.diving = true
+	for frame in 60:
+		swimmer.water_depth = 3.0
+		await physics_frame
+	_expect(
+		swimmer.velocity.y < -Player.DIVE_SPEED * 0.9,
+		"and swims down at %.2f m/s when asked to" % -swimmer.velocity.y
+	)
+	_expect(
+		swimmer.swim_lean() > Player.SWIM_LEAN,
+		"tipped further over than a swimmer at the surface, so which way they are going shows"
+	)
+
+	# A stroke upwards is always a way out, whichever button a child reaches for.
+	swimmer.request_jump()
+	swimmer.water_depth = 3.0
+	await physics_frame
+	_expect(not swimmer.diving, "a stroke upwards ends the dive")
+	_expect(swimmer.velocity.y > 0.0, "and starts them back towards the surface")
+
+	# And the water forgets it for them when there is none left to be under.
+	swimmer.diving = true
+	swimmer.water_depth = 0.0
+	await physics_frame
+	_expect(
+		not swimmer.diving,
+		"a child who swims into the shallows is not still diving when they walk out"
+	)
+	swimmer.queue_free()
+
+	# What it looks like down there: the valley goes, and a few metres of green
+	# water is all that is left of it.
+	var step := 1.0 / 60.0
+	var sky := Atmosphere.new()
+	get_root().add_child(sky)
+	sky.go_under(0.0, step)
+	_expect(sky.under_water() <= 0.0, "in the air, nothing stands between the eye and the valley")
+	for frame in 90:
+		sky.go_under(2.0, step)
+	_expect(sky.under_water() > 0.95, "under the surface, the water does")
+	for frame in 90:
+		sky.go_under(0.0, step)
+	_expect(sky.under_water() < 0.05, "and it clears again on the way out")
+	_expect(
+		Atmosphere.UNDER_SEES_DEEP < Atmosphere.UNDER_SEES_SHALLOW,
+		"it grows darker the deeper down you go"
+	)
+	_expect(
+		Atmosphere.UNDER_SEES_SHALLOW < Atmosphere.FOG_BEGIN,
+		"and you see less far under the water than the air even begins to hide"
+	)
+	sky.queue_free()
+
+	# The surface itself has to be drawn from underneath, or a child looking up
+	# from the bottom of the river sees open sky.
+	_expect(
+		Water.SHADER.contains("cull_disabled"),
+		"the water sheet offers both of its faces rather than only the top one"
+	)
+	_expect(
+		Water.SHADER.contains("FRONT_FACING") and Water.SHADER.contains("discard"),
+		"and throws away the one the camera is not on, so it never blends with itself"
+	)
+	var sheet := Water.new()
+	var material := sheet.material_override as ShaderMaterial
+	_expect(material != null, "the sheet is drawn by that shader")
+	sheet.set_seen_from_below(true)
+	_expect(
+		float(material.get_shader_parameter("from_below")) > 0.5,
+		"and is told which side it is being looked at from"
+	)
+	sheet.set_seen_from_below(false)
+	_expect(
+		float(material.get_shader_parameter("from_below")) < 0.5,
+		"both ways round"
+	)
+	sheet.free()
 
 ## The one rule the whole game of football rests on.
 func _check_goals_are_judged() -> void:

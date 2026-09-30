@@ -15,7 +15,7 @@ extends RefCounted
 
 ## Every handler the interface can call. A missing one is reported by name.
 const HANDLERS := [
-	&"place", &"kick_start", &"kick_release", &"jump", &"remove",
+	&"place", &"kick_start", &"kick_release", &"jump", &"dive", &"remove",
 	&"language", &"reset", &"care", &"shop", &"buy", &"drink", &"whistle", &"chop", &"ride", &"shoot_start", &"shoot_release", &"visit", &"dam",
 	&"ticket", &"snack", &"lantern",
 ]
@@ -45,6 +45,7 @@ static func connect_hud(
 	hud.kick_started.connect(handlers.get(&"kick_start", Callable()))
 	hud.kick_released.connect(handlers.get(&"kick_release", Callable()))
 	hud.jump_pressed.connect(handlers.get(&"jump", Callable()))
+	hud.dive_toggled.connect(handlers.get(&"dive", Callable()))
 	hud.language_chosen.connect(handlers.get(&"language", Callable()))
 	hud.reset_requested.connect(handlers.get(&"reset", Callable()))
 	hud.care_pressed.connect(handlers.get(&"care", Callable()))

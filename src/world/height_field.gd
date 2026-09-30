@@ -746,10 +746,32 @@ func normal_at(x: float, z: float, epsilon := 0.75) -> Vector3:
 	var dz := height_at(x, z + epsilon) - height_at(x, z - epsilon)
 	return Vector3(-dx, 2.0 * epsilon, -dz).normalized()
 
+## What counts as a cliff: the drop in the upward part of the normal at which
+## steepness reads 1. Sixty-two degrees, near enough.
+##
+## Named because the number is also needed backwards — a slope limit written in
+## these units has to be turned back into an angle before a character body can
+## be told about it, and a magic 0.55 in two places is two places to get it
+## wrong in.
+const SHEER := 0.55
+
 ## 0 on flat ground, 1 on a cliff. Used to decide rock vs grass and to keep
 ## trees off slopes they would visibly lean out of.
 func steepness_at(x: float, z: float) -> float:
-	return clampf(1.0 - normal_at(x, z).y, 0.0, 1.0) / 0.55
+	return clampf(1.0 - normal_at(x, z).y, 0.0, 1.0) / SHEER
+
+## The angle a piece of ground of this steepness stands at.
+##
+## The inverse of steepness_at, and the reason it exists is a quad that stuck
+## fast on a bank. Every mount declares the steepest ground it will take in
+## steepness; a CharacterBody3D declares the steepest it will stand on as an
+## angle. The two were written by hand, separately, and did not agree — a quad
+## was allowed onto 55 degrees while the body under it treated anything past 52
+## as a wall, so the machine could neither climb the slope nor fall off it and
+## simply stopped, held to the hillside by the very thing meant to keep a rider
+## in the saddle.
+static func slope_of(steepness: float) -> float:
+	return acos(clampf(1.0 - SHEER * steepness, 0.0, 1.0))
 
 ## How thick the forest wants to be at this point, from 0 to 1.
 ##

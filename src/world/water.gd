@@ -40,7 +40,15 @@ shader_type spatial;
 // following them about. Water in life takes almost no visible shadow from
 // something floating in it; what it does is reflect and refract, which this
 // shader does either way.
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_schlick_ggx, shadows_disabled;
+// cull_disabled, with the unwanted face thrown away in fragment() instead.
+//
+// The sheet used to be cull_back, which is right until a child swims under it:
+// from below there was no water at all, only open sky over their head, and the
+// whole point of being under is that you can see you are under. Culling off
+// alone is not the answer either — a transparent plane rasterised front *and*
+// back blends with itself, and the river went dark from above. So both faces
+// are offered and exactly one is kept, chosen by where the camera is.
+render_mode blend_mix, depth_draw_opaque, cull_disabled, diffuse_lambert, specular_schlick_ggx, shadows_disabled;
 
 uniform vec3 shallow_color : source_color = vec3(0.42, 0.74, 0.70);
 uniform vec3 deep_color : source_color = vec3(0.06, 0.26, 0.40);
@@ -48,6 +56,13 @@ uniform float wave_height = 0.10;
 uniform float wave_speed = 0.5;
 uniform float bank_fade = 26.0;
 uniform float river_half_width = 16.0;
+
+// 1.0 when the camera is under the surface. Which face of the sheet is drawn,
+// and which of the two looks it takes.
+uniform float from_below = 0.0;
+// The underside: what the sky looks like through a few centimetres of moving
+// water, which is bright, and nothing like the bed.
+uniform vec3 ceiling_color : source_color = vec3(0.55, 0.80, 0.82);
 
 // The still ponds, handed in from Lakes so this file does not carry a second
 // copy of where they are. Each is centre x, centre z, long half-axis, short
@@ -131,18 +146,40 @@ void vertex() {
 }
 
 void fragment() {
+	bool below = from_below > 0.5;
+	// One face, never two. See the note on the render mode.
+	if (FRONT_FACING == below) {
+		discard;
+	}
+
 	// Fresnel: water seen edge-on is a mirror, water seen from above is a window.
 	// This single term is most of what makes a flat plane look wet.
-	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
+	//
+	// The dot is taken absolute rather than clamped, so that it still means
+	// "how square-on am I looking at this" from underneath, where the surface
+	// faces away from the eye.
+	float fresnel = pow(1.0 - clamp(abs(dot(NORMAL, VIEW)), 0.0, 1.0), 3.0);
+	float shore = smoothstep(0.06, 0.30, bank_blend);
 
-	ALBEDO = mix(shallow_color, deep_color, clamp(bank_blend, 0.0, 1.0));
-	// A definite edge rather than a long fade into nothing: water that fades
-	// out over twenty metres of bank leaves a sandy-blue smear where a child
-	// cannot tell which is water and which is beach.
-	ALPHA = mix(0.62, 0.92, fresnel) * smoothstep(0.06, 0.30, bank_blend);
-
-	ROUGHNESS = 0.08;
-	SPECULAR = 0.75;
+	if (below) {
+		// Looking up at it. Brighter the more square-on you look, because what
+		// is overhead is the sky coming through; towards the edges of view the
+		// surface turns into a mirror of the dark water you are in.
+		ALBEDO = mix(ceiling_color, deep_color, fresnel);
+		// Nearly solid, and it has to be: a translucent ceiling shows the sky
+		// and the far bank through it, and the illusion of being under goes.
+		ALPHA = mix(0.94, 0.99, fresnel) * shore;
+		ROUGHNESS = 0.22;
+		SPECULAR = 0.3;
+	} else {
+		ALBEDO = mix(shallow_color, deep_color, clamp(bank_blend, 0.0, 1.0));
+		// A definite edge rather than a long fade into nothing: water that
+		// fades out over twenty metres of bank leaves a sandy-blue smear where
+		// a child cannot tell which is water and which is beach.
+		ALPHA = mix(0.62, 0.92, fresnel) * shore;
+		ROUGHNESS = 0.08;
+		SPECULAR = 0.75;
+	}
 }
 """
 
@@ -259,6 +296,17 @@ func tarn_world_position(index: int) -> Vector3:
 ## The colour a still pond takes: the pool's blue, which is what water away
 ## from the river already looks like here.
 const TARN_COLOUR := Color(0.36, 0.62, 0.78, 0.78)
+
+## Draw the sheet as seen from underneath, or from above.
+##
+## Asked of the camera, not of the swimmer: in the distant view a child's head
+## can be under while the camera behind their shoulder is still in the air, and
+## what the shader has to match is what is doing the looking.
+func set_seen_from_below(below: bool) -> void:
+	var material := material_override as ShaderMaterial
+	if material == null:
+		return
+	material.set_shader_parameter("from_below", 1.0 if below else 0.0)
 
 ## The sheet is finite, so it has to travel with the player — snapped, so the
 ## waves do not appear to be dragged along.

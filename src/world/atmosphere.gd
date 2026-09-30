@@ -23,6 +23,46 @@ var _sun: DirectionalLight3D
 var _environment: Environment
 var _sky_material: ProceduralSkyMaterial
 
+## The air, as the sky sets it. Named rather than written twice, because
+## underwater borrows these numbers and lerps away from them, and a constant
+## that lives only at its call site cannot be lerped away from.
+const FOG_BEGIN := 220.0
+const FOG_END := 2600.0
+const FOG_CURVE := 1.35
+const FOG_SKY_AFFECT := 0.18
+const SATURATION := 1.12
+
+## Under the surface.
+##
+## Water is not air with a tint on it: it is a different medium, and what says
+## so is how little of it you can see through. The whole valley has to go, and
+## what is left is a green room a few metres across with a bright ceiling —
+## which is exactly what being underwater in a river looks like, and is also
+## the cheapest possible thing to draw.
+const UNDER_FOG := Color(0.09, 0.30, 0.34)
+const UNDER_FOG_BEGIN := 0.4
+## How far you can see just under the surface, and at the bottom of the
+## deepest place in the valley. Water carries less light the further down you
+## are, and a dive that looks the same at four metres as at half a one is a
+## dive with nothing to find at the bottom of it.
+const UNDER_SEES_SHALLOW := 34.0
+const UNDER_SEES_DEEP := 11.0
+## Over how many metres of depth the light goes, and over how many the tint
+## arrives at all. The second is short: the change belongs at the surface, at
+## the moment the head goes under, or a child cannot tell whether they are in
+## or out.
+const UNDER_GOES_DARK_OVER := 7.0
+const UNDER_ARRIVES_OVER := 0.5
+## How quickly the eye adjusts crossing the surface. Fast, but not a cut.
+const UNDER_SETTLE := 7.0
+
+## How far under the surface the camera is, eased, and how deep it has gone.
+var _under := 0.0
+var _deep := 0.0
+## What the sky last asked for, before the water had its say.
+var _fog_in_air := Color(0.80, 0.87, 0.93)
+var _ambient_in_air := 0.55
+
 ## Colour of the sunlight across a day, sampled by sun height.
 var _sun_colors := [
 	Color(0.99, 0.62, 0.36),  # horizon: low, warm, raking
@@ -66,13 +106,13 @@ func _init() -> void:
 	# fog that ended at 1,600 m turned the mountains behind it into a flat
 	# wall of sky colour, which is what "you can see a band of water and then
 	# nothing" looked like from a hilltop.
-	_environment.fog_depth_begin = 220.0
-	_environment.fog_depth_end = 2600.0
-	_environment.fog_depth_curve = 1.35
+	_environment.fog_depth_begin = FOG_BEGIN
+	_environment.fog_depth_end = FOG_END
+	_environment.fog_depth_curve = FOG_CURVE
 	_environment.fog_density = 1.0
 	# A little fog on the sky as well, or the fogged terrain meets an unfogged
 	# horizon and the join reads as a hard band across the view.
-	_environment.fog_sky_affect = 0.18
+	_environment.fog_sky_affect = FOG_SKY_AFFECT
 
 	# AGX holds highlights together in a bright outdoor scene, where ACES at this
 	# exposure clipped a sunlit meadow to flat white.
@@ -86,7 +126,7 @@ func _init() -> void:
 	_environment.glow_hdr_threshold = 1.3
 
 	_environment.adjustment_enabled = true
-	_environment.adjustment_saturation = 1.12
+	_environment.adjustment_saturation = SATURATION
 	_environment.adjustment_contrast = 1.04
 
 	# The sun is turned by hand in _process, like everything else this project
@@ -163,7 +203,7 @@ func _apply_time() -> void:
 	_sky_material.sky_horizon_color = sky_horizon.lerp(Color(0.115, 0.145, 0.235), night)
 	_sky_material.sun_angle_max = lerpf(12.0, 30.0, dusk)
 
-	_environment.fog_light_color = _sky_material.sky_horizon_color.lerp(
+	_fog_in_air = _sky_material.sky_horizon_color.lerp(
 		Color(0.86, 0.91, 0.96).lerp(Color(0.10, 0.13, 0.22), night), 0.35
 	)
 	# Night was 0.045, judged on a laptop in a lit room. On the tablet it is
@@ -171,9 +211,12 @@ func _apply_time() -> void:
 	# smudges, and the valley they are meant to be exploring is gone. Raised
 	# until the shape of the land reads without the lantern, which is the point
 	# — the lantern shows you what is in the grass, not where the hills are.
-	_environment.ambient_light_energy = lerpf(0.55, 0.20, night) if night > 0.0 else lerpf(
+	_ambient_in_air = lerpf(0.55, 0.20, night) if night > 0.0 else lerpf(
 		0.12, 0.55, smoothstep(-0.15, 0.25, height)
 	)
+	# The sky has had its say; the water gets the last word, because what is
+	# between the eye and everything else wins over what is lighting it.
+	_apply_water()
 
 	# The moon stands in for the sun once it is down, so shadows do not vanish
 	# entirely and the ground keeps its shape.
@@ -185,6 +228,48 @@ func _apply_time() -> void:
 			deg_to_rad(-38.0) + sun_angle * 0.35,
 			0.0
 		)
+
+## The camera is `depth` metres under the surface — zero when it is in the air.
+## Called every frame by the game, and eased here rather than at the call site
+## because what is being smoothed is the eye adjusting, which is this node's
+## business and nobody else's.
+func go_under(depth: float, delta: float) -> void:
+	var wanted := clampf(depth / UNDER_ARRIVES_OVER, 0.0, 1.0)
+	var wanted_deep := clampf(depth / UNDER_GOES_DARK_OVER, 0.0, 1.0)
+	var settled := absf(_under - wanted) < 0.001 and absf(_deep - wanted_deep) < 0.001
+	if settled and _under <= 0.0:
+		# Out of the water and already drawn that way: nothing to write, and
+		# this runs every frame of every game that never goes near the river.
+		return
+	var weight := 1.0 - exp(-UNDER_SETTLE * delta)
+	_under = lerpf(_under, wanted, weight)
+	_deep = lerpf(_deep, wanted_deep, weight)
+	if _under < 0.001 and wanted <= 0.0:
+		_under = 0.0
+		_deep = 0.0
+	_apply_water()
+
+## How far under the surface the view is being drawn, from 0 to 1. Read by the
+## water sheet, which has to know which of its two faces to draw.
+func under_water() -> float:
+	return _under
+
+## The air as the sky left it, bent towards the water by however much of the
+## water is in the way.
+func _apply_water() -> void:
+	_environment.fog_light_color = _fog_in_air.lerp(UNDER_FOG, _under)
+	_environment.fog_depth_begin = lerpf(FOG_BEGIN, UNDER_FOG_BEGIN, _under)
+	_environment.fog_depth_end = lerpf(
+		FOG_END, lerpf(UNDER_SEES_SHALLOW, UNDER_SEES_DEEP, _deep), _under
+	)
+	_environment.fog_depth_curve = lerpf(FOG_CURVE, 1.0, _under)
+	# All the way, underwater: the sky is not a thing you can see from down
+	# here, and leaving it unfogged puts a window of open blue overhead.
+	_environment.fog_sky_affect = lerpf(FOG_SKY_AFFECT, 1.0, _under)
+	_environment.ambient_light_energy = _ambient_in_air * lerpf(
+		1.0, lerpf(0.8, 0.4, _deep), _under
+	)
+	_environment.adjustment_saturation = lerpf(SATURATION, 0.88, _under)
 
 ## How far into the evening it is, from 0 in daylight to 1 once the sun is
 ## well down. Earlier than `darkness`: street lamps come on at sunset, while

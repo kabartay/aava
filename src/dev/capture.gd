@@ -193,6 +193,7 @@ func _spawn_player() -> void:
 			&"kick_start": func() -> void: _player.start_charging(),
 			&"kick_release": func() -> void: _kick_nearest(),
 			&"jump": func() -> void: _player.request_jump(),
+			&"dive": func() -> void: _player.diving = not _player.diving,
 			&"remove": func() -> void:
 				var record := _structures.nearest(_player.global_position, 4.0)
 				if not record.is_empty():
