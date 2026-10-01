@@ -4840,6 +4840,49 @@ func _check_a_child_can_say_who_they_are() -> void:
 		"all %d shirts have a name a child can say" % Visitors.SHIRTS.size()
 	)
 
+	# And no two of them are the same shirt at arm's length.
+	#
+	# The whole job of a shirt is "that one is Amir", which a colour only does
+	# if it is not nearly another colour. The palette already tolerates yellow
+	# beside orange, so the line is drawn just inside that: anything closer
+	# than the closest pair already in it is a new colour nobody can pick out
+	# across a field.
+	var nearest := 9.0
+	var confusable := ""
+	for i in Visitors.SHIRTS.size():
+		for j in range(i + 1, Visitors.SHIRTS.size()):
+			var apart := Vector3(
+				Visitors.SHIRTS[i].r - Visitors.SHIRTS[j].r,
+				Visitors.SHIRTS[i].g - Visitors.SHIRTS[j].g,
+				Visitors.SHIRTS[i].b - Visitors.SHIRTS[j].b
+			).length()
+			if apart < nearest:
+				nearest = apart
+				confusable = "%s and %s" % [
+					Visitors.SHIRT_NAMES[i], Visitors.SHIRT_NAMES[j]
+				]
+	_expect(
+		nearest > 0.18,
+		"and the two nearest, %s, are %.2f apart — far enough to tell from across the valley" % [
+			confusable, nearest
+		]
+	)
+
+	# Nothing disappears into the dark either. Black is the darkest thing here
+	# on purpose and is already pulled off the bottom of the range; anything
+	# darker than it would be a child nobody can find at dusk.
+	var darkest := 9.0
+	var dimmest := ""
+	for i in Visitors.SHIRTS.size():
+		var light := Visitors.SHIRTS[i].get_luminance()
+		if light < darkest:
+			darkest = light
+			dimmest = String(Visitors.SHIRT_NAMES[i])
+	_expect(
+		dimmest == "black",
+		"the darkest shirt is still the black one (%s, at %.2f)" % [dimmest, darkest]
+	)
+
 	_expect(Profiles.is_valid_name("Мурат"), "a Russian name is a name")
 	_expect(Profiles.is_valid_name("Amir"), "and a Latin one")
 	_expect(not Profiles.is_valid_name(""), "but nothing is not")

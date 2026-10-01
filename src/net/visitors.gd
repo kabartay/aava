@@ -37,12 +37,21 @@ const SHIRTS: Array[Color] = [
 	Color8(40, 40, 46),
 	Color8(238, 238, 240),
 	Color8(140, 140, 146),
+	# Burgundy. Dark enough to be its own colour beside the red and not a
+	# shade of it, light enough that it is still a colour at dusk rather than
+	# a second black — which is the same line the black and white are drawn
+	# just inside of, for the same reason.
+	Color8(142, 32, 58),
 ]
 
 ## What the shirts are called, so a child picks "blue" and not a swatch.
+## New colours go on the end of both lists and nowhere else: a child's choice
+## is saved as a position in them, and inserting one in the middle would hand
+## every brother a different shirt the next time they opened the game.
 const SHIRT_NAMES: Array[StringName] = [
 	&"red", &"green", &"blue", &"yellow", &"orange",
 	&"purple", &"pink", &"cyan", &"black", &"white", &"grey",
+	&"burgundy",
 ]
 
 var _visitors: Dictionary = {}
