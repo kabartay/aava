@@ -2025,6 +2025,40 @@ func _check_the_bow_can_be_aimed() -> void:
 	_expect(flat.length() > Archery.SPEED_MIN, "a full draw is faster than an empty one (%.0f m/s)" % flat.length())
 	var weak := Archery.launch_velocity(Vector3.FORWARD, Vector3.FORWARD, 0.0, 0.0)
 	_expect(weak.length() < flat.length(), "and a tap is slower than a hold")
+	_expect(
+		is_equal_approx(
+			weak.length(),
+			lerpf(Archery.SPEED_MIN, Archery.SPEED_MAX, Archery.LEAST_DRAW)
+		),
+		"but even a tap is drawn to the least a bow is ever drawn, and the arc knows it"
+	)
+
+	# The arc and the shot are only the same if the game asks for them the same
+	# way. It did not: the arc was aimed along the body, level, with the raw
+	# draw, and the shot along the camera, tilted down, with a floor on the draw
+	# the arc never saw — so the arrow left a sixteenth of a circle under the
+	# dots. And the draw itself never survived a frame, because the football's
+	# wind-up guard cancels any wind-up with no ball nearby, and there is never
+	# a ball on the shooting line.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var preview := game.substr(game.find("func _show_where_the_arrow_goes"))
+	preview = preview.substr(0, preview.find("\nfunc ", 1))
+	var shot := game.substr(game.find("func _on_shoot_release"))
+	shot = shot.substr(0, shot.find("\nfunc ", 1))
+	_expect(
+		preview.contains("_arrow_aim()") and shot.contains("_arrow_aim()"),
+		"the drawn arc and the arrow are aimed by the same function"
+	)
+	_expect(
+		not shot.contains("maxf(charge"),
+		"and drawn by the same rule, with no floor on the shot that the arc does not have"
+	)
+	var guard := game.find("if player.is_charging() and hud.is_shooting():\n\t\thud.set_kick_preview")
+	var cancel := game.find("player.release_charge()\n\t\t\thud.set_kick_preview(false")
+	_expect(
+		guard >= 0 and cancel > guard,
+		"and the football's wind-up guard stands aside while a bow is being drawn"
+	)
 
 	var ground := func(_x: float, _z: float) -> float:
 		return 0.0

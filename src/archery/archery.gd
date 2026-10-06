@@ -100,8 +100,15 @@ func arrows_in_flight() -> int:
 ## player looks is where it goes, and the drop over these distances is small
 ## enough that a child can correct for it by eye — provided they can see it,
 ## which is what the arc drawn from this is for.
+## The least a bow is ever drawn. A tap still looses an arrow that reaches
+## the butts rather than one that drops at the child's feet. Applied here, in
+## the one place both the shot and the drawn arc of it pass through: it was
+## applied by the caller to the shot alone, and the arc showed a weaker shot
+## than the one that flew.
+const LEAST_DRAW := 0.15
+
 static func launch_velocity(direction: Vector3, facing: Vector3, charge: float, aim_height: float) -> Vector3:
-	var speed := lerpf(SPEED_MIN, SPEED_MAX, clampf(charge, 0.0, 1.0))
+	var speed := lerpf(SPEED_MIN, SPEED_MAX, clampf(charge, LEAST_DRAW, 1.0))
 	var launch := direction
 	if launch.length_squared() < 0.001:
 		launch = facing

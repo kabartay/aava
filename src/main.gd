@@ -916,7 +916,15 @@ func _process(delta: float) -> void:
 
 	# While winding up, show how hard and how high — and drop the wind-up if the
 	# ball is kicked away or walked away from, so the bar never lies.
-	if player.is_charging():
+	#
+	# Not while a bow is being drawn. A bow and a kick share the one wind-up,
+	# and there is never a ball on the shooting line: this cancelled the draw
+	# on the very frame it started, every frame, so the bow showed for one
+	# frame, its arc was hidden the moment it was drawn, and every arrow flew
+	# at the weakest pull there is.
+	if player.is_charging() and hud.is_shooting():
+		hud.set_kick_preview(false, 0.0, 0.0)
+	elif player.is_charging():
 		if ball == null:
 			player.release_charge()
 			hud.set_kick_preview(false, 0.0, 0.0)
@@ -1468,12 +1476,32 @@ func _on_shoot_start() -> void:
 
 func _on_shoot_release() -> void:
 	var charge := player.release_charge()
-	var from := player.global_position + Vector3.UP * 1.2
 	world.archery.loose(
-		from, -camera_rig.camera.global_transform.basis.z,
-		maxf(charge, 0.15), camera_rig.aim_height()
+		_arrow_from(), _arrow_aim(), charge, camera_rig.aim_height()
 	)
 	sounds.play(Sounds.Sound.KICK, 1.4)
+
+## Where an arrow leaves the bow, and which way.
+##
+## Asked by the shot and by the arc that is drawn before it, from one place,
+## because the two disagreed: the arc went the way the body faced, level,
+## while the shot went the way the camera looked — tilted down sixteen degrees
+## at the camera's resting pitch, and then lifted again by aim_height, which is
+## itself made of that same pitch. Counted twice for the arrow and not at all
+## for its arc, the arrow left a sixteenth of a circle below the dots that were
+## meant to show it.
+##
+## Level, then, along where the camera looks across the ground, with how high
+## the shot goes left entirely to aim_height — the way a kick is aimed.
+func _arrow_aim() -> Vector3:
+	var looking := -camera_rig.camera.global_transform.basis.z
+	looking.y = 0.0
+	if looking.length_squared() < 0.0001:
+		return player.facing()
+	return looking.normalized()
+
+func _arrow_from() -> Vector3:
+	return player.global_position + Vector3.UP * 1.2
 
 func _on_arrow_hit(_index: int, ring: int, points: int) -> void:
 	wallet.earn(points)
@@ -2086,9 +2114,9 @@ func _on_ticket() -> void:
 ## The arc an arrow would fly on, drawn as dots while the string is held.
 ## The same arithmetic the shot itself uses, so the dots do not lie.
 func _show_where_the_arrow_goes() -> void:
-	var from := player.global_position + Vector3.UP * 1.2
+	var from := _arrow_from()
 	var velocity := Archery.launch_velocity(
-		player.facing(), player.facing(), player.kick_charge, camera_rig.aim_height()
+		_arrow_aim(), player.facing(), player.kick_charge, camera_rig.aim_height()
 	)
 	var ground := func(x: float, z: float) -> float:
 		return world.field.height_at(x, z)
