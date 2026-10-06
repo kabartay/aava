@@ -214,11 +214,17 @@ func position_of(kind: StringName) -> Vector3:
 ## Sell one of a kind back: the one at the shop door if there is one there,
 ## and otherwise the one furthest from the child — that being the one they have
 ## decided they are not walking back for.
+##
+## Never the one being ridden: the game gets a child off a machine before
+## selling it, and one sold from under them left them riding nothing at
+## sixteen metres a second.
 func sell_one(kind: StringName, from: Vector3) -> bool:
 	var chosen := &""
 	var furthest := -1.0
 	for id in _nodes:
 		if MountKinds.kind_of(id) != kind or not is_instance_valid(_nodes[id]):
+			continue
+		if id == riding:
 			continue
 		var node: Node3D = _nodes[id]
 		var distance := node.global_position.distance_to(from)
@@ -227,11 +233,25 @@ func sell_one(kind: StringName, from: Vector3) -> bool:
 			chosen = id
 	if chosen == &"":
 		return false
-	var node: Node3D = _nodes[chosen]
+	_forget(chosen)
+	return true
+
+## Everything this node knows about one mount, gone.
+##
+## Selling took away the drawn machine and nothing else. Where it stood was
+## still remembered, and where it stood is what is saved — so the next time the
+## game was opened the machine was put back, the coins it was sold for were
+## still in the purse, and a bicycle could be sold once and kept for ever.
+func _forget(id: StringName) -> void:
+	var node: Node3D = _nodes.get(id)
 	if is_instance_valid(node):
 		node.queue_free()
-	_nodes.erase(chosen)
-	return true
+	_nodes.erase(id)
+	_positions.erase(id)
+	_facings.erase(id)
+	_waiting_to_be_solid.erase(id)
+	if _settling == id:
+		_settling = &""
 
 ## Is a machine or an animal standing here, close enough to be in the way?
 ##

@@ -63,6 +63,20 @@ func _init(height_field: HeightField) -> void:
 
 ## Where the child is. The ring is rebuilt around them when they have walked
 ## far enough for the old one to be visibly off-centre.
+## Wait for whatever is still baking before this object goes.
+##
+## A bake on a worker thread writes its result back into this object. Freed
+## first, the worker is left writing into memory that is no longer there — a
+## crash, or a script error at "lock on a null value", depending on who wins
+## the race. AnimalVoices learnt this on CI; this class had the same exposure
+## and nothing closing it.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_PREDELETE:
+		return
+	if _task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_task)
+		_task = -1
+
 func follow(world_position: Vector3) -> void:
 	_wanted_at = world_position
 	_collect()

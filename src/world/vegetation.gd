@@ -330,6 +330,20 @@ func _rebuild_queue() -> void:
 		return (a - _centre).length_squared() < (b - _centre).length_squared())
 	_queue = pending
 
+## Wait for whatever is still baking before this object goes.
+##
+## A bake on a worker thread writes its result back into this object. Freed
+## first, the worker is left writing into memory that is no longer there — a
+## crash, or a script error at "lock on a null value", depending on who wins
+## the race. AnimalVoices learnt this on CI; this class had the same exposure
+## and nothing closing it.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_PREDELETE:
+		return
+	for coord in _baking:
+		WorkerThreadPool.wait_for_task_completion(_baking[coord]["task"])
+	_baking.clear()
+
 func _process(_delta: float) -> void:
 	_assemble_finished()
 

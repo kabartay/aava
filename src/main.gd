@@ -1809,6 +1809,21 @@ var _shirt := -1
 func _on_sell_back(item: StringName) -> void:
 	if not wallet.has(item):
 		return
+	# Selling the last of a machine while sitting on it gets the child off
+	# first. Mounts will never sell the one being ridden, and without this the
+	# coins were paid and the machine stayed — or, before that rule, vanished
+	# from under them while they went on riding nothing.
+	for machine: Array in [
+		[ShopStock.BICYCLE, MountKinds.BICYCLE],
+		[ShopStock.MOTORCYCLE, MountKinds.MOTORCYCLE],
+		[ShopStock.QUAD, MountKinds.QUAD],
+	]:
+		if (
+			item == machine[0] and player.riding != &""
+			and MountKinds.kind_of(player.riding) == machine[1]
+			and world.mounts.count_of_kind(machine[1]) <= 1
+		):
+			_on_ride()
 	var paid := wallet.sell_back(item, ShopStock.sells_back(item))
 	if paid <= 0:
 		return

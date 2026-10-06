@@ -129,6 +129,7 @@ func _initialize() -> void:
 	_check_voice_is_safe()
 	_check_a_voice_keeps_its_pitch()
 	_check_two_valleys_stay_two_valleys()
+	_check_a_sold_machine_stays_sold()
 	_check_talking_can_be_switched_off()
 	_check_a_valley_survives_a_new_phone()
 	_check_felling_your_own_tree_costs_what_it_paid()
@@ -3571,6 +3572,39 @@ func _check_nobody_falls_out_of_the_world() -> void:
 	_expect(terrain.has_ground_at(spot), "once the chunks are baked, there is")
 	var chunk: TerrainChunk = terrain._chunks.get(TerrainSpec.chunk_at(spot))
 	_expect(chunk != null and chunk.has_collision, "and the chunk under the player carries collision, not merely a mesh")
+
+	# A dam finishing changes the ground round it, and the ground is rebuilt
+	# there — but under a child who is standing on it. The old chunks were
+	# freed on the spot and their replacements arrived one a frame, so the
+	# ground vanished into sky, collision and all, for as long as that took.
+	var before := terrain._chunks.size()
+	terrain.rebuild_near(spot, 54.0)
+	var always_solid := true
+	var fewest := before
+	var steps := 0
+	# Bounded by time rather than by a count of frames: the bakes run on worker
+	# threads, and a loop that spins faster than they work counts frames in
+	# which nothing could have happened.
+	var deadline := Time.get_ticks_msec() + 20000
+	while not terrain.is_idle() and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(500)
+		steps += 1
+		if not terrain.has_ground_at(spot):
+			always_solid = false
+		fewest = mini(fewest, terrain._chunks.size())
+	_expect(
+		terrain.is_idle() and steps > 1,
+		"a dam's worth of ground is rebuilt, over %d frames" % steps
+	)
+	_expect(
+		always_solid,
+		"and the child standing on it is held up through every one of them"
+	)
+	_expect(
+		fewest == before,
+		"with no chunk of the valley missing while its replacement is made"
+	)
 	terrain.queue_free()
 
 	# The margin has to clear everything a child can legitimately be under.
@@ -6378,6 +6412,36 @@ func _check_places_worth_walking_to() -> void:
 	)
 	_expect(places.lamp_count() == lamps_wanted, "%d lamps: round the pad, at the café, at the pool, at the shop, and the pitch's four floodlights" % places.lamp_count())
 	_expect(places.pitch_lamp_count() == 4, "a floodlight at each corner of the pitch")
+	# And every one of them is where it is meant to be. The shop's two were
+	# handed the shop's position twice over and lit the hills 470 m away,
+	# while counting and lighting them passed: a lamp is only a lamp near
+	# something.
+	var near_something := 0
+	var astray := ""
+	var anchors: Array[Vector3] = [Pitch.centre()]
+	for kind: StringName in [Places.PLAYGROUND, Places.POOL, Places.CAFE, Places.SHOP]:
+		anchors.append(places.position_of(kind))
+	for light in places.lamp_positions():
+		var nearest := INF
+		for anchor in anchors:
+			nearest = minf(nearest, Vector2(light.x - anchor.x, light.z - anchor.z).length())
+		if nearest < 40.0:
+			near_something += 1
+		else:
+			astray = "%v, %.0f m from the nearest place" % [light, nearest]
+	_expect(
+		near_something == places.lamp_count(),
+		"every lamp stands at the place it lights%s" % ("" if astray.is_empty() else " — one is at " + astray)
+	)
+	var shop_door := places.position_of(Places.SHOP)
+	var at_the_shop := 0
+	for light in places.lamp_positions():
+		if Vector2(light.x - shop_door.x, light.z - shop_door.z).length() < 20.0:
+			at_the_shop += 1
+	_expect(
+		at_the_shop >= Places.SHOP_LAMPS.size(),
+		"including the %d either side of the shop door" % Places.SHOP_LAMPS.size()
+	)
 	places.light_lamps(0.0, 10.0)
 	_expect(places.lamps_lit() == 0, "unlit in daylight")
 	places.light_lamps(1.0, 10.0)
@@ -7731,6 +7795,49 @@ func _check_two_valleys_stay_two_valleys() -> void:
 	_expect(not dams.deliver(12.345), "a stick handed in at no dam site is refused")
 	_expect(dams.deliver(DamSpec.SITES[0]), "and one at a real site is taken")
 	dams.free()
+
+## A machine sold back to the shop is gone, and stays gone.
+##
+## Selling took away the drawn machine and left where it stood, and where it
+## stood is what is saved: the next opening put it back, with its coins still in
+## the purse. And nothing stopped the shop selling the one being ridden, which
+## left a child riding nothing.
+func _check_a_sold_machine_stays_sold() -> void:
+	print("a sold machine stays sold")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var here := Vector3(30.0, field.height_at(30.0, 30.0), 30.0)
+	mounts.place(mounts.free_id(MountKinds.BICYCLE), here)
+	var saved_before := mounts.to_data().size()
+	_expect(mounts.sell_one(MountKinds.BICYCLE, here), "a bicycle can be sold")
+	_expect(mounts.count_of_kind(MountKinds.BICYCLE) == 0, "and it is no longer in the valley")
+	_expect(
+		mounts.to_data().size() == saved_before - 1,
+		"nor in what is saved, so it does not come back the next time the game is opened"
+	)
+	var reopened := Mounts.new(field)
+	get_root().add_child(reopened)
+	reopened.from_data(mounts.to_data())
+	_expect(reopened.count_of_kind(MountKinds.BICYCLE) == 0, "and after a reload there is still none")
+	reopened.queue_free()
+
+	var ridden := mounts.free_id(MountKinds.QUAD)
+	mounts.place(ridden, here)
+	mounts.mount(ridden)
+	_expect(
+		not mounts.sell_one(MountKinds.QUAD, here),
+		"the machine a child is sitting on is never sold out from under them"
+	)
+	_expect(mounts.exists(ridden), "it is still there, being ridden")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var sale := game.substr(game.find("func _on_sell_back"))
+	sale = sale.substr(0, sale.find("\nfunc ", 1))
+	_expect(
+		sale.find("_on_ride()") >= 0 and sale.find("_on_ride()") < sale.find("wallet.sell_back"),
+		"the game gets them off it before it takes the coins"
+	)
+	mounts.queue_free()
 
 func _check_voice_is_safe() -> void:
 	print("voice is push-to-talk and goes nowhere else")

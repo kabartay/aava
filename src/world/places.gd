@@ -1260,6 +1260,15 @@ func _build_shop(at: Vector3) -> void:
 	# warehouse, and a child expects to be sold to by a person.
 	_build_shopkeeper(tool, Vector3(1.2, 0.0, SHOP_COUNTER_Z + 0.9))
 
+	# The two lamps either side of the door. Given in the shop's own frame, like
+	# every other place's lamps, and before the mesh is finished so the posts
+	# are part of it. They were handed the shop's position twice over and added
+	# after the mesh was committed: the posts were never drawn, the shop front
+	# stayed dark at night, and two glowing lanterns hung over the hills four
+	# hundred and seventy metres away with an invisible pole under each.
+	for lamp_at in SHOP_LAMPS:
+		_build_lamp(tool, at, lamp_at, solid, 0.5, 3.6, 9.0, 2.2)
+
 	tool.generate_normals()
 	tool.set_material(_material())
 	var mesh := MeshInstance3D.new()
@@ -1273,9 +1282,6 @@ func _build_shop(at: Vector3) -> void:
 	_shop_solid = solid
 	_shop_walls = walls
 	_shop_roof = _roof_mesh(lid, at)
-
-	for lamp_at in SHOP_LAMPS:
-		_build_lamp(tool, at + lamp_at, at, solid, 0.5, 3.6, 9.0, 2.2)
 
 ## A painting hung flush on the wall this shop's motor vehicles stand along.
 ##
@@ -3244,6 +3250,16 @@ func fountain_plays() -> bool:
 
 func hedge_segment_count() -> int:
 	return _hedge_segments
+
+## Where each lamp's light is, in the world. For the checks: counting lamps
+## and asking whether they are lit says nothing about whether they are
+## anywhere near what they are meant to light.
+func lamp_positions() -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for lamp in _lamps:
+		var light: OmniLight3D = lamp["light"]
+		out.append(position + light.position)
+	return out
 
 func lamp_count() -> int:
 	return _lamps.size()

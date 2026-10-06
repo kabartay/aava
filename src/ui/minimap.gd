@@ -261,6 +261,20 @@ func follow(player: Node3D, camera: CameraRig, structures: Structures) -> void:
 	_follow_camera = camera
 	_follow_structures = structures
 
+## Wait for whatever is still baking before this object goes.
+##
+## A bake on a worker thread writes its result back into this object. Freed
+## first, the worker is left writing into memory that is no longer there — a
+## crash, or a script error at "lock on a null value", depending on who wins
+## the race. AnimalVoices learnt this on CI; this class had the same exposure
+## and nothing closing it.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_PREDELETE:
+		return
+	if _bake_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_bake_task)
+		_bake_task = -1
+
 func _process(_delta: float) -> void:
 	if _follow_player == null or not is_instance_valid(_follow_player):
 		return

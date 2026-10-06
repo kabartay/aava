@@ -141,6 +141,20 @@ func _rebuild_queue() -> void:
 	_lazy.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return (a - _centre).length_squared() > (b - _centre).length_squared())
 
+## Wait for whatever is still baking before this object goes.
+##
+## A bake on a worker thread writes its result back into this object. Freed
+## first, the worker is left writing into memory that is no longer there — a
+## crash, or a script error at "lock on a null value", depending on who wins
+## the race. AnimalVoices learnt this on CI; this class had the same exposure
+## and nothing closing it.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_PREDELETE:
+		return
+	for coord in _baking:
+		WorkerThreadPool.wait_for_task_completion(_baking[coord]["task"])
+	_baking.clear()
+
 func _process(_delta: float) -> void:
 	_assemble_finished()
 
@@ -199,9 +213,15 @@ func has_ground_at(world_position: Vector3) -> bool:
 ## of streaming, during which the valley is visibly missing. A dam changes about
 ## forty metres of river, which is a handful of chunks.
 ##
-## The chunks are dropped and re-queued rather than re-meshed in place, because
-## each owns a HeightMapShape3D as well as a mesh and the existing build path
-## does both.
+## The chunks are re-queued rather than re-meshed in place, because each owns a
+## HeightMapShape3D as well as a mesh and the existing build path does both.
+##
+## And left standing until their replacements land. They were freed on the
+## spot, and a replacement takes a worker's bake and then a frame of its own
+## to arrive — a dozen of them, one at a time — so the ground round a finished
+## dam vanished into sky for a quarter of a second, collision and all, under
+## the child who had just handed the beavers their last stick. Assembly
+## already swaps the old chunk out the moment the new one is ready.
 func rebuild_near(world_position: Vector3, radius: float) -> void:
 	# Everything already baking describes the ground as it was a moment ago.
 	_generation += 1
@@ -219,8 +239,6 @@ func rebuild_near(world_position: Vector3, radius: float) -> void:
 		affected.append(coord)
 
 	for coord in affected:
-		_chunks[coord].queue_free()
-		_chunks.erase(coord)
 		if not _queue.has(coord):
 			_queue.append(coord)
 
