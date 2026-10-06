@@ -17,6 +17,8 @@ extends RefCounted
 ## is stored but which day was last completed.
 
 signal completed(kind: StringName, reward: int)
+## The count moved, so the line that shows it is out of date.
+signal progressed()
 
 const VISIT := &"visit"
 const CARE := &"care"
@@ -50,11 +52,20 @@ var last_finished := -1
 
 var _day := 0
 var _progress := 0
+## Which day the saved count belongs to.
+var _saved_day := -1
 
 ## Start the day. `now` is unix time; the day is what changes at midnight local.
+##
+## The count so far is kept if it is still the same day. It was always set back
+## to nothing, and it was never saved, so two of three sheep herded and the
+## game closed — or put away by the phone to save its battery, which a child
+## does not even see — was nought of three on opening it again.
 func begin(now: int) -> void:
-	_day = _day_number(now)
-	_progress = 0
+	var day := _day_number(now)
+	if day != _saved_day:
+		_progress = 0
+	_day = day
 
 func day_number() -> int:
 	return _day
@@ -87,6 +98,7 @@ func record(what: StringName, amount := 1) -> void:
 	if is_finished() or what != kind():
 		return
 	_progress += amount
+	progressed.emit()
 	if _progress >= needed():
 		last_finished = _day
 		completed.emit(kind(), REWARD)
@@ -104,7 +116,9 @@ static func _day_number(unix_time: int) -> int:
 	return int(floor(float(unix_time + bias * 60) / 86400.0))
 
 func to_data() -> Dictionary:
-	return {"last_finished": last_finished}
+	return {"last_finished": last_finished, "day": _day, "progress": _progress}
 
 func from_data(data: Dictionary) -> void:
 	last_finished = int(data.get("last_finished", -1))
+	_saved_day = int(data.get("day", -1))
+	_progress = maxi(0, int(data.get("progress", 0)))

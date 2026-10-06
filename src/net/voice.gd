@@ -13,9 +13,12 @@ extends Node
 ## whole design, not a mode of it.
 ##
 ## **Only to people already in the valley.** Voice travels over the same session
-## as everything else, and a child can only be in the valley by invitation. There
-## is no lobby, no matchmaking, and no way for a stranger to be on the other end
-## — not because it is filtered, but because there is no path.
+## as everything else. There is no lobby and no matchmaking, and nothing here
+## goes past the local network. But this used to say there was no way at all
+## for a stranger to be on the other end, and that is not so: a host is open to
+## any phone on the same network that runs this game and knows the number,
+## which at home is the family and on a café's wifi is not. So the parent's
+## switch has to close the door both ways — see `allowed`.
 ##
 ## **Nothing is ever written down.** No recording, no buffering to disk, no
 ## history. Frames go from the microphone to the network to a speaker and are
@@ -159,14 +162,21 @@ func is_permitted() -> bool:
 	return OS.get_granted_permissions().has(PERMISSION)
 
 ## Hold to talk. The microphone starts here and nowhere else.
-## Whether talking is allowed at all. A parent's switch, off in the menu, and
-## the one it actually has to obey: hiding the button would be a promise about
-## the interface, and this is a promise about the microphone.
+## Whether talking is allowed at all. A parent's switch, and the one this file
+## actually has to obey: hiding the button would be a promise about the
+## interface, and this is a promise about the microphone — and about the
+## speaker.
+##
+## It used to stop only the microphone. A parent who switched voice off had
+## stopped their child being heard, and every other voice in the valley went on
+## playing to them, which is not what anybody switching voice off means.
 var allowed := true:
 	set(value):
 		allowed = value
 		if not allowed:
-			stop_talking()
+			# Everyone already speaking goes quiet now, mid-word, rather than
+			# finishing what was in the buffer.
+			forget_everyone()
 
 func start_talking() -> void:
 	if not allowed:
@@ -229,6 +239,14 @@ func _process(_delta: float) -> void:
 ## after the word it belonged to and is worse than silence.
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_voice(packet: PackedByteArray) -> void:
+	if not allowed:
+		return
+	# One packet's worth and no more. Every phone running this game sends
+	# exactly this many bytes; anything else did not come from one, and a
+	# packet of any size it pleased was decoded sample by sample on the main
+	# thread.
+	if packet.size() != FRAMES_PER_PACKET * 2:
+		return
 	var from := multiplayer.get_remote_sender_id()
 	_play(from, packet)
 	someone_spoke.emit(from)

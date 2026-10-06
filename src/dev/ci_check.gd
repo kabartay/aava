@@ -7047,6 +7047,48 @@ func _check_one_thing_a_day() -> void:
 	returning.begin(monday)
 	_expect(returning.is_finished(), "a finished day survives a save")
 
+	# A day half done survives the game being closed — which on a phone is as
+	# often the phone putting it away as the child doing so. It was never
+	# saved, and the count went back to nothing on every opening.
+	var half := Today.new()
+	half.begin(monday)
+	var counted := [0]
+	half.progressed.connect(func() -> void: counted[0] += 1)
+	half.record(half.kind(), 1)
+	_expect(counted[0] == 1, "doing one of today's things says so, so the line on the screen can follow it")
+	var reopened := Today.new()
+	reopened.from_data(half.to_data())
+	reopened.begin(monday + 3600)
+	_expect(reopened.done() == 1, "and an hour later, after the game was closed, it is still one done")
+	var next_day := Today.new()
+	next_day.from_data(half.to_data())
+	next_day.begin(monday + 86400)
+	_expect(next_day.done() == 0, "but the next day starts from nothing again")
+
+	# And the screen is told. Today's line used to be written only by the
+	# handler for finishing it, so while it was worth doing it was not there.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var fill := game.substr(game.find("func _show_the_state"))
+	fill = fill.substr(0, fill.find("\nfunc ", 1))
+	_expect(
+		fill.contains("set_coins(wallet.coins)") and fill.contains("set_task(_task_line())")
+		and fill.contains("set_owned(") and fill.contains("_refresh_vitals()"),
+		"the interface is filled from the game as it is: the purse, the task, what is owned, the gauge"
+	)
+	var rebuild := game.substr(game.find("func _rebuild_hud"))
+	rebuild = rebuild.substr(0, rebuild.find("\nfunc ", 1))
+	_expect(
+		rebuild.contains("_show_the_state()")
+		and game.count("_show_the_state()") >= 2,
+		"when the game opens and every time the interface is rebuilt"
+	)
+	var line := game.substr(game.find("func _task_line"))
+	line = line.substr(0, line.find("\nfunc ", 1))
+	_expect(
+		line.contains("today.describe()") and line.contains("tasks.instruction()"),
+		"and the line at the top is the next step, then today's task once the steps are done"
+	)
+
 	var next_week := Today.new()
 	next_week.from_data(today.to_data())
 	next_week.begin(monday + 86400 * 7)
@@ -7516,9 +7558,30 @@ func _check_talking_can_be_switched_off() -> void:
 	var voice := Voice.new()
 	get_root().add_child(voice)
 	_expect(voice.allowed, "talking is allowed to begin with")
+	# Something arriving from another phone, the size every phone sends.
+	var packet := PackedByteArray()
+	packet.resize(Voice.FRAMES_PER_PACKET * 2)
+	voice._send_voice(packet)
+	_expect(voice._speakers.size() == 1, "with it on, a voice from the valley is heard")
 	voice.allowed = false
 	voice.start_talking()
 	_expect(not voice.is_talking(), "and switching it off stops the microphone starting")
+	# And the other way. The switch used to close only the microphone, and
+	# every other voice in the valley went on playing to the child.
+	_expect(voice._speakers.is_empty(), "it also silences whoever was speaking, at once")
+	voice._send_voice(packet)
+	_expect(
+		voice._speakers.is_empty(),
+		"and nobody else's voice reaches this phone while it is off"
+	)
+	voice.allowed = true
+	var wrong := PackedByteArray()
+	wrong.resize(Voice.FRAMES_PER_PACKET * 2 + 4000)
+	voice._send_voice(wrong)
+	_expect(
+		voice._speakers.is_empty(),
+		"a packet of a size no phone running this game sends is not played"
+	)
 	voice.queue_free()
 
 	var hud := Hud.new()

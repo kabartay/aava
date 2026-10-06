@@ -297,13 +297,15 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.animals.befriended.connect(func(kind: StringName) -> void:
 		hud.announce(Text.format("say_friend", [AnimalKinds.label(kind)]), 4.0))
 	wallet.changed.connect(func(total: int) -> void: hud.set_coins(total))
+	wallet.changed.connect(func(_total: int) -> void: hud.set_owned(wallet.owned))
 
 	# The reward line is an announcement; the instruction is a standing label.
 	# Keeping them separate is what stops the screen filling with old advice.
 	tasks.completed.connect(func(reward: String) -> void:
 		sounds.play(Sounds.Sound.CHIME)
 		hud.announce(reward, 4.5))
-	tasks.changed.connect(func(instruction: String) -> void: hud.set_task(instruction))
+	tasks.changed.connect(func(_instruction: String) -> void: hud.set_task(_task_line()))
+	today.progressed.connect(func() -> void: hud.set_task(_task_line()))
 	if save.has("football"):
 		world.football.from_data(save["football"])
 
@@ -384,6 +386,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# `record()` refuses a day already finished, so this cannot pay twice.
 	today.arrive()
 	_connect_the_rest_of_the_hud()
+	_show_the_state()
 
 	world.follow(start)
 	print("Aava seed %d, spawn %v, player '%s' in world '%s', save at %s" % [
@@ -1018,11 +1021,38 @@ func _rebuild_hud() -> void:
 	add_child(hud)
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 	_connect_the_rest_of_the_hud()
+	_show_the_state()
+	if was_building:
+		hud.set_building(true)
+
+## Everything the interface shows that it cannot work out for itself, read from
+## the game as it is right now.
+##
+## The interface was only ever told about changes: the purse when a coin was
+## earned, the task when a step was finished, the whistle when one was bought.
+## So the game opened — and was rebuilt in full on every change of language —
+## with the purse at nought until the next coin, no task on the screen, no
+## whistle for a child who owned one and no bottle on the gauge. The screenshot
+## tool filled these in by hand, which is why no picture ever showed it.
+func _show_the_state() -> void:
+	hud.set_coins(wallet.coins)
+	hud.set_owned(wallet.owned)
+	hud.set_task(_task_line())
+	_refresh_vitals()
 	hud.set_voice_allowed(_voice_allowed)
 	hud.set_first_person(_first_person)
 	hud.set_score(world.football.score)
-	if was_building:
-		hud.set_building(true)
+
+## The one line at the top of the screen: the next step while a child is still
+## learning the valley, and today's task, counted, once they have.
+##
+## Today's task used to appear only once it was already done — the line was
+## written by the handler for finishing it and by nothing else — so the one
+## thing worth doing each day was never on the screen while it was worth doing.
+func _task_line() -> String:
+	if not tasks.is_finished():
+		return tasks.instruction()
+	return today.describe()
 
 ## Every control's handler in one place, named rather than ordered.
 func _handlers() -> Dictionary:
@@ -1427,7 +1457,7 @@ func _on_today_done(_kind: StringName, reward: int) -> void:
 	journal.record(Journal.COINS, reward)
 	sounds.play(Sounds.Sound.CHIME, 1.3)
 	hud.announce(Text.format("say_today", [reward]), 4.0)
-	hud.set_task(today.describe())
+	hud.set_task(_task_line())
 
 func _on_place_used() -> void:
 	var here := world.places.nearest(player.global_position)
