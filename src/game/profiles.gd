@@ -72,14 +72,20 @@ func load_index() -> void:
 	var file := FileAccess.open(INDEX, FileAccess.READ)
 	if file == null:
 		return
-	var parsed = JSON.parse_string(file.get_as_text())
+	var parsed = SaveGame.parse_quietly(file.get_as_text())
+	file.close()
+	# Kept aside rather than written over, for the reason SaveGame.set_aside
+	# gives. This file is the list of who is who: lose it and every child's
+	# save is still on the phone with nothing pointing at it.
 	if parsed is not Dictionary:
 		push_warning("player index is not valid JSON; starting fresh")
+		SaveGame.set_aside(INDEX)
 		return
 
 	var data: Dictionary = parsed
 	if int(data.get("version", 0)) != VERSION:
 		push_warning("player index is version %s, expected %d" % [data.get("version"), VERSION])
+		SaveGame.set_aside(INDEX)
 		return
 
 	for name in data.get("players", []):
@@ -115,22 +121,18 @@ func load_index() -> void:
 	if worlds.has(last_world):
 		current_world = last_world
 
+## Written the way a save is — beside the file and renamed over it — because
+## it was opened in place, which empties it before a byte of the new list goes
+## in, and a phone that kills the game in that moment left an empty list of
+## children with all of their saves still on the disk.
 func save_index() -> bool:
-	if not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(FOLDER)):
-		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(FOLDER))
-	var file := FileAccess.open(INDEX, FileAccess.WRITE)
-	if file == null:
-		push_warning("could not write the player index")
-		return false
-	file.store_string(JSON.stringify({
-		"version": VERSION,
+	return SaveGame.write({
 		"players": players,
 		"maps": maps,
 		"worlds": worlds,
 		"current_player": current_player,
 		"current_world": current_world,
-	}, "\t"))
-	return true
+	}, INDEX, VERSION)
 
 ## A name has to be usable as a filename and readable by a six-year-old. Latin
 ## letters, Cyrillic, digits, spaces and hyphens — enough for the three names
@@ -146,11 +148,26 @@ static func is_valid_name(name: String) -> bool:
 		var digit := code >= 48 and code <= 57
 		if not (latin or cyrillic or digit or character == " " or character == "-"):
 			return false
+	# Not the one name whose file is already spoken for. A player's save is
+	# "<name>--<valley>" and the valley's own is "world--<valley>", so a child
+	# called World shared a file with the valley, and every save wrote the
+	# child's bag over the houses and then the houses over the bag.
+	if _slug(trimmed) == "world":
+		return false
 	return true
+
+## The player already on this phone whose name is this one, as far as their
+## file is concerned — "Amir" and "amir" are one file — or an empty string.
+func player_named(name: String) -> String:
+	var wanted := _slug(name)
+	for each in players:
+		if _slug(each) == wanted:
+			return each
+	return ""
 
 func add_player(name: String) -> bool:
 	var trimmed := name.strip_edges()
-	if not is_valid_name(trimmed) or players.has(trimmed):
+	if not is_valid_name(trimmed) or not player_named(trimmed).is_empty():
 		return false
 	players.append(trimmed)
 	save_index()
@@ -173,6 +190,42 @@ func remove_player(name: String) -> bool:
 	for id in worlds:
 		var guests: Array = worlds[id]["guests"]
 		guests.erase(name)
+	save_index()
+	return true
+
+## Give a child a new name, and take everything that was theirs with them: their
+## progress in every valley, the valleys they own and the ones they were
+## invited to.
+##
+## A rename used to be a copy. The new name was added and this child's state
+## written under it, and the old name's files stayed where they were — so a
+## child who renamed and then wanted their old name back was told it was taken,
+## by the copy of themselves they had left behind, for good.
+##
+## `old_name` may be empty: the child playing before anyone had chosen a name.
+func rename_player(old_name: String, new_name: String) -> bool:
+	var trimmed := new_name.strip_edges()
+	if not is_valid_name(trimmed) or not player_named(trimmed).is_empty():
+		return false
+	var at := players.find(old_name)
+	if at >= 0:
+		players[at] = trimmed
+	else:
+		players.append(trimmed)
+	for id in worlds:
+		var world: Dictionary = worlds[id]
+		if String(world["owner"]) == old_name:
+			world["owner"] = trimmed
+		var guests: Array = world["guests"]
+		var guest_at := guests.find(old_name)
+		if guest_at >= 0:
+			guests[guest_at] = trimmed
+		var from := ProjectSettings.globalize_path(save_path_for(old_name, String(id)))
+		var to := ProjectSettings.globalize_path(save_path_for(trimmed, String(id)))
+		if FileAccess.file_exists(from) and not FileAccess.file_exists(to):
+			DirAccess.rename_absolute(from, to)
+	if current_player == old_name:
+		current_player = trimmed
 	save_index()
 	return true
 

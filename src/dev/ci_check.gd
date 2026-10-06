@@ -36,6 +36,7 @@ func _initialize() -> void:
 	_check_build_costs_are_real()
 	_check_a_grove_forms()
 	_check_save_round_trip()
+	_check_an_unreadable_save_is_kept()
 	_check_nothing_is_missing()
 	_check_the_pitch_is_playable()
 	_check_a_shot_stays_in_the_goal()
@@ -3955,6 +3956,77 @@ func _check_a_grove_forms() -> void:
 	structures.queue_free()
 	lonely.queue_free()
 
+## A save that cannot be read is kept, not written over.
+##
+## "Starting a new world" meant doing so in the same file, and the autosave
+## twenty seconds later wrote the empty valley over the one that could not be
+## read — damaged by a phone dying mid-write, or written by a newer copy of the
+## game. Either way it was a child's afternoon, and it went.
+func _check_an_unreadable_save_is_kept() -> void:
+	print("an unreadable save is kept")
+	var folder := "user://checks-unreadable"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(folder))
+	for leftover in DirAccess.get_files_at(folder):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(folder + "/" + leftover))
+
+	var broken := folder + "/broken.json"
+	var half := "{\"version\": 1, \"structures\": [{\"kind\": \"wall\", \"x\": 4"
+	var file := FileAccess.open(broken, FileAccess.WRITE)
+	file.store_string(half)
+	file.close()
+	_expect(SaveGame.read(broken).is_empty(), "half a save reads as nothing, so the game starts afresh")
+	_expect(not FileAccess.file_exists(broken), "and the damaged file is moved off the save's own name")
+	_expect(
+		FileAccess.get_file_as_string(broken + ".unreadable") == half,
+		"to one beside it, byte for byte as it was"
+	)
+	_expect(SaveGame.write({"structures": []}, broken), "so the new valley can be saved")
+	_expect(
+		FileAccess.get_file_as_string(broken + ".unreadable") == half,
+		"without touching the old one"
+	)
+
+	var newer := folder + "/newer.json"
+	var future := JSON.stringify({"version": SaveGame.VERSION + 1, "wallet": {"coins": 4000}})
+	file = FileAccess.open(newer, FileAccess.WRITE)
+	file.store_string(future)
+	file.close()
+	_expect(SaveGame.read(newer).is_empty(), "a save from a newer copy of the game is not read")
+	_expect(
+		FileAccess.get_file_as_string(newer + ".unreadable") == future,
+		"and is kept for the copy of the game that can read it"
+	)
+
+	# Damaged twice: neither copy is lost.
+	file = FileAccess.open(broken, FileAccess.WRITE)
+	file.store_string("not json at all")
+	file.close()
+	SaveGame.read(broken)
+	_expect(
+		FileAccess.get_file_as_string(broken + ".unreadable") == half
+		and FileAccess.get_file_as_string(broken + ".unreadable-2") == "not json at all",
+		"and a second damaged save is kept beside the first rather than over it"
+	)
+
+	var code := _code_only(FileAccess.get_file_as_string("res://src/game/save_game.gd"))
+	var writing := code.substr(code.find("static func write("))
+	writing = writing.substr(0, writing.find("\nstatic func ", 1))
+	_expect(
+		writing.find("get_error()") >= 0 and writing.find("get_error()") < writing.find("rename("),
+		"a write is checked for having finished before it is put over the real save"
+	)
+	var index := _code_only(FileAccess.get_file_as_string("res://src/game/profiles.gd"))
+	var saving := index.substr(index.find("func save_index"))
+	saving = saving.substr(0, saving.find("\nfunc ", 1))
+	_expect(
+		saving.contains("SaveGame.write(") and not saving.contains("FileAccess.WRITE"),
+		"and the list of who is who is written the same careful way"
+	)
+
+	for leftover in DirAccess.get_files_at(folder):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(folder + "/" + leftover))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(folder))
+
 ## An afternoon of building has to survive closing the game.
 func _check_save_round_trip() -> void:
 	print("save round trip")
@@ -5063,6 +5135,49 @@ func _check_a_child_can_say_who_they_are() -> void:
 		"and changing your mind changes your shirt"
 	)
 	visitors.queue_free()
+
+	# A child who renames keeps everything, and can have their old name back.
+	#
+	# A rename was a copy: the new name was added, this child's state written
+	# under it, and the old name's files left where they were — so asking for
+	# the old name again was refused as taken, by the copy left behind.
+	var family := Profiles.new()
+	family.add_map(Profiles.HOME_MAP, 20260903)
+	family.add_player("Ana")
+	var valley := family.create_world(Profiles.HOME_MAP, "Ana")
+	_expect(not valley.is_empty(), "a valley is made for her")
+	family.choose_player("Ana")
+	family.choose_world(valley)
+	var progress := family.save_path_for("Ana", valley)
+	SaveGame.write({"wallet": {"coins": 77}}, progress)
+	_expect(family.rename_player("Ana", "Anna"), "a child can rename themselves")
+	_expect(family.current_player == "Anna", "and is then playing as the new name")
+	_expect(
+		not FileAccess.file_exists(progress)
+		and int(SaveGame.read(family.save_path_for("Anna", valley)).get("wallet", {}).get("coins", 0)) == 77,
+		"and their progress went with them rather than being copied"
+	)
+	_expect(family.owner_of(valley) == "Anna", "and so did the valley they own")
+	_expect(family.player_named("Ana").is_empty(), "the old name is free again")
+	_expect(family.rename_player("Anna", "Ana"), "so going back to it is a rename, not a refusal")
+	_expect(
+		int(SaveGame.read(family.save_path_for("Ana", valley)).get("wallet", {}).get("coins", 0)) == 77,
+		"and still has everything"
+	)
+	# The name decides the file, so two names that make the same file are one
+	# child — and one name already makes the valley's own file.
+	_expect(family.player_named("ana") == "Ana", "\"ana\" is Ana, as far as her file is concerned")
+	_expect(not family.add_player("ANA"), "so nobody else can be called that on this phone")
+	_expect(not Profiles.is_valid_name("World"), "and nobody can be called World, which is the valley's own file")
+	_expect(not Profiles.is_valid_name("world"), "in any case")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var chosen := game.substr(game.find("func _on_name_chosen"))
+	chosen = chosen.substr(0, chosen.find("\nfunc ", 1))
+	_expect(
+		chosen.contains("player_named(") and chosen.contains("_become(") and chosen.contains("rename_player("),
+		"typing a name already played here is that child; a new one renames this one"
+	)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(family.save_path_for("Ana", valley)))
 
 	if had_index:
 		var restore := FileAccess.open(Profiles.INDEX, FileAccess.WRITE)

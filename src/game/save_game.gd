@@ -17,8 +17,10 @@ const PATH := "user://aava-save.json"
 ## refused explicitly, rather than crashing on a missing key.
 const VERSION := 1
 
-static func write(data: Dictionary, path := PATH) -> bool:
-	data["version"] = VERSION
+## `version` is stamped into the file: this file's own by default, or the
+## caller's for a file with a shape of its own, like the player index.
+static func write(data: Dictionary, path := PATH, version := VERSION) -> bool:
+	data["version"] = version
 	# The folder may not exist yet on a first run with profiles.
 	var folder := path.get_base_dir()
 	if not folder.is_empty() and not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(folder)):
@@ -41,10 +43,19 @@ static func write(data: Dictionary, path := PATH) -> bool:
 	if file == null:
 		push_warning("could not write %s: %s" % [scratch, error_string(FileAccess.get_open_error())])
 		return false
-	file.store_string(JSON.stringify(data, "\t"))
+	var stored := file.store_string(JSON.stringify(data, "\t"))
+	var trouble := file.get_error()
 	# Closed explicitly rather than when the handle happens to fall out of
 	# scope, because the rename below must not overtake the last of the bytes.
 	file.close()
+	# And only renamed over the real save if every byte went in. A phone with
+	# its storage full writes part of a file and says so here; the rename
+	# below then put that part over a whole afternoon, which is the exact loss
+	# writing beside the file was meant to prevent.
+	if not stored or trouble != OK:
+		push_warning("could not finish writing %s: %s" % [scratch, error_string(trouble)])
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(scratch))
+		return false
 
 	var folder_access := DirAccess.open(path.get_base_dir())
 	if folder_access == null:
@@ -62,15 +73,56 @@ static func read(path := PATH) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return {}
-	var parsed = JSON.parse_string(file.get_as_text())
+	var parsed = parse_quietly(file.get_as_text())
+	file.close()
 	if parsed is not Dictionary:
 		push_warning("%s is not valid JSON; starting a new world" % path)
+		set_aside(path)
 		return {}
 	var data: Dictionary = parsed
 	if int(data.get("version", 0)) != VERSION:
 		push_warning("save file is version %s, expected %d; starting a new world" % [data.get("version"), VERSION])
+		set_aside(path)
 		return {}
 	return data
+
+## Move a save that cannot be read out of the way, under a name of its own,
+## and never delete it.
+##
+## "Starting a new world" used to mean exactly that, in the same file: twenty
+## seconds later the autosave wrote the new, empty valley over the one that
+## could not be read. A file that is damaged, or written by a newer copy of the
+## game than this one, is still a child's afternoon — a parent can open the JSON
+## and see it there, and a later version can read it — so it is kept beside
+## the save, and the empty valley goes into a file of its own.
+##
+## Returns where it was put, or an empty string if it could not be moved.
+static func set_aside(path: String) -> String:
+	var kept := path + ".unreadable"
+	var n := 1
+	while FileAccess.file_exists(kept):
+		n += 1
+		kept = "%s.unreadable-%d" % [path, n]
+	var moved := DirAccess.rename_absolute(
+		ProjectSettings.globalize_path(path), ProjectSettings.globalize_path(kept)
+	)
+	if moved != OK:
+		push_warning("could not keep %s aside: %s" % [path, error_string(moved)])
+		return ""
+	push_warning("kept the unreadable save as %s" % kept)
+	return kept
+
+## The contents of a JSON document, or null if it is not one.
+##
+## Asked of a JSON object rather than of JSON.parse_string, which prints an
+## engine error for a document it cannot read. A damaged save is a thing this
+## file expects and deals with, and an error in the log for it teaches whoever
+## reads the log to read past errors.
+static func parse_quietly(text: String) -> Variant:
+	var json := JSON.new()
+	if json.parse(text) != OK:
+		return null
+	return json.data
 
 static func absolute_path(path := PATH) -> String:
 	return ProjectSettings.globalize_path(path)

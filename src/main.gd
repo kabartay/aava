@@ -1293,24 +1293,27 @@ func _on_name_chosen(typed: String) -> void:
 		hud.announce(Text.of("say_name_no"), 3.5)
 		hud.set_player_name(profiles.current_player)
 		return
-	# Somebody else's afternoon is not written over.
+
+	# A name somebody has already played under on this phone is that child:
+	# typing it is how one child hands the phone to another, and how a child
+	# who renamed themselves gets their old name back.
 	#
-	# The save path is built from the name, and the write below puts *this*
-	# child's state at it. If a brother has already played under that name on
-	# this device, that file is his bag, his coins and his journal, and this
-	# would be the end of them. The name is refused instead — which is the
-	# right answer anyway, because two children on one device answering to one
-	# name is the quarrel profiles were written to stop.
-	var taken := profiles.save_path_for(name, profiles.current_world)
-	if taken != profiles.current_save_path() and FileAccess.file_exists(taken):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.format("say_name_taken", [name]), 4.0)
-		hud.set_player_name(profiles.current_player)
+	# It used to be refused as taken, because writing this child's state under
+	# it would have been the end of the other child's afternoon — which was
+	# right about the danger and wrong about the answer. Nothing is written
+	# over either way: this child is saved under their own name first, and then
+	# the game opens again as the other one, exactly as they left it.
+	var known := profiles.player_named(name)
+	if not known.is_empty():
+		_become(known)
 		return
 
-	if not profiles.players.has(name):
-		profiles.add_player(name)
-	profiles.choose_player(name)
+	# A new name is a new name for this child, who keeps everything.
+	if not profiles.rename_player(profiles.current_player, name):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_name_no"), 3.5)
+		hud.set_player_name(profiles.current_player)
+		return
 	_write_save()
 	hud.set_player_name(name)
 	sounds.play(Sounds.Sound.CHIME, 1.2)
@@ -1319,6 +1322,25 @@ func _on_name_chosen(typed: String) -> void:
 	# changes there and then rather than at the next join.
 	if session.is_connected_to_anyone():
 		session.report_name(name, _shirt)
+
+## Hand the game to another child on this phone.
+##
+## This child is saved where they stand, and the game opens again as the other
+## one — in a valley they may enter, theirs if the one this child was in is not.
+## Opened again rather than swapped in place: everything the game knows about a
+## child is read once, on the way in, and a reload is the one path that is
+## certain to read all of it.
+func _become(other: String) -> void:
+	_write_save()
+	profiles.choose_player(other)
+	if not profiles.may_enter(profiles.current_world, other):
+		var theirs := profiles.worlds_for(other)
+		profiles.choose_world(
+			theirs[0] if not theirs.is_empty()
+			else profiles.create_world(Profiles.HOME_MAP, other)
+		)
+	profiles.save_index()
+	get_tree().reload_current_scene()
 
 func _on_together_opened() -> void:
 	# Opened on the page that matches what is already happening, so a child who
