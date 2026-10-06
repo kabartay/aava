@@ -63,6 +63,9 @@ uniform float from_below = 0.0;
 // The underside: what the sky looks like through a few centimetres of moving
 // water, which is bright, and nothing like the bed.
 uniform vec3 ceiling_color : source_color = vec3(0.55, 0.80, 0.82);
+// How much daylight is coming down through it: 1 at noon, a little moonlight
+// at midnight. The ceiling is light arriving rather than a surface being lit.
+uniform float ceiling_light = 1.0;
 
 // The still ponds, handed in from Lakes so this file does not carry a second
 // copy of where they are. Each is centre x, centre z, long half-axis, short
@@ -165,7 +168,15 @@ void fragment() {
 		// Looking up at it. Brighter the more square-on you look, because what
 		// is overhead is the sky coming through; towards the edges of view the
 		// surface turns into a mirror of the dark water you are in.
-		ALBEDO = mix(ceiling_color, deep_color, fresnel);
+		//
+		// Emitted rather than lit. From underneath, the face points away from
+		// the sun, so ordinary lighting left the whole ceiling in shadow and it
+		// came out darker than the riverbed — the one thing overhead that
+		// should be the brightest thing in view. What a swimmer sees up there
+		// is daylight that has come through the water, which is light, not a
+		// surface for light to fall on.
+		ALBEDO = deep_color * 0.25;
+		EMISSION = mix(ceiling_color, deep_color, fresnel) * ceiling_light;
 		// Nearly solid, and it has to be: a translucent ceiling shows the sky
 		// and the far bank through it, and the illusion of being under goes.
 		ALPHA = mix(0.94, 0.99, fresnel) * shore;
@@ -302,11 +313,17 @@ const TARN_COLOUR := Color(0.36, 0.62, 0.78, 0.78)
 ## Asked of the camera, not of the swimmer: in the distant view a child's head
 ## can be under while the camera behind their shoulder is still in the air, and
 ## what the shader has to match is what is doing the looking.
-func set_seen_from_below(below: bool) -> void:
+##
+## `daylight` is how much of the sky is coming down through it, from 1 at noon
+## to 0 at midnight; the ceiling glows with that much and never quite goes out,
+## because a moonlit river is still lighter overhead than underfoot.
+func set_seen_from_below(below: bool, daylight := 1.0) -> void:
 	var material := material_override as ShaderMaterial
 	if material == null:
 		return
 	material.set_shader_parameter("from_below", 1.0 if below else 0.0)
+	if below:
+		material.set_shader_parameter("ceiling_light", lerpf(0.12, 1.0, clampf(daylight, 0.0, 1.0)))
 
 ## The sheet is finite, so it has to travel with the player — snapped, so the
 ## waves do not appear to be dragged along.

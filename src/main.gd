@@ -643,6 +643,14 @@ func _process(delta: float) -> void:
 		world.atmosphere.darkness(), delta,
 		clampf(player.water_depth / Player.SWIM_DEPTH, 0.0, 1.0)
 	)
+	# Whether what is built from now on is also being built in somebody else's
+	# valley. Followed every frame rather than on the session's signals, so a
+	# connection that drops without saying goodbye still ends the sharing.
+	var together := session.is_connected_to_anyone()
+	if together and not structures.sharing:
+		structures.sharing = true
+	elif not together and structures.sharing:
+		structures.stop_sharing()
 	session.report_position(player.global_position, player.rotation.y)
 	# Offered only when there is somebody in the valley to talk to.
 	hud.set_voice(
@@ -824,13 +832,9 @@ func _process(delta: float) -> void:
 	# that would do nothing. The player clears the dive flag itself when the
 	# water runs out — this only decides whether the button is on the screen.
 	hud.set_dive_offer(player.is_swimming, player.diving)
-	# The view is drawn from where the camera is, not from where the swimmer
-	# is: over the shoulder, a child's head goes under a second before the
-	# camera does, and tinting the whole world green while the camera is still
-	# in the air is a green flash across the middle of a dive.
-	var eye_under := world.places.submersion(camera_rig.camera.global_position)
-	world.atmosphere.go_under(eye_under, delta)
-	world.water.set_seen_from_below(eye_under > 0.0)
+	# Drawn from where the camera is, not where the swimmer is — see
+	# World.see_from.
+	world.see_from(camera_rig.camera.global_position, delta)
 
 	# A child on the swing or on the slide is carried. Both end on their own —
 	# there is no way to be stuck on a ride.
@@ -1315,14 +1319,41 @@ func _on_session_failed(reason: String) -> void:
 	hud.announce(reason, 4.0)
 
 func _on_remote_built(kind: StringName, at: Vector3, spin: float) -> void:
-	structures.place(kind, at, spin)
+	# Only things this version knows how to build. A brother on a newer copy of
+	# the game can build something this one has never heard of, and stored
+	# here it was asked about every frame by the build ghost — which then never
+	# went green again for the rest of the afternoon.
+	if not BuildKinds.INFO.has(kind) and not HouseParts.is_house_part(kind):
+		return
+	# Not paid for here: it came out of the other child's bag.
+	structures.place(kind, at, spin, false)
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
 
+## Somebody in the other valley took something down.
+##
+## Only something both valleys have — see Structures.sharing. And if it was
+## this child's own, built from their own bag, they get their materials back:
+## a wall a brother takes down is still a wall somebody paid for.
 func _on_remote_removed(at: Vector3) -> void:
-	var record := structures.nearest(at, 0.6)
-	if not record.is_empty():
-		structures.remove(record)
+	var record := structures.nearest_shared(at, 0.6)
+	if record.is_empty():
+		return
+	var paid := bool(record.get("paid", true))
+	var kind := structures.remove(record)
+	if kind == BuildKinds.CAMPFIRE:
+		_refresh_fires()
+	if paid and kind != &"":
+		_give_back(kind)
+
+## The materials a piece cost, back into the bag.
+func _give_back(kind: StringName) -> void:
+	var cost := (
+		HouseParts.cost(kind) if HouseParts.is_house_part(kind)
+		else BuildKinds.cost(kind)
+	)
+	for item in cost:
+		inventory.add(item, int(cost[item]))
 
 func _on_remote_felled(at: Vector3) -> void:
 	world.felled.fell(at)
@@ -1553,6 +1584,7 @@ func _fell_a_planted_tree(record: Dictionary) -> void:
 	var kind: StringName = record["kind"]
 	var at: Vector3 = record["position"]
 	var reward := BuildKinds.reward_for(kind)
+	var shared := bool(record.get("shared", false))
 	structures.remove(record)
 
 	# Floored at what there is, like the toll on a wild tree: being told "you
@@ -1568,8 +1600,13 @@ func _fell_a_planted_tree(record: Dictionary) -> void:
 	# report_felled alone told the other machine to fell a *wild* tree here: the
 	# pine a child had planted went on standing in their brother's valley, and a
 	# forest tree near it disappeared instead.
-	session.report_removed(at)
-	session.report_felled(at)
+	#
+	# And only if the other valley has this tree at all. A stump sent for a
+	# tree that was never over there felled whatever forest tree grew nearest
+	# the spot instead.
+	if shared:
+		session.report_removed(at)
+		session.report_felled(at)
 	world.vegetation.rebuild_around(at)
 	sounds.play(Sounds.Sound.REMOVE, 0.7)
 	hud.announce(
@@ -1829,6 +1866,8 @@ func _on_remove() -> void:
 		hud.announce(Text.of("say_nothing_here"))
 		return
 	var at: Vector3 = record["position"]
+	var shared := bool(record.get("shared", false))
+	var paid := bool(record.get("paid", true))
 	var kind := structures.remove(record)
 	if kind == BuildKinds.CAMPFIRE:
 		# A fire whose campfire has been taken down cannot go on burning.
@@ -1839,14 +1878,19 @@ func _on_remove() -> void:
 	# Session.report_removed() was written, and the other machine's handler for
 	# it was wired up, but nothing ever called it. A wall a child took down
 	# stayed standing in their brother's valley, solid enough to walk into.
-	session.report_removed(at)
+	#
+	# Only for something the other valley has. A piece from before the game
+	# together does not exist over there, and naming its place to the other
+	# phone is how a wall over there that merely stood in the same spot used to
+	# be taken down instead.
+	if shared:
+		session.report_removed(at)
 	sounds.play(Sounds.Sound.REMOVE)
-	var cost := (
-		HouseParts.cost(kind) if HouseParts.is_house_part(kind)
-		else BuildKinds.cost(kind)
-	)
-	for item in cost:
-		inventory.add(item, int(cost[item]))
+	# Back to whoever paid for it. A piece the brother built came out of his
+	# bag; taking it down here hands nothing to this child, or every wall built
+	# together could be taken down twice and paid for twice.
+	if paid:
+		_give_back(kind)
 	hud.announce(Text.format("say_took_back", [
 		HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
 	]), 1.6)

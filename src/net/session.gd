@@ -309,30 +309,61 @@ func report_time_of_day(fraction: float, to_peer := 0) -> void:
 # corrected by the next one a twelfth of a second later; `reliable` for the
 # things that change the valley, because a dropped house is a lost afternoon.
 
+## Is this a place in the valley, or something no machine running this game
+## would ever send?
+##
+## Everything here that arrives from another phone ends up stored — a piece in
+## the structures, a stump in the felled list — and from there written into the
+## world's save. A NaN or an infinity in that file is a file JSON cannot read
+## back, and a save that cannot be read is a valley that starts empty and is
+## then overwritten. So nothing that is not a finite place within reach of the
+## valley gets past this door.
+const BELIEVABLE_REACH := 20000.0
+
+static func believable(at: Vector3) -> bool:
+	return (
+		at.is_finite()
+		and absf(at.x) < BELIEVABLE_REACH
+		and absf(at.y) < BELIEVABLE_REACH
+		and absf(at.z) < BELIEVABLE_REACH
+	)
+
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_position(at: Vector3, facing: float) -> void:
+	if not believable(at) or not is_finite(facing):
+		return
 	var from := multiplayer.get_remote_sender_id()
 	guest_moved.emit(from, at, facing)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_built(kind: String, at: Vector3, spin: float) -> void:
+	if not believable(at) or not is_finite(spin):
+		return
 	remote_built.emit(StringName(kind), at, spin)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_removed(at: Vector3) -> void:
+	if not believable(at):
+		return
 	remote_removed.emit(at)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_felled(at: Vector3) -> void:
+	if not believable(at):
+		return
 	remote_felled.emit(at)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_dam_stick(site: float) -> void:
+	if not is_finite(site) or absf(site) > BELIEVABLE_REACH:
+		return
 	remote_dam_stick.emit(site)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_time_of_day(fraction: float) -> void:
-	remote_time_of_day.emit(fraction)
+	if not is_finite(fraction):
+		return
+	remote_time_of_day.emit(fposmod(fraction, 1.0))
 
 ## Names are exchanged once on arrival rather than sent with every message.
 @rpc("any_peer", "call_remote", "reliable")

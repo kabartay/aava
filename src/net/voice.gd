@@ -39,18 +39,48 @@ signal someone_spoke(id: int)
 ## mix rate, which matters on a tablet's wifi.
 const RATE := 11025
 
-## How many captured frames make one sent frame. Derived from the rate the
-## audio server is actually mixing at, not assumed.
+## How many captured frames make one sent frame, as the audio server is
+## actually mixing — which is a fraction, and has to be kept as one.
 ##
-## This was a constant 4, which is only right if the mix rate is 44,100 — and
-## nothing in this project sets a mix rate, so it is whatever the device hands
-## back. Android phones commonly mix at 48,000, where taking four frames at a
-## time produces 12,000 samples of speech a second and hands them to a stream
-## declared at 11,025: the voice comes out slow and low, and the extra ninth of
-## it overflows the playback buffer and is dropped. Which is to say it sounded
-## wrong in a way nobody could name.
-static func downsample() -> int:
-	return maxi(1, int(round(AudioServer.get_mix_rate() / float(RATE))))
+## This was a constant 4, which is only right at 44,100. It then became the mix
+## rate over RATE *rounded*, which was meant to fix the 48,000 Hz phones and did
+## not: 48,000 / 11,025 is 4.35, it rounds to 4, and those phones went on
+## sending 12,000 samples of speech a second into a stream that plays 11,025.
+## The voice came out an eighth slow and low, and the extra overflowed the
+## playback buffer and was dropped a word at a time — the very failure the note
+## here described as fixed. Most Android phones mix at 48,000.
+static func ratio() -> float:
+	return maxf(AudioServer.get_mix_rate() / float(RATE), 1.0)
+
+## How many captured frames the next packet needs, given where the last one
+## left off. Varies by one from packet to packet, because 4.35 frames do not
+## divide into whole ones.
+static func frames_for(step: float, phase: float) -> int:
+	return int(floor(phase + float(FRAMES_PER_PACKET) * step))
+
+## Stereo float frames at the mix rate become one packet of mono 16-bit at
+## RATE. `phase` is how far into the first frame the last packet stopped.
+##
+## Each sent sample is the average of the captured frames it spans rather than
+## one of them picked out: taking every fourth frame aliases, and the high end
+## folds down into the voice and it sounds like a robot.
+static func pack(frames: PackedVector2Array, step: float, phase: float) -> PackedByteArray:
+	var out := PackedByteArray()
+	out.resize(FRAMES_PER_PACKET * 2)
+	var last := frames.size() - 1
+	for i in FRAMES_PER_PACKET:
+		var from := int(floor(phase + float(i) * step))
+		var to := maxi(from + 1, int(floor(phase + float(i + 1) * step)))
+		var sum := 0.0
+		for at in range(from, to):
+			var frame := frames[mini(at, last)]
+			sum += (frame.x + frame.y) * 0.5
+		var value := clampf(sum / float(to - from), -1.0, 1.0)
+		out.encode_s16(i * 2, int(value * 32767.0))
+	return out
+
+## Where the next packet starts inside the first frame it is given.
+var _phase := 0.0
 
 ## How much audio goes in one packet. About a twentieth of a second, so a lost
 ## packet is a click rather than a missing word.
@@ -155,6 +185,8 @@ func start_talking() -> void:
 		return
 	_talking = true
 	_capture.clear_buffer()
+	# A new press is a new stream: nothing is left over from the last one.
+	_phase = 0.0
 	_microphone.play()
 	_hush_the_others(true)
 	talking_changed.emit(true)
@@ -182,27 +214,16 @@ func _process(_delta: float) -> void:
 		stop_talking()
 		return
 
-	var step_size := downsample()
-	var wanted := FRAMES_PER_PACKET * step_size
+	var step := ratio()
+	var wanted := frames_for(step, _phase)
 	while _capture.get_frames_available() >= wanted:
 		var frames := _capture.get_buffer(wanted)
-		_send_voice.rpc(_pack(frames, step_size))
-
-## Stereo float frames at the mix rate become mono 16-bit at a quarter of it.
-##
-## Averaged rather than sampled, because taking every fourth frame aliases:
-## high frequencies fold down into the voice and it sounds like a robot.
-func _pack(frames: PackedVector2Array, step_size: int) -> PackedByteArray:
-	var out := PackedByteArray()
-	out.resize(FRAMES_PER_PACKET * 2)
-	for i in FRAMES_PER_PACKET:
-		var sum := 0.0
-		for step in step_size:
-			var frame := frames[i * step_size + step]
-			sum += (frame.x + frame.y) * 0.5
-		var value := clampf(sum / float(step_size), -1.0, 1.0)
-		out.encode_s16(i * 2, int(value * 32767.0))
-	return out
+		_send_voice.rpc(pack(frames, step, _phase))
+		# The fraction of a frame this packet did not use is where the next
+		# one starts. Dropped, it is a ninth of a sample lost per packet, which
+		# adds up to the drift this replaced.
+		_phase = _phase + float(FRAMES_PER_PACKET) * step - float(wanted)
+		wanted = frames_for(step, _phase)
 
 ## Voice is sent unreliably: a lost packet is a click, and a resent one arrives
 ## after the word it belonged to and is worse than silence.

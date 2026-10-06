@@ -19,6 +19,19 @@ signal groves_changed(centres: Array)
 
 var field: HeightField
 
+## Whether what is built now also exists in somebody else's valley — true while
+## a game together is open. Set by the game.
+##
+## Two marks ride on every piece because two valleys are not one valley. The
+## other phone's world was never sent here, so a removal that arrives from it
+## names a *place*, and the only pieces it may take down are ones both phones
+## have: built by either child while they were playing together. Matched by
+## position alone, a brother taking down one of his own old walls took down
+## whatever wall stood in the same spot on this phone — a house part snaps to
+## a grid, so the same spot is likely — and the next autosave made it
+## permanent.
+var sharing := false
+
 var _records: Array[Dictionary] = []
 var _material: StandardMaterial3D
 var _grove_centres: Array = []
@@ -124,6 +137,31 @@ func nearest(world_position: Vector3, reach: float) -> Dictionary:
 			best = record
 	return best
 
+## The nearest piece that also stands in the other child's valley, or an empty
+## record. The only kind of piece a removal from the other phone may touch.
+func nearest_shared(world_position: Vector3, reach: float) -> Dictionary:
+	var best := {}
+	var best_distance := reach
+	for record in _records:
+		if not bool(record.get("shared", false)):
+			continue
+		var offset: Vector3 = record["position"] - world_position
+		offset.y *= 0.6
+		var distance := offset.length()
+		if distance <= best_distance:
+			best_distance = distance
+			best = record
+	return best
+
+## The game together is over: from now on nothing here is in anyone else's
+## valley, including what was built while it lasted. Kept per session rather
+## than saved, because the next game may be with a different brother whose
+## valley has none of it.
+func stop_sharing() -> void:
+	sharing = false
+	for record in _records:
+		record["shared"] = false
+
 ## The nearest tree a child planted that has finished growing, or an empty
 ## record. A sapling is not one: a young tree is taken back with the hands in
 ## build mode and the seed comes back, and an axe taken to something the height
@@ -164,7 +202,10 @@ func remove(record: Dictionary) -> StringName:
 	_recompute_groves()
 	return kind
 
-func place(kind: StringName, world_position: Vector3, spin: float) -> void:
+## `paid` is false for a piece that arrived from the other phone: it was built
+## out of the other child's bag, and taking it down must not hand this child
+## materials they never spent.
+func place(kind: StringName, world_position: Vector3, spin: float, paid := true) -> void:
 	var record := {
 		"kind": kind,
 		"position": world_position,
@@ -172,6 +213,10 @@ func place(kind: StringName, world_position: Vector3, spin: float) -> void:
 		"age": 0.0,
 		"stage": 0,
 		"node": null,
+		# Something from the other phone is shared by definition; something
+		# built here is shared if there is anyone to share it with.
+		"shared": sharing or not paid,
+		"paid": paid,
 	}
 	_records.append(record)
 	_spawn_node(record)
@@ -303,6 +348,7 @@ func to_data() -> Array:
 			"x": at.x, "y": at.y, "z": at.z,
 			"spin": record["spin"],
 			"age": record["age"],
+			"paid": bool(record.get("paid", true)),
 		})
 	return data
 
@@ -324,6 +370,9 @@ func from_data(data: Array) -> void:
 			"age": float(entry.get("age", 0.0)),
 			"stage": 0,
 			"node": null,
+			"shared": false,
+			# Everything saved before this mark existed was built by this child.
+			"paid": bool(entry.get("paid", true)),
 		}
 		if BuildKinds.INFO.has(kind) and BuildKinds.grows(kind):
 			record["stage"] = mini(

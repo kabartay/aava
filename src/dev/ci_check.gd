@@ -127,6 +127,8 @@ func _initialize() -> void:
 	_check_playing_together()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
+	_check_a_voice_keeps_its_pitch()
+	_check_two_valleys_stay_two_valleys()
 	_check_talking_can_be_switched_off()
 	_check_a_valley_survives_a_new_phone()
 	_check_felling_your_own_tree_costs_what_it_paid()
@@ -4464,6 +4466,25 @@ func _check_a_child_can_swim_down() -> void:
 		float(material.get_shader_parameter("from_below")) < 0.5,
 		"both ways round"
 	)
+
+	# Seen from underneath, the ceiling is daylight coming through the water,
+	# and has to be the brightest thing in view. Lit like a surface it faced
+	# away from the sun and came out darker than the riverbed — a dark lid on
+	# the river at noon.
+	var below_branch := Water.SHADER.substr(Water.SHADER.find("if (below)"))
+	below_branch = below_branch.substr(0, below_branch.find("} else {"))
+	_expect(
+		below_branch.contains("EMISSION"),
+		"from below, the surface glows with the light coming through it rather than waiting to be lit"
+	)
+	sheet.set_seen_from_below(true, 1.0)
+	var noon := float(material.get_shader_parameter("ceiling_light"))
+	sheet.set_seen_from_below(true, 0.0)
+	var midnight := float(material.get_shader_parameter("ceiling_light"))
+	_expect(
+		noon > midnight * 4.0 and midnight > 0.0,
+		"bright at noon (%.2f) and dim but not black at midnight (%.2f)" % [noon, midnight]
+	)
 	sheet.free()
 
 ## The one rule the whole game of football rests on.
@@ -7479,6 +7500,140 @@ func _check_talking_can_be_switched_off() -> void:
 	_expect(hud._talk_button.visible, "and comes back when it is switched on")
 	_expect(hud.voice_allowed(), "the switch remembers where it is")
 	hud.queue_free()
+
+## A voice arrives at the pitch it was spoken at, whatever the phone mixes at.
+##
+## The sender turns whatever the audio server captures into 11,025 samples a
+## second, and the receiver plays exactly that many. The two only agree if the
+## conversion is exact: it took four frames for one, then the mix rate over
+## 11,025 rounded — 4.35 to 4 on a 48 kHz phone, which sent 12,000 a second and
+## made every child sound slow, low and clipped. A tone is put through the real
+## packing code at each common mix rate and listened to on the far side.
+func _check_a_voice_keeps_its_pitch() -> void:
+	print("a voice keeps its pitch")
+	for mix_rate: float in [44100.0, 48000.0, 32000.0]:
+		var step := mix_rate / float(Voice.RATE)
+		var tone := 440.0
+		var seconds := 2.0
+		var captured := PackedVector2Array()
+		for i in int(mix_rate * seconds):
+			var v := sin(TAU * tone * float(i) / mix_rate) * 0.5
+			captured.append(Vector2(v, v))
+
+		var sent := PackedFloat32Array()
+		var phase := 0.0
+		var used := 0
+		while true:
+			var wanted := Voice.frames_for(step, phase)
+			if used + wanted > captured.size():
+				break
+			var packet := Voice.pack(captured.slice(used, used + wanted), step, phase)
+			for i in packet.size() / 2:
+				sent.append(float(packet.decode_s16(i * 2)) / 32767.0)
+			phase += float(Voice.FRAMES_PER_PACKET) * step - float(wanted)
+			used += wanted
+
+		var rate := float(sent.size()) / (float(used) / mix_rate)
+		_expect(
+			absf(rate - float(Voice.RATE)) < float(Voice.RATE) * 0.002,
+			"at %.0f Hz a phone sends %.0f samples a second, which is what the far side plays" % [
+				mix_rate, rate
+			]
+		)
+		var crossings := 0
+		for i in range(1, sent.size()):
+			if sent[i - 1] < 0.0 and sent[i] >= 0.0:
+				crossings += 1
+		var heard := float(crossings) / (float(sent.size()) / float(Voice.RATE))
+		_expect(
+			absf(heard - tone) < tone * 0.01,
+			"and a %.0f Hz tone spoken into it is heard at %.0f Hz" % [tone, heard]
+		)
+
+## Two valleys stay two valleys.
+##
+## Playing together does not merge anybody's world: each phone keeps its own,
+## and only what is built while the game together is open exists in both. A
+## removal from the other phone names a place, and matched by position alone it
+## took down whatever stood there on this phone — a wall this child built last
+## week, in a spot the brother's own old wall also happened to occupy — and the
+## autosave made the loss permanent.
+func _check_two_valleys_stay_two_valleys() -> void:
+	print("two valleys stay two valleys")
+	var field := HeightField.new(20260903)
+	var here := Structures.new(field)
+	var spot := Vector3(40.0, field.height_at(40.0, 40.0), 40.0)
+
+	# Last week, alone.
+	here.place(HouseParts.WALL, spot, 0.0)
+	_expect(
+		here.nearest_shared(spot, 0.6).is_empty(),
+		"a wall built alone is nobody else's — the other phone cannot take it down"
+	)
+
+	# Now together.
+	here.sharing = true
+	var beside := spot + Vector3(4.0, 0.0, 0.0)
+	here.place(HouseParts.WALL, beside, 0.0)
+	_expect(
+		not here.nearest_shared(beside, 0.6).is_empty(),
+		"a wall built while playing together is in both valleys"
+	)
+	var gift := spot + Vector3(8.0, 0.0, 0.0)
+	here.place(HouseParts.WALL, gift, 0.0, false)
+	var arrived := here.nearest_shared(gift, 0.6)
+	_expect(
+		not arrived.is_empty() and not bool(arrived["paid"]),
+		"and one that arrives from the other phone is shared, and not paid for here"
+	)
+
+	# Saved and loaded: the paying survives, the sharing does not — the next
+	# game together may be with somebody whose valley has none of it.
+	var reloaded := Structures.new(field)
+	reloaded.from_data(here.to_data())
+	_expect(
+		reloaded.nearest_shared(beside, 0.6).is_empty(),
+		"after a reload nothing is shared any more"
+	)
+	var kept := reloaded.nearest(gift, 0.6)
+	_expect(
+		not kept.is_empty() and not bool(kept["paid"]),
+		"but a piece that was a gift is still not this child's to be refunded for"
+	)
+	var own := reloaded.nearest(spot, 0.6)
+	_expect(
+		not own.is_empty() and bool(own["paid"]),
+		"and an old save's pieces count as paid for, which they were"
+	)
+
+	here.stop_sharing()
+	_expect(
+		here.nearest_shared(beside, 0.6).is_empty(),
+		"when the game together ends, nothing here is in anyone else's valley"
+	)
+	here.free()
+	reloaded.free()
+
+	# The game's own handler has to ask for a shared piece, not just a near one.
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var handler := loop.substr(loop.find("func _on_remote_removed"))
+	handler = handler.substr(0, handler.find("\nfunc ", 1))
+	_expect(
+		handler.contains("nearest_shared") and not handler.contains("structures.nearest("),
+		"and a removal from the other phone only ever looks among the shared pieces"
+	)
+
+	# Nothing from another phone is stored unless it is a real place.
+	_expect(Session.believable(Vector3(10.0, 2.0, -30.0)), "a place in the valley is believed")
+	_expect(not Session.believable(Vector3(NAN, 0.0, 0.0)), "a NaN is not")
+	_expect(not Session.believable(Vector3(0.0, INF, 0.0)), "nor an infinity")
+	_expect(not Session.believable(Vector3(1e9, 0.0, 0.0)), "nor somewhere a billion metres away")
+
+	# And the beavers only build where a dam can stand.
+	var dams := Dams.new(field)
+	_expect(not dams.deliver(12.345), "a stick handed in at no dam site is refused")
+	_expect(dams.deliver(DamSpec.SITES[0]), "and one at a real site is taken")
+	dams.free()
 
 func _check_voice_is_safe() -> void:
 	print("voice is push-to-talk and goes nowhere else")

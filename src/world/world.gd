@@ -196,6 +196,20 @@ var _last_centre := Vector3.ZERO
 ## Set by the game each frame; empty on foot.
 var riding := &""
 
+## Draw the valley as it looks from `eye` — in the air, or under the water.
+##
+## Asked of the eye and not of the child: over the shoulder a swimmer's head
+## goes under a moment before the camera does, and tinting the world green
+## while the camera is still in the air is a green flash across a dive.
+##
+## Here rather than in the game loop because the screenshot tool has to show
+## the same thing the game shows, and the two wiring this separately is how
+## every screenshot of the far country once came out with a bare horizon.
+func see_from(eye: Vector3, delta: float) -> void:
+	var under := places.submersion(eye)
+	atmosphere.go_under(under, delta)
+	water.set_seen_from_below(under > 0.0, 1.0 - atmosphere.darkness())
+
 func follow(world_position: Vector3) -> void:
 	_last_centre = world_position
 	# Each step timed for the perf log, which names the slowest of a window:

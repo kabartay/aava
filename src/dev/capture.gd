@@ -384,6 +384,10 @@ func _wait_for_world() -> void:
 	# build ghost has been aimed at least once.
 	for _i in 6:
 		_world.atmosphere.set_time(_time)
+		# What the game does every frame: a camera put under the river has to
+		# show the river, not the valley through clear air.
+		if _camera != null:
+			_world.see_from(_camera.global_position, 1.0)
 		if _build and _player != null:
 			_build_mode.aim(_player.global_position, _rig.yaw)
 		await RenderingServer.frame_post_draw

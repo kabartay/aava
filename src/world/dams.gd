@@ -50,9 +50,18 @@ func sticks_at(site: float) -> int:
 	return int(progress.get(site, 0))
 
 ## Hand a stick to the beavers. Returns true if it was taken.
+##
+## Only at one of the places a dam can stand. A site is a number, and numbers
+## also arrive from the other phone: anything that was not one of DamSpec's
+## own sites raised a wall of sticks across the river wherever it pointed, and
+## dug a pond out of the valley floor to go with it.
 func deliver(site: float) -> bool:
 	if is_nan(site) or is_built(site):
 		return false
+	var known := DamSpec.nearest_site(site, 0.01)
+	if is_nan(known):
+		return false
+	site = known
 	var carried := sticks_at(site) + 1
 	progress[site] = carried
 	stick_delivered.emit(site, carried, DamSpec.STICKS_NEEDED)
