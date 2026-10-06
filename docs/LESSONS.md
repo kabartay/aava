@@ -508,3 +508,32 @@ on anything the game moves itself every drawn frame. The mode is inherited down
 the tree — but through the *tree*, not through the transform, so a `top_level`
 child (the camera) needs its own. A check walks the nodes that animate in
 `_process` and asserts it.
+
+## A pitch that changes is a phase that accumulates
+
+`sin(TAU * f * t)` is right for a constant `f` and wrong for any other. The
+pitch a listener hears is the rate of change of the phase, and the derivative
+of `f(t) * t` is `f(t) + t * f'(t)`: a sweep written that way is heard sweeping
+twice as far as it was told to, and a vibrato's depth grows with every sample.
+Five sounds here had it — a bark meant to fall from 280 to 170 cycles fell to
+60, which a phone cannot play, and a bird's two-percent wobble grew into a
+siren. The fix is to carry the phase: `phase += TAU * f / RATE` and `sin(phase)`.
+A check rejects the old shapes by pattern.
+
+## A phone is not a speaker below about 250 cycles
+
+The game's sounds are judged on a laptop and heard on a phone, and a phone's
+speaker gives back almost nothing below a few hundred cycles. The sound for
+"no" was a pair of pure tones at 175 and 165 — played more than twenty times in
+the game, and on the device it is played on, very nearly silence. Nothing that
+matters goes below `Sounds.SPEAKER_FLOOR`, and every tone carries its second
+and third harmonics: the ear rebuilds a low note from them even where the note
+itself is lost, which is what keeps a tone played at three-quarters pitch from
+vanishing. A check reads the recipes.
+
+## A count needs a position, and a position needs a check
+
+Several checks in this file once counted things and asked if they worked — the
+lamps were all there and all lit — while two of them were 470 metres from the
+shop they were meant to light. The arithmetic of a thing and the place it ends
+up are two different facts. Where a check can ask where something is, it does.

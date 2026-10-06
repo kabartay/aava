@@ -332,6 +332,8 @@ func _make_engine() -> AudioStreamWAV:
 
 func _voice(stream: AudioStreamWAV) -> AudioStreamPlayer:
 	var player := AudioStreamPlayer.new()
+	# The valley's own sound, so it goes dull under water — see Mix.
+	player.bus = Mix.WORLD
 	player.stream = stream
 	# Silent until the world says otherwise, so nothing blares on the first
 	# frame before anyone has said where the player is standing.
@@ -683,29 +685,39 @@ func _make_water() -> AudioStreamWAV:
 		var loudness := noise.randf_range(0.10, 0.34)
 		var wander := 0.0
 		var wander_last := 0.0
+		var phase := 0.0
 		for i in length:
 			var progress := float(i) / float(length)
-			var t := float(i) / float(RATE)
 			# Quick to speak, slow to die: a bubble does not fade in.
 			var envelope := minf(progress * 12.0, 1.0) * pow(1.0 - progress, 1.6)
 			var note := pitch * (1.0 + (climb - 1.0) * progress)
+			# Carried from sample to sample. Written as note times time, a note
+			# that climbs is heard climbing twice as far as it was told to —
+			# the pitch heard is how fast that product changes — and the
+			# bubbles squealed up past six kilohertz.
+			phase += TAU * note / float(RATE)
 			wander = lerpf(wander, noise.randf_range(-1.0, 1.0), 0.40)
 			var edge := wander - wander_last
 			wander_last = wander
 			# Wrapped round the end of the loop rather than cut off there, so
 			# the last second of water is as busy as the first.
-			values[(start + i) % samples] += (sin(TAU * note * t) * 0.7 + edge * 0.5) * envelope * loudness
+			values[(start + i) % samples] += (sin(phase) * 0.7 + edge * 0.5) * envelope * loudness
 
 	# Glugs: the deeper, rarer knock of water folding over itself in a hollow.
+	#
+	# Deep for a phone rather than deep in fact. They sat at ninety to a
+	# hundred and ninety cycles, which a phone's speaker does not play at all,
+	# so they were nine silent sounds in every loop of the river.
 	for _glug in 9:
 		var start := noise.randi_range(0, samples - 1)
 		var length := int(RATE * noise.randf_range(0.10, 0.20))
-		var pitch := noise.randf_range(90.0, 190.0)
+		var pitch := noise.randf_range(260.0, 420.0)
+		var phase := 0.0
 		for i in length:
 			var progress := float(i) / float(length)
-			var t := float(i) / float(RATE)
 			var envelope := minf(progress * 8.0, 1.0) * pow(1.0 - progress, 2.2)
-			values[(start + i) % samples] += sin(TAU * pitch * (1.0 + 0.5 * progress) * t) * envelope * 0.22
+			phase += TAU * pitch * (1.0 + 0.5 * progress) / float(RATE)
+			values[(start + i) % samples] += sin(phase) * envelope * 0.22
 
 	return _wrap(_join_ends(values, samples, fade))
 
@@ -730,6 +742,7 @@ func _make_birds() -> AudioStreamWAV:
 		var bend := rng.randf_range(-0.30, 0.42)
 		var length := int(RATE * rng.randf_range(0.06, 0.13))
 		var wobble := rng.randf_range(18.0, 34.0)
+		var phase := 0.0
 		for i in length:
 			var progress := float(i) / float(length)
 			var t := float(i) / float(RATE)
@@ -739,7 +752,11 @@ func _make_birds() -> AudioStreamWAV:
 			# Vibrato, and a quiet second harmonic. A pure sine is the one sound
 			# nothing in a wood makes.
 			var frequency := pitch * (1.0 + bend * progress) * (1.0 + 0.02 * sin(TAU * wobble * t))
-			var tone := sin(TAU * frequency * t) + 0.28 * sin(TAU * frequency * 2.0 * t)
+			# Carried phase. Frequency times time doubles the bend and lets
+			# the vibrato grow with every sample, until a two-percent wobble
+			# was a swing of more than half the note: the birds were sirens.
+			phase += TAU * frequency / float(RATE)
+			var tone := sin(phase) + 0.28 * sin(phase * 2.0)
 			var at := start + i
 			if at < samples:
 				values[at] += tone * envelope * 0.34

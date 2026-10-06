@@ -122,6 +122,8 @@ func _ready() -> void:
 		inventory.from_data(save["inventory"])
 
 	# Sound is created before the world, so the very first pickup is audible.
+	# Before anything that makes a sound, so every player finds its bus.
+	Mix.build()
 	sounds = Sounds.new()
 	add_child(sounds)
 
@@ -289,8 +291,12 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 			)
 
 	world.archery.hit_target.connect(_on_arrow_hit)
+	# A miss is not a refusal. The arrow stands in the ground and says where it
+	# went; the line says what to try. The sound for "no" said a third thing —
+	# that a child had done something wrong — and at seven-tenths pitch it was
+	# too low for the phone to play anyway.
 	world.archery.missed.connect(func() -> void:
-		sounds.play(Sounds.Sound.REFUSE, 0.7)
+		sounds.play(Sounds.Sound.LAND, 0.9)
 		hud.announce(Text.of("say_missed"), 1.8))
 
 	world.animals.cared_for.connect(func(_kind: StringName, _coins: int, _at: Vector3) -> void: pass)
@@ -838,6 +844,16 @@ func _process(delta: float) -> void:
 	# Drawn from where the camera is, not where the swimmer is — see
 	# World.see_from.
 	world.see_from(camera_rig.camera.global_position, delta)
+	# And heard from there too: the same eased amount, so the ear goes under at
+	# the moment the eye does.
+	Mix.muffle(world.atmosphere.under_water())
+	# The surface is crossed with a sound, both ways. A dive was silent: the
+	# picture went green and the ear was told nothing, so going under felt like
+	# a camera trick rather than something done to water.
+	var eye_under := world.atmosphere.under_water() > 0.5
+	if eye_under != _eye_was_under:
+		_eye_was_under = eye_under
+		sounds.play(Sounds.Sound.SPLASH, 0.85 if eye_under else 1.15)
 
 	# A child on the swing or on the slide is carried. Both end on their own —
 	# there is no way to be stuck on a ride.
@@ -1774,6 +1790,8 @@ const HELD_SETTLES := 9.0
 ## down. Long enough that crossing a lip is not an ejection, short enough that
 ## nobody rides up a cliff.
 const STUCK_GROUND := 0.45
+## Whether the camera was under the surface last frame, so crossing it is heard.
+var _eye_was_under := false
 var _bad_ground := 0.0
 var _held_last := Player.NOT_HELD
 

@@ -56,6 +56,8 @@ const GREET_FORGET := 10.0
 ## was greeted by every sheep they passed within five metres of would be
 ## walking through an alarm rather than a meadow.
 var _greeted: Dictionary = {}
+## How many hellos have been said. For the checks.
+var greetings := 0
 
 ## How many can be speaking at once. Beyond a handful it is a chorus.
 const VOICES := 4
@@ -86,6 +88,8 @@ func _init() -> void:
 	# call to play indexed an empty array and gave up.
 	for _i in VOICES:
 		var player := AudioStreamPlayer3D.new()
+		# In the valley, so heard through the water when under it — see Mix.
+		player.bus = Mix.WORLD
 		player.max_distance = AUDIBLE
 		player.unit_size = 6.0
 		player.volume_db = -8.0
@@ -188,6 +192,20 @@ func _greet(near: Array[Dictionary], listener: Vector3) -> void:
 		return
 	var node: Node3D = closest["node"]
 	_greeted[node.get_instance_id()] = true
+	# One hello for the company, not one each. "Only the nearest" was true of
+	# a frame and not of an arrival: once the nearest had been greeted, the
+	# next frame greeted the next nearest, and walking into six cows grazing
+	# together was six moos in a tenth of a second. Everybody else in reach
+	# counts as having said hello through the one that did.
+	for animal in near:
+		var other = animal.get("node")
+		if other == null or not is_instance_valid(other):
+			continue
+		if (other as Node3D).global_position.distance_to(listener) < GREET:
+			_greeted[(other as Node3D).get_instance_id()] = true
+	# And the idle chatter waits its turn rather than landing on top of it.
+	_wait = maxf(_wait, 2.0)
+	greetings += 1
 	_play(closest["kind"], node.global_position, _rng.randf_range(0.95, 1.06))
 
 ## Say something, from where the creature is. Used directly for the purr, and by
@@ -307,13 +325,23 @@ func _bark() -> AudioStreamWAV:
 		var start := int(RATE * (0.0 if pair == 0 else 0.19))
 		var length := int(RATE * 0.13)
 		var carried := 0.0
+		var phase := 0.0
 		for i in length:
 			var progress := float(i) / float(length)
 			# Very fast in, slower out: the shape of something shouted.
 			var envelope := minf(progress * 26.0, 1.0) * pow(1.0 - progress, 1.9)
 			carried = lerpf(carried, noise.randf_range(-1.0, 1.0), 0.55)
 			# A voiced tone under the noise, dropping — the growl inside a bark.
-			var tone := sin(TAU * (280.0 - 110.0 * progress) * float(i) / float(RATE))
+			#
+			# The phase is carried from sample to sample rather than worked out
+			# as frequency times time. With a frequency that changes, that
+			# product is not the pitch you hear — its rate of change is, and it
+			# runs at twice the slope: a growl meant to fall from 280 to 170
+			# fell to 60, which a phone does not play at all. The second
+			# harmonic is there for the same speaker: the ear hears the low
+			# note from it even where the low note itself is lost.
+			phase += TAU * (280.0 - 110.0 * progress) / float(RATE)
+			var tone := sin(phase) * 0.8 + sin(phase * 2.0) * 0.3
 			var at := start + i
 			if at < samples:
 				values[at] += (carried * 0.55 + tone * 0.45) * envelope * 0.85
@@ -348,11 +376,17 @@ func _grunt() -> AudioStreamWAV:
 	var noise := RandomNumberGenerator.new()
 	noise.seed = 9021
 	var carried := 0.0
+	var phase := 0.0
 	for i in samples:
 		var progress := float(i) / float(samples)
 		var envelope := minf(progress * 12.0, 1.0) * pow(1.0 - progress, 1.6)
 		carried = lerpf(carried, noise.randf_range(-1.0, 1.0), 0.28)
-		var tone := sin(TAU * (150.0 - 40.0 * progress) * float(i) / float(RATE))
+		# Carried phase, for the reason given in _bark. And pitched up where a
+		# phone can play it: a grunt from 150 down to 110 is a grunt nobody
+		# holding the phone hears, so the voice sits a little higher and leans
+		# on its upper harmonics for the depth.
+		phase += TAU * (240.0 - 60.0 * progress) / float(RATE)
+		var tone := sin(phase) * 0.55 + sin(phase * 2.0) * 0.3 + sin(phase * 3.0) * 0.15
 		values[i] = (carried * 0.4 + tone * 0.6) * envelope * 0.7
 	return _to_stream(values)
 

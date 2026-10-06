@@ -128,6 +128,8 @@ func _initialize() -> void:
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
 	_check_a_voice_keeps_its_pitch()
+	_check_every_sound_reaches_a_phone()
+	_check_the_mix_holds_together()
 	_check_two_valleys_stay_two_valleys()
 	_check_a_sold_machine_stays_sold()
 	_check_talking_can_be_switched_off()
@@ -7839,6 +7841,112 @@ func _check_a_sold_machine_stays_sold() -> void:
 	)
 	mounts.queue_free()
 
+## Every sound is somewhere a phone's speaker can play it, and sweeps where it
+## was told to.
+##
+## A phone's speaker gives back little below about 250 cycles. The sound for
+## "no", used twenty times, was a pair of pure tones at 175 and 165 — played on
+## the device, mostly silence. And five sounds swept twice as far as written:
+## sin(TAU * f * t) with an f that changes is not heard at f, it is heard at
+## how fast f·t changes, which runs at twice the slope. A bark meant to fall to
+## 170 fell to 60, and the birds' two-percent vibrato grew into sirens.
+func _check_every_sound_reaches_a_phone() -> void:
+	print("every sound reaches a phone")
+	_expect(
+		Sounds.SCALE[0] >= Sounds.SPEAKER_FLOOR,
+		"the lowest note of the scale, %.0f Hz, is one a phone plays" % Sounds.SCALE[0]
+	)
+	var source := _code_only(FileAccess.get_file_as_string("res://src/audio/sounds.gd"))
+	var recipes := source.substr(source.find("func _build("))
+	recipes = recipes.substr(0, recipes.find("\nfunc ", 1))
+	var too_low: Array[String] = []
+	var number := RegEx.new()
+	number.compile("_tone\\(\\[([^\\]]*)\\]")
+	for found in number.search_all(recipes):
+		for part in found.get_string(1).split(","):
+			var text := part.strip_edges()
+			if text.is_valid_float() and float(text) < Sounds.SPEAKER_FLOOR:
+				too_low.append(text)
+	_expect(
+		too_low.is_empty(),
+		"no tone is built on a pitch below %.0f Hz%s" % [
+			Sounds.SPEAKER_FLOOR, "" if too_low.is_empty() else " — " + ", ".join(too_low)
+		]
+	)
+	var tone := source.substr(source.find("func _tone("))
+	tone = tone.substr(0, tone.find("\nfunc ", 1))
+	_expect(
+		tone.contains("phase * 2.0") and tone.contains("phase * 3.0"),
+		"and every tone carries its harmonics, so it is still heard at three-quarters pitch"
+	)
+
+	# The sweep fault, by the shape it took. A frequency that varies has to be
+	# accumulated into a phase; multiplied by time it is heard at twice the
+	# bend it was given.
+	var doubled := RegEx.new()
+	doubled.compile("sin\\(TAU \\* (\\([^)]*progress[^)]*\\)|frequency|note) \\* (t|float\\(i\\) / float\\(RATE\\))\\)")
+	var offenders: Array[String] = []
+	for file: String in ["sounds.gd", "ambience.gd", "animal_voices.gd"]:
+		var code := _code_only(FileAccess.get_file_as_string("res://src/audio/" + file))
+		for found in doubled.search_all(code):
+			offenders.append("%s: %s" % [file, found.get_string()])
+	_expect(
+		offenders.is_empty(),
+		"no changing pitch is written as frequency times time%s" % [
+			"" if offenders.is_empty() else " — " + "; ".join(offenders)
+		]
+	)
+
+## Where sounds go: nothing clips, and the valley goes dull under water while
+## the interface and the other children do not.
+func _check_the_mix_holds_together() -> void:
+	print("the mix holds together")
+	Mix.build()
+	Mix.build()
+	var master := AudioServer.get_bus_index(&"Master")
+	var limiters := 0
+	for i in AudioServer.get_bus_effect_count(master):
+		if AudioServer.get_bus_effect(master, i) is AudioEffectHardLimiter:
+			limiters += 1
+	_expect(limiters == 1, "the speaker is behind exactly one limiter, however often the mix is built")
+	var world := AudioServer.get_bus_index(Mix.WORLD)
+	_expect(world >= 0, "the valley's own sounds have a bus of their own")
+	_expect(
+		AudioServer.get_bus_send(world) == &"Master",
+		"which still reaches the speaker through the limiter"
+	)
+
+	Mix.muffle(0.0)
+	_expect(Mix.world_cutoff() >= Mix.OPEN_CUTOFF, "in the air, the valley is heard as it is")
+	Mix.muffle(1.0)
+	_expect(
+		absf(Mix.world_cutoff() - Mix.UNDER_CUTOFF) < 1.0,
+		"under water it goes dull, to %.0f Hz" % Mix.world_cutoff()
+	)
+	_expect(
+		Mix.UNDER_CUTOFF > Sounds.SPEAKER_FLOOR,
+		"but not so dull that a phone plays nothing of it"
+	)
+	Mix.muffle(0.5)
+	var halfway := Mix.world_cutoff()
+	_expect(
+		halfway < Mix.OPEN_CUTOFF * 0.25 and halfway > Mix.UNDER_CUTOFF * 2.0,
+		"and closes in octaves rather than in cycles (%.0f Hz halfway)" % halfway
+	)
+	Mix.muffle(0.0)
+
+	# Who goes where. The interface and the voices are not in the valley.
+	for file: String in ["ambience.gd", "animal_voices.gd"]:
+		var code := _code_only(FileAccess.get_file_as_string("res://src/audio/" + file))
+		_expect(code.contains("bus = Mix.WORLD"), "%s sounds in the valley" % file)
+	var interface := _code_only(FileAccess.get_file_as_string("res://src/audio/sounds.gd"))
+	_expect(not interface.contains("Mix.WORLD"), "the interface's own sounds stay clear under water")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.find("Mix.build()") >= 0 and game.find("Mix.build()") < game.find("Sounds.new()"),
+		"and the mix is built before anything that makes a sound"
+	)
+
 func _check_voice_is_safe() -> void:
 	print("voice is push-to-talk and goes nowhere else")
 	var source := _code_only(FileAccess.get_file_as_string("res://src/net/voice.gd"))
@@ -8190,6 +8298,26 @@ func _check_an_animal_greets_you_once() -> void:
 		AnimalVoices.GREET < AnimalVoices.GREET_FORGET,
 		"there is hysteresis between noticing and forgetting"
 	)
+
+	# A herd says hello once. "Only the nearest" used to hold for a frame and
+	# not for an arrival, so six cows grazing together gave six moos on six
+	# consecutive frames.
+	var company: Array[Dictionary] = []
+	for i in 6:
+		var each := Node3D.new()
+		get_root().add_child(each)
+		each.global_position = Vector3(40.0 + float(i) * 0.8, 0.0, 0.0)
+		company.append({"kind": &"cow", "node": each})
+	var said := voices.greetings
+	var among := Vector3(42.0, 0.0, 1.5)
+	for frame in 10:
+		voices._greet(company, among)
+	_expect(
+		voices.greetings - said == 1,
+		"walking into six cows together is one moo, not %d" % (voices.greetings - said)
+	)
+	for each in company:
+		(each["node"] as Node3D).queue_free()
 
 	cow.queue_free()
 	voices.queue_free()

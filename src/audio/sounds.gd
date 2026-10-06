@@ -23,6 +23,14 @@ const RATE := 22050
 ## A plain typed array, not a PackedFloat32Array: a packed array constructor is
 ## not a constant expression in GDScript, and the error names the constant
 ## rather than the constructor.
+## What a partial and its harmonics add up to at their peak, so adding the
+## harmonics does not make anything louder than it was.
+const HARMONIC_SUM := 1.42
+
+## The lowest pitch anything here should rely on. Below it a phone's speaker
+## plays little or nothing.
+const SPEAKER_FLOOR := 250.0
+
 const SCALE: Array[float] = [
 	261.63, 293.66, 329.63, 392.00, 440.00,
 	523.25, 587.33, 659.25, 784.00, 880.00,
@@ -81,8 +89,14 @@ func _build(sound: Sound) -> AudioStreamWAV:
 		Sound.REMOVE:
 			return _tone([SCALE[2], SCALE[0]], 0.16, 0.45)
 		Sound.REFUSE:
-			# Low and short. Not a buzzer: being told no should not startle.
-			return _tone([174.61, 164.81], 0.14, 0.35)
+			# Low and short, and falling. Not a buzzer: being told no should
+			# not startle.
+			#
+			# Low for this game's scale, not low in fact. It was 175 and 165
+			# cycles, pure, and played lower still at a call or two — down to
+			# 120 — which a phone's speaker does not reproduce: the most used
+			# answer in the game was, on the device it is played on, silence.
+			return _tone([SCALE[1], SCALE[0]], 0.16, 0.4, true)
 		Sound.KICK:
 			return _thump(0.09)
 		Sound.GOAL:
@@ -148,7 +162,13 @@ func _tone(partials: Array, seconds: float, volume: float, rising := false) -> A
 				# Each partial enters a little later than the last.
 				var entry := float(p) / float(partials.size()) * 0.6
 				weight *= clampf((progress - entry) * 6.0, 0.0, 1.0)
-			value += sin(TAU * frequency * t) * weight
+			# Each partial with its second and third harmonic. On a phone's
+			# speaker the fundamental of a low note is mostly gone, and the ear
+			# rebuilds it from the harmonics above — so a note with none is a
+			# note that vanishes when it is played at three-quarters pitch,
+			# which several of these are.
+			var phase := TAU * frequency * t
+			value += (sin(phase) + 0.30 * sin(phase * 2.0) + 0.12 * sin(phase * 3.0)) * weight / HARMONIC_SUM
 		value = value / float(partials.size()) * envelope * volume
 		_write(data, i, value)
 	return _wav(data)
