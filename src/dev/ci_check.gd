@@ -7148,6 +7148,16 @@ func _check_one_thing_a_day() -> void:
 		and game.count("_show_the_state()") >= 2,
 		"when the game opens and every time the interface is rebuilt"
 	)
+	# A question is only open while what asked it is near, and only on the
+	# interface it was asked on.
+	_expect(
+		rebuild.contains("_asked = &\"\""),
+		"a rebuilt interface starts with no question the game thinks is still open"
+	)
+	_expect(
+		game.contains("if _asked == &\"buy\" and not world.park.at_the_booth("),
+		"and walking away from the ticket kiosk takes its question away"
+	)
 	var line := game.substr(game.find("func _task_line"))
 	line = line.substr(0, line.find("\nfunc ", 1))
 	_expect(
@@ -8654,6 +8664,91 @@ func _check_context_buttons_never_overlap() -> void:
 	# _ready() runs deferred, not within add_child(), same as in the real game —
 	# and _layout() needs get_viewport(), which only exists once it has. One
 	# frame is what the running game gets for free; a script has to ask for it.
+	await process_frame
+
+	# The house tab on a sixteen-by-nine phone. Nine house parts do not fit
+	# between the stick and the buttons there, so the row goes up one — and
+	# it went up one from wherever the last layout had left it, every layout,
+	# and the floor indicator lays the screen out every frame while building.
+	#
+	# Laid out at the two shapes the game is actually played at: a 16:9 phone,
+	# and a 20:9 one, which canvas_items/expand turns into 1280 and 1600 wide.
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	for wide: int in [1280, 1600]:
+		window.size = Vector2i(wide, 720)
+		window.content_scale_size = Vector2i(wide, 720)
+		await process_frame
+		hud.set_building(true)
+		hud._show_house(true)
+		var view := hud.get_viewport().get_visible_rect().size
+		hud._layout()
+		var first_y := hud._palette.position.y
+		for i in 20:
+			hud._layout()
+		_expect(
+			is_equal_approx(hud._palette.position.y, first_y),
+			"at %.0fx%.0f the house parts stay put however often the screen is laid out (%.0f, then %.0f)" % [
+				view.x, view.y, first_y, hud._palette.position.y
+			]
+		)
+		_expect(
+			hud._palette.position.y > 0.0 and hud._palette.position.y + Hud.BUTTON <= view.y,
+			"and are on the screen, at %.0f of %.0f" % [hud._palette.position.y, view.y]
+		)
+		_expect(hud._tabs.position.y > 0.0, "with the tabs above them, on the screen too")
+		hud._show_house(false)
+		hud.set_building(false)
+	# The map, at each of its sizes, at both shapes of phone: never over the
+	# stick or the talk button. Opened up it used to grow down out of the
+	# corner over both, so pressing talk made the map bigger and the whole
+	# valley lay on the stick a child needed to walk to what it showed.
+	var map := Minimap.new(HeightField.new(20260903))
+	hud.attach_minimap(map)
+	hud.set_voice(true, false)
+	for wide: int in [1280, 1600]:
+		window.size = Vector2i(wide, 720)
+		window.content_scale_size = Vector2i(wide, 720)
+		await process_frame
+		map.show_map()
+		for opened in 3:
+			hud._layout()
+			var drawn := Rect2(map.position, map.size)
+			var stick := Rect2(hud._stick.position, hud._stick.size)
+			var talk := Rect2(hud._talk_button.position, hud._talk_button.size)
+			_expect(
+				not drawn.intersects(stick) and not drawn.intersects(talk),
+				"at %d wide the %s map leaves the stick and the talk button uncovered" % [
+					wide, ["small", "large", "whole-valley"][opened]
+				]
+			)
+			# A tap on the map is what makes it bigger.
+			var tap := InputEventScreenTouch.new()
+			tap.pressed = true
+			map._gui_input(tap)
+		map.hide_map()
+
+		# The shop, with something already owned tapped: the buying and the
+		# selling-back buttons both appear, and the panel has to stay on the
+		# screen. It grew downwards from where it had been centred and put
+		# "back" off the bottom.
+		hud.set_shop_open(true, 500, {ShopStock.BICYCLE: 1})
+		await process_frame
+		hud._shop_tapped(ShopStock.BICYCLE)
+		for settle in 3:
+			await process_frame
+		var shop := Rect2(hud._shop.position, hud._shop.size)
+		var screen := Rect2(Vector2.ZERO, hud.get_viewport().get_visible_rect().size)
+		_expect(
+			screen.encloses(shop),
+			"at %d wide the shop stays on the screen after an owned thing is tapped (%.0f to %.0f of %.0f)" % [
+				wide, shop.position.y, shop.end.y, screen.size.y
+			]
+		)
+		hud.set_shop_open(false, 500, {})
+	window.size = was_size
+	window.content_scale_size = was_content
 	await process_frame
 
 	# The combination that actually happens: a fire built next to a bed.

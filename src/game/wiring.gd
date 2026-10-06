@@ -38,6 +38,15 @@ static func connect_hud(
 	hud.camera_zoomed.connect(camera_rig.zoom)
 	hud.build_toggled.connect(build_mode.set_active)
 	hud.build_selected.connect(build_mode.select)
+	# Changing tab changes what is being built, when what was chosen is not on
+	# the tab now showing. The tab was announced and nothing listened: a child
+	# who turned to the house parts still had a sapling chosen, every house
+	# part greyed out as though none could be afforded, and a tap on the
+	# ground planted a tree while they were looking at walls.
+	hud.build_tab.connect(func(house: bool) -> void:
+		if HouseParts.is_house_part(build_mode.selected) == house:
+			return
+		build_mode.select(HouseParts.ALL[0] if house else BuildKinds.ALL[0]))
 	build_mode.preview_changed.connect(hud.set_build_state)
 
 	hud.build_place.connect(handlers.get(&"place", Callable()))

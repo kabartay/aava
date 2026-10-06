@@ -488,6 +488,13 @@ func _physics_process(delta: float) -> void:
 		if _asked == &"ride":
 			_asked = &""
 			hud.stop_asking()
+	# And the ticket kiosk's question goes when the child walks away from the
+	# kiosk, like every other question here. Only the rides' questions were
+	# ever withdrawn, so "buy a ticket?" followed a child across the valley
+	# until it was answered.
+	if _asked == &"buy" and not world.park.at_the_booth(player.global_position):
+		_asked = &""
+		hud.stop_asking()
 	# The ticket stays good until it is used or the child walks away from the
 	# ride: paying and then missing the train should not cost a coin.
 	if not ParkSpec.inside(player.global_position.x, player.global_position.z):
@@ -1030,6 +1037,12 @@ func _connect_the_rest_of_the_hud() -> void:
 
 func _rebuild_hud() -> void:
 	var was_building := build_mode.active
+	# A question open on the old interface is not open on the new one, and the
+	# game believing otherwise ignored every ride's button until the question
+	# that was no longer on the screen was somehow answered. Walking back up to
+	# whatever asked it asks again.
+	_asked = &""
+	_asked_ride = &""
 	if hud != null:
 		hud.queue_free()
 	hud = Hud.new()

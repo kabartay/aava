@@ -423,6 +423,12 @@ func _init() -> void:
 
 	_shop = _build_shop()
 	add_child(_shop)
+	# Centred by its own size, which changes when a thing is tapped and the
+	# buying and selling buttons appear under it. Nothing laid the screen out
+	# again then, so the panel grew downwards from where it had been centred,
+	# and tapping a bicycle a child already owned pushed "back" off the bottom
+	# of the screen.
+	_shop.resized.connect(_layout)
 
 	_menu_button = _icon_button(ActionIcon.Kind.SETTINGS)
 	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
@@ -660,6 +666,11 @@ func _build_menu() -> VBoxContainer:
 	door.pressed.connect(func() -> void:
 		_menu.visible = false
 		_danger.visible = true
+		# Over the map, for the reason the menu is: this room opens in the same
+		# corner as the map, and came up underneath it with half of the warning
+		# and the button to hold covered — and holding there grew the map
+		# over the rest of it.
+		_danger.move_to_front()
 		_layout())
 	column.add_child(door)
 	return column
@@ -1407,6 +1418,9 @@ func set_ball_in_reach(in_reach: bool, throwing := false) -> void:
 func attach_minimap(minimap: Minimap) -> void:
 	_minimap = minimap
 	add_child(minimap)
+	# Where the map goes depends on how big it is, and it changes size by
+	# itself when tapped.
+	minimap.resized.connect(_layout)
 	_layout()
 
 func track_map(world_position: Vector3, yaw: float, built: Array[Vector3]) -> void:
@@ -1425,15 +1439,20 @@ func set_task(instruction: String) -> void:
 ## part. Includes the hint the first time a player is on the ground floor, since
 ## that is when knowing you can go up is useful.
 func set_storey(storey: int, showing: bool) -> void:
-	_storey_label.visible = showing
-	if not showing:
+	var text := ""
+	if showing:
+		if storey <= 0:
+			text = "%s  ·  %s" % [Text.of("ui_ground_floor"), Text.of("ui_go_up_hint")]
+		else:
+			text = Text.format("ui_upper_floor", [storey + 1])
+	# Called every frame while building. Laying out the whole screen every
+	# frame to say the same floor again was what turned a layout fault into a
+	# palette that climbed off the screen in three frames, and it was a whole
+	# screen's layout spent on nothing besides.
+	if _storey_label.visible == showing and _storey_label.text == text:
 		return
-	if storey <= 0:
-		_storey_label.text = "%s  ·  %s" % [
-			Text.of("ui_ground_floor"), Text.of("ui_go_up_hint")
-		]
-	else:
-		_storey_label.text = Text.format("ui_upper_floor", [storey + 1])
+	_storey_label.visible = showing
+	_storey_label.text = text
 	_layout()
 
 ## Show the kick strength and where it is aimed, while the button is held.
@@ -1571,10 +1590,22 @@ func _layout() -> void:
 
 	# The map sits under the menu button, top left, where a child's eye goes
 	# first and where nothing else competes for the corner.
+	#
+	# Small, that is. Opened up it was still pinned to the corner and grew
+	# down over everything below it: the large map lay on the talk button, so
+	# pressing talk made the map bigger instead, and the whole valley lay on
+	# the stick, so a child who opened it to see where to go could not go
+	# anywhere. Larger than small, it is centred between the stick and the
+	# buttons, where it covers neither thumb.
 	if _minimap != null:
+		var map_top := safe.position.y + MARGIN + BUTTON * 0.7 + 10.0
+		var opened_up := _minimap.size.x > Minimap.SMALL_PIXELS + 1.0
 		_minimap.position = Vector2(
-			safe.position.x + MARGIN,
-			safe.position.y + MARGIN + BUTTON * 0.7 + 10.0
+			(
+				safe.position.x + safe.size.x * 0.5 - _minimap.size.x * 0.5
+				if opened_up else safe.position.x + MARGIN
+			),
+			map_top
 		)
 		_map_button.modulate = (
 			Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
@@ -1675,7 +1706,6 @@ func _layout() -> void:
 	_aim_label.position = Vector2(0.0, _power_bar.position.y - 36.0)
 
 	_storey_label.size.x = view.x
-	_storey_label.position = Vector2(0.0, _status.position.y - 36.0)
 
 	_score.size.x = view.x
 	_score.position = Vector2(0.0, safe.position.y + MARGIN)
@@ -1790,19 +1820,25 @@ func _layout() -> void:
 	left = minf(left, right_edge - palette_width)
 	var left_edge := _stick.position.x + _stick.size.x * 0.62
 	left = maxf(left, left_edge)
-	_palette.position = Vector2(left, safe.position.y + safe.size.y - BUTTON - MARGIN)
+	var bottom_row := safe.position.y + safe.size.y - BUTTON - MARGIN
+	_palette.position = Vector2(left, bottom_row)
 
 	# If the row cannot fit between the stick and the buttons, it sits above
 	# them instead of over them. Eight parts in Russian on a phone is exactly
 	# that case, and an overlapping palette is a palette a child mis-taps.
+	#
+	# One row up from the bottom of the screen — measured from the screen, not
+	# from where the tabs were left by the last layout. It was measured from
+	# the tabs, which are then placed above the palette: so every layout moved
+	# both up another row, and since the floor indicator lays the screen out
+	# every frame while a house part is chosen, on a sixteen-by-nine phone the
+	# house parts were off the top of the screen within three frames of
+	# opening that tab.
 	if left + palette_width > right_edge:
 		_palette.position = Vector2(
 			maxf(left_edge, safe.position.x + safe.size.x * 0.5 - palette_width * 0.5),
-			_tabs.position.y - BUTTON - 12.0
+			bottom_row - BUTTON - 12.0
 		)
-		_tabs.position.y = _palette.position.y - BUTTON * 0.7 - 12.0
-		_status.position.y = _tabs.position.y - 42.0
-		_storey_label.position.y = _status.position.y - 36.0
 
 	var tabs_width := BUTTON * 3.2 + 10.0
 	_tabs.position = Vector2(
@@ -1812,6 +1848,10 @@ func _layout() -> void:
 
 	_status.size.x = view.x
 	_status.position = Vector2(0.0, _tabs.position.y - 42.0)
+	# Above the status line, once the status line is where it is going to be.
+	# It was placed from the status line's position before that was worked out
+	# for this layout, so it trailed one layout behind.
+	_storey_label.position = Vector2(0.0, _status.position.y - 36.0)
 
 	_message.size.x = view.x
 	_message.position = Vector2(0.0, safe.position.y + safe.size.y * 0.26)
