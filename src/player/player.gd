@@ -135,6 +135,12 @@ var water_depth := 0.0
 ## holding them, which is nearly always.
 const NOT_HELD := -1e9
 var held_at_height := NOT_HELD
+## How fast that height is moving, in metres a second, so the body can move
+## with it rather than ease after it. An easing towards a height that keeps
+## falling trails it for as long as it falls: two of them in a row — the game's
+## and this body's own — held a rider a third of a second behind the ground,
+## which on a bank at a gallop is most of a metre above the horse.
+var held_rate := 0.0
 
 ## How hard the body is pulled to the height it is held at, and how far it may
 ## drift before it is simply put there.
@@ -449,9 +455,13 @@ func _physics_process(delta: float) -> void:
 		#
 		# A jump still escapes it: a child who has just pushed off is rising
 		# under their own power, and the hold lets go until they come down.
+		#
+		# Eased towards, and carried along with: the height keeps moving while
+		# the easing closes on it, so what the easing has to close is only the
+		# difference, and on a steady slope that is nothing.
 		global_position.y = lerpf(
 			global_position.y, held_at_height, 1.0 - exp(-HOLD_FOLLOW * delta)
-		)
+		) + held_rate * delta
 		velocity.y = 0.0
 	elif boating:
 		# Sprung to the seat rather than snapped, so getting in reads as

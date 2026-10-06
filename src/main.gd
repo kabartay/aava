@@ -694,6 +694,8 @@ func _process(delta: float) -> void:
 	var refused := riding != &"" and not world.mounts.can_ride_over(
 		riding, player.global_position
 	)
+	# Only following the ground has a rate; everything else holds still.
+	player.held_rate = 0.0
 	# A horse in deep water swims, and its rider stays in the saddle rather
 	# than floating off it.
 	if riding != &"" and world.mounts.afloat(riding, player.global_position):
@@ -730,29 +732,18 @@ func _process(delta: float) -> void:
 			Vector2(player.velocity.x, player.velocity.z).length()
 		)
 		if player.global_position.y - under < 1.2:
-			# Allowed to rise only as fast as a machine could actually climb.
-			# Ground that steps up — the edge of a levelled place, a boulder
-			# under one wheel — was handed straight to the spring that holds a
-			# rider in the saddle, and threw them into the air.
-			if _held_last > Player.NOT_HELD * 0.5:
-				under = minf(under, _held_last + RIDER_LIFTS * delta)
-				# And smoothed, so that the height a rider is held to moves
-				# like ground passing under a machine rather than like a
-				# number recomputed sixty times a second.
-				# Slower the faster it is going: at a walk a rider should
-				# follow every hummock, and at sixteen metres a second the
-				# same response is a shiver.
-				var settles := lerpf(
-					HELD_SETTLES, HELD_SETTLES * 0.45,
-					clampf(
-						Vector2(player.velocity.x, player.velocity.z).length()
-						/ MountKinds.speed(riding),
-						0.0, 1.0
-					)
-				)
-				under = lerpf(_held_last, under, 1.0 - exp(-settles * delta))
-			player.held_at_height = under
-			_held_last = under
+			# Followed, with its slope predicted and its bumps smoothed away.
+			# See Mounts.held_height for why the slope has to be predicted.
+			var held := Mounts.held_height(
+				world.field, riding, player.global_position, player.velocity,
+				player.facing_angle(), Vector2(_held_last, _held_rate), delta
+			)
+			# And how fast it is moving, for the body to move with it rather
+			# than ease after it a second time.
+			player.held_at_height = held.x
+			player.held_rate = held.y
+			_held_last = held.x
+			_held_rate = held.y
 		else:
 			player.held_at_height = Player.NOT_HELD
 			_held_last = Player.NOT_HELD
@@ -1811,16 +1802,6 @@ func _catch_a_fall(at: Vector3) -> void:
 	# deserves to know they are back rather than wondering what happened.
 	hud.announce(Text.of("say_caught"), 2.4)
 
-## How fast the ground a rider is held to may rise, in metres a second. A
-## machine climbing a bank lifts its rider with it; a wheel meeting a step
-## should not fire them upwards.
-const RIDER_LIFTS := 6.0
-
-## How quickly the height a rider is held to follows the ground. Low enough to
-## take the tremble out of a fast machine, high enough that a real bank is
-## still a bank.
-const HELD_SETTLES := 9.0
-
 ## How long a mount may stand on ground it cannot take before its rider is put
 ## down. Long enough that crossing a lip is not an ejection, short enough that
 ## nobody rides up a cliff.
@@ -1829,6 +1810,7 @@ const STUCK_GROUND := 0.45
 var _eye_was_under := false
 var _bad_ground := 0.0
 var _held_last := Player.NOT_HELD
+var _held_rate := 0.0
 
 func _outside_the_shop(offset: Vector3) -> Vector3:
 	var spot := world.places.position_of(Places.SHOP)

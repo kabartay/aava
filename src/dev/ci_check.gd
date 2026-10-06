@@ -186,6 +186,7 @@ func _initialize() -> void:
 	await _check_a_jump_from_the_saddle_is_a_jump()
 	await _check_a_child_can_swim_down()
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
+	_check_a_rider_stays_on_a_bank()
 	_check_the_bridge_carries_what_crosses_it()
 
 	if _failures > 0:
@@ -4340,6 +4341,52 @@ func _check_the_bridge_carries_what_crosses_it() -> void:
 		"and a horse in it still swims — the bridge is an exception, not a way out of the water"
 	)
 	mounts.queue_free()
+
+## A rider going down a bank stays on what they are riding.
+##
+## The height a rider is held to was eased towards the ground, and an easing
+## trails anything that keeps moving: ground falling away under a galloping
+## horse was followed a third of a second late, which held the rider more than
+## half a metre above the saddle on average, two metres at worst, and six on a
+## motorcycle — past the point where the seat lets go, so they dropped, were
+## caught and rose away again all the way down. The slope is predicted now, and
+## the easing only smooths the bumps.
+func _check_a_rider_stays_on_a_bank() -> void:
+	print("a rider stays on a bank")
+	var field := HeightField.new(20260903)
+	for kind: StringName in [MountKinds.HORSE, MountKinds.MOTORCYCLE]:
+		var speed := MountKinds.speed(kind) * 1.15
+		var worst := 0.0
+		var total := 0.0
+		var frames := 0
+		for z in range(-500, 501, 100):
+			for x in range(-500, 501, 100):
+				var steep := field.steepness_at(float(x), float(z))
+				if steep < 0.04 or steep > 0.14:
+					continue
+				var normal := field.normal_at(float(x), float(z))
+				var down := Vector2(normal.x, normal.z).normalized()
+				var velocity := Vector3(down.x, 0.0, down.y) * speed
+				var facing := atan2(-velocity.x, -velocity.z)
+				var at := Vector3(float(x), field.height_at(float(x), float(z)), float(z))
+				var last := Vector2(Player.NOT_HELD, 0.0)
+				var dt := 1.0 / 60.0
+				for step in 120:
+					var under := Mounts.ground_under(field, kind, at, facing, speed)
+					last = Mounts.held_height(field, kind, at, velocity, facing, last, dt)
+					if step > 40:
+						worst = maxf(worst, absf(last.x - under))
+						total += absf(last.x - under)
+						frames += 1
+					at += velocity * dt
+					at.y = last.x
+		_expect(frames > 500, "%d frames ridden down real slopes on a %s" % [frames, kind])
+		_expect(
+			total / float(frames) < 0.03 and worst < 0.25,
+			"at full gallop the rider stays on it — %.0f mm off on average, %.0f mm at worst" % [
+				total / float(frames) * 1000.0, worst * 1000.0
+			]
+		)
 
 ## A machine on ground it cannot climb slides back down it.
 ##

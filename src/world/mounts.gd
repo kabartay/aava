@@ -1018,11 +1018,95 @@ func from_data(data: Dictionary) -> void:
 			at = _walk_out_of_the_water(at)
 		place(id, at)
 
-## Where a machine bought at the shop is left standing it,
-## along the way it is pointing. A horse two and a half metres long rides out
-## the stones between its front and back feet, and so should its rider.
+## How fast the ground a rider is held to may rise *faster than the slope says
+## it should*, in metres a second. A wheel meeting a step — the edge of a
+## levelled place, a boulder under one wheel — should not fire its rider
+## upwards; a machine climbing a bank should take them with it, however steep
+## and however fast, which is why this is measured from the slope and not from
+## nothing.
+const RIDER_LIFTS := 6.0
+
+## How quickly the height a rider is held to settles onto the ground. Low enough
+## to take the tremble out of a fast machine, high enough that a hummock at a
+## walk is felt.
+const HELD_SETTLES := 9.0
+
+## The height a rider is held to this frame, given where they were held last.
+##
+## Two things at once: the ground's own shape, followed, and its bumps, smoothed
+## away. The smoothing was an easing towards the ground, and an easing trails
+## anything that keeps moving — ground that falls away at a steady rate under
+## a galloping horse was followed a third of a second late, every frame, which
+## on a ten-degree bank held the rider sixty centimetres above the saddle. On a
+## steeper one the gap passed the metre and a fifth past which the seat lets go
+## altogether, and the rider dropped onto the horse, was caught, rose away from
+## it and dropped again, all the way down. "I am sitting on it but hanging in
+## the air beside it" was this.
+##
+## So the slope is predicted rather than chased: how fast the ground rises or
+## falls under the machine, from how steep it is along the way it is going and
+## how fast it is going. The easing then only has the bumps to deal with, which
+## is all it was ever for — and on ground that keeps falling it no longer
+## falls behind.
+##
+## `last` is what this returned last frame: the height in x and how fast it
+## was moving in y, with Player.NOT_HELD for the height on the first frame. The
+## answer comes back the same way.
+##
+## The rate is taken as it is, not smoothed. Measured over ten thousand frames
+## of real slopes: smoothing it cut none of the shiver — that comes from the
+## easing below, and stays a third of the raw ground's — and only put the lag
+## back. What a rider still feels is the hills themselves, which is right.
+static func held_height(
+	field: HeightField, kind: StringName, at: Vector3, velocity: Vector3,
+	facing: float, last: Vector2, delta: float
+) -> Vector2:
+	var flat := Vector2(velocity.x, velocity.z)
+	var under := ground_under(field, kind, at, facing, flat.length())
+	if last.x < Player.NOT_HELD * 0.5:
+		return Vector2(under, 0.0)
+	var rate := ground_rate(field, kind, at, velocity, facing)
+	var expected := last.x + rate * delta
+	# Steps are limited, slopes are not: a rise beyond what the slope accounts
+	# for is the edge of something, and is climbed rather than leapt.
+	under = minf(under, expected + RIDER_LIFTS * delta)
+	# Slower the faster it is going: at a walk a rider should follow every
+	# hummock, and at sixteen metres a second the same response is a shiver.
+	var settles := lerpf(
+		HELD_SETTLES, HELD_SETTLES * 0.45,
+		clampf(flat.length() / maxf(MountKinds.speed(kind), 0.1), 0.0, 1.0)
+	)
+	return Vector2(lerpf(expected, under, 1.0 - exp(-settles * delta)), rate)
+
+## How fast the ground a machine of this kind is held to is rising under it,
+## moving at `velocity` — falling, if negative — in metres a second.
+##
+## Taken from ground_under itself, a little ahead and a little behind, rather
+## than from the slope at one point. What is predicted has to be the rate of
+## the very thing being followed: ground_under averages the ground along the
+## whole machine, and the slope under its middle says something else wherever
+## the ground curves. In a hollow the two disagreed every frame, the
+## disagreement accumulated, and the rider was held below the ground.
+static func ground_rate(field: HeightField, kind: StringName, at: Vector3, velocity: Vector3, facing: float) -> float:
+	var flat := Vector2(velocity.x, velocity.z)
+	var speed := flat.length()
+	if speed < 0.05:
+		return 0.0
+	var along := flat / speed
+	var shift := Vector3(along.x, 0.0, along.y) * RATE_REACH
+	var ahead := ground_under(field, kind, at + shift, facing, speed)
+	var behind := ground_under(field, kind, at - shift, facing, speed)
+	return (ahead - behind) / (RATE_REACH * 2.0) * speed
+
+## How far ahead and behind the rate is measured. Short, so it is the rate here
+## and now; not so short that one sample landing either side of a terrain
+## triangle's edge reads as a cliff.
+const RATE_REACH := 0.75
+
 ## The surface a machine of this kind, standing here and pointed this way, is
-## riding on — the height its rider is held to.
+## riding on — the height its rider is held to. Averaged along the way it is
+## pointing: a horse two and a half metres long rides out the stones between its
+## front and back feet, and so should its rider.
 ##
 ## It lives here rather than in the game loop because a check cannot start a
 ## game loop, and this is exactly the kind of answer that has to be checked:
