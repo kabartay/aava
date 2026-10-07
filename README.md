@@ -330,7 +330,7 @@ copy:
   author    = {Organokov, Mukharbek},
   title     = {{Aava: an open world that comes alive as you build in it}},
   year      = {2026},
-  version   = {0.5.0},
+  version   = {0.6.0},
   doi       = {10.5281/zenodo.22965441},
   url       = {https://github.com/kabartay/aava},
   publisher = {Zenodo},
