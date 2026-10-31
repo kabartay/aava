@@ -565,12 +565,30 @@ func _build_menu() -> VBoxContainer:
 	# and no keyboard came up.
 	_name_field.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed:
+			# Only the tap that takes focus opens the keyboard. Showing it again
+			# on every later tap — such as one placing the caret in the middle of
+			# the name to delete part of it — hands the virtual keyboard the
+			# field's text once more and it answers by putting the caret back at
+			# the end: a child aiming a tap between two words to erase the first
+			# one always landed back after the last letter, and could never erase
+			# anything but the whole name.
+			var already_focused := _name_field.has_focus()
 			_name_field.grab_focus()
-			if DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+			if not already_focused and DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
 				DisplayServer.virtual_keyboard_show(
 					_name_field.text, Rect2(), DisplayServer.KEYBOARD_TYPE_DEFAULT,
 					Profiles.MAX_NAME
-				))
+				)
+			# A LineEdit places its caret from a mouse click, which nothing on
+			# Android ever sends it — a synthetic one raised through
+			# Input.parse_input_event() was tried first and never arrived either,
+			# measured by printing the caret before and after: it held the
+			# field's caret wherever typing had last left it, the start or the
+			# end, so a tap meant to land between two words — to erase the first
+			# and keep the second — did nothing at all. The column is placed by
+			# hand instead, measured in the same font this field is drawn in.
+			_place_caret_at(event.position.x)
+	)
 	_name_field.text_submitted.connect(func(typed: String) -> void:
 		name_chosen.emit(typed)
 		_name_field.release_focus()
@@ -1496,6 +1514,29 @@ func set_voice_allowed(allowed: bool) -> void:
 	if not allowed and _talk_button.visible:
 		_talk_button.visible = false
 		_layout()
+
+## Where in the name a tap at this local x falls, measured letter by letter in
+## the field's own font — the field is centred and never scrolls, since the
+## longest name it holds is sixteen letters wide and the field is wider than
+## that, so a straight sum of letter widths lines up with what is drawn.
+func _column_at(local_x: float) -> int:
+	var font := _name_field.get_theme_font("font")
+	var font_size := _name_field.get_theme_font_size("font_size")
+	var text := _name_field.text
+	var total := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var left := (_name_field.size.x - total) * 0.5
+	var at := left
+	for i in text.length():
+		var glyph := font.get_string_size(text[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		if local_x < at + glyph * 0.5:
+			return i
+		at += glyph
+	return text.length()
+
+## Put the caret where a tap landed. See `_column_at` for why the position can
+## be measured instead of asked of the engine.
+func _place_caret_at(local_x: float) -> void:
+	_name_field.caret_column = _column_at(local_x)
 
 ## The name this child is known by, shown in the settings field.
 func set_player_name(name: String) -> void:

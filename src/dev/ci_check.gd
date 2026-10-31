@@ -44,13 +44,16 @@ func _initialize() -> void:
 	_check_kick_can_be_aimed()
 	_check_rocks_are_jumpable()
 	_check_the_camera_zooms()
+	await _check_the_indoor_camera_cannot_reach_outside()
 	_check_a_house_can_be_built_and_unbuilt()
 	_check_every_language_is_complete()
 	_check_every_text_key_exists()
 	_check_everything_the_network_can_say_is_said()
 	_check_every_kind_of_day_can_be_finished()
 	_check_every_button_glyph_is_drawn()
+	_check_an_unshirted_child_looks_the_same_to_everyone()
 	_check_a_child_can_say_who_they_are()
+	await _check_a_tap_in_the_name_moves_its_caret()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
 	await _check_the_valley_is_not_silent()
@@ -95,6 +98,7 @@ func _initialize() -> void:
 	_check_machines_on_the_shop_floor_have_wheels()
 	_check_the_shop_floor_machines_do_not_overlap()
 	_check_the_shop_paintings_stay_inside_their_frames()
+	_check_the_cafe_paintings_stay_inside_their_frames()
 	_check_a_child_can_get_out_of_every_pond()
 	_check_the_ducks_are_only_ducks()
 	_check_the_range_is_clear()
@@ -928,7 +932,12 @@ func _check_the_cafe_serves() -> void:
 	_expect(places.cafe_seat_count() == 15, "%d seats: three stools, six chairs inside, two on the sofa, four on the terrace" % places.cafe_seat_count())
 	var inside := spot + Places.CAFE_TABLES[0]
 	_expect(places.nearest(inside) == Places.CAFE, "a child at a table inside is offered a meal")
-	_expect(places.nearest(spot + Places.CAFE_TERRACE[0]) == Places.CAFE, "and one at a terrace table")
+	# Not one sitting at a terrace table, or on the path past it: ordering used
+	# to light up anywhere within reach of the outdoor tables, so a child
+	# walking by outside, nowhere near the door, was offered a meal over a
+	# building they had not gone into. A tray already placed still finds the
+	# nearest terrace table to sit at; starting an order from outside does not.
+	_expect(places.nearest(spot + Places.CAFE_TERRACE[0]) != Places.CAFE, "and not one at a terrace table")
 	_expect(places.nearest(spot + Vector3(0.0, 0.0, -16.0)) == &"", "not one sixteen metres off")
 	_expect(places.obstructed(spot.x, spot.z + Places.CAFE_MID_Z), "the building is not somewhere an animal walks")
 	_expect(not places.obstructed(spot.x, spot.z - 12.0), "the ground beyond the terrace is")
@@ -955,6 +964,79 @@ func _check_the_cafe_serves() -> void:
 	_expect(places.meals_served() == 2, "and both meals are still there a second later")
 	places._tick(Places.MEAL_SHOWN)
 	_expect(places.meals_served() == 0, "and cleared away when they have been eaten")
+
+	# The sofa stood with its own back 0.02 m past the interior wall face — a
+	# child standing up from it, which restores the furniture collision a
+	# diner's mask ignores while seated, had nowhere to depenetrate to: the
+	# sofa on one side and the wall it already overlapped on the other. And its
+	# low table stood only 0.28 m from the sofa's own front edge, well under a
+	# child's own width, so the gap between them could be looked at but not
+	# walked through. Both are found by the collision box the sofa and the
+	# table are each built with, rather than by a position copied out of the
+	# building code a second time to go stale against it.
+	# And the sofa's seat stood under one box as tall as its own back, the
+	# whole length of the sofa — so a child jumping at the low seat landed
+	# standing on a wall as tall as the backrest, floating well above the
+	# cushion that was actually drawn there. A chair at the round tables had
+	# the same fault: one box the height of its own back, over the low seat
+	# too. Both are found, and checked, by the collision boxes the sofa, the
+	# table and a chair are each built with, rather than by a position copied
+	# out of the building code a second time to go stale against it.
+	var wall_x := Places.CAFE_WIDTH * 0.5 - 0.2
+	var sofa_seat_y := -1.0
+	var sofa_back_y := -1.0
+	var sofa_far := -INF
+	var sofa_near := INF
+	var table_far := -INF
+	var chair_seat_top := -1.0
+	var chair_back_top := -1.0
+	var chair_width := 0.0
+	for shape in places._cafe_solid.get_children():
+		var collider := shape as CollisionShape3D
+		if collider == null or not (collider.shape is BoxShape3D):
+			continue
+		var box := collider.shape as BoxShape3D
+		var x: float = collider.transform.origin.x
+		var y: float = collider.transform.origin.y
+		if is_equal_approx(box.size.x, 0.8) and is_equal_approx(box.size.z, 3.0):
+			sofa_seat_y = box.size.y
+			sofa_near = x - box.size.x * 0.5
+		elif is_equal_approx(box.size.y, 0.95) and is_equal_approx(box.size.z, 3.0):
+			sofa_back_y = box.size.y
+			sofa_far = x + box.size.x * 0.5
+		elif is_equal_approx(box.size.y, 0.5) and is_equal_approx(box.size.z, 1.8):
+			table_far = x + box.size.x * 0.5
+		elif is_equal_approx(box.size.x, box.size.z) and box.size.x > 0.5 and box.size.x < 0.6:
+			chair_seat_top = y + box.size.y * 0.5
+			chair_width = box.size.x
+		elif is_equal_approx(box.size.z, 0.56) and box.size.x < 0.2:
+			chair_back_top = y + box.size.y * 0.5
+	_expect(sofa_seat_y > 0.0 and sofa_back_y > 0.0, "the sofa's seat and back are each found")
+	_expect(
+		sofa_seat_y < sofa_back_y - 0.3,
+		"and the seat's own collision box (%.2f m) is well under the back's (%.2f m)" % [sofa_seat_y, sofa_back_y]
+	)
+	_expect(sofa_far > -INF, "the sofa's own collision box is found")
+	_expect(
+		wall_x - sofa_far > 0.3,
+		"the sofa stands %.2f m clear of the wall behind it, room enough to stand up from it" % (wall_x - sofa_far)
+	)
+	_expect(table_far > -INF, "the low table's own collision box is found")
+	_expect(
+		sofa_near - table_far > Player.RADIUS * 2.0,
+		"and %.2f m separates the sofa from its own table, enough to walk between them" % (sofa_near - table_far)
+	)
+	_expect(chair_width > 0.0, "a chair's own collision box is found")
+	_expect(
+		chair_width > Player.RADIUS * 1.5,
+		"a chair is %.2f m across, wide enough to stand on rather than slide off" % chair_width
+	)
+	_expect(chair_seat_top > 0.0 and chair_back_top > 0.0, "a chair's seat and back are each found")
+	_expect(
+		chair_seat_top < 0.6,
+		"and a chair's seat is a box %.2f m high, not the 0.95 m of the back standing over it too" % chair_seat_top
+	)
+	_expect(chair_back_top > 0.8, "while the back itself still reaches up where it is actually drawn")
 	places.queue_free()
 
 ## The dotted arc shown while winding up must be the kick's own arithmetic,
@@ -2381,13 +2463,8 @@ func _check_the_terrace_is_off_the_doorstep() -> void:
 			]
 		)
 
-	# And the café still reaches its own terrace: a child who sits down outside
-	# must still be able to order. The reach used to be a number written beside
-	# the tables, which was true while they stood on the doorstep.
-	_expect(
-		Places.cafe_reach() > Vector2(Places.CAFE_TERRACE[0].x, Places.CAFE_TERRACE[0].z).length(),
-		"the café reaches %.1f m, out past its own furthest table" % Places.cafe_reach()
-	)
+	# Ordering itself is offered only inside the building, not from the terrace —
+	# see `_check_the_cafe_serves`, which builds a real café to check it against.
 
 	# The lamps came with them: a terrace nobody lit is a terrace nobody uses
 	# after tea.
@@ -2508,6 +2585,48 @@ func _check_the_shop_paintings_stay_inside_their_frames() -> void:
 		["mountains", Places.PAINTING_MOUNTAINS_AT, Places.PAINTING_MOUNTAINS_SIZE, &"mountains"],
 		["bicycle", Places.PAINTING_BICYCLE_AT, Places.PAINTING_BICYCLE_SIZE, &"bicycle"],
 		["pasture", Places.PAINTING_PASTURE_AT, Places.PAINTING_PASTURE_SIZE, &"pasture"],
+	]:
+		var name: String = spec[0]
+		var at: Vector3 = spec[1]
+		var size: Vector2 = spec[2]
+		var subject: StringName = spec[3]
+		var y: float = at.y
+		var z: float = at.z
+		var width: float = size.x
+		var height: float = size.y
+		var tool := SurfaceTool.new()
+		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		Places._hang_painting(tool, art_x * at.x, y, z, width, height, subject)
+		tool.generate_normals()
+		var mesh := tool.commit()
+		var points := (mesh as ArrayMesh).get_faces()
+		_expect(points.size() > 0, "the %s painting draws something" % name)
+
+		var margin := 0.16
+		var worst_y := 0.0
+		var worst_z := 0.0
+		for p in points:
+			worst_y = maxf(worst_y, absf(p.y - y) - height * 0.5)
+			worst_z = maxf(worst_z, absf(p.z - z) - width * 0.5)
+		_expect(
+			worst_y < margin,
+			"the %s painting stays inside its frame's height: %.2f m over" % [name, worst_y]
+		)
+		_expect(
+			worst_z < margin,
+			"and inside its width: %.2f m over" % worst_z
+		)
+
+## The café's four paintings — a cup and a croissant, a rack of ribs, a salad,
+## a market stall — stay inside their own frames the same way the shop's do.
+func _check_the_cafe_paintings_stay_inside_their_frames() -> void:
+	print("the café's paintings stay inside their own frames")
+	var art_x := Places.CAFE_WIDTH * 0.5 - 0.1
+	for spec: Array in [
+		["coffee", Places.PAINTING_COFFEE_AT, Places.PAINTING_COFFEE_SIZE, &"coffee"],
+		["ribs", Places.PAINTING_RIBS_AT, Places.PAINTING_RIBS_SIZE, &"ribs"],
+		["salad", Places.PAINTING_SALAD_AT, Places.PAINTING_SALAD_SIZE, &"salad"],
+		["market", Places.PAINTING_MARKET_AT, Places.PAINTING_MARKET_SIZE, &"market"],
 	]:
 		var name: String = spec[0]
 		var at: Vector3 = spec[1]
@@ -4833,6 +4952,88 @@ func _check_rocks_are_jumpable() -> void:
 
 ## Zoom has to reach both ends and stop at them, and it must not quietly turn
 ## the camera while it does.
+## A spring arm that starts already touching what it is meant to stop against
+## sometimes fails to register the touch — a child standing against a café
+## wall and turning to face it had the arm sail through at its full 5.4 m, out
+## into the valley, with the roof still off behind it because the game still
+## thought they were standing under where it had been. Indoors, the arm is
+## capped short enough that even a miss cannot reach past an exterior wall —
+## checked here by zooming all the way out and confirming the cap holds
+## anyway, which a cap only applied at the moment of zooming would miss.
+func _check_the_indoor_camera_cannot_reach_outside() -> void:
+	print("the indoor camera cannot reach outside")
+	var player := Player.new()
+	get_root().add_child(player)
+	var rig := CameraRig.new(player)
+	player.add_child(rig)
+
+	# _distance is set directly rather than reached by zooming and waiting out
+	# the lerp that eases towards it — what is being checked is the cap on the
+	# arm's length once it is fully zoomed out, not how long that takes. And
+	# the length is asked of _arm_length() rather than of a spring_length set
+	# by a full _process(), which also asks for a physics frame no check gives
+	# it, to get a `get_global_transform` of a node never placed anywhere.
+	rig._distance = CameraRig.ARM_MAX
+	_expect(
+		is_equal_approx(rig._arm_length(), CameraRig.ARM_MAX),
+		"zoomed all the way out, the arm reaches its full length outdoors"
+	)
+
+	rig.set_indoors(true)
+	_expect(
+		rig._arm_length() <= CameraRig.INDOOR_ARM + 0.01,
+		"but indoors, even zoomed all the way out, it reaches only %.1f m, not %.1f" % [
+			rig._arm_length(), CameraRig.ARM_MAX
+		]
+	)
+
+	rig.set_indoors(false)
+	_expect(
+		is_equal_approx(rig._arm_length(), CameraRig.ARM_MAX),
+		"and stepping back outside gives the full length back"
+	)
+
+	# The cap above bounds how far the arm may reach; it says nothing about
+	# whether the arm's own sweep actually finds a wall standing well inside
+	# that bound. A sphere swept backwards from a point already within its own
+	# radius of a wall sometimes never registers the wall at all, which is
+	# exactly the room a child stands in — 0.34 m of their own clearance
+	# against a sphere swept at 0.45 m. A plain ray cast from the same point,
+	# answered afterwards rather than swept, is not fooled the same way.
+	rig.rotation.y = 0.0
+	rig._arm.rotation.x = 0.0
+	var origin := rig._arm.global_position
+	var facing := -rig._arm.global_transform.basis.z
+	var wall := StaticBody3D.new()
+	wall.collision_layer = TerrainSpec.LAYER_WALLS
+	var collider := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(4.0, 4.0, 0.2)
+	collider.shape = box
+	wall.add_child(collider)
+	# Placed and turned before it ever joins the tree, or the physics server
+	# registers it at the default transform it was created with and answers
+	# the ray cast that follows against that stale position instead of this
+	# one — which, for a wall created at the origin and asked about a mile
+	# away, is indistinguishable from a wall that is not there at all, and for
+	# one created near the camera rig's own origin, is indistinguishable from
+	# a wall the ray starts inside of.
+	wall.global_position = origin + facing * 1.0
+	wall.look_at(origin, Vector3.UP)
+	get_root().add_child(wall)
+	# One physics frame, or the wall is not in the space yet and the ray passes
+	# straight through it — the same wait _check_the_rides_are_solid needs for
+	# the same reason.
+	await physics_frame
+
+	var shortened := rig._ray_shortened_length(5.0)
+	_expect(
+		shortened < 1.2,
+		"a wall 1 m ahead shortens a 5 m reach to %.2f m rather than letting it through" % shortened
+	)
+	wall.queue_free()
+	player.queue_free()
+
 func _check_the_camera_zooms() -> void:
 	print("the camera zooms")
 	var player := Player.new()
@@ -5041,6 +5242,39 @@ func _check_every_kind_of_day_can_be_finished() -> void:
 ## are the whole answer to "which one is you", so both are checked here: that a
 ## name can be set, that setting one does not lose the afternoon, and that a
 ## chosen shirt is the shirt a visitor is actually drawn in.
+## A child who has never picked a shirt used to see themselves in a colour of
+## its own — Player.DEFAULT_SHIRT, found nowhere in the twelve shirts — while
+## every brother who met them was shown a colour worked out from their network
+## id instead: "I am the blue one" was true on nobody's screen, because the
+## two machines were answering different questions. Both now ask
+## Visitors.shirt_for() the very same one, which a brother can answer about a
+## stranger — nothing about the shirt choice has reached him yet — as readily
+## as this child can answer about themselves.
+func _check_an_unshirted_child_looks_the_same_to_everyone() -> void:
+	print("an unshirted child looks the same to everyone")
+	var visitors := Visitors.new()
+	var id := 7
+	var seen_by_a_stranger := visitors.shirt_for(id, -1)
+	_expect(
+		Visitors.SHIRTS.has(seen_by_a_stranger),
+		"a stranger's guess at an unshirted child's colour is one of the twelve shirts"
+	)
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("func _own_shirt_color"),
+		"the game asks one function what colour to draw this child's own body in"
+	)
+	var own := game.substr(game.find("func _own_shirt_color"))
+	own = own.substr(0, own.find("\nfunc ", 1))
+	_expect(
+		own.contains("visitors.shirt_for(multiplayer.get_unique_id(), -1)"),
+		"and for a child who has not picked one, it is the very question a stranger would be asked"
+	)
+	_expect(
+		not game.contains("Player.DEFAULT_SHIRT"),
+		"nothing draws this child in a colour no brother could ever be shown back"
+	)
+
 func _check_a_child_can_say_who_they_are() -> void:
 	print("a child can say who they are")
 
@@ -5233,6 +5467,54 @@ func _check_a_child_can_say_who_they_are() -> void:
 			restore.close()
 	else:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(Profiles.INDEX))
+
+## Placing the caret from a click, which an on-screen keyboard on Android never
+## sends: a tap meant to land between two words, to erase the first and keep
+## the second, left the caret wherever typing had last put it — the start or
+## the end — whatever had been tapped, because nothing ever moved it there.
+func _check_a_tap_in_the_name_moves_its_caret() -> void:
+	print("a tap in the name moves its caret")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud.set_player_name("Роналду Берзег")
+
+	var left := hud._column_at(-1000.0)
+	var right := hud._column_at(10000.0)
+	_expect(left == 0, "a tap off the left edge lands before the first letter")
+	_expect(right == hud._player_name.length(), "a tap off the right edge lands after the last one")
+
+	# Somewhere inside the name — not stuck at either end, the one failure that
+	# actually happened — and in order: a tap further right never lands on an
+	# earlier letter than one further left.
+	var columns: Array[int] = []
+	for tenth in range(1, 10):
+		var font := hud._name_field.get_theme_font("font")
+		var size := hud._name_field.get_theme_font_size("font_size")
+		var total := font.get_string_size(
+			hud._player_name, HORIZONTAL_ALIGNMENT_LEFT, -1, size
+		).x
+		var left_edge := (hud._name_field.size.x - total) * 0.5
+		columns.append(hud._column_at(left_edge + total * float(tenth) / 10.0))
+	_expect(
+		columns.min() > 0 and columns.max() < hud._player_name.length(),
+		"a tap inside the name lands inside it, not pinned to either end"
+	)
+	for i in range(1, columns.size()):
+		_expect(columns[i] >= columns[i - 1], "and further right never means an earlier letter")
+
+	# The field itself: a touch at a measured point moves its caret through the
+	# same signal the game connects, not just the function underneath it.
+	hud._name_field.caret_column = 0
+	var touch := InputEventScreenTouch.new()
+	touch.pressed = true
+	touch.position = Vector2(hud._name_field.size.x - 2.0, hud._name_field.size.y * 0.5)
+	hud._name_field.gui_input.emit(touch)
+	_expect(
+		hud._name_field.caret_column == hud._player_name.length(),
+		"a tap near the right edge of the field puts the caret at the end"
+	)
+	hud.queue_free()
 
 func _check_every_button_glyph_is_drawn() -> void:
 	print("every button glyph is drawn")

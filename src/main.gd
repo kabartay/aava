@@ -871,6 +871,12 @@ func _process(delta: float) -> void:
 
 	# A roof comes off while you are under it, or the camera looks at tiles.
 	world.places.roofs_follow(at)
+	# The same roofless-ness keeps the camera's own reach short, so a spring
+	# arm that fails to catch a nearby wall cannot sail out through it and show
+	# the building from outside with its roof still off. See set_indoors.
+	camera_rig.set_indoors(
+		not world.places.roof_is_on(Places.CAFE) or not world.places.roof_is_on(Places.SHOP)
+	)
 
 	hud.set_lantern(lantern.owned, lantern.switched_on)
 
@@ -1021,7 +1027,7 @@ func _connect_the_rest_of_the_hud() -> void:
 	hud.shirt_chosen.connect(_on_shirt_chosen)
 	hud.set_player_name(profiles.current_player)
 	hud.set_shirt(_shirt)
-	player.set_shirt(Visitors.SHIRTS[_shirt] if _shirt >= 0 else Player.DEFAULT_SHIRT)
+	player.set_shirt(_own_shirt_color())
 	hud.together.host_requested.connect(_on_host_requested)
 	hud.together.join_requested.connect(_on_join_requested)
 	hud.together.leave_requested.connect(_on_leave_requested)
@@ -1249,6 +1255,23 @@ func _display_name() -> String:
 		return profiles.current_player
 	return Text.of("ui_player")
 
+## The colour this child's own body is drawn in: their own pick, or the
+## fallback for a child who has not picked one.
+##
+## The fallback used to be a colour of its own — blue-grey, found nowhere in
+## the twelve shirts — while everyone else fell back to one from the palette
+## itself, worked out from this child's own network id. A child who had never
+## picked a shirt was one colour on their own screen and a different one on
+## every brother's: "I am the blue one" was true nowhere, because nobody was
+## told which one they were. The same formula, fed this child's own id, is
+## what a peer who has just met them computes too — the two machines agree
+## without a byte passing between them, because the id is the one thing both
+## of them already have.
+func _own_shirt_color() -> Color:
+	if _shirt >= 0:
+		return Visitors.SHIRTS[_shirt]
+	return visitors.shirt_for(multiplayer.get_unique_id(), -1)
+
 ## A child picked a shirt in the settings.
 ##
 ## Their own body changes at once — "I am the blue one" has to be true on their
@@ -1256,7 +1279,7 @@ func _display_name() -> String:
 ## told, so it changes over there too without waiting for a rejoin.
 func _on_shirt_chosen(which: int) -> void:
 	_shirt = which
-	player.set_shirt(Visitors.SHIRTS[which] if which >= 0 else Player.DEFAULT_SHIRT)
+	player.set_shirt(_own_shirt_color())
 	hud.set_shirt(which)
 	sounds.play(Sounds.Sound.CHIME, 1.35)
 	_write_save()

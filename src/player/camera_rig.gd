@@ -185,6 +185,70 @@ func look_along(heading: float, delta: float) -> void:
 
 var _riding := false
 
+## Whether the roof is off over the child's head right now — the same
+## condition that takes it off, asked here too.
+##
+## A spring arm that starts already touching what it is meant to stop against
+## sometimes fails to register the touch at all, rather than reporting a
+## length of zero — a known rough edge of casting a shape from a point already
+## inside another. A child standing with their back to a café wall and turning
+## to face it found the arm sail straight through at its full 5.4 m and out
+## the other side, and from out there the building was both outside-in and
+## roofless, since the roof had been taken off for a child who — as far as the
+## game could tell — was still standing under where it had been. Indoors, the
+## arm is kept short enough that even a miss cannot reach past an exterior
+## wall from anywhere the room is wide enough to stand in.
+var _indoors := false
+const INDOOR_ARM := 2.2
+
+func set_indoors(on: bool) -> void:
+	_indoors = on
+
+## How far back the arm is actually allowed to reach this frame. Riding, it
+## keeps its own length whatever the zoom is set to: see set_riding. Indoors,
+## it is capped short regardless of the zoom too: see set_indoors. A function
+## of its own rather than a line inside _process, so a check can ask it what
+## it would do without also asking for a physics frame that has not happened,
+## which is what calling _process itself needs.
+func _arm_length() -> float:
+	if _riding:
+		return maxf(_distance, RIDE_ARM)
+	if _indoors:
+		return minf(_distance, INDOOR_ARM)
+	return _distance
+
+## The cap in _arm_length() above is a backstop for the length itself, and
+## does nothing about the direction: a room narrower than the cap still lets
+## the arm reach the far wall through the near one. This is the second
+## backstop, for the spring arm's own sweep rather than for how far it is
+## allowed to reach.
+##
+## The arm sweeps a sphere 0.45 m across, and a child standing square against
+## an interior wall is only the player's own radius — 0.34 m — clear of it, so
+## the sphere starts the sweep already touching the wall before it has swept
+## anywhere at all. A shape that starts a sweep already touching what it is
+## meant to stop against is exactly the case sweeps are worst at — some report
+## the touch, and some report nothing until they have moved clear of it and
+## come back — and report nothing is what let the arm through: not because it
+## reached past its cap, but because the wall it swept toward never registered
+## at all. A plain ray cast from the same point, which starts clear of
+## anything since the point itself is 0.34 m off the wall rather than touching
+## it, is asked the same question afterwards and answered reliably; this
+## catches what the sweep missed without replacing it.
+func _ray_shortened_length(wanted: float) -> float:
+	var viewport := get_viewport()
+	var space := viewport.world_3d.direct_space_state if viewport != null else null
+	if space == null:
+		return wanted
+	var from := _arm.global_position
+	var to := from - _arm.global_transform.basis.z * wanted
+	var query := PhysicsRayQueryParameters3D.create(from, to, _arm.collision_mask)
+	query.exclude = [_player.get_rid()]
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return wanted
+	return maxf(from.distance_to(hit.position) - _arm.margin, 0.1)
+
 ## Where the eyes are, measured from the feet.
 const EYE_HEIGHT := Player.HEIGHT * 0.92
 
@@ -204,9 +268,9 @@ func _process(delta: float) -> void:
 	_arm.rotation.x = pitch
 
 	_distance = lerpf(_distance, wanted_distance, 1.0 - exp(-ZOOM_LAMBDA * delta))
-	# Riding, the arm keeps its own length whatever the zoom is set to: see
-	# set_riding.
-	_arm.spring_length = maxf(_distance, RIDE_ARM) if _riding else _distance
+	_arm.spring_length = _arm_length()
+	if _indoors:
+		_arm.spring_length = _ray_shortened_length(_arm.spring_length)
 
 	# Pulled far back, the camera also tips down a little on its own, because a
 	# wide shot of a valley taken from waist height is mostly grass. This is why

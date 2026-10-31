@@ -124,6 +124,18 @@ const PAINTING_BICYCLE_AT := Vector3(-1.0, 2.8, 0.0)
 const PAINTING_BICYCLE_SIZE := Vector2(2.0, 1.4)
 const PAINTING_PASTURE_AT := Vector3(-1.0, 2.8, 3.2)
 const PAINTING_PASTURE_SIZE := Vector2(2.0, 1.4)
+
+## The café's four, one between the two side windows and one nearer the bar on
+## each wall — the only stretches of either wall a window does not already
+## stand in.
+const PAINTING_COFFEE_AT := Vector3(-1.0, 2.85, CAFE_MID_Z - 0.2)
+const PAINTING_COFFEE_SIZE := Vector2(1.6, 1.2)
+const PAINTING_RIBS_AT := Vector3(-1.0, 2.85, CAFE_MID_Z + 2.9)
+const PAINTING_RIBS_SIZE := Vector2(1.35, 1.2)
+const PAINTING_SALAD_AT := Vector3(1.0, 2.85, CAFE_MID_Z - 0.2)
+const PAINTING_SALAD_SIZE := Vector2(1.6, 1.2)
+const PAINTING_MARKET_AT := Vector3(1.0, 2.85, CAFE_MID_Z + 2.9)
+const PAINTING_MARKET_SIZE := Vector2(1.35, 1.2)
 ## The two stands down the middle, where the small goods are laid out.
 const SHOP_STAND_Z: Array[float] = [-1.6, 1.2]
 ## How many shelves run along the wall behind the counter.
@@ -172,20 +184,6 @@ const SHOP_LAMPS: Array[Vector3] = [
 
 ## How far from a seat a child may be and still be sat down at it.
 const CAFE_SEAT_REACH := 6.0
-
-## The café's own reach: out to the furthest terrace table, with a pace to
-## spare, so that sitting down outside is still being at the café. Worked out
-## from where the tables are rather than written down beside them, because the
-## last number written down beside them was true when they stood on the
-## doorstep and wrong the moment they moved.
-static var _cafe_reach := 0.0
-
-static func cafe_reach() -> float:
-	if _cafe_reach <= 0.0:
-		for table in CAFE_TERRACE:
-			_cafe_reach = maxf(_cafe_reach, Vector2(table.x, table.z).length())
-		_cafe_reach += 1.5
-	return _cafe_reach
 
 ## What a plate of food at the café costs, and what it restores. Priced so that
 ## a hungry child can afford it from one round of looking after animals.
@@ -452,14 +450,18 @@ func nearest(at: Vector3) -> StringName:
 			distance = _nearest_seat_distance(at)
 			if distance >= SWING_REACH:
 				continue
+		elif place == CAFE:
+			# A meal is ordered at a table inside, not from the path past the
+			# terrace: the icon offering it used to light up anywhere within
+			# the whole outdoor reach, so a child walking by outside saw "eat"
+			# over a building they had not gone into.
+			if not _within(at, CAFE, CAFE_WIDTH, CAFE_DEPTH, CAFE_MID_Z):
+				continue
+			distance = 0.0
 		else:
 			var flat: Vector3 = _spots[place] - at
 			flat.y = 0.0
 			distance = flat.length()
-			if place == CAFE:
-				# Measured against the café's own, longer reach, then put on
-				# the common scale so the nearest place still wins.
-				distance *= REACH / cafe_reach()
 		if distance < best_distance:
 			best_distance = distance
 			best = place
@@ -1323,6 +1325,23 @@ static func _hang_painting(
 		&"pasture":
 			sky = Color(0.70, 0.82, 0.90)
 			ground = Color(0.36, 0.56, 0.30)
+		# The café's four still life pictures have nothing in them that is sky
+		# over ground — a cup, a plate, a stall — so the canvas behind the food
+		# is one tablecloth or backdrop colour rather than a horizon, and `sky`
+		# and `ground` are given the same colour rather than special-cased out:
+		# two panels of one colour read as the one flat backdrop they are.
+		&"coffee":
+			sky = Color(0.88, 0.80, 0.66)
+			ground = sky
+		&"ribs":
+			sky = Color(0.80, 0.68, 0.54)
+			ground = sky
+		&"salad":
+			sky = Color(0.92, 0.92, 0.86)
+			ground = sky
+		&"market":
+			sky = Color(0.68, 0.54, 0.38)
+			ground = sky
 		_:
 			sky = Color(0.62, 0.74, 0.84)
 			ground = Color(0.30, 0.42, 0.26)
@@ -1362,6 +1381,14 @@ static func _hang_painting(
 			_paint_bicycle(tool, out, y, z, width, height, horizon)
 		&"pasture":
 			_paint_pasture(tool, out, y, z, width, height, horizon)
+		&"coffee":
+			_paint_coffee(tool, out, y, z, width, height)
+		&"ribs":
+			_paint_ribs(tool, out, y, z, width, height)
+		&"salad":
+			_paint_salad(tool, out, y, z, width, height)
+		&"market":
+			_paint_market(tool, out, y, z, width, height)
 
 ## Three peaks, snow on the tips, a dark line of forest along the foot of
 ## them: the valley this game is set in, seen from the shop counter. A cone
@@ -1631,6 +1658,261 @@ static func _paint_pasture(
 			)),
 			hide.darkened(0.15)
 		)
+
+## How thin every rounded shape in a café still life is squashed into the
+## wall. A painted cup is not a cup glued to a board — these are each a round
+## body flattened on the same axis and by about the same amount the valley's
+## own portrait flattens a cow's, which is a flat picture and reads as one; an
+## early version gave the cup and the bowl their real depth and each stood off
+## its own canvas far enough to read as a thing nailed to the wall rather than
+## a thing painted on it.
+const PAINTING_RELIEF := 0.28
+
+## A cup and a crescent: coffee in a china cup on its saucer, a croissant
+## beside it. The one picture in the café that is the same two things a child
+## can actually be served at the bar.
+static func _paint_coffee(tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float) -> void:
+	var relief := Basis().scaled(Vector3(PAINTING_RELIEF, 1.0, 1.0))
+	var saucer := SphereMesh.new()
+	saucer.radius = height * 0.22
+	saucer.height = saucer.radius * 0.7
+	saucer.radial_segments = 16
+	saucer.rings = 8
+	_add(
+		tool, saucer, Transform3D(relief.scaled(Vector3(1.0, 0.3, 1.0)), Vector3(out, y - height * 0.16, z - width * 0.12)),
+		Color(0.96, 0.96, 0.92)
+	)
+	# The cup's body: wider at the rim than the foot, so the silhouette reads
+	# as a cup and not a tin can, drawn as a cylinder in its own standing
+	# orientation rather than one turned to face the room — a cylinder turned
+	# to face the room shows its round end, which is the one view that does
+	# not read as a cup at all.
+	var cup := CylinderMesh.new()
+	cup.top_radius = height * 0.15
+	cup.bottom_radius = height * 0.11
+	cup.height = height * 0.2
+	cup.radial_segments = 14
+	_add(
+		tool, cup, Transform3D(relief, Vector3(out, y - height * 0.02, z - width * 0.12)),
+		Color(0.94, 0.92, 0.88)
+	)
+	var coffee := SphereMesh.new()
+	coffee.radius = height * 0.13
+	coffee.height = coffee.radius * 0.6
+	coffee.radial_segments = 14
+	coffee.rings = 8
+	_add(
+		tool, coffee, Transform3D(relief.scaled(Vector3(1.0, 0.25, 1.0)), Vector3(out, y + height * 0.08, z - width * 0.12)),
+		Color(0.32, 0.20, 0.12)
+	)
+	# The handle: an arc of short bars rather than a ring, since a ring reads
+	# as a ring only face-on, and this one is seen from the side like the cup
+	# it hangs from.
+	var handle_at := Vector2(z - width * 0.12 + height * 0.16, y - height * 0.02)
+	var steps := 6
+	for step in steps:
+		var a := PI * 0.5 + PI * float(step) / float(steps - 1)
+		var b := PI * 0.5 + PI * float(step + 1) / float(steps - 1)
+		_bar(
+			tool, out,
+			handle_at + Vector2(cos(a), sin(a)) * height * 0.05,
+			handle_at + Vector2(cos(b), sin(b)) * height * 0.05,
+			height * 0.014, Color(0.94, 0.92, 0.88)
+		)
+	# The croissant: two curved rolls, tapered at the ends by stacking three
+	# shrinking balls along the crescent rather than deforming one shape.
+	for step in 3:
+		var roll := SphereMesh.new()
+		var taper := 1.0 - absf(float(step) - 1.0) * 0.3
+		roll.radius = height * 0.085 * taper
+		roll.height = roll.radius * 1.6
+		roll.radial_segments = 10
+		roll.rings = 6
+		var along := (float(step) - 1.0) * height * 0.14
+		_add(
+			tool, roll,
+			Transform3D(relief, Vector3(
+				out, y - height * 0.1, z + width * 0.18 + along
+			)),
+			Color(0.84, 0.64, 0.30)
+		)
+
+## A rack of lamb ribs on a plate: the ribs as a row of curved bones over a
+## slab of meat, the plate a flattened disc under them.
+static func _paint_ribs(tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float) -> void:
+	var relief := Basis().scaled(Vector3(PAINTING_RELIEF, 1.0, 1.0))
+	var plate := SphereMesh.new()
+	plate.radius = height * 0.4
+	plate.height = plate.radius * 0.6
+	plate.radial_segments = 20
+	plate.rings = 10
+	_add(tool, plate, Transform3D(relief.scaled(Vector3(1.0, 0.3, 1.0)), Vector3(out, y, z)), Color(0.94, 0.94, 0.90))
+	var meat := BoxMesh.new()
+	meat.size = Vector3(height * 0.04, height * 0.18, width * 0.5)
+	_add(tool, meat, Transform3D(Basis(), Vector3(out, y + height * 0.02, z)), Color(0.46, 0.20, 0.16))
+	# Each bone a short bar rather than a round peg: a peg is round from every
+	# side and a bone is only ever drawn from the one.
+	for rib in 5:
+		var at_z := z - width * 0.22 + width * 0.44 * float(rib) / 4.0
+		_bar(
+			tool, out,
+			Vector2(at_z, y + height * 0.04),
+			Vector2(at_z, y + height * 0.22),
+			height * 0.018, Color(0.92, 0.88, 0.80)
+		)
+
+## A salad: a wide plate, a mounded heap of leaves rather than a ring of them
+## at one height, a halved tomato showing its pale flesh, and a coin of
+## cucumber standing out from the green by its own paler colour and its own
+## round shape.
+static func _paint_salad(tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float) -> void:
+	var relief := Basis().scaled(Vector3(PAINTING_RELIEF, 1.0, 1.0))
+	var plate := SphereMesh.new()
+	plate.radius = height * 0.42
+	plate.height = plate.radius * 0.6
+	plate.radial_segments = 20
+	plate.rings = 10
+	_add(tool, plate, Transform3D(relief.scaled(Vector3(1.0, 0.3, 1.0)), Vector3(out, y - height * 0.14, z)), Color(0.92, 0.92, 0.88))
+	# A dozen leaves at a spread of positions and heights rather than a ring at
+	# one height — a ring reads as a line of dots; a spread reads as a heap.
+	var greens := [Color(0.34, 0.56, 0.26), Color(0.42, 0.66, 0.30), Color(0.30, 0.50, 0.24)]
+	for leaf in 12:
+		var spread_z := sin(float(leaf) * 2.4) * width * 0.26
+		var spread_y := absf(cos(float(leaf) * 1.7)) * height * 0.1
+		var leaf_mesh := SphereMesh.new()
+		leaf_mesh.radius = height * (0.07 + 0.03 * float(leaf % 3) / 2.0)
+		leaf_mesh.height = leaf_mesh.radius * 1.5
+		leaf_mesh.radial_segments = 8
+		leaf_mesh.rings = 5
+		_add(
+			tool, leaf_mesh,
+			Transform3D(relief, Vector3(out, y - height * 0.02 + spread_y, z + spread_z)),
+			greens[leaf % greens.size()]
+		)
+	# The tomato, halved: the red skin behind a smaller disc of pale flesh, so
+	# it reads as a vegetable cut open rather than a second ball of the salad's
+	# own green.
+	var tomato := SphereMesh.new()
+	tomato.radius = height * 0.11
+	tomato.height = tomato.radius * 1.8
+	tomato.radial_segments = 10
+	tomato.rings = 6
+	_add(tool, tomato, Transform3D(relief, Vector3(out, y + height * 0.14, z - width * 0.2)), Color(0.86, 0.22, 0.18))
+	var flesh := SphereMesh.new()
+	flesh.radius = height * 0.08
+	flesh.height = flesh.radius * 1.6
+	flesh.radial_segments = 8
+	flesh.rings = 5
+	_add(
+		tool, flesh,
+		Transform3D(relief.scaled(Vector3(0.5, 1.0, 1.0)), Vector3(out + height * 0.02, y + height * 0.14, z - width * 0.2)),
+		Color(0.96, 0.82, 0.62)
+	)
+	# The cucumber: a coin rather than another ball, pale rind round a paler
+	# centre, so its own round, flat shape is the one thing in the picture that
+	# is not a sphere.
+	var slice := CylinderMesh.new()
+	slice.top_radius = height * 0.09
+	slice.bottom_radius = height * 0.09
+	slice.height = height * 0.03
+	slice.radial_segments = 16
+	_add(
+		tool, slice, Transform3D(relief * Basis(Vector3.FORWARD, PI * 0.5), Vector3(out, y + height * 0.16, z + width * 0.2)),
+		Color(0.40, 0.56, 0.24)
+	)
+	var centre := CylinderMesh.new()
+	centre.top_radius = height * 0.05
+	centre.bottom_radius = height * 0.05
+	centre.height = height * 0.032
+	centre.radial_segments = 14
+	_add(
+		tool, centre, Transform3D(relief * Basis(Vector3.FORWARD, PI * 0.5), Vector3(out, y + height * 0.16, z + width * 0.2)),
+		Color(0.82, 0.88, 0.72)
+	)
+
+## A market stall: fruit and vegetables stacked on a crate shelf, each a
+## distinct silhouette as well as a distinct colour — a stall where everything
+## is a squashed ball reads as one thing in five colours rather than as five
+## different things.
+static func _paint_market(tool: SurfaceTool, out: float, y: float, z: float, width: float, height: float) -> void:
+	var relief := Basis().scaled(Vector3(PAINTING_RELIEF, 1.0, 1.0))
+	var crate := BoxMesh.new()
+	crate.size = Vector3(height * 0.05, height * 0.14, width * 0.95)
+	_add(tool, crate, Transform3D(Basis(), Vector3(out, y - height * 0.34, z)), Color(0.46, 0.34, 0.22))
+	for slat in 3:
+		var bar := BoxMesh.new()
+		bar.size = Vector3(height * 0.06, height * 0.02, width * 0.95)
+		_add(
+			tool, bar,
+			Transform3D(Basis(), Vector3(out + height * 0.005, y - height * 0.34 - height * 0.05 + float(slat) * height * 0.04, z)),
+			Color(0.40, 0.29, 0.19)
+		)
+	var slot_z := [-0.32, -0.16, 0.0, 0.16, 0.32]
+
+	# The tomato: a plain red ball, the one shape every other piece here is
+	# deliberately not.
+	var tomato := SphereMesh.new()
+	tomato.radius = height * 0.1
+	tomato.height = tomato.radius * 1.9
+	tomato.radial_segments = 10
+	tomato.rings = 6
+	_add(tool, tomato, Transform3D(relief, Vector3(out, y - height * 0.08, z + width * slot_z[0])), Color(0.86, 0.22, 0.18))
+
+	# The cucumber: a capsule rather than a ball, long the way the others are
+	# round, lying on its side the way a cucumber on a shelf does.
+	var cucumber := CapsuleMesh.new()
+	cucumber.radius = height * 0.055
+	cucumber.height = height * 0.34
+	cucumber.radial_segments = 10
+	cucumber.rings = 4
+	_add(
+		tool, cucumber,
+		Transform3D(relief * Basis(Vector3.FORWARD, PI * 0.5), Vector3(out, y - height * 0.1, z + width * slot_z[1])),
+		Color(0.38, 0.56, 0.24)
+	)
+
+	# The pumpkin: wider than it is tall, with a short stem, the one piece
+	# built from a flattened rather than a round sphere.
+	var pumpkin := SphereMesh.new()
+	pumpkin.radius = height * 0.14
+	pumpkin.height = pumpkin.radius * 1.9
+	pumpkin.radial_segments = 12
+	pumpkin.rings = 7
+	_add(
+		tool, pumpkin, Transform3D(relief.scaled(Vector3(1.0, 0.75, 1.0)), Vector3(out, y - height * 0.1, z + width * slot_z[2])),
+		Color(0.92, 0.58, 0.16)
+	)
+	var pumpkin_stem := BoxMesh.new()
+	pumpkin_stem.size = Vector3(height * 0.04, height * 0.07, height * 0.04)
+	_add(tool, pumpkin_stem, Transform3D(Basis(), Vector3(out, y - height * 0.04, z + width * slot_z[2])), Color(0.42, 0.34, 0.18))
+
+	# The apple: a plain ball again, but smaller than the tomato and a
+	# different colour, with the one stem that tells the two round shapes
+	# apart from across the room.
+	var apple := SphereMesh.new()
+	apple.radius = height * 0.085
+	apple.height = apple.radius * 1.9
+	apple.radial_segments = 10
+	apple.rings = 6
+	_add(tool, apple, Transform3D(relief, Vector3(out, y - height * 0.08, z + width * slot_z[3])), Color(0.80, 0.78, 0.30))
+	var apple_stem := BoxMesh.new()
+	apple_stem.size = Vector3(height * 0.025, height * 0.05, height * 0.025)
+	_add(tool, apple_stem, Transform3D(Basis(), Vector3(out, y - height * 0.0, z + width * slot_z[3])), Color(0.36, 0.28, 0.16))
+
+	# The pear: two balls, a smaller one on top of a larger one, which is the
+	# one silhouette here that is neither round nor long.
+	var pear_lower := SphereMesh.new()
+	pear_lower.radius = height * 0.09
+	pear_lower.height = pear_lower.radius * 1.9
+	pear_lower.radial_segments = 10
+	pear_lower.rings = 6
+	_add(tool, pear_lower, Transform3D(relief, Vector3(out, y - height * 0.12, z + width * slot_z[4])), Color(0.68, 0.78, 0.30))
+	var pear_upper := SphereMesh.new()
+	pear_upper.radius = height * 0.06
+	pear_upper.height = pear_upper.radius * 1.9
+	pear_upper.radial_segments = 8
+	pear_upper.rings = 5
+	_add(tool, pear_upper, Transform3D(relief, Vector3(out, y - height * 0.0, z + width * slot_z[4])), Color(0.68, 0.78, 0.30))
 
 ## The shopkeeper: an apron, a shirt, a head and a cap, standing behind the
 ## counter. Built from the same primitives as everything else here and at the
@@ -2543,45 +2825,77 @@ func _build_cafe(at: Vector3) -> void:
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		_wall(tool, walls, Vector3(thick, h, d), Vector3(side * (w * 0.5 - thick * 0.5), h * 0.5, mid), wall)
 		for wz in PackedFloat32Array([mid - 1.9, mid + 1.5]):
+			# Stood 0.08 m proud of the wall rather than 0.02 — close enough to
+			# the wall's own outer face that the two sat almost exactly on top
+			# of each other, which two surfaces this close can flicker between
+			# showing and not from one frame to the next: a window a child
+			# could see from some angles and not others, which reads as "the
+			# sill is there but the glass isn't".
 			var pane := BoxMesh.new()
 			pane.size = Vector3(0.06, 1.2, 1.6)
-			_add(tool, pane, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.02), 1.9, wz)), glass)
+			_add(tool, pane, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.08), 1.9, wz)), glass)
 			var sill := BoxMesh.new()
-			sill.size = Vector3(0.14, 0.06, 1.8)
-			_add(tool, sill, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.03), 1.28, wz)), timber)
+			sill.size = Vector3(0.18, 0.06, 1.8)
+			_add(tool, sill, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.08), 1.28, wz)), timber)
 		# The front wall, either side of the door, with a shop window.
 		var segment_w := w * 0.5 - CAFE_DOOR_HALF
 		var segment_x := side * (CAFE_DOOR_HALF + segment_w * 0.5)
 		_wall(tool, walls, Vector3(segment_w, h, thick), Vector3(segment_x, h * 0.5, front + thick * 0.5), wall)
+		# Stood 0.08 m clear of the wall's own outer face for the same reason
+		# as the side panes above.
 		var shop_window := BoxMesh.new()
 		shop_window.size = Vector3(2.2, 1.4, 0.06)
-		_add(tool, shop_window, Transform3D(Basis(), Vector3(side * 3.0, 1.85, front - 0.02)), glass)
+		_add(tool, shop_window, Transform3D(Basis(), Vector3(side * 3.0, 1.85, front - 0.08)), glass)
 		var frame := BoxMesh.new()
 		frame.size = Vector3(2.4, 0.08, 0.12)
-		_add(tool, frame, Transform3D(Basis(), Vector3(side * 3.0, 1.11, front - 0.02)), timber)
+		_add(tool, frame, Transform3D(Basis(), Vector3(side * 3.0, 1.11, front - 0.08)), timber)
 		var post := BoxMesh.new()
 		post.size = Vector3(0.14, 2.55, 0.3)
 		_add(tool, post, Transform3D(Basis(), Vector3(side * (CAFE_DOOR_HALF + 0.07), 1.275, front)), timber)
 	_wall(tool, walls, Vector3(CAFE_DOOR_HALF * 2.0 + 0.3, h - 2.55, thick), Vector3(0.0, (2.55 + h) * 0.5, front + thick * 0.5), wall)
+
+	# Four paintings on the side walls, one either side of the gap between the
+	# two windows and one more nearer the bar — the only stretches of either
+	# wall a window does not already stand in. What a child saves their coins
+	# toward in the shop is pictured on its walls; what the café serves is
+	# pictured on these.
+	var cafe_art_x := w * 0.5 - thick * 0.5
+	for painting: Array in [
+		[PAINTING_COFFEE_AT, PAINTING_COFFEE_SIZE, &"coffee"],
+		[PAINTING_RIBS_AT, PAINTING_RIBS_SIZE, &"ribs"],
+		[PAINTING_SALAD_AT, PAINTING_SALAD_SIZE, &"salad"],
+		[PAINTING_MARKET_AT, PAINTING_MARKET_SIZE, &"market"],
+	]:
+		var spot: Vector3 = painting[0]
+		var size: Vector2 = painting[1]
+		var subject: StringName = painting[2]
+		_hang_painting(tool, cafe_art_x * spot.x, spot.y, spot.z, size.x, size.y, subject)
+
 	var mat := BoxMesh.new()
 	mat.size = Vector3(1.8, 0.03, 0.9)
 	_add(tool, mat, Transform3D(Basis(), Vector3(0.0, 0.015, front - 0.5)), Color(0.36, 0.30, 0.24))
 	var floor_slab := BoxMesh.new()
 	floor_slab.size = Vector3(w - thick, 0.06, d - thick)
 	_add(tool, floor_slab, Transform3D(Basis(), Vector3(0.0, 0.03, mid)), boards)
-	# The lid — ceiling, roof, ridge and chimney — in a mesh of its own, so it
-	# can be taken away while a child is inside. Standing in the café the
-	# camera is above them looking down, and what it was looking at was tiles.
-	var lid_tool := SurfaceTool.new()
-	lid_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# The ceiling stays with the building, not with the roof — the same split
+	# the shop already draws its own lid by: looking up from inside, a child
+	# should see a ceiling, not the open air a building with no lid at all
+	# would show them. It used to be built into the part that comes off, so
+	# standing inside showed nothing overhead at all; it is tiles above the
+	# ceiling, not the ceiling itself, that have to get out of the way.
 	var ceiling := BoxMesh.new()
 	ceiling.size = Vector3(w, 0.08, d)
-	_add(lid_tool, ceiling, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)), inner_wall)
+	_add(tool, ceiling, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)), inner_wall)
 	# The ceiling stops the camera too, or looking down at the table lifts
 	# it through the roof.
 	var lid := BoxShape3D.new()
 	lid.size = Vector3(w, 0.1, d)
 	_collide(walls, lid, Transform3D(Basis(), Vector3(0.0, h - 0.04, mid)))
+	# The roof, the ridge and the chimney in a mesh of their own, so they can
+	# be taken away while a child is inside — the tiles above the ceiling, not
+	# the ceiling, which is what the camera was catching on.
+	var lid_tool := SurfaceTool.new()
+	lid_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var roof := PrismMesh.new()
 	roof.size = Vector3(d + 0.9, 2.0, w + 0.9)
 	_add(lid_tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0.0, h + 1.0, mid)), tiles)
@@ -2668,7 +2982,7 @@ func _build_cafe(at: Vector3) -> void:
 	# Tables and chairs inside, and the sofa corner.
 	for table_at in CAFE_TABLES:
 		_build_table(tool, table_at, Color.WHITE, solid, false)
-	_build_sofa(tool, Vector3(4.55, 0.0, 2.9), solid)
+	_build_sofa(tool, Vector3(4.0, 0.0, 2.9), solid)
 	for pot_at: Vector3 in [Vector3(-4.6, 0.0, back - 0.7), Vector3(4.6, 0.0, front + 0.7)]:
 		_build_pot(tool, pot_at)
 	for light_at: Vector3 in [Vector3(-3.2, 0.0, 1.1), Vector3(bar_x, 0.0, bar_z - 0.6), Vector3(3.2, 0.0, 0.6)]:
@@ -2868,19 +3182,34 @@ func _build_table(tool: SurfaceTool, local: Vector3, canopy: Color, solid: Stati
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		var seat_at := local + Vector3(side * 1.05, 0.0, 0.0)
 		var seat := BoxMesh.new()
-		seat.size = Vector3(0.42, 0.05, 0.42)
+		# A seat the width of a plate read as a stool rather than a chair, and
+		# sat a child's own body width wider than it on every side — too small
+		# to climb onto and stay on rather than slide straight off. Near as
+		# wide now as the body that sits in it, the way the sofa's seat always
+		# was.
+		seat.size = Vector3(0.56, 0.05, 0.56)
 		_add(tool, seat, Transform3D(Basis(), seat_at + Vector3(0.0, 0.45, 0.0)), timber)
 		var back := BoxMesh.new()
-		back.size = Vector3(0.05, 0.45, 0.42)
-		_add(tool, back, Transform3D(Basis(), seat_at + Vector3(side * 0.19, 0.7, 0.0)), timber)
-		for dx in PackedFloat32Array([-0.17, 0.17]):
-			for dz in PackedFloat32Array([-0.17, 0.17]):
+		back.size = Vector3(0.05, 0.45, 0.56)
+		_add(tool, back, Transform3D(Basis(), seat_at + Vector3(side * 0.26, 0.7, 0.0)), timber)
+		for dx in PackedFloat32Array([-0.23, 0.23]):
+			for dz in PackedFloat32Array([-0.23, 0.23]):
 				var leg := BoxMesh.new()
 				leg.size = Vector3(0.04, 0.45, 0.04)
 				_add(tool, leg, Transform3D(Basis(), seat_at + Vector3(dx, 0.225, dz)), iron)
-		var chair_shape := BoxShape3D.new()
-		chair_shape.size = Vector3(0.45, 0.95, 0.45)
-		_collide(solid, chair_shape, Transform3D(Basis(), seat_at + Vector3(0.0, 0.475, 0.0)))
+		# The seat and the back as the two boxes they are drawn as, not one box
+		# the height of the taller of them standing over the whole footprint —
+		# that box stood as tall as the back everywhere, including over the
+		# seat itself, so a child jumping at the low seat landed on top of a
+		# wall exactly as tall as the chair's own back, well above the seat
+		# that was actually drawn, and stood there looking as if they were
+		# floating over the chair rather than sitting in it.
+		var seat_shape := BoxShape3D.new()
+		seat_shape.size = Vector3(0.56, 0.45, 0.56)
+		_collide(solid, seat_shape, Transform3D(Basis(), seat_at + Vector3(0.0, 0.225, 0.0)))
+		var back_shape := BoxShape3D.new()
+		back_shape.size = Vector3(0.14, 0.45, 0.56)
+		_collide(solid, back_shape, Transform3D(Basis(), seat_at + Vector3(side * 0.26, 0.7, 0.0)))
 		# Facing the table: from +X the body looks along -X, which is rotation
 		# atan2(-(-1), 0) = +PI/2; from -X, -PI/2.
 		_cafe_seats.append({
@@ -2891,6 +3220,14 @@ func _build_table(tool: SurfaceTool, local: Vector3, canopy: Color, solid: Stati
 
 ## A sofa against the wall, facing -X, with cushions and a low table in front
 ## of it. Two seats.
+##
+## `local.x` used to put the sofa's own back 0.02 m *past* the café's interior
+## wall face — standing up from it, which restores the furniture collision a
+## diner's mask ignores while seated, had nowhere to depenetrate to: the sofa
+## on one side, the wall it was already inside of on the other. It is a half
+## metre further off the wall now, and the low table is further off the sofa
+## by the same amount a body is wide, so there is room to walk in between
+## rather than only to reach the sofa's own two open ends.
 func _build_sofa(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void:
 	var fabric := Color(0.22, 0.42, 0.46)
 	var cushion_a := Color(0.92, 0.72, 0.30)
@@ -2910,11 +3247,25 @@ func _build_sofa(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void
 		var cushion := BoxMesh.new()
 		cushion.size = Vector3(0.24, 0.42, 0.7)
 		_add(tool, cushion, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(-8.0)), local + Vector3(0.2, 0.68, -1.0 + float(i) * 1.0)), cushion_a if i % 2 == 0 else cushion_b)
-	var sofa_shape := BoxShape3D.new()
-	sofa_shape.size = Vector3(0.95, 1.1, 3.4)
-	_collide(solid, sofa_shape, Transform3D(Basis(), local + Vector3(0.1, 0.55, 0.0)))
-	# The low table in front, with a little vase.
-	var table_at := local + Vector3(-1.1, 0.0, 0.0)
+	# The seat, the back and the two arms, each its own box at the height it is
+	# actually drawn at — not one box as tall as the back standing the whole
+	# length of the sofa, which put a wall the back's own height over the low
+	# seat cushion too: a child jumping at the seat landed standing on top of
+	# that wall, well above the cushion, looking as if they were floating
+	# beside the sofa rather than sitting on it.
+	var seat_shape := BoxShape3D.new()
+	seat_shape.size = Vector3(0.8, 0.42, 3.0)
+	_collide(solid, seat_shape, Transform3D(Basis(), local + Vector3(0.0, 0.21, 0.0)))
+	var back_shape := BoxShape3D.new()
+	back_shape.size = Vector3(0.22, 0.95, 3.0)
+	_collide(solid, back_shape, Transform3D(Basis(), local + Vector3(0.36, 0.475, 0.0)))
+	for dz in PackedFloat32Array([-1.55, 1.55]):
+		var arm_shape := BoxShape3D.new()
+		arm_shape.size = Vector3(0.8, 0.58, 0.2)
+		_collide(solid, arm_shape, Transform3D(Basis(), local + Vector3(0.0, 0.29, dz)))
+	# The low table in front, with a little vase. 0.6 m further out than the
+	# sofa's own edge than it once stood — see the note on _build_sofa.
+	var table_at := local + Vector3(-1.7, 0.0, 0.0)
 	var top := BoxMesh.new()
 	top.size = Vector3(0.9, 0.05, 1.8)
 	_add(tool, top, Transform3D(Basis(), table_at + Vector3(0.0, 0.475, 0.0)), timber)
