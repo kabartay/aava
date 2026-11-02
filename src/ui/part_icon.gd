@@ -27,6 +27,7 @@ const EARTH := Color(0.44, 0.33, 0.22)
 const FLAME := Color(0.96, 0.62, 0.20)
 const EMBER := Color(0.88, 0.32, 0.18)
 const SEED := Color(0.92, 0.78, 0.34)
+const WOOD := Color(0.74, 0.56, 0.36)
 
 ## Not pieces, but drawn here because they sit among the pieces and should look
 ## like the same set: take back the last piece, and build a storey higher or
@@ -80,6 +81,73 @@ func _draw() -> void:
 			_post(box)
 		HouseParts.BED:
 			_bed(box)
+		HouseParts.WALL_WIDE:
+			_wall(box)
+			_opening(box, 0.62, 0.34, 0.66, GLASS)
+			draw_line(Vector2(box.get_center().x, box.position.y + box.size.y * 0.34), Vector2(box.get_center().x, box.position.y + box.size.y * 0.66), WALL_COLOR, 1.5)
+		HouseParts.WALL_HALF:
+			var low := Rect2(Vector2(box.position.x, box.position.y + box.size.y * 0.5), Vector2(box.size.x, box.size.y * 0.5))
+			_wall(low)
+			draw_rect(Rect2(low.position - Vector2(0.0, 3.0), Vector2(low.size.x, 4.0)), TIMBER)
+		HouseParts.WALL_ARCH:
+			_wall(box)
+			_opening(box, 0.36, 0.5, 1.0, DARK)
+			draw_circle(Vector2(box.get_center().x, box.position.y + box.size.y * 0.5), box.size.x * 0.18, DARK)
+		HouseParts.ROOF_FLAT:
+			var slab := Rect2(Vector2(box.position.x, box.get_center().y - box.size.y * 0.1), Vector2(box.size.x, box.size.y * 0.2))
+			draw_rect(slab, ROOF_COLOR)
+			draw_rect(Rect2(slab.position - Vector2(0.0, 4.0), Vector2(slab.size.x, 4.0)), DARK)
+		HouseParts.CHIMNEY:
+			draw_rect(Rect2(Vector2(box.get_center().x - box.size.x * 0.17, box.position.y + box.size.y * 0.1), Vector2(box.size.x * 0.34, box.size.y * 0.9)), STONE)
+			draw_rect(Rect2(Vector2(box.get_center().x - box.size.x * 0.24, box.position.y), Vector2(box.size.x * 0.48, box.size.y * 0.14)), DARK)
+		HouseParts.TABLE:
+			draw_rect(Rect2(Vector2(box.position.x, box.get_center().y - box.size.y * 0.1), Vector2(box.size.x, box.size.y * 0.14)), WOOD)
+			for side in PackedFloat32Array([0.12, 0.88]):
+				draw_rect(Rect2(Vector2(box.position.x + box.size.x * side - 2.0, box.get_center().y), Vector2(4.0, box.size.y * 0.42)), TIMBER)
+		HouseParts.CHAIR:
+			draw_rect(Rect2(Vector2(box.position.x + box.size.x * 0.22, box.position.y + box.size.y * 0.05), Vector2(box.size.x * 0.1, box.size.y * 0.5)), TIMBER)
+			draw_rect(Rect2(Vector2(box.position.x + box.size.x * 0.22, box.get_center().y), Vector2(box.size.x * 0.5, box.size.y * 0.1)), WOOD)
+			for side in PackedFloat32Array([0.24, 0.66]):
+				draw_rect(Rect2(Vector2(box.position.x + box.size.x * side, box.get_center().y), Vector2(4.0, box.size.y * 0.42)), TIMBER)
+		HouseParts.COUNTER:
+			draw_rect(Rect2(Vector2(box.position.x, box.get_center().y - box.size.y * 0.05), Vector2(box.size.x, box.size.y * 0.5)), TIMBER)
+			draw_rect(Rect2(Vector2(box.position.x - 3.0, box.get_center().y - box.size.y * 0.1), Vector2(box.size.x + 6.0, box.size.y * 0.1)), WOOD)
+		HouseParts.SHELF:
+			draw_rect(box, TIMBER, false, 3.0)
+			var jar_colours: Array[Color] = [Color(0.86, 0.45, 0.30), Color(0.40, 0.66, 0.42), SEED]
+			for row in 3:
+				var y := box.position.y + box.size.y * (0.3 + 0.3 * float(row))
+				draw_line(Vector2(box.position.x, y), Vector2(box.end.x, y), TIMBER, 3.0)
+				for j in 3:
+					draw_rect(Rect2(Vector2(box.position.x + box.size.x * (0.14 + 0.28 * float(j)), y - box.size.y * 0.16), Vector2(box.size.x * 0.16, box.size.y * 0.15)), jar_colours[(row + j) % 3])
+		HouseParts.LAMP:
+			draw_rect(Rect2(Vector2(box.get_center().x - 2.0, box.position.y + box.size.y * 0.3), Vector2(4.0, box.size.y * 0.66)), DARK)
+			draw_rect(Rect2(Vector2(box.get_center().x - box.size.x * 0.22, box.end.y - 4.0), Vector2(box.size.x * 0.44, 4.0)), DARK)
+			draw_rect(Rect2(Vector2(box.get_center().x - box.size.x * 0.2, box.position.y), Vector2(box.size.x * 0.4, box.size.y * 0.34)), Color(1.0, 0.86, 0.55))
+		HouseParts.SIGN:
+			draw_rect(Rect2(Vector2(box.get_center().x - 2.0, box.get_center().y), Vector2(4.0, box.size.y * 0.5)), DARK)
+			var board := Rect2(Vector2(box.position.x + box.size.x * 0.08, box.position.y + box.size.y * 0.08), Vector2(box.size.x * 0.84, box.size.y * 0.46))
+			draw_rect(board, WOOD)
+			draw_rect(board, DARK, false, 1.5)
+			draw_circle(board.get_center(), box.size.x * 0.12, ROOF_COLOR)
+		HouseParts.POT:
+			draw_rect(Rect2(Vector2(box.get_center().x - box.size.x * 0.2, box.get_center().y + box.size.y * 0.1), Vector2(box.size.x * 0.4, box.size.y * 0.4)), ROOF_COLOR)
+			draw_circle(Vector2(box.get_center().x, box.get_center().y - box.size.y * 0.05), box.size.x * 0.2, LEAF)
+			for dx in PackedFloat32Array([-0.14, 0.0, 0.14]):
+				draw_circle(Vector2(box.get_center().x + box.size.x * dx, box.position.y + box.size.y * (0.12 + 0.08 * absf(dx) * 4.0)), maxf(2.0, box.size.x * 0.07), Color(0.95, 0.45, 0.50))
+		HouseParts.RUG:
+			var mat := Rect2(Vector2(box.position.x, box.get_center().y - box.size.y * 0.16), Vector2(box.size.x, box.size.y * 0.32))
+			draw_rect(mat, Color(0.70, 0.30, 0.32))
+			draw_rect(mat.grow(-box.size.x * 0.07), Color(0.92, 0.84, 0.62))
+			draw_rect(mat.grow(-box.size.x * 0.16), Color(0.36, 0.52, 0.66))
+		Plans.ROOM:
+			_plan_room(box)
+		Plans.HOUSE:
+			_whole_roof(box)
+		Plans.CAFE:
+			_plan_front(box, false)
+		Plans.SHOP:
+			_plan_front(box, true)
 		BuildKinds.SAPLING:
 			_sapling(box)
 		BuildKinds.PINE:
@@ -104,7 +172,45 @@ func _draw() -> void:
 ## here rather than as a blank square on a child's screen — which is how the
 ## bed went a whole afternoon.
 static func knows(part_kind: StringName) -> bool:
-	return HouseParts.INFO.has(part_kind) or BuildKinds.INFO.has(part_kind)
+	return (
+		HouseParts.INFO.has(part_kind) or BuildKinds.INFO.has(part_kind)
+		or Plans.is_plan(part_kind)
+	)
+
+## A room seen from above: four walls round a floor, a door gap in the front
+## and a window in the side.
+func _plan_room(box: Rect2) -> void:
+	var inside := box.grow(-box.size.x * 0.08)
+	draw_rect(inside, WOOD)
+	for i in 3:
+		var y := inside.position.y + inside.size.y * (0.25 + 0.25 * float(i))
+		draw_line(Vector2(inside.position.x, y), Vector2(inside.end.x, y), TIMBER, 1.0)
+	var thick := maxf(3.0, box.size.x * 0.09)
+	draw_rect(box, WALL_COLOR, false, thick)
+	# The door: a gap in the front wall, which is the bottom edge.
+	draw_rect(Rect2(Vector2(box.position.x + box.size.x * 0.2, box.end.y - thick), Vector2(box.size.x * 0.24, thick * 1.4)), WOOD)
+	# The window, in the right-hand wall.
+	draw_rect(Rect2(Vector2(box.end.x - thick * 0.6, box.position.y + box.size.y * 0.2), Vector2(thick * 1.2, box.size.y * 0.28)), GLASS)
+
+## A shop or a cafe seen from the front: walls, a door, a wide window — and an
+## awning striped over it for the shop, a cup on a sign for the cafe.
+func _plan_front(box: Rect2, shop: bool) -> void:
+	var walls := Rect2(Vector2(box.position.x, box.position.y + box.size.y * 0.3), Vector2(box.size.x, box.size.y * 0.7))
+	draw_rect(walls, WALL_COLOR)
+	draw_rect(Rect2(Vector2(walls.position.x + walls.size.x * 0.1, walls.position.y + walls.size.y * 0.3), Vector2(walls.size.x * 0.2, walls.size.y * 0.7)), DARK)
+	var window := Rect2(Vector2(walls.position.x + walls.size.x * 0.4, walls.position.y + walls.size.y * 0.3), Vector2(walls.size.x * 0.52, walls.size.y * 0.4))
+	draw_rect(window, GLASS)
+	if shop:
+		var stripes := 5
+		for i in stripes:
+			var stripe := Rect2(Vector2(walls.position.x + walls.size.x * float(i) / float(stripes), walls.position.y - box.size.y * 0.04), Vector2(walls.size.x / float(stripes), box.size.y * 0.16))
+			draw_rect(stripe, ROOF_COLOR if i % 2 == 0 else WALL_COLOR)
+		return
+	# A cup on the glass: the one shape every child reads as "something to eat".
+	var cup := window.get_center()
+	draw_rect(Rect2(cup + Vector2(-window.size.x * 0.14, -window.size.y * 0.2), Vector2(window.size.x * 0.28, window.size.y * 0.36)), WALL_COLOR)
+	draw_arc(cup + Vector2(window.size.x * 0.14, -window.size.y * 0.02), window.size.y * 0.12, -PI * 0.5, PI * 0.5, 8, WALL_COLOR, 2.0)
+	draw_rect(Rect2(Vector2(walls.position.x - 2.0, walls.position.y - box.size.y * 0.04), Vector2(walls.size.x + 4.0, box.size.y * 0.08)), ROOF_COLOR)
 
 ## A sapling: a mound of earth, a thin stem, two leaves. Small on purpose —
 ## next to the fir it has to read as the little one.

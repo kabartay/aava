@@ -40,7 +40,9 @@ extends Node3D
 ##                  floors, whole roof, bed — through the build mode, on the
 ##                  nearest buildable ground to the --look point (or to the
 ##                  player), and print where it went
-##   --group=walls|floor|roof|furniture|things  with --build=1, open the
+##   --plan=room|house|cafe|shop  put up that ready-made plan with one tap, on
+##                  the nearest buildable ground to the --look point
+##   --group=plans|walls|floor|roof|furniture|things  with --build=1, open the
 ##                  palette on that group
 
 const DEFAULT_OUT := "user://capture.png"
@@ -78,6 +80,7 @@ var _coins := 40
 var _house := false
 var _test_house := false
 var _palette_group := ""
+var _plan := ""
 var _language := "en"
 var _structures: Structures
 var _birds: Birds
@@ -377,8 +380,15 @@ func _raise_the_test_house() -> void:
 		add_child(_build_mode)
 	for kind in ItemKinds.ALL:
 		_inventory.add(kind, 300)
+	# The forest, as the game tells it to the builder: a house is not put on a
+	# tree, and the site is looked for among clear ground.
+	_build_mode.set_tree_finder(func(at: Vector3, reach: float) -> Array[Vector3]:
+		return _world.vegetation.trees_near(at, reach))
 	# Ahead of the player rather than on top of them, so the player is not
 	# walled in.
+	if _plan != "":
+		_raise_a_plan()
+		return
 	var near := _look_at
 	if _player != null:
 		var yaw := deg_to_rad(_yaw)
@@ -399,6 +409,20 @@ func _raise_the_test_house() -> void:
 	if _build and _hud != null:
 		_hud._show_house(true)
 		_build_mode.select(HouseParts.WALL)
+
+## A ready-made plan in one tap, on the nearest buildable ground to where the
+## camera looks.
+func _raise_a_plan() -> void:
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	var near := _look_at
+	var origin: Vector3 = TestHouse.find_site(_build_mode, _world.field, near)
+	if not origin.is_finite():
+		printerr("plan: no buildable ground near %s" % near)
+		return
+	var was_active := _build_mode.active
+	var built: bool = TestHouse.build_plan(_build_mode, _world.field, origin, StringName("plan_" + _plan))
+	_build_mode.set_active(was_active)
+	print("plan %s: built %s; first square at (%.1f, %.1f, %.1f)" % [_plan, built, origin.x, origin.y, origin.z])
 
 func _kick_nearest() -> void:
 	var ball := _world.football.ball_near(_player.global_position)
@@ -577,6 +601,10 @@ func _parse_arguments() -> void:
 				_test_house = value.to_int() != 0
 			"group":
 				_palette_group = value
+			"plan":
+				# room, house, cafe or shop: built in one tap, like testhouse.
+				_plan = value
+				_test_house = true
 			"lang":
 				_language = value
 			"zoom":

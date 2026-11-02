@@ -142,6 +142,48 @@ const STRINGS := {
 	"part_roof_room": {EN: "whole roof", FR: "toit entier", RU: "вся крыша"},
 	"part_stairs": {EN: "stairs", FR: "escalier", RU: "лестница"},
 	"part_post": {EN: "post", FR: "poteau", RU: "столб"},
+	# The pieces that make a shop, a cafe or a proper house. Short, because each
+	# is written under a picture on a button a thumb wide.
+	"part_wall_wide": {EN: "wide window", FR: "vitrine", RU: "витрина"},
+	"part_wall_half": {EN: "half wall", FR: "muret", RU: "низкая стена"},
+	"part_wall_arch": {EN: "arch", FR: "arche", RU: "арка"},
+	"part_roof_flat": {EN: "flat roof", FR: "toit plat", RU: "плоская крыша"},
+	"part_chimney": {EN: "chimney", FR: "cheminée", RU: "труба"},
+	"part_table": {EN: "table", FR: "table", RU: "стол"},
+	"part_chair": {EN: "chair", FR: "chaise", RU: "стул"},
+	"part_counter": {EN: "counter", FR: "comptoir", RU: "прилавок"},
+	"part_shelf": {EN: "shelf", FR: "étagère", RU: "полка"},
+	"part_lamp": {EN: "lamp", FR: "lampe", RU: "лампа"},
+	"part_sign": {EN: "sign", FR: "enseigne", RU: "вывеска"},
+	"part_pot": {EN: "flower pot", FR: "pot de fleurs", RU: "цветок"},
+	"part_rug": {EN: "rug", FR: "tapis", RU: "ковёр"},
+	# The ready-made plans, which go up in one tap.
+	"build_plan_room": {EN: "room", FR: "pièce", RU: "комната"},
+	"build_plan_house": {EN: "house", FR: "maison", RU: "дом"},
+	"build_plan_cafe": {EN: "cafe", FR: "café", RU: "кафе"},
+	"build_plan_shop": {EN: "shop", FR: "boutique", RU: "магазин"},
+	"ui_group_plans": {EN: "plans", FR: "plans", RU: "планы"},
+	# What a wall can be made of, on the one button that chooses.
+	"ui_material_plaster": {EN: "plaster", FR: "crépi", RU: "штукатурка"},
+	"ui_material_stone": {EN: "stone", FR: "pierre", RU: "камень"},
+	"ui_material_blue": {EN: "blue", FR: "bleu", RU: "синий"},
+	"ui_material_red": {EN: "red", FR: "rouge", RU: "красный"},
+	# What a child's own cafe asks for a meal when it asks nothing.
+	"ui_cafe_free": {EN: "free", FR: "gratuit", RU: "даром"},
+	# Said once, when a building first becomes a cafe or a shop.
+	"say_own_cafe": {
+		EN: "your cafe is open — sit at a table and eat",
+		FR: "ton café est ouvert — assieds-toi à une table",
+		RU: "твоё кафе открыто — садись за стол",
+	},
+	"say_own_shop": {
+		EN: "your shop is open — sell your wool at the counter",
+		FR: "ta boutique est ouverte — vends ta laine au comptoir",
+		RU: "твой магазин открыт — продавай шерсть у прилавка",
+	},
+	"say_nothing_to_sell": {
+		EN: "nothing to sell yet", FR: "rien à vendre pour l'instant", RU: "пока нечего продавать",
+	},
 
 	# Buttons.
 	"ui_things": {EN: "things", FR: "objets", RU: "вещи"},
@@ -611,6 +653,18 @@ const STRINGS := {
 		FR: "la pièce doit avoir quatre côtés droits",
 		RU: "у комнаты должно быть четыре ровные стороны",
 	},
+	# A whole roof over walls that are not all as tall as each other.
+	"why_uneven": {
+		EN: "the walls are not all as tall",
+		FR: "les murs n'ont pas tous la même hauteur",
+		RU: "стены разной высоты",
+	},
+	# A trunk where the building would stand.
+	"why_tree": {
+		EN: "a tree is in the way", FR: "un arbre gêne", RU: "тут растёт дерево",
+	},
+	# What a ready-made plan still lacks; %s is the list of materials.
+	"why_missing": {EN: "still need %s", FR: "il manque %s", RU: "ещё нужно %s"},
 	# A stack of walls already as tall as a house may be.
 	"why_too_high": {EN: "as high as it goes", FR: "on ne peut pas plus haut", RU: "выше нельзя"},
 	# The pool's turnstile.

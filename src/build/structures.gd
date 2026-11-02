@@ -143,7 +143,13 @@ func free_storey(layer: StringName, key: Vector2i, floor_level: float, from: int
 		if not _keys_of(record).has(key):
 			continue
 		var at: Vector3 = record["position"]
-		taken[roundi((at.y - floor_level) / HouseParts.STOREY)] = true
+		var level := roundi((at.y - floor_level) / HouseParts.STOREY)
+		taken[level] = true
+		# Nothing stands on a waist-high wall: a wall a storey up from it would
+		# hang in the air a metre and a half above its top.
+		if record["kind"] == HouseParts.WALL_HALF:
+			for above in range(level, HouseParts.MAX_STOREYS):
+				taken[above] = true
 	var storey := from
 	while taken.has(storey):
 		storey += 1
@@ -164,7 +170,7 @@ func wall_top_round(cell: Vector2i) -> float:
 		if absi(offset.x) > 1 or absi(offset.y) > 1:
 			continue
 		var at: Vector3 = record["position"]
-		top = maxf(top, at.y + HouseParts.STOREY)
+		top = maxf(top, at.y + HouseParts.height(record["kind"]))
 	return top
 
 ## Whether a floor already lies in this square on this storey, for a bed to
@@ -177,6 +183,144 @@ func floor_under(cell: Vector2i, level: float) -> bool:
 		if HouseParts.key_of(at) == cell and absf(at.y - level) < HouseParts.STOREY * 0.5:
 			return true
 	return false
+
+## How near a counter a table or a shelf has to be for the two to be one
+## building, and how near a child has to stand to use what the building offers.
+const VENUE_REACH := 6.0
+const VENUE_USE := 3.2
+
+## What this child's own buildings offer where a point is: &"cafe" beside a
+## table of a building that has a counter, &"shop" beside the counter of one
+## that has a shelf, or nothing. A cafe is a counter with a table, a shop is a
+## counter with a shelf, and either needs a wall near the counter, so a table
+## and a counter left in a field are furniture and not a business.
+func venue_at(at: Vector3) -> StringName:
+	_find_venues()
+	for table: Vector3 in _cafe_tables:
+		if Vector2(table.x - at.x, table.z - at.z).length() < VENUE_USE:
+			return &"cafe"
+	for counter: Vector3 in _shop_counters:
+		if Vector2(counter.x - at.x, counter.z - at.z).length() < VENUE_USE:
+			return &"shop"
+	return &""
+
+## Which of the two this child has built anywhere, for saying so once.
+func has_venue(kind: StringName) -> bool:
+	_find_venues()
+	return not (_cafe_tables if kind == &"cafe" else _shop_counters).is_empty()
+
+## The chair nearest a point that belongs to a cafe, as where to sit and which
+## way to face, or an empty record when there is none: a child can eat
+## standing at a table.
+func seat_near(at: Vector3) -> Dictionary:
+	var best := {}
+	var best_distance := VENUE_USE
+	for record in _records:
+		if record["kind"] != HouseParts.CHAIR:
+			continue
+		var chair: Vector3 = record["position"]
+		var distance := Vector2(chair.x - at.x, chair.z - at.z).length()
+		if distance >= best_distance:
+			continue
+		var spin := float(record["spin"])
+		best_distance = distance
+		best = {
+			"seat": chair + Basis(Vector3.UP, spin) * Vector3(0.0, 0.5, 0.68),
+			"facing": spin,
+		}
+	return best
+
+var _venues_revision := -1
+var _cafe_tables: Array[Vector3] = []
+var _shop_counters: Array[Vector3] = []
+
+func _find_venues() -> void:
+	if _venues_revision == revision:
+		return
+	_venues_revision = revision
+	_cafe_tables.clear()
+	_shop_counters.clear()
+	var counters: Array[Vector3] = []
+	var tables: Array[Vector3] = []
+	var shelves: Array[Vector3] = []
+	var walls: Array[Vector3] = []
+	for record in _records:
+		var at: Vector3 = record["position"]
+		match record["kind"]:
+			HouseParts.COUNTER:
+				counters.append(at)
+			HouseParts.TABLE:
+				tables.append(at)
+			HouseParts.SHELF:
+				shelves.append(at)
+			_:
+				if HouseParts.layer(record["kind"]) == &"wall":
+					walls.append(at)
+	for counter in counters:
+		if not _near_any(counter, walls):
+			continue
+		for table in tables:
+			if _flat_distance(counter, table) <= VENUE_REACH and not _cafe_tables.has(table):
+				_cafe_tables.append(table)
+		if _near_any(counter, shelves):
+			_shop_counters.append(counter)
+
+func _near_any(at: Vector3, others: Array[Vector3]) -> bool:
+	for other in others:
+		if _flat_distance(at, other) <= VENUE_REACH:
+			return true
+	return false
+
+static func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+## The lamps give light at night, a few at a time: an omni light costs a phone
+## its share of every frame, so only the nearest few of the lamps a child has
+## set down are lit, and only when it is dark.
+const LAMP_RANGE := 7.0
+const LAMP_ENERGY := 1.3
+const LAMPS_LIT := 4
+const LAMP_SHOWN_WITHIN := 45.0
+
+func _add_lamp_light(record: Dictionary, node: Node3D) -> void:
+	var light := OmniLight3D.new()
+	light.position = Vector3(0.0, 1.56, 0.0)
+	light.omni_range = LAMP_RANGE
+	light.light_energy = LAMP_ENERGY
+	light.light_color = Color(1.0, 0.82, 0.55)
+	light.shadow_enabled = false
+	light.visible = false
+	node.add_child(light)
+	record["light"] = light
+
+## How many lamps are giving light right now.
+func lamps_lit() -> int:
+	var lit := 0
+	for record in _records:
+		var light: OmniLight3D = record.get("light")
+		if light != null and is_instance_valid(light) and light.visible:
+			lit += 1
+	return lit
+
+## Called every frame with how dark it is and where the child is.
+func light_lamps(darkness: float, near: Vector3) -> void:
+	var candidates: Array[Dictionary] = []
+	for record in _records:
+		var light: OmniLight3D = record.get("light")
+		if light == null or not is_instance_valid(light):
+			continue
+		light.visible = false
+		var at: Vector3 = record["position"]
+		var distance := Vector2(at.x - near.x, at.z - near.z).length()
+		if darkness > 0.15 and distance < LAMP_SHOWN_WITHIN:
+			record["lamp_distance"] = distance
+			candidates.append(record)
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["lamp_distance"]) < float(b["lamp_distance"]))
+	for i in mini(candidates.size(), LAMPS_LIT):
+		var light: OmniLight3D = candidates[i]["light"]
+		light.light_energy = LAMP_ENERGY * smoothstep(0.15, 0.45, darkness)
+		light.visible = true
 
 ## The room a square is in: every square reachable from it without crossing a
 ## wall, a door or a window, or an empty answer if the walls do not close it in
@@ -192,7 +336,7 @@ func enclosed_room(start: Vector2i) -> Dictionary:
 			continue
 		var at: Vector3 = record["position"]
 		var key := HouseParts.key_of(at)
-		walls[key] = maxf(float(walls.get(key, -INF)), at.y + HouseParts.STOREY)
+		walls[key] = maxf(float(walls.get(key, -INF)), at.y + HouseParts.height(record["kind"]))
 	if walls.is_empty():
 		return {}
 
@@ -202,12 +346,14 @@ func enclosed_room(start: Vector2i) -> Dictionary:
 	var low := start
 	var high := start
 	var top := -INF
+	var lowest := INF
 	while not queue.is_empty():
 		var cell: Vector2i = queue.pop_back()
 		for step in steps:
 			var edge := cell + step
 			if walls.has(edge):
 				top = maxf(top, float(walls[edge]))
+				lowest = minf(lowest, float(walls[edge]))
 				continue
 			var next := cell + step * 2
 			if seen.has(next):
@@ -227,6 +373,9 @@ func enclosed_room(start: Vector2i) -> Dictionary:
 		"span": span,
 		"rectangle": seen.size() == span.x * span.y,
 		"top": top,
+		# A roof laid on the highest wall leaves a gap of sky over the lower
+		# ones, so a room whose walls are not all one height says so.
+		"level": top - lowest < 0.05,
 	}
 
 ## The ground level the nearest house parts were built on, or INF if there are
@@ -397,7 +546,7 @@ func remove(record: Dictionary) -> StringName:
 ## take back exactly the piece that was put up.
 func place(
 	kind: StringName, world_position: Vector3, spin: float, paid := true,
-	extent := Vector2i.ONE
+	extent := Vector2i.ONE, material := HouseParts.DEFAULT_MATERIAL
 ) -> Dictionary:
 	var record := {
 		"kind": kind,
@@ -411,6 +560,7 @@ func place(
 		"shared": sharing or not paid,
 		"paid": paid,
 		"extent": extent,
+		"material": material,
 	}
 	_records.append(record)
 	revision += 1
@@ -427,13 +577,18 @@ func _spawn_node(record: Dictionary) -> void:
 	var node := MeshInstance3D.new()
 	var kind: StringName = record["kind"]
 	node.mesh = (
-		HouseParts.mesh_for(kind, record.get("extent", Vector2i.ONE)) if HouseParts.is_house_part(kind)
+		HouseParts.mesh_for(
+			kind, record.get("extent", Vector2i.ONE),
+			record.get("material", HouseParts.DEFAULT_MATERIAL)
+		) if HouseParts.is_house_part(kind)
 		else BuildKinds.build_mesh(kind, record["stage"])
 	)
 	node.material_override = _material
 	node.transform = Transform3D(Basis(Vector3.UP, record["spin"]), record["position"])
 	if HouseParts.is_house_part(kind) and HouseParts.is_solid(kind):
 		HouseParts.add_collision(node, kind)
+	if kind == HouseParts.LAMP:
+		_add_lamp_light(record, node)
 	elif not HouseParts.is_house_part(kind):
 		BuildKinds.add_collision(node, kind, int(record["stage"]))
 	add_child(node)
@@ -564,6 +719,11 @@ func to_data() -> Array:
 		if extent != Vector2i.ONE:
 			entry["across"] = extent.x
 			entry["along"] = extent.y
+		# Likewise only a wall that is not the old plaster look says what it is
+		# made of; everything saved before there was a choice reads as plaster.
+		var material: StringName = record.get("material", HouseParts.DEFAULT_MATERIAL)
+		if material != HouseParts.DEFAULT_MATERIAL and HouseParts.is_wall(record["kind"]):
+			entry["material"] = String(material)
 		data.append(entry)
 	return data
 
@@ -596,6 +756,7 @@ func from_data(data: Array) -> void:
 			# Everything saved before this mark existed was built by this child.
 			"paid": bool(entry.get("paid", true)),
 			"extent": Vector2i(_squares(entry.get("across", 1)), _squares(entry.get("along", 1))),
+			"material": HouseParts.material_from(entry.get("material", HouseParts.DEFAULT_MATERIAL)),
 		}
 		if BuildKinds.INFO.has(kind) and BuildKinds.grows(kind):
 			record["stage"] = mini(
@@ -629,8 +790,12 @@ func _move_out_of_places() -> int:
 		if not KeepOut.kept(at.x, at.z, camp, river_x):
 			continue
 		var free := KeepOut.nearest_free(at.x, at.z, camp, river_x)
+		# Set down at the same height above the ground it stood at, not on the
+		# ground: a wall a storey up or a roof on a house was put on the grass
+		# beside it, at the foot of the walls it was meant to cover.
+		var standing := at.y - field.height_at(at.x, at.z)
 		record["position"] = Vector3(
-			free.x, field.height_at(free.x, free.y), free.y
+			free.x, field.height_at(free.x, free.y) + standing, free.y
 		)
 		moved += 1
 	return moved

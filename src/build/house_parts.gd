@@ -32,11 +32,40 @@ const BED := &"bed"
 ## the room with one pitched roof. Laying a roof square by square, each one a
 ## storey up, was the step at which a child's house stopped being finished.
 const ROOF_ROOM := &"roof_room"
+## A shop front: a window nearly the width of the square, with the sill at
+## counter height.
+const WALL_WIDE := &"wall_wide"
+## Waist high, for the front of a counter or the rail of a porch.
+const WALL_HALF := &"wall_half"
+## A doorway with no door in it.
+const WALL_ARCH := &"wall_arch"
+## A flat roof for a square: a lean-to's lid, or the top of a shed.
+const ROOF_FLAT := &"roof_flat"
+const CHIMNEY := &"chimney"
+const TABLE := &"table"
+const CHAIR := &"chair"
+const COUNTER := &"counter"
+const SHELF := &"shelf"
+const LAMP := &"lamp"
+const SIGN := &"sign"
+const POT := &"pot"
+const RUG := &"rug"
 
 const ALL: Array[StringName] = [
 	BED,
-	WALL, WALL_DOOR, WALL_WINDOW, FLOOR, ROOF, ROOF_PEAK, STAIRS, POST, ROOF_ROOM,
+	WALL, WALL_DOOR, WALL_WINDOW, WALL_WIDE, WALL_HALF, WALL_ARCH,
+	FLOOR, ROOF, ROOF_PEAK, STAIRS, POST, ROOF_ROOM, ROOF_FLAT, CHIMNEY,
+	TABLE, CHAIR, COUNTER, SHELF, LAMP, SIGN, POT, RUG,
 ]
+
+## What a wall is made of. The first is the look every wall had before there
+## was a choice, so a wall with no material saved with it is read as that one.
+const PLASTER_WALL := &"plaster"
+const STONE_WALL := &"stone"
+const BLUE_WALL := &"blue"
+const RED_WALL := &"red"
+const MATERIALS: Array[StringName] = [PLASTER_WALL, STONE_WALL, BLUE_WALL, RED_WALL]
+const DEFAULT_MATERIAL := PLASTER_WALL
 
 ## Where on the grid a piece sits.
 ##
@@ -81,6 +110,20 @@ const DOOR_WIDTH := 1.0
 const DOOR_HEIGHT := 1.75
 const WINDOW_OPENING := 0.9
 const WINDOW_SILL := 0.95
+## The shop-front window, and the arch.
+const WIDE_OPENING := 1.4
+const WIDE_SILL := 0.85
+const WIDE_HEIGHT := 1.05
+const ARCH_WIDTH := 1.2
+const ARCH_HEIGHT := 1.95
+## The waist-high wall, and how far each wall reaches past the end of its
+## square: half its own thickness, which is what fills the corner where two
+## walls meet at right angles. Each wall ended exactly on the line of its
+## square, so the outside of every corner was a notch half a wall wide.
+const ARCH_SHOULDER := 0.25
+const CHIMNEY_AT := 0.5
+const HALF_WALL_HEIGHT := 1.0
+const CORNER_FILL := WALL_THICKNESS * 0.5
 
 const TIMBER := Color(0.62, 0.45, 0.28)
 const TIMBER_DARK := Color(0.44, 0.31, 0.19)
@@ -107,6 +150,19 @@ const INFO := {
 	## child who sleeps in one wakes at dawn, rested — so a house is somewhere
 	## to get through the night rather than something to look at afterwards.
 	BED: {"label": "bed", "cost": {&"stick": 3, &"reed": 3}, "footprint": MODULE, "height": 0.55},
+	WALL_WIDE: {"label": "wide window", "cost": {&"stick": 3, &"reed": 2}, "footprint": MODULE, "height": STOREY},
+	WALL_HALF: {"label": "half wall", "cost": {&"stick": 1}, "footprint": MODULE, "height": HALF_WALL_HEIGHT},
+	WALL_ARCH: {"label": "arch", "cost": {&"stick": 2, &"stone": 1}, "footprint": MODULE, "height": STOREY},
+	ROOF_FLAT: {"label": "flat roof", "cost": {&"reed": 1, &"stick": 1}, "footprint": MODULE, "height": 0.3},
+	CHIMNEY: {"label": "chimney", "cost": {&"stone": 3}, "footprint": MODULE, "height": 2.7},
+	TABLE: {"label": "table", "cost": {&"stick": 3}, "footprint": MODULE, "height": 0.76},
+	CHAIR: {"label": "chair", "cost": {&"stick": 2}, "footprint": MODULE, "height": 0.9},
+	COUNTER: {"label": "counter", "cost": {&"stick": 4}, "footprint": MODULE, "height": 1.0},
+	SHELF: {"label": "shelf", "cost": {&"stick": 3, &"reed": 1}, "footprint": MODULE, "height": 1.9},
+	LAMP: {"label": "lamp", "cost": {&"stick": 1, &"stone": 1}, "footprint": MODULE, "height": 1.7},
+	SIGN: {"label": "sign", "cost": {&"stick": 2}, "footprint": MODULE, "height": 1.3},
+	POT: {"label": "flower pot", "cost": {&"stone": 1, &"seed": 1}, "footprint": MODULE, "height": 0.76},
+	RUG: {"label": "rug", "cost": {&"wool": 1, &"reed": 1}, "footprint": MODULE, "height": 0.03},
 	## Priced per square it covers, at what a single roof square costs, so a
 	## whole roof is never dearer than the same roof laid by hand.
 	ROOF_ROOM: {"label": "whole roof", "cost": {&"reed": 2}, "footprint": MODULE, "height": 1.5},
@@ -139,12 +195,47 @@ static func cost_for(kind: StringName, cells: int) -> Dictionary:
 	return total
 
 static func seat(kind: StringName) -> Seat:
-	match kind:
-		WALL, WALL_DOOR, WALL_WINDOW:
-			return Seat.EDGE
-		POST:
-			return Seat.CORNER
+	if is_wall(kind):
+		return Seat.EDGE
+	if kind == POST:
+		return Seat.CORNER
 	return Seat.CELL
+
+## Every piece that stands on an edge: all the kinds of wall.
+static func is_wall(kind: StringName) -> bool:
+	return (
+		kind == WALL or kind == WALL_DOOR or kind == WALL_WINDOW
+		or kind == WALL_WIDE or kind == WALL_HALF or kind == WALL_ARCH
+	)
+
+## The look of a wall in each material: the panel, the frame round it and the
+## brace across it. Painted wood is a flat colour in a pale frame, which is
+## what paint on boards looks like from across a meadow.
+static func wall_look(material: StringName) -> Dictionary:
+	match material:
+		STONE_WALL:
+			return {"panel": Color(0.62, 0.61, 0.59), "frame": Color(0.42, 0.41, 0.40), "brace": Color(0.50, 0.49, 0.48)}
+		BLUE_WALL:
+			return {"panel": Color(0.42, 0.62, 0.82), "frame": Color(0.92, 0.92, 0.88), "brace": Color(0.92, 0.92, 0.88)}
+		RED_WALL:
+			return {"panel": Color(0.78, 0.34, 0.30), "frame": Color(0.92, 0.90, 0.84), "brace": Color(0.92, 0.90, 0.84)}
+	return {"panel": PLASTER, "frame": TIMBER_DARK, "brace": TIMBER}
+
+## A material read out of a saved or sent value, which may be anything:
+## the plaster look for whatever is not one of ours.
+static func material_from(value: Variant) -> StringName:
+	var named := StringName(str(value))
+	return named if MATERIALS.has(named) else DEFAULT_MATERIAL
+
+const MATERIAL_TEXT := {
+	PLASTER_WALL: "ui_material_plaster",
+	STONE_WALL: "ui_material_stone",
+	BLUE_WALL: "ui_material_blue",
+	RED_WALL: "ui_material_red",
+}
+
+static func material_label(material: StringName) -> String:
+	return Text.of(MATERIAL_TEXT[material] if MATERIAL_TEXT.has(material) else "ui_material_plaster")
 
 ## Which pieces compete for the same place. One wall per edge per storey, one
 ## floor per square per storey — but a wall and the floor beside it, or a bed
@@ -152,20 +243,30 @@ static func seat(kind: StringName) -> Seat:
 ## is not a house part.
 static func layer(kind: StringName) -> StringName:
 	match kind:
-		WALL, WALL_DOOR, WALL_WINDOW:
+		WALL, WALL_DOOR, WALL_WINDOW, WALL_WIDE, WALL_HALF, WALL_ARCH:
 			return &"wall"
 		FLOOR, STAIRS:
 			return &"floor"
-		ROOF, ROOF_PEAK, ROOF_ROOM:
+		ROOF, ROOF_PEAK, ROOF_ROOM, ROOF_FLAT:
 			return &"roof"
 		POST:
 			return &"post"
-		BED:
+		# A table and the chair pulled up to it share a square, and so does a
+		# rug under either: each of those is a layer of its own.
+		BED, TABLE, COUNTER, SHELF, LAMP, POT:
 			return &"furniture"
+		CHAIR:
+			return &"seat"
+		RUG:
+			return &"rug"
+		SIGN:
+			return &"sign"
+		CHIMNEY:
+			return &"chimney"
 	return &""
 
 static func is_roof(kind: StringName) -> bool:
-	return kind == ROOF or kind == ROOF_PEAK or kind == ROOF_ROOM
+	return kind == ROOF or kind == ROOF_PEAK or kind == ROOF_ROOM or kind == ROOF_FLAT
 
 ## The grid point a position stands on, in half-modules: both even for a
 ## square, one odd for an edge, both odd for a corner. A wall saved before
@@ -211,10 +312,10 @@ static func snap_corner(x: float, z: float) -> Vector2:
 
 ## The mesh for a placed piece. Only the whole roof depends on more than its
 ## kind: it is as big as the room it covers.
-static func mesh_for(kind: StringName, extent := Vector2i.ONE) -> Mesh:
+static func mesh_for(kind: StringName, extent := Vector2i.ONE, material := DEFAULT_MATERIAL) -> Mesh:
 	if kind == ROOF_ROOM:
 		return roof_mesh(extent)
-	return build_mesh(kind)
+	return build_mesh(kind, material)
 
 ## Which storey a piece sits on, given how high above the ground it was placed.
 static func storey_of(height_above_ground: float) -> int:
@@ -255,14 +356,30 @@ static func _bed() -> Mesh:
 	tool.generate_normals()
 	return tool.commit()
 
-static func build_mesh(kind: StringName) -> Mesh:
+static func build_mesh(kind: StringName, material := DEFAULT_MATERIAL) -> Mesh:
+	if is_wall(kind):
+		return _wall(kind, material)
 	match kind:
-		WALL:
-			return _wall(false, false)
-		WALL_DOOR:
-			return _wall(true, false)
-		WALL_WINDOW:
-			return _wall(false, true)
+		ROOF_FLAT:
+			return _flat_roof()
+		CHIMNEY:
+			return _chimney()
+		TABLE:
+			return _table()
+		CHAIR:
+			return _chair()
+		COUNTER:
+			return _counter()
+		SHELF:
+			return _shelf()
+		LAMP:
+			return _lamp()
+		SIGN:
+			return _sign()
+		POT:
+			return _pot()
+		RUG:
+			return _rug()
 		FLOOR:
 			return _floor()
 		ROOF:
@@ -297,9 +414,33 @@ static func build_mesh(kind: StringName) -> Mesh:
 ## under one, and a roof the camera and the rain can pass through is a picture.
 static func is_solid(kind: StringName) -> bool:
 	return (
-		kind == WALL or kind == WALL_DOOR or kind == WALL_WINDOW or kind == POST
-		or is_roof(kind)
+		is_wall(kind) or kind == POST or is_roof(kind) or kind == CHIMNEY
+		or not furniture_boxes(kind).is_empty()
 	)
+
+## The solid parts of a piece of furniture, as (centre, size) pairs in the
+## piece's own space. The same measurements the mesh is built from, so what
+## stops a body is what is drawn.
+static func furniture_boxes(kind: StringName) -> Array:
+	match kind:
+		TABLE:
+			return [[Vector3(0.0, 0.38, 0.0), Vector3(1.0, 0.76, 0.7)]]
+		CHAIR:
+			return [[Vector3(0.0, 0.45, 0.68), Vector3(0.42, 0.9, 0.44)]]
+		COUNTER:
+			return [[Vector3(0.0, 0.5, 0.0), Vector3(1.9, 1.0, 0.7)]]
+		SHELF:
+			return [[Vector3(0.0, 0.95, -0.72), Vector3(1.8, 1.9, 0.4)]]
+		LAMP:
+			return [[Vector3(0.0, 0.85, 0.0), Vector3(0.34, 1.7, 0.34)]]
+		SIGN:
+			return [
+				[Vector3(0.7, 0.325, 0.0), Vector3(0.08, 0.65, 0.08)],
+				[Vector3(0.7, 1.1, 0.0), Vector3(0.56, 0.42, 0.08)],
+			]
+		POT:
+			return [[Vector3(0.0, 0.38, 0.0), Vector3(0.38, 0.76, 0.38)]]
+	return []
 
 ## Add the collision a piece needs, as a child of the node its mesh lives on.
 ##
@@ -309,28 +450,50 @@ static func is_solid(kind: StringName) -> bool:
 static func add_collision(node: Node3D, kind: StringName) -> void:
 	var body := StaticBody3D.new()
 	node.add_child(body)
+	for pair: Array in furniture_boxes(kind):
+		_collision_box(body, pair[0], pair[1])
 	match kind:
-		WALL_DOOR:
+		WALL_DOOR, WALL_ARCH:
+			# Two pillars and a lintel round an opening. Each pillar reaches
+			# past the end of the square by CORNER_FILL, like the drawn wall.
+			var opening := DOOR_WIDTH if kind == WALL_DOOR else ARCH_WIDTH
+			var opening_height := DOOR_HEIGHT if kind == WALL_DOOR else ARCH_HEIGHT
 			var inner := MODULE - WALL_POST * 2.0
-			var side_width := (inner - DOOR_WIDTH) * 0.5
-			var pillar_width := WALL_POST + side_width
+			var side_width := (inner - opening) * 0.5
+			var pillar_width := WALL_POST + side_width + CORNER_FILL
 			for side in PackedFloat32Array([-1.0, 1.0]):
-				var centre := side * (MODULE * 0.5 - pillar_width * 0.5)
+				var centre := side * (MODULE * 0.5 + CORNER_FILL - pillar_width * 0.5)
 				_collision_box(
 					body, Vector3(centre, STOREY * 0.5, 0.0),
 					Vector3(pillar_width, STOREY, WALL_THICKNESS)
 				)
 			_collision_box(
-				body, Vector3(0.0, (DOOR_HEIGHT + STOREY) * 0.5, 0.0),
-				Vector3(DOOR_WIDTH, STOREY - DOOR_HEIGHT, WALL_THICKNESS)
+				body, Vector3(0.0, (opening_height + STOREY) * 0.5, 0.0),
+				Vector3(opening, STOREY - opening_height, WALL_THICKNESS)
 			)
-		WALL, WALL_WINDOW:
+			if kind == WALL_ARCH:
+				# The rounded shoulders of the arch, as the steps they are drawn.
+				for side in PackedFloat32Array([-1.0, 1.0]):
+					_collision_box(
+						body, Vector3(side * (ARCH_WIDTH * 0.5 - ARCH_SHOULDER * 0.5), ARCH_HEIGHT - ARCH_SHOULDER * 0.5, 0.0),
+						Vector3(ARCH_SHOULDER, ARCH_SHOULDER, WALL_THICKNESS)
+					)
+		WALL, WALL_WINDOW, WALL_WIDE:
 			_collision_box(
 				body, Vector3(0.0, STOREY * 0.5, 0.0),
-				Vector3(MODULE, STOREY, WALL_THICKNESS)
+				Vector3(MODULE + WALL_THICKNESS, STOREY, WALL_THICKNESS)
+			)
+		WALL_HALF:
+			_collision_box(
+				body, Vector3(0.0, HALF_WALL_HEIGHT * 0.5, 0.0),
+				Vector3(MODULE + WALL_THICKNESS, HALF_WALL_HEIGHT, WALL_THICKNESS)
 			)
 		POST:
 			_collision_box(body, Vector3(0.0, STOREY * 0.5, 0.0), Vector3(0.2, STOREY, 0.2))
+		CHIMNEY:
+			_collision_box(body, Vector3(CHIMNEY_AT, 1.35, 0.0), Vector3(0.5, 2.7, 0.5))
+		ROOF_FLAT:
+			_collision_box(body, Vector3(0.0, 0.11, 0.0), Vector3(2.3, 0.22, 2.3))
 		ROOF, ROOF_PEAK, ROOF_ROOM:
 			# The roof's own faces, so what stops a body is exactly the shape
 			# that is drawn — slopes, gables and all — whatever size the room.
@@ -352,58 +515,92 @@ static func _collision_box(body: StaticBody3D, at: Vector3, size: Vector3) -> vo
 	shape.position = at
 	body.add_child(shape)
 
-## A wall panel with a timber frame, optionally holed for a door or a window.
+## A wall panel with a frame, optionally holed for a door, a window, a shop
+## window or an arch, or cut down to waist height.
 ## Built as a frame plus panels rather than a box with a hole cut out, because
 ## a hole is a boolean operation and a frame is four slabs.
-static func _wall(door: bool, window: bool) -> Mesh:
+static func _wall(kind: StringName, material := DEFAULT_MATERIAL) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
+	var look := wall_look(material)
+	var panel: Color = look["panel"]
+	var frame: Color = look["frame"]
+	var brace: Color = look["brace"]
 	var thickness := WALL_THICKNESS
 	var post := WALL_POST
+	var top := height(kind)
 
-	# Corner posts, which is what makes a row of walls read as timber framing
-	# rather than as a flat fence.
+	# End posts, which is what makes a row of walls read as framing rather than
+	# as a flat fence. Each reaches CORNER_FILL past the square, so the outside
+	# of a corner is solid; the same colour overlapping the next wall's post is
+	# invisible.
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		_box(tool, Vector3(side * (MODULE * 0.5 - post * 0.5), STOREY * 0.5, 0.0),
-			Vector3(post, STOREY, thickness * 1.15), TIMBER_DARK)
+		var reach := post + CORNER_FILL
+		_box(tool, Vector3(side * (MODULE * 0.5 + CORNER_FILL - reach * 0.5), top * 0.5, 0.0),
+			Vector3(reach, top, thickness * 1.15), frame)
 
 	var inner := MODULE - post * 2.0
 
-	if door:
-		var door_width := DOOR_WIDTH
-		var door_height := DOOR_HEIGHT
+	if kind == WALL_DOOR or kind == WALL_ARCH:
+		var door := kind == WALL_DOOR
+		var door_width := DOOR_WIDTH if door else ARCH_WIDTH
+		var door_height := DOOR_HEIGHT if door else ARCH_HEIGHT
 		var side_width := (inner - door_width) * 0.5
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			_box(tool, Vector3(side * (door_width + side_width) * 0.5, STOREY * 0.5, 0.0),
-				Vector3(side_width, STOREY, thickness), PLASTER)
+				Vector3(side_width, STOREY, thickness), panel)
 		# Lintel over the opening.
 		_box(tool, Vector3(0.0, (door_height + STOREY) * 0.5, 0.0),
-			Vector3(door_width, STOREY - door_height, thickness), PLASTER)
-		_box(tool, Vector3(0.0, door_height, 0.0),
-			Vector3(door_width + 0.12, 0.14, thickness * 1.3), TIMBER_DARK)
+			Vector3(door_width, STOREY - door_height, thickness), panel)
+		if door:
+			_box(tool, Vector3(0.0, door_height, 0.0),
+				Vector3(door_width + 0.12, 0.14, thickness * 1.3), frame)
+		else:
+			# The shoulders of the arch: a step in each top corner, so the
+			# opening is rounded off rather than square.
+			for side in PackedFloat32Array([-1.0, 1.0]):
+				_box(tool, Vector3(side * (door_width * 0.5 - ARCH_SHOULDER * 0.5), door_height - ARCH_SHOULDER * 0.5, 0.0),
+					Vector3(ARCH_SHOULDER, ARCH_SHOULDER, thickness * 1.1), frame)
 		return _finish(tool)
 
-	if window:
-		var opening := WINDOW_OPENING
-		var sill := WINDOW_SILL
+	if kind == WALL_WINDOW or kind == WALL_WIDE:
+		var wide := kind == WALL_WIDE
+		var opening := WIDE_OPENING if wide else WINDOW_OPENING
+		var opening_height := WIDE_HEIGHT if wide else WINDOW_OPENING
+		var sill := WIDE_SILL if wide else WINDOW_SILL
 		var side_width := (inner - opening) * 0.5
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			_box(tool, Vector3(side * (opening + side_width) * 0.5, STOREY * 0.5, 0.0),
-				Vector3(side_width, STOREY, thickness), PLASTER)
-		_box(tool, Vector3(0.0, sill * 0.5, 0.0), Vector3(opening, sill, thickness), PLASTER)
-		var head := sill + opening
+				Vector3(side_width, STOREY, thickness), panel)
+		_box(tool, Vector3(0.0, sill * 0.5, 0.0), Vector3(opening, sill, thickness), panel)
+		var head := sill + opening_height
 		_box(tool, Vector3(0.0, (head + STOREY) * 0.5, 0.0),
-			Vector3(opening, STOREY - head, thickness), PLASTER)
+			Vector3(opening, STOREY - head, thickness), panel)
 		# The pane itself, set back so it reads as glass in a reveal.
-		_box(tool, Vector3(0.0, sill + opening * 0.5, 0.0),
-			Vector3(opening, opening, thickness * 0.35), GLASS)
+		_box(tool, Vector3(0.0, sill + opening_height * 0.5, 0.0),
+			Vector3(opening, opening_height, thickness * 0.35), GLASS)
+		if wide:
+			# A sill board that sticks out, which is what a shop front has.
+			_box(tool, Vector3(0.0, sill, 0.0), Vector3(opening + 0.1, 0.06, thickness * 1.6), frame)
 		return _finish(tool)
 
-	_box(tool, Vector3(0.0, STOREY * 0.5, 0.0), Vector3(inner, STOREY, thickness), PLASTER)
+	if kind == WALL_HALF:
+		_box(tool, Vector3(0.0, top * 0.5 - 0.03, 0.0), Vector3(inner, top - 0.06, thickness), panel)
+		# A cap along the top, so it reads as a rail or a counter front.
+		_box(tool, Vector3(0.0, top - 0.03, 0.0), Vector3(MODULE, 0.06, thickness * 1.3), brace)
+		return _finish(tool)
+
+	_box(tool, Vector3(0.0, STOREY * 0.5, 0.0), Vector3(inner, STOREY, thickness), panel)
+	if material == STONE_WALL:
+		# Courses of stone: darker lines of mortar across the face.
+		for i in 5:
+			_box(tool, Vector3(0.0, STOREY * (float(i) + 0.5) / 5.0, 0.0),
+				Vector3(inner, 0.04, thickness * 1.05), brace)
+		return _finish(tool)
 	# A brace across the panel, which is what makes it look built rather than
 	# extruded.
-	_box(tool, Vector3(0.0, STOREY * 0.55, 0.0), Vector3(inner, 0.13, thickness * 1.2), TIMBER)
+	_box(tool, Vector3(0.0, STOREY * 0.55, 0.0), Vector3(inner, 0.13, thickness * 1.2), brace)
 	return _finish(tool)
 
 static func _floor() -> Mesh:
@@ -555,6 +752,125 @@ static func _post() -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_box(tool, Vector3(0.0, STOREY * 0.5, 0.0), Vector3(0.2, STOREY, 0.2), TIMBER_DARK)
+	return _finish(tool)
+
+## A flat roof: a slab a little wider than the square, with a low rim round
+## the edge. Its underside is at y = 0, the top of the walls it stands on.
+static func _flat_roof() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var wide := MODULE + 0.3
+	_box(tool, Vector3(0.0, 0.11, 0.0), Vector3(wide, 0.22, wide), TILE)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_box(tool, Vector3(side * (wide * 0.5 - 0.04), 0.27, 0.0), Vector3(0.08, 0.1, wide), TIMBER_DARK)
+		_box(tool, Vector3(0.0, 0.27, side * (wide * 0.5 - 0.04)), Vector3(wide, 0.1, 0.08), TIMBER_DARK)
+	return _finish(tool)
+
+## A stone stack, standing a little off the middle of its square so that it
+## comes up beside a roof's ridge rather than inside it. Taller than any
+## roof it is likely to stand on, and capped.
+static func _chimney() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(CHIMNEY_AT, 1.35, 0.0), Vector3(0.5, 2.7, 0.5), STONE.darkened(0.15))
+	_box(tool, Vector3(CHIMNEY_AT, 2.65, 0.0), Vector3(0.62, 0.1, 0.62), STONE.darkened(0.35))
+	return _finish(tool)
+
+const WOOD_LIGHT := Color(0.74, 0.56, 0.36)
+
+static func _table() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(0.0, 0.725, 0.0), Vector3(1.0, 0.07, 0.7), WOOD_LIGHT)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		for end in PackedFloat32Array([-1.0, 1.0]):
+			_box(tool, Vector3(side * 0.44, 0.345, end * 0.29), Vector3(0.07, 0.69, 0.07), TIMBER)
+	return _finish(tool)
+
+## A chair standing in the same square as a table, on the side the child's own
+## turn decides, and facing the middle of the square: the seat and the back
+## are built off-centre for exactly that.
+static func _chair() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(0.0, 0.45, 0.68), Vector3(0.42, 0.06, 0.42), WOOD_LIGHT)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		for end in PackedFloat32Array([-1.0, 1.0]):
+			_box(tool, Vector3(side * 0.18, 0.21, 0.68 + end * 0.18), Vector3(0.05, 0.42, 0.05), TIMBER)
+	_box(tool, Vector3(0.0, 0.68, 0.865), Vector3(0.42, 0.44, 0.05), TIMBER)
+	return _finish(tool)
+
+static func _counter() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(0.0, 0.46, 0.0), Vector3(1.86, 0.92, 0.66), TIMBER_DARK)
+	# A panel on the front — the side a customer stands, towards the room's
+	# front — and a top that overhangs it.
+	_box(tool, Vector3(0.0, 0.44, 0.33), Vector3(1.6, 0.6, 0.03), TIMBER)
+	_box(tool, Vector3(0.0, 0.96, 0.0), Vector3(1.9, 0.08, 0.7), WOOD_LIGHT)
+	return _finish(tool)
+
+## A shelf standing against the far side of its square, shelves facing the
+## near side, with a few jars on the boards.
+static func _shelf() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var z := -0.72
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_box(tool, Vector3(side * 0.88, 0.95, z), Vector3(0.04, 1.9, 0.4), TIMBER_DARK)
+	_box(tool, Vector3(0.0, 0.95, z - 0.19), Vector3(1.8, 1.9, 0.02), TIMBER)
+	var jars: Array[Color] = [Color(0.86, 0.45, 0.30), Color(0.40, 0.66, 0.42), Color(0.92, 0.80, 0.40), Color(0.45, 0.58, 0.82)]
+	for i in 5:
+		var y := 0.04 + float(i) * 0.465
+		_box(tool, Vector3(0.0, y, z), Vector3(1.8, 0.06, 0.4), WOOD_LIGHT)
+		if i == 4:
+			continue
+		for j in 4:
+			_box(tool, Vector3((float(j) - 1.5) * 0.4, y + 0.2, z + 0.02), Vector3(0.17, 0.3, 0.17), jars[(i + j) % jars.size()])
+	return _finish(tool)
+
+## A standing lamp. The shade is the colour of a lit one by day too, so it
+## reads as a lamp whether or not it has come on.
+static func _lamp() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(0.0, 0.03, 0.0), Vector3(0.34, 0.06, 0.34), TIMBER_DARK)
+	_box(tool, Vector3(0.0, 0.8, 0.0), Vector3(0.06, 1.5, 0.06), TIMBER_DARK)
+	_box(tool, Vector3(0.0, 1.56, 0.0), Vector3(0.34, 0.28, 0.34), Color(1.0, 0.86, 0.55))
+	_box(tool, Vector3(0.0, 1.7 - 0.02, 0.0), Vector3(0.38, 0.04, 0.38), TIMBER_DARK)
+	return _finish(tool)
+
+## A board on a post, standing to one side of its square so it does not block
+## a door that opens onto it, and facing the same way the square's front does.
+static func _sign() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(0.7, 0.325, 0.0), Vector3(0.08, 0.65, 0.08), TIMBER_DARK)
+	_box(tool, Vector3(0.7, 1.1, 0.0), Vector3(0.56, 0.42, 0.08), WOOD_LIGHT)
+	# A painted shape on it, which is all a sign needs to say "sign" to a
+	# child who cannot read the words yet.
+	_box(tool, Vector3(0.7, 1.1, 0.045), Vector3(0.4, 0.26, 0.02), Color(0.78, 0.34, 0.30))
+	_box(tool, Vector3(0.7, 1.1, 0.06), Vector3(0.18, 0.12, 0.02), Color(0.96, 0.92, 0.82))
+	return _finish(tool)
+
+static func _pot() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(0.0, 0.18, 0.0), Vector3(0.38, 0.36, 0.38), Color(0.76, 0.42, 0.28))
+	_box(tool, Vector3(0.0, 0.34, 0.0), Vector3(0.42, 0.06, 0.42), Color(0.68, 0.36, 0.24))
+	_box(tool, Vector3(0.0, 0.5, 0.0), Vector3(0.3, 0.26, 0.3), Color(0.32, 0.58, 0.30))
+	var petals: Array[Color] = [Color(0.95, 0.45, 0.50), Color(0.98, 0.84, 0.35), Color(0.62, 0.50, 0.88)]
+	for i in 3:
+		var angle := TAU * float(i) / 3.0
+		_box(tool, Vector3(cos(angle) * 0.08, 0.7, sin(angle) * 0.08), Vector3(0.12, 0.12, 0.12), petals[i])
+	return _finish(tool)
+
+static func _rug() -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(tool, Vector3(0.0, 0.015, 0.0), Vector3(1.7, 0.03, 1.7), Color(0.70, 0.30, 0.32))
+	_box(tool, Vector3(0.0, 0.02, 0.0), Vector3(1.3, 0.03, 1.3), Color(0.92, 0.84, 0.62))
+	_box(tool, Vector3(0.0, 0.025, 0.0), Vector3(0.8, 0.03, 0.8), Color(0.36, 0.52, 0.66))
 	return _finish(tool)
 
 static func _finish(tool: SurfaceTool) -> Mesh:

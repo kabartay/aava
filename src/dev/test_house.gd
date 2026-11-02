@@ -33,6 +33,10 @@ static func find_site(build: BuildMode, field: HeightField, near: Vector3) -> Ve
 static func _fits(build: BuildMode, field: HeightField, square: Vector2) -> bool:
 	var lowest := INF
 	var highest := -INF
+	# No trunk in the way, where the game has said where its trees are.
+	for tree in build._trees_round(Vector3(square.x, 0.0, square.y), 8.0):
+		if absf(tree.x - square.x) < 4.5 and absf(tree.z - square.y) < 4.5:
+			return false
 	# The house runs from a metre west and north of the first square's centre
 	# to three metres east and south of it; the stride round it is where the
 	# child stands.
@@ -77,6 +81,18 @@ static func plan(origin: Vector3) -> Array:
 		# across it into the corner.
 		[HouseParts.BED, Vector2(x - 0.05, z + 2.4), -0.7, Vector2(x + 2.0, z)],
 	]
+
+## Put up a ready-made plan with one tap, aimed from where a child would stand:
+## on the ground south of `origin`, looking north, so the plan reaches away from
+## them and across their view. Returns whether the tap built it.
+static func build_plan(
+	build_mode: BuildMode, field: HeightField, origin: Vector3, plan: StringName
+) -> bool:
+	build_mode.set_active(true)
+	build_mode.select(plan)
+	var z := origin.z + REACH
+	build_mode.aim(Vector3(origin.x, field.height_at(origin.x, z), z), 0.0)
+	return build_mode.place()
 
 ## Build the house. Returns one record per step: the kind, where the child
 ## stood, where the piece was meant to go, what the ghost was aimed at, and

@@ -28,6 +28,8 @@ const HOUSE_TURN_STEPS := 4
 const MAX_SLOPE := 0.32
 
 signal preview_changed(kind: StringName, valid: bool, reason: String)
+## The walls' material was changed, by the button or by anything else.
+signal material_changed(material: StringName)
 
 var field: HeightField
 var structures: Structures
@@ -73,8 +75,27 @@ var _floor_level := 0.0
 ## roof with no room under it, a wall stack already as tall as a house goes.
 var _problem := ""
 
-## What this child has put up, newest last, for the undo button.
-var _history: Array[Dictionary] = []
+## What this child has put up, newest last, for the undo button: one entry for
+## each tap, which is one piece, or every piece of a plan.
+var _history: Array[Array] = []
+
+## What the last tap put up.
+var _placed: Array[Dictionary] = []
+
+## What new walls are made of, chosen with the button in the walls group.
+var material: StringName = HouseParts.DEFAULT_MATERIAL
+
+## Where the trees are: given a point and a reach, the positions of the trees
+## standing within it. Set by the game, which owns the forest, through
+## set_tree_finder(); with nothing set there are no trees to be in the way.
+var tree_finder := Callable()
+
+## The pieces of the plan being aimed, in the world as it would be built.
+var _plan_pieces: Array[Dictionary] = []
+## What was found wrong with the plan, and for which aim and which valley —
+## asked of every piece, so only asked again when something has changed.
+var _plan_check_key := ""
+var _plan_check_reason := ""
 
 ## Everything is built here rather than in _ready, because add_child() defers
 ## _ready until the tree next processes — so a caller that adds this node and
@@ -164,13 +185,38 @@ func change_lift(step: int) -> void:
 ## caller takes it down and refunds it, the same way a tap does.
 func take_last() -> Dictionary:
 	while not _history.is_empty():
-		var record: Dictionary = _history.pop_back()
-		if structures.has(record):
-			return record
+		var group: Array = _history.back()
+		while not group.is_empty():
+			var record: Dictionary = group.pop_back()
+			if structures.has(record):
+				return record
+		_history.pop_back()
 	return {}
 
-## What the piece being aimed would cost, a whole roof by the squares it covers.
+## Everything the newest tap put up that is still standing, taken off the
+## list: one piece, or all of a plan. Undo takes a plan back in one go, because
+## a child who tapped once expects one tap to take it away.
+func take_last_group() -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	while not _history.is_empty():
+		var group: Array = _history.pop_back()
+		for record: Dictionary in group:
+			if structures.has(record):
+				found.append(record)
+		if not found.is_empty():
+			break
+	return found
+
+## The pieces the last tap put up, so the game can tell the other phone about
+## each. Empty after a tap that built nothing.
+func just_placed() -> Array[Dictionary]:
+	return _placed
+
+## What the piece being aimed would cost, a whole roof by the squares it covers
+## and a plan by every piece in it.
 func preview_cost() -> Dictionary:
+	if Plans.is_plan(selected):
+		return Plans.cost(selected)
 	if HouseParts.is_house_part(selected):
 		return HouseParts.cost_for(selected, _extent.x * _extent.y)
 	return BuildKinds.cost(selected)
@@ -185,17 +231,34 @@ func set_active(enabled: bool) -> void:
 	_last_signature = ""
 
 func select(kind: StringName) -> void:
-	var known := BuildKinds.INFO.has(kind) or HouseParts.is_house_part(kind)
+	var known := BuildKinds.INFO.has(kind) or HouseParts.is_house_part(kind) or Plans.is_plan(kind)
 	if not known or kind == selected:
 		return
 	selected = kind
 	_refresh_mesh()
 	_last_signature = ""
 
+## The next material for walls, round and round. Everything laid after it, and
+## the ghost, is in the new one; what is already standing is not touched.
+func cycle_material() -> void:
+	var next := (HouseParts.MATERIALS.find(material) + 1) % HouseParts.MATERIALS.size()
+	set_material(HouseParts.MATERIALS[next])
+
+func set_material(wanted: StringName) -> void:
+	if not HouseParts.MATERIALS.has(wanted) or wanted == material:
+		return
+	material = wanted
+	_refresh_mesh()
+	_last_signature = ""
+	material_changed.emit(material)
+
 func _refresh_mesh() -> void:
 	_ghost_extent = _extent
+	if Plans.is_plan(selected):
+		_ghost.mesh = Plans.mesh(selected, material)
+		return
 	if HouseParts.is_house_part(selected):
-		_ghost.mesh = HouseParts.mesh_for(selected, _extent)
+		_ghost.mesh = HouseParts.mesh_for(selected, _extent, material)
 		return
 	# The ghost of something that grows shows what it will become, not the sprout
 	# it starts as: a child is choosing a tree, not a twig.
@@ -208,6 +271,8 @@ func _is_house() -> bool:
 	return HouseParts.is_house_part(selected)
 
 func _footprint_of(kind: StringName) -> float:
+	if Plans.is_plan(kind):
+		return HouseParts.MODULE
 	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
 
 func _label_of(kind: StringName) -> String:
@@ -224,7 +289,9 @@ func aim(player_position: Vector3, yaw: float) -> void:
 	_extent = Vector2i.ONE
 	_problem = ""
 	var tile_shape := Vector3.ONE * (_footprint_of(selected) / HouseParts.MODULE)
-	if _is_house():
+	if Plans.is_plan(selected):
+		tile_shape = _aim_plan(raw, yaw)
+	elif _is_house():
 		tile_shape = _aim_house(raw, yaw)
 	else:
 		_target = Vector3(snappedf(raw.x, GRID), 0.0, snappedf(raw.z, GRID))
@@ -239,9 +306,14 @@ func aim(player_position: Vector3, yaw: float) -> void:
 	# and shimmers. Turned with the piece and shaped like what it stands on: a
 	# strip along an edge for a wall, the whole room for a whole roof.
 	_tile.visible = true
+	var tile_at := _target
+	if Plans.is_plan(selected):
+		# The ground tile covers the whole plan, which does not stand on its
+		# aimed square alone.
+		tile_at += Basis(Vector3.UP, _spin) * Plans.centre_of(selected)
 	_tile.transform = Transform3D(
 		Basis(Vector3.UP, _spin) * Basis.from_scale(tile_shape),
-		Vector3(_target.x, _target.y + 0.03, _target.z)
+		Vector3(tile_at.x, _target.y + 0.03, tile_at.z)
 	)
 
 	_show_neighbours()
@@ -285,25 +357,60 @@ func _aim_house(raw: Vector3, yaw: float) -> Vector3:
 	_target.y = _floor_level + float(lift) * storey_height
 
 	var tile := Vector3.ONE
+	if HouseParts.is_wall(selected) or selected == HouseParts.POST:
+		# Onto whatever already stands here: the first free storey up.
+		var storey := structures.free_storey(HouseParts.layer(selected), key, _floor_level, lift)
+		if storey >= HouseParts.MAX_STOREYS:
+			_problem = Text.of("why_too_high")
+			storey = HouseParts.MAX_STOREYS - 1
+		_target.y = _floor_level + float(storey) * storey_height
+		return Vector3(1.0, 1.0, 0.22) if selected != HouseParts.POST else Vector3.ONE * 0.2
 	match selected:
-		HouseParts.WALL, HouseParts.WALL_DOOR, HouseParts.WALL_WINDOW, HouseParts.POST:
-			# Onto whatever already stands here: the first free storey up.
-			var storey := structures.free_storey(HouseParts.layer(selected), key, _floor_level, lift)
-			if storey >= HouseParts.MAX_STOREYS:
-				_problem = Text.of("why_too_high")
-				storey = HouseParts.MAX_STOREYS - 1
-			_target.y = _floor_level + float(storey) * storey_height
-			tile = Vector3(1.0, 1.0, 0.22) if selected != HouseParts.POST else Vector3.ONE * 0.2
-		HouseParts.ROOF, HouseParts.ROOF_PEAK:
+		HouseParts.ROOF, HouseParts.ROOF_PEAK, HouseParts.ROOF_FLAT, HouseParts.CHIMNEY:
 			var top := structures.wall_top_round(key)
 			_target.y = top if is_finite(top) else _floor_level + float(lift + 1) * storey_height
 		HouseParts.ROOF_ROOM:
 			tile = _aim_whole_roof(key)
-		HouseParts.BED:
-			# On the boards, if there are boards.
+		HouseParts.SIGN:
+			pass
+		_:
+			# Furniture, on the boards if there are boards.
 			if structures.floor_under(key, _target.y):
 				_target.y += HouseParts.FLOOR_TOP
 	return tile
+
+## Where a plan goes: the square aimed at is its first, and it reaches away
+## from the child and across their view, turned a quarter at a time with the
+## way they face. Every piece is found here, in the world, so the ghost, the
+## refusals and the building all work from the same list.
+func _aim_plan(raw: Vector3, yaw: float) -> Vector3:
+	var turn := TAU / float(HOUSE_TURN_STEPS)
+	var quarter := posmod(roundi(yaw / turn), HOUSE_TURN_STEPS)
+	_spin = float(quarter) * turn
+	var spot := HouseParts.snap_cell(raw.x, raw.z)
+	_target = Vector3(spot.x, 0.0, spot.y)
+	var ground := field.height_at(spot.x, spot.y)
+	var datum := structures.nearby_datum(_target, HouseParts.MODULE * 2.6)
+	_floor_level = ground if is_inf(datum) else datum
+	_target.y = _floor_level + float(lift) * HouseParts.STOREY
+
+	var around := Basis(Vector3.UP, _spin)
+	_plan_pieces.clear()
+	for piece in Plans.pieces(selected, material):
+		var at: Vector3 = _target + around * (piece["at"] as Vector3)
+		var placed := {}
+		placed["kind"] = piece["kind"]
+		# Quarter turns land on whole half-modules: the rounding only takes
+		# out the dust of turning by a multiple of a right angle.
+		placed["position"] = Vector3(
+			snappedf(at.x, HouseParts.HALF), at.y, snappedf(at.z, HouseParts.HALF)
+		)
+		placed["spin"] = fposmod(float(piece["spin"]) + _spin, TAU)
+		placed["extent"] = piece["extent"]
+		placed["material"] = piece["material"]
+		_plan_pieces.append(placed)
+	var size := Plans.size_of(selected)
+	return Vector3(float(size.x), 1.0, float(size.y))
 
 ## The whole roof: find the room the child is aiming into and cover it.
 func _aim_whole_roof(key: Vector2i) -> Vector3:
@@ -315,6 +422,8 @@ func _aim_whole_roof(key: Vector2i) -> Vector3:
 	var span: Vector2i = room["span"]
 	if not bool(room["rectangle"]):
 		_problem = Text.of("why_not_box")
+	elif not bool(room["level"]):
+		_problem = Text.of("why_uneven")
 	var low: Vector2i = room["low"]
 	var high: Vector2i = room["high"]
 	_target.x = float(low.x + high.x) * 0.5 * HouseParts.HALF
@@ -383,7 +492,18 @@ func _evaluate() -> void:
 
 	if not inventory.can_afford(cost):
 		_valid = false
-		_reason = Text.format("why_need", [_cost_text(cost)])
+		if Plans.is_plan(selected):
+			# A whole building is a lot to read as a bill: say what is short.
+			_reason = Text.format("why_missing", [_cost_text(Plans.missing(cost, inventory))])
+		else:
+			_reason = Text.format("why_need", [_cost_text(cost)])
+	elif Plans.is_plan(selected):
+		var refusal := _plan_refusal()
+		if refusal.is_empty():
+			_reason = _cost_text(cost)
+		else:
+			_valid = false
+			_reason = refusal
 	elif field.is_pond(_target.x, _target.z):
 		# A pond, whatever height its water stands at. The test below compares
 		# against the world's waterline, and a raised pond's bed is well above
@@ -402,6 +522,11 @@ func _evaluate() -> void:
 		# sapling planted beside the trampoline became a tree standing in it.
 		_valid = false
 		_reason = Text.of("why_reserved")
+	elif _is_house() and not _trees_in_the_way(selected, _target, _spin, _extent).is_empty():
+		# A trunk in the middle of a room. The axe clears it, or the house
+		# can go a step to one side; either way the child is told.
+		_valid = false
+		_reason = Text.of("why_tree")
 	elif not _problem.is_empty():
 		_valid = false
 		_reason = _problem
@@ -429,6 +554,89 @@ func _evaluate() -> void:
 		_last_signature = signature
 		preview_changed.emit(selected, _valid, _reason)
 
+## What stops a plan being built where it is aimed, in a child's words, or
+## nothing. The same questions a single piece is asked, of every piece in it:
+## the first one that fails is the one said.
+func _plan_refusal() -> String:
+	var key := "%s|%s|%s|%s|%d" % [selected, _target, _spin, material, structures.revision]
+	if key == _plan_check_key:
+		return _plan_check_reason
+	_plan_check_key = key
+	_plan_check_reason = _find_plan_refusal()
+	return _plan_check_reason
+
+func _find_plan_refusal() -> String:
+	for piece in _plan_pieces:
+		var at: Vector3 = piece["position"]
+		if field.is_pond(at.x, at.z) or at.y < field.water_level_at(at.x, at.z) + 0.15:
+			return Text.of("why_wet")
+		if field.steepness_at(at.x, at.z) > MAX_SLOPE:
+			return Text.of("why_steep")
+		if _kept_ground(at.x, at.z):
+			return Text.of("why_reserved")
+	var centre := _target + Basis(Vector3.UP, _spin) * Plans.centre_of(selected)
+	var size := Plans.size_of(selected)
+	for tree in _trees_round(centre, float(maxi(size.x, size.y)) * HouseParts.MODULE + 2.0):
+		for piece in _plan_pieces:
+			if _blocks(piece["kind"], piece["position"], float(piece["spin"]), piece["extent"], tree):
+				return Text.of("why_tree")
+	for piece in _plan_pieces:
+		if not structures.is_clear(
+			piece["position"], HouseParts.MODULE, piece["kind"], float(piece["spin"]), piece["extent"]
+		):
+			return Text.of("why_no_room")
+	return ""
+
+## The trees standing within reach of a point, or none when the game has not
+## said where its trees are.
+func _trees_round(at: Vector3, reach: float) -> Array[Vector3]:
+	# Asked every frame the ghost is on show, and a forest does not move: the
+	# last answer for the same place stands for a moment.
+	var now := Time.get_ticks_msec()
+	if _trees_for == [at, reach] and now - _trees_asked < 400:
+		return _trees_found
+	var found: Array[Vector3] = []
+	if tree_finder.is_valid():
+		for tree: Vector3 in tree_finder.call(at, reach):
+			found.append(tree)
+	_trees_for = [at, reach]
+	_trees_asked = now
+	_trees_found = found
+	return found
+
+var _trees_for := []
+var _trees_asked := -1000
+var _trees_found: Array[Vector3] = []
+
+func set_tree_finder(finder: Callable) -> void:
+	tree_finder = finder
+	_trees_for = []
+	_plan_check_key = ""
+
+## The trees a piece would be built on top of.
+func _trees_in_the_way(kind: StringName, at: Vector3, spin: float, extent: Vector2i) -> Array[Vector3]:
+	var blocking: Array[Vector3] = []
+	var span := HouseParts.world_span(spin, extent)
+	var reach := float(maxi(span.x, span.y)) * HouseParts.MODULE + 1.0
+	for tree in _trees_round(at, reach):
+		if _blocks(kind, at, spin, extent, tree):
+			blocking.append(tree)
+	return blocking
+
+## Whether a trunk stands inside what a piece takes up. A roof is above
+## anything on the ground, and a rug is flat enough to lie over a root.
+func _blocks(kind: StringName, at: Vector3, spin: float, extent: Vector2i, tree: Vector3) -> bool:
+	if HouseParts.is_roof(kind) or kind == HouseParts.RUG:
+		return false
+	var half := Vector2(HouseParts.HALF, HouseParts.HALF)
+	if HouseParts.seat(kind) == HouseParts.Seat.EDGE:
+		half = Vector2(HouseParts.HALF, HouseParts.WALL_THICKNESS * 0.5)
+	elif HouseParts.seat(kind) == HouseParts.Seat.CORNER:
+		half = Vector2(0.1, 0.1)
+	var local := Basis(Vector3.UP, spin).inverse() * Vector3(tree.x - at.x, 0.0, tree.z - at.z)
+	var trunk := TreeCollision.TRUNK_RADIUS
+	return absf(local.x) < half.x + trunk and absf(local.z) < half.y + trunk
+
 ## How far nothing may be built from the crossing and the signs. The rule
 ## itself lives in KeepOut, because the builder and the loaded valley have to
 ## agree about it — see the note there.
@@ -452,11 +660,26 @@ func _cost_text(cost: Dictionary) -> String:
 
 ## Returns true if something was actually built.
 func place() -> bool:
+	_placed = []
 	if not active or not _valid:
 		return false
 	if not inventory.spend(preview_cost()):
 		return false
-	_history.append(structures.place(selected, _target, _spin, true, _extent))
+	var group: Array[Dictionary] = []
+	if Plans.is_plan(selected):
+		# Every piece an ordinary record, in the order they go up.
+		for piece in _plan_pieces:
+			group.append(structures.place(
+				piece["kind"], piece["position"], float(piece["spin"]), true,
+				piece["extent"], piece["material"]
+			))
+	else:
+		group.append(structures.place(
+			selected, _target, _spin, true, _extent,
+			material if HouseParts.is_wall(selected) else HouseParts.DEFAULT_MATERIAL
+		))
+	_history.append(group)
+	_placed = group
 	# Re-evaluate immediately: the same spot is now occupied and the resources
 	# are spent, and the ghost has to say so before the next tap.
 	_evaluate()
@@ -472,7 +695,7 @@ func target() -> Vector3:
 ## the one thing about it that is hard to judge by eye from the ground. A roof
 ## counts as the storey of the walls it covers.
 func storey() -> int:
-	if not _is_house():
+	if not _is_house() and not Plans.is_plan(selected):
 		return 0
 	var counted := HouseParts.storey_of(_target.y - _floor_level)
 	if HouseParts.is_roof(selected):

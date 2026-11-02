@@ -50,6 +50,10 @@ static func connect_hud(
 		build_mode.select(kinds[0]))
 	build_mode.preview_changed.connect(hud.set_build_state)
 	hud.storey_step.connect(build_mode.change_lift)
+	hud.build_material.connect(build_mode.cycle_material)
+	build_mode.material_changed.connect(hud.set_material)
+	# A new interface starts with whatever the walls are made of now.
+	hud.set_material(build_mode.material)
 
 	hud.build_place.connect(handlers.get(&"place", Callable()))
 	hud.build_remove.connect(handlers.get(&"remove", Callable()))

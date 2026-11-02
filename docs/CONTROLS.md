@@ -63,8 +63,20 @@ the **whole roof**, aimed into a room with walls all round, covers the room in
 one tap — nobody has to climb onto the walls. The small arrows either side of
 the floor name lift a piece a storey, for a floor upstairs.
 
+**Plans put up a whole building in one tap.** The first group in the palette is
+a room, a house, a cafe and a shop. The ghost shows all of it; one tap builds it
+if the bag holds enough, and if not the line above the palette says exactly what
+is still missing. The small coloured button in the walls group changes what
+walls are made of — plaster, stone, blue or red paint.
+
+**A cafe or a shop of your own.** A building with a counter and a table is a
+cafe: stand by a table and the eat button appears — free for half a meal's
+energy, or a coin (the small button beside it) for a whole one. A building with
+a counter and a shelf is a shop that buys wool at the valley shop's price. Each
+is announced once, when it first counts. A lamp lights at night.
+
 **Undo takes back the last piece**, wherever you are standing, and gives back
-what it cost.
+what it cost. After a plan it takes back the whole plan.
 
 **Removing gives everything back.** There is no penalty for trying something and
 changing your mind — that is the point.

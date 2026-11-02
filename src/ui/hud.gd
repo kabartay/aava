@@ -37,6 +37,10 @@ signal build_undo()
 signal build_tab(group: StringName)
 ## The storey buttons: +1 up, -1 down.
 signal storey_step(step: int)
+## The button that changes what new walls are made of.
+signal build_material()
+## The price a child's own cafe asks was switched between free and a coin.
+signal cafe_price_toggled(paid: bool)
 
 ## The palette, in the groups a house is made of, then everything else.
 ##
@@ -44,19 +48,35 @@ signal storey_step(step: int)
 ## house at once in no order: a bed first, then walls, floor, two roofs, stairs
 ## and a post, with nothing to say which go together. Grouped the way a house
 ## goes up — walls, then the floor, then the roof, then what goes inside — each
-## tab is a picture of its group and holds no more than four pieces.
+## tab is a picture of its group. The plans come first: a whole room in one tap
+## is where a child who has never built anything starts.
 const BUILD_GROUPS := [
+	{"id": &"plans", "text": "ui_group_plans", "icon": Plans.HOUSE,
+		"kinds": [Plans.ROOM, Plans.HOUSE, Plans.CAFE, Plans.SHOP]},
 	{"id": &"walls", "text": "ui_group_walls", "icon": HouseParts.WALL_DOOR,
-		"kinds": [HouseParts.WALL, HouseParts.WALL_DOOR, HouseParts.WALL_WINDOW, HouseParts.POST]},
+		"kinds": [
+			HouseParts.WALL, HouseParts.WALL_DOOR, HouseParts.WALL_WINDOW,
+			HouseParts.WALL_WIDE, HouseParts.WALL_HALF, HouseParts.WALL_ARCH, HouseParts.POST,
+		]},
 	{"id": &"floor", "text": "ui_group_floor", "icon": HouseParts.FLOOR,
 		"kinds": [HouseParts.FLOOR, HouseParts.STAIRS]},
 	{"id": &"roof", "text": "ui_group_roof", "icon": HouseParts.ROOF_PEAK,
-		"kinds": [HouseParts.ROOF_ROOM, HouseParts.ROOF_PEAK, HouseParts.ROOF]},
+		"kinds": [
+			HouseParts.ROOF_ROOM, HouseParts.ROOF_PEAK, HouseParts.ROOF,
+			HouseParts.ROOF_FLAT, HouseParts.CHIMNEY,
+		]},
 	{"id": &"furniture", "text": "ui_group_furniture", "icon": HouseParts.BED,
-		"kinds": [HouseParts.BED]},
+		"kinds": [
+			HouseParts.BED, HouseParts.TABLE, HouseParts.CHAIR, HouseParts.COUNTER,
+			HouseParts.SHELF, HouseParts.LAMP, HouseParts.SIGN, HouseParts.POT, HouseParts.RUG,
+		]},
 	{"id": &"things", "text": "ui_things", "icon": BuildKinds.SAPLING,
 		"kinds": BuildKinds.ALL},
 ]
+
+## How many pieces stand in a row of the palette before the next row starts.
+## Nine pieces in one row ran off both edges of a phone.
+const PALETTE_ROW := 6
 
 ## The size of one piece in the palette: its picture, its name under it, and
 ## what it costs under that.
@@ -120,8 +140,14 @@ var _stick: VirtualJoystick
 var _backpack: Backpack
 var _minimap: Minimap
 var _build_button: Button
-var _palette: HBoxContainer
+var _palette: HFlowContainer
 var _palette_buttons: Dictionary = {}
+var _material_button: Button
+var _material_swatch: ColorRect
+var _material_name: Label
+## The button that sets what a child's own cafe asks, shown at one.
+var _price_button: Button
+var _cafe_paid := false
 var _tabs: HBoxContainer
 var _place_button: Button
 var _remove_button: Button
@@ -452,6 +478,18 @@ func _init() -> void:
 	_visit_button.pressed.connect(func() -> void: place_used.emit())
 	add_child(_visit_button)
 
+	# At a cafe the child built, what a meal costs is theirs to say: nothing for
+	# half a meal's energy, or a coin for a whole one.
+	_price_button = _button("", Color(1.0, 0.94, 0.72))
+	_price_button.add_theme_font_size_override("font_size", 28)
+	_price_button.visible = false
+	_price_button.pressed.connect(func() -> void:
+		_cafe_paid = not _cafe_paid
+		_refresh_price_button()
+		cafe_price_toggled.emit(_cafe_paid))
+	add_child(_price_button)
+	_refresh_price_button()
+
 	_ticket_button = _icon_button(ActionIcon.Kind.TICKET)
 	_ticket_button.visible = false
 	_ticket_button.pressed.connect(func() -> void: ticket_pressed.emit())
@@ -568,9 +606,10 @@ func _ready() -> void:
 	_layout()
 	get_viewport().size_changed.connect(_layout)
 
-func _build_palette() -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
+func _build_palette() -> HFlowContainer:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 12)
+	row.add_theme_constant_override("v_separation", 8)
 	row.visible = false
 	# A picture of the thing rather than a letter, for the objects as well as
 	# the house parts: "T" for a sapling and "Y" for a bird feeder are as
@@ -580,7 +619,40 @@ func _build_palette() -> HBoxContainer:
 		for kind: StringName in entry["kinds"]:
 			var named := HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
 			row.add_child(_palette_button(kind, named, entry["id"] == _group))
+	_material_button = _build_material_button()
+	_material_button.visible = _group == &"walls"
+	row.add_child(_material_button)
 	return row
+
+## The button that changes what walls are made of: a swatch of the colour they
+## will be, with the material's name under it. One button, pressed round and
+## round, because four more buttons would not fit beside seven wall pieces.
+func _build_material_button() -> Button:
+	var button := _button("", Color(0.86, 0.86, 0.90))
+	_material_button = button
+	button.custom_minimum_size = Vector2(PIECE_SIZE.x * 0.9, PIECE_SIZE.y)
+	_material_swatch = ColorRect.new()
+	_material_swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var picture := PIECE_SIZE.y * 0.5
+	_material_swatch.position = Vector2((button.custom_minimum_size.x - picture) * 0.5, 8.0)
+	_material_swatch.size = Vector2(picture, picture)
+	button.add_child(_material_swatch)
+	_material_name = _label(17, Color(1.0, 0.97, 0.90))
+	_material_name.clip_text = true
+	_material_name.position = Vector2(2.0, picture + 8.0)
+	_material_name.size = Vector2(button.custom_minimum_size.x - 4.0, 24.0)
+	button.add_child(_material_name)
+	button.pressed.connect(func() -> void: build_material.emit())
+	set_material(HouseParts.DEFAULT_MATERIAL)
+	return button
+
+## Show what walls are made of now, on the material button.
+func set_material(material: StringName) -> void:
+	if _material_swatch == null:
+		return
+	_material_swatch.color = HouseParts.wall_look(material)["panel"]
+	_material_name.text = HouseParts.material_label(material)
+	_material_button.tooltip_text = _material_name.text
 
 ## One button in the palette: a drawing of the piece, its name under it for
 ## whoever can read, what it costs under that — so a child can see before
@@ -608,7 +680,13 @@ func _palette_button(kind: StringName, named: String, shown: bool) -> Button:
 	cost.add_theme_constant_override("separation", 2)
 	cost.position = Vector2(0.0, picture + 18.0)
 	cost.size = Vector2(PIECE_SIZE.x, 24.0)
-	var price := HouseParts.cost(kind) if HouseParts.is_house_part(kind) else BuildKinds.cost(kind)
+	# A plan is dozens of pieces: its price does not fit under a picture, and is
+	# read off the status line once it is chosen.
+	var price := {}
+	if HouseParts.is_house_part(kind):
+		price = HouseParts.cost(kind)
+	elif not Plans.is_plan(kind):
+		price = BuildKinds.cost(kind)
 	for item: StringName in price:
 		var amount := _label(18, Color(1.0, 0.94, 0.72))
 		amount.text = str(int(price[item]))
@@ -1237,6 +1315,22 @@ func set_place_offer(place: StringName) -> void:
 		_visit_button.visible = wanted
 		_layout()
 
+## Whether the price button is on show, which it is beside a cafe the child
+## built.
+func set_cafe_price_offer(wanted: bool) -> void:
+	if _price_button.visible != wanted:
+		_price_button.visible = wanted
+		_layout()
+
+## Whether the child's own cafe is asking a coin for a meal.
+func cafe_is_paid() -> bool:
+	return _cafe_paid
+
+func _refresh_price_button() -> void:
+	_price_button.text = ("%d ●" % Venues.MEAL_PRICE) if _cafe_paid else Text.of("ui_cafe_free")
+	_price_button.custom_minimum_size.x = maxf(BUTTON, float(_price_button.text.length()) * 17.0 + 34.0)
+	_price_button.size.x = _price_button.custom_minimum_size.x
+
 ## Which way round the camera is sitting.
 ##
 ## The button shows the view you are *in*, not the one pressing it would give
@@ -1424,6 +1518,7 @@ func _show_group(group: StringName) -> void:
 	var kinds := group_kinds(group)
 	for kind in _palette_buttons:
 		(_palette_buttons[kind] as Button).visible = kinds.has(kind)
+	_material_button.visible = group == &"walls"
 	for i in _tabs.get_child_count():
 		(_tabs.get_child(i) as Button).modulate = (
 			Color.WHITE if BUILD_GROUPS[i]["id"] == group else Color(1.0, 1.0, 1.0, 0.5)
@@ -1974,7 +2069,7 @@ func _layout() -> void:
 	# one is invisible and unpressable.
 	var context_x := _jump_button.position.x
 	for button: Button in [
-		_dive_button, _visit_button, _ticket_button, _dam_button,
+		_dive_button, _visit_button, _price_button, _ticket_button, _dam_button,
 		_fire_button, _sleep_button,
 	]:
 		if not button.visible:
@@ -2026,8 +2121,14 @@ func _layout() -> void:
 		safe.position.y + safe.size.y * 0.5 - _shop.size.y * 0.5
 	)
 
-	var shown := group_kinds(_group).size()
-	var palette_width := float(shown) * (PIECE_SIZE.x + 12.0) - 12.0
+	# The walls carry the material button as well as their pieces. A group of
+	# more than PALETTE_ROW goes on a second row, above the first.
+	var shown := group_kinds(_group).size() + (1 if _group == &"walls" else 0)
+	var palette_rows := ceili(float(shown) / float(PALETTE_ROW))
+	var palette_width := float(mini(shown, PALETTE_ROW)) * (PIECE_SIZE.x + 12.0) - 12.0
+	_palette.size = Vector2(
+		palette_width, float(palette_rows) * (PIECE_SIZE.y + 8.0) - 8.0
+	)
 	# Centred, but never allowed to reach the buttons stacked on the right.
 	# Eight parts plus Russian words met "прыжок" in the middle otherwise.
 	var right_edge := minf(
@@ -2066,6 +2167,10 @@ func _layout() -> void:
 			)),
 			safe.position.y + safe.size.y - MARGIN - BUTTON - 12.0 - PIECE_SIZE.y
 		)
+
+	# The second row grows upwards from the first, so the bottom of the palette
+	# stays where it was and the tabs above it move up with its top.
+	_palette.position.y -= float(palette_rows - 1) * (PIECE_SIZE.y + 8.0)
 
 	var tabs_width := float(BUILD_GROUPS.size()) * (TAB_SIZE.x + 10.0) - 10.0
 	_tabs.position = Vector2(

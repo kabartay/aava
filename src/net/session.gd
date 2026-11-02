@@ -42,7 +42,8 @@ signal guest_renamed(id: int, who: String, shirt: int)
 ## The valley changed, on some other machine. The game applies these exactly as
 ## if the local child had done them.
 ## `extent` is how many squares a whole roof covers; one for everything else.
-signal remote_built(kind: StringName, position: Vector3, spin: float, extent: Vector2i)
+## `material` is what a wall is made of; the plaster look for anything else.
+signal remote_built(kind: StringName, position: Vector3, spin: float, extent: Vector2i, material: StringName)
 signal remote_removed(position: Vector3)
 signal remote_felled(position: Vector3)
 signal remote_dam_stick(site: float)
@@ -275,11 +276,18 @@ func report_position(at: Vector3, facing: float) -> void:
 ## A wall's edge and storey are already in its position and spin, so only a
 ## whole roof, which covers a room, says how big it is. Everything else is sent
 ## with the same three values as ever, so a phone that has not been updated
-## still builds what this one built.
-func report_built(kind: StringName, at: Vector3, spin: float, extent := Vector2i.ONE) -> void:
+## still builds what this one built. A wall of a material that is not the old
+## plaster look says what it is made of, in a fifth value; one that is plaster
+## is sent as it always was.
+func report_built(
+	kind: StringName, at: Vector3, spin: float, extent := Vector2i.ONE,
+	material := HouseParts.DEFAULT_MATERIAL
+) -> void:
 	if not is_connected_to_anyone():
 		return
-	if extent == Vector2i.ONE:
+	if material != HouseParts.DEFAULT_MATERIAL:
+		_send_built.rpc(String(kind), at, spin, extent, String(material))
+	elif extent == Vector2i.ONE:
 		_send_built.rpc(String(kind), at, spin)
 	else:
 		_send_built.rpc(String(kind), at, spin, extent)
@@ -357,7 +365,9 @@ func _send_position(at: Vector3, facing: float) -> void:
 	guest_moved.emit(from, at, facing)
 
 @rpc("any_peer", "call_remote", "reliable")
-func _send_built(kind: String, at: Vector3, spin: float, extent := Vector2i.ONE) -> void:
+func _send_built(
+	kind: String, at: Vector3, spin: float, extent := Vector2i.ONE, material := ""
+) -> void:
 	if not believable(at) or not is_finite(spin):
 		return
 	# A room no bigger than one tap of the roof could ever cover here.
@@ -366,7 +376,8 @@ func _send_built(kind: String, at: Vector3, spin: float, extent := Vector2i.ONE)
 		or extent.x > HouseParts.ROOM_LONGEST or extent.y > HouseParts.ROOM_LONGEST
 	):
 		return
-	remote_built.emit(StringName(kind), at, spin, extent)
+	# Whatever arrives as a material is one of ours or it is plaster.
+	remote_built.emit(StringName(kind), at, spin, extent, HouseParts.material_from(material))
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_removed(at: Vector3) -> void:

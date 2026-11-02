@@ -389,6 +389,13 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	build_mode = BuildMode.new(world.field, structures, inventory)
 	build_mode.name = "BuildMode"
 	add_child(build_mode)
+	# A house is not built where a tree stands, and the forest is the game's
+	# to know about.
+	build_mode.set_tree_finder(func(at: Vector3, reach: float) -> Array[Vector3]:
+		return world.vegetation.trees_near(at, reach))
+	# A cafe or a shop already standing in a loaded valley is not news.
+	_known_cafe = structures.has_venue(&"cafe")
+	_known_shop = structures.has_venue(&"shop")
 
 	hud = Hud.new()
 	hud.name = "Hud"
@@ -909,7 +916,11 @@ func _process(delta: float) -> void:
 
 	# Whatever the place a child is standing in offers.
 	var here := world.places.nearest(at)
-	hud.set_place_offer(_offer_at(here))
+	# And the child's own cafe or shop, where the valley's are not.
+	var home := structures.venue_at(at) if here == &"" else &""
+	hud.set_place_offer(_offer_at(here) if here != &"" else home)
+	hud.set_cafe_price_offer(home == &"cafe")
+	structures.light_lamps(world.atmosphere.evening(), at)
 	# The shelf is for standing at the counter. Left open, it went on selling
 	# to a child who had walked off across the valley, with the stick still live
 	# under it, and they came back to find the screen covered.
@@ -980,7 +991,10 @@ func _process(delta: float) -> void:
 	)
 	tasks.on_moved(player.global_position)
 	build_mode.aim(player.global_position, camera_rig.yaw)
-	hud.set_storey(build_mode.storey(), build_mode.active and HouseParts.is_house_part(build_mode.selected))
+	hud.set_storey(
+		build_mode.storey(),
+		build_mode.active and (HouseParts.is_house_part(build_mode.selected) or Plans.is_plan(build_mode.selected))
+	)
 
 	# The kick button appears only with a ball at your feet. The keyboard runs
 	# through the same two calls as the button, so the two controls cannot end
@@ -1487,7 +1501,10 @@ func _on_session_failed(reason: String) -> void:
 func _footprint_of_kind(kind: StringName) -> float:
 	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
 
-func _on_remote_built(kind: StringName, at: Vector3, spin: float, extent := Vector2i.ONE) -> void:
+func _on_remote_built(
+	kind: StringName, at: Vector3, spin: float, extent := Vector2i.ONE,
+	material := HouseParts.DEFAULT_MATERIAL
+) -> void:
 	# Only things this version knows how to build. A brother on a newer copy of
 	# the game can build something this one has never heard of, and stored
 	# here it was asked about every frame by the build ghost — which then never
@@ -1501,9 +1518,13 @@ func _on_remote_built(kind: StringName, at: Vector3, spin: float, extent := Vect
 	if not structures.is_clear(at, _footprint_of_kind(kind), kind, spin, extent):
 		return
 	# Not paid for here: it came out of the other child's bag.
-	structures.place(kind, at, spin, false, extent if kind == HouseParts.ROOF_ROOM else Vector2i.ONE)
+	structures.place(
+		kind, at, spin, false, extent if kind == HouseParts.ROOF_ROOM else Vector2i.ONE,
+		material if HouseParts.is_wall(kind) else HouseParts.DEFAULT_MATERIAL
+	)
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
+	_note_new_venues()
 
 ## Somebody in the other valley took something down.
 ##
@@ -1518,6 +1539,7 @@ func _on_remote_removed(at: Vector3) -> void:
 	var kind := structures.remove(record)
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
+	_note_new_venues()
 	if paid and kind != &"":
 		_give_back(record)
 
@@ -1642,6 +1664,14 @@ func _on_today_done(_kind: StringName, reward: int) -> void:
 
 func _on_place_used() -> void:
 	var here := world.places.nearest(player.global_position)
+	if here == &"":
+		# Not at a place of the valley's: perhaps at one the child built.
+		match structures.venue_at(player.global_position):
+			&"cafe":
+				_eat_at_home()
+			&"shop":
+				_sell_at_home()
+		return
 	match here:
 		Places.PLAYGROUND:
 			if world.places.push_swing(player.global_position):
@@ -1679,10 +1709,56 @@ func _eat() -> void:
 	vitals.energy = minf(
 		Vitals.MAX_ENERGY, vitals.energy + Vitals.MAX_ENERGY * Places.MEAL_RESTORE
 	)
+	_finish_eating(world.places.serve_meal(player.global_position))
+
+## A meal in a cafe the child built: sat at their own table, with the price
+## theirs to choose. Free gives half a meal's worth of energy; a coin gives a
+## whole one, like the valley cafe's — so the choice is a real one.
+func _eat_at_home() -> void:
+	# One meal at a time, as at the valley's cafe.
+	if _dining > 0.0:
+		return
+	match Venues.eat(vitals, wallet, hud.cafe_is_paid()):
+		Venues.FULL:
+			sounds.play(Sounds.Sound.REFUSE)
+			hud.announce(Text.of("say_not_hungry"), 2.0)
+		Venues.POOR:
+			sounds.play(Sounds.Sound.REFUSE)
+			hud.announce(Text.format("say_no_coins", [Venues.MEAL_PRICE]), 2.2)
+		_:
+			_finish_eating(structures.seat_near(player.global_position))
+
+## Sell what the shop buys, at a shop the child built: the same price as the
+## shop in the valley, over a counter they put up themselves.
+func _sell_at_home() -> void:
+	var sale := Venues.sell(inventory, wallet)
+	if sale.x <= 0:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_nothing_to_sell"), 2.4)
+		return
+	journal.record(Journal.COINS, sale.y)
+	sounds.play(Sounds.Sound.CHIME, 1.2)
+	hud.announce(Text.format("say_sold", [sale.x, sale.y]), 2.4)
+
+## The cafe and the shop this child has built, so that each is announced once,
+## when it first counts, and again only if it was taken down and built anew.
+var _known_cafe := false
+var _known_shop := false
+
+func _note_new_venues() -> void:
+	var cafe := structures.has_venue(&"cafe")
+	var shop := structures.has_venue(&"shop")
+	if cafe and not _known_cafe:
+		hud.announce(Text.of("say_own_cafe"), 4.0)
+	elif shop and not _known_shop:
+		hud.announce(Text.of("say_own_shop"), 4.0)
+	_known_cafe = cafe
+	_known_shop = shop
+
+func _finish_eating(seat: Dictionary) -> void:
 	_refresh_vitals()
 	# The meal is served at the nearest seat, and the child is sat down at it
 	# for a while — eating is something you sit down for.
-	var seat := world.places.serve_meal(player.global_position)
 	if not seat.is_empty():
 		_dining = Places.MEAL_SHOWN * 0.8
 		_dining_seat = seat["seat"]
@@ -2144,11 +2220,13 @@ func _on_remove() -> void:
 ## wrong edge is as likely to be the floor under their feet. Undo is the piece
 ## they meant: the last one, refunded exactly the same way.
 func _on_undo() -> void:
-	var record := build_mode.take_last()
-	if record.is_empty():
+	# One tap of a plan is one tap of undo: every piece that went up with it.
+	var group := build_mode.take_last_group()
+	if group.is_empty():
 		hud.announce(Text.of("say_nothing_to_undo"))
 		return
-	_take_down(record)
+	for record in group:
+		_take_down(record)
 
 ## Take one piece down: off the other phone too if it is there, and back into
 ## the bag of whoever paid for it.
@@ -2160,6 +2238,7 @@ func _take_down(record: Dictionary) -> void:
 	if kind == BuildKinds.CAMPFIRE:
 		# A fire whose campfire has been taken down cannot go on burning.
 		_refresh_fires()
+	_note_new_venues()
 	if kind == &"":
 		return
 	# Putting something up crossed the network and taking it down did not:
@@ -2404,13 +2483,17 @@ func _on_goal(_index: int, total: int) -> void:
 func _on_place() -> void:
 	# Captured before placing, because place() moves the preview on.
 	var placing := build_mode.selected
-	var placing_at := build_mode.preview_position()
-	var placing_spin := build_mode.preview_spin()
-	var placing_extent := build_mode.preview_extent()
 	if build_mode.place():
-		session.report_built(placing, placing_at, placing_spin, placing_extent)
+		# Told one piece at a time, as a plan went up: the other phone has no
+		# need to know what a plan is.
+		for record in build_mode.just_placed():
+			session.report_built(
+				record["kind"], record["position"], float(record["spin"]),
+				record["extent"], record.get("material", HouseParts.DEFAULT_MATERIAL)
+			)
 		if placing == BuildKinds.CAMPFIRE:
 			_refresh_fires()
+		_note_new_venues()
 		# A sapling is planted, everything else is built. The distinction
 		# matters to the greeting: planting a tree is a different kind of
 		# afternoon from stacking walls.
