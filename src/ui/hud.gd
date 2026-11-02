@@ -988,7 +988,16 @@ func _shop_mark_chosen() -> void:
 var _shop_carried: Dictionary = {}
 
 func set_carried_for_sale(item: StringName, many: int) -> void:
+	if int(_shop_carried.get(item, 0)) == many:
+		return
 	_shop_carried[item] = many
+	# Told while the shelf is open as well as before it: a child who has just
+	# sold their wool was left looking at "sell 12" on a button that was still
+	# lit, and a tap on it was refused with nothing said.
+	if _shop.visible and _shop_rows.has(item):
+		var row: Button = _shop_rows[item]["button"]
+		row.modulate = Color.WHITE if many > 0 else Color(1.0, 1.0, 1.0, 0.45)
+		_refresh_shop_buy()
 
 func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 	var opening := open and not _shop.visible
@@ -1037,8 +1046,13 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 			_shop_have[item] = many
 		# The purse may have changed since the words went up — a child has just
 		# bought something, or earned a coin — so the buttons say so.
-		_refresh_shop_buy()
-		_refresh_shop_sell_back()
+		# The words under the pictures too, for the same reason: "×1" stayed
+		# on the name of a thing after a second one was bought.
+		if not opening and _shop_chosen != &"":
+			_shop_tapped(_shop_chosen)
+		else:
+			_refresh_shop_buy()
+			_refresh_shop_sell_back()
 	_layout()
 
 ## Energy and water, and whether a drink is worth offering.

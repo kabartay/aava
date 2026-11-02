@@ -33,6 +33,9 @@ var field: HeightField
 var sharing := false
 
 var _records: Array[Dictionary] = []
+## The records still growing, found again whenever `revision` moves.
+var _growing: Array[Dictionary] = []
+var _growing_revision := -1
 
 ## Counts every change to what is standing, so a reader that copies the list —
 ## the map — can tell that its copy is still true without asking for another.
@@ -127,6 +130,18 @@ func positions_of(kind: StringName) -> Array[Vector3]:
 ## anything is removed, and a stale index that quietly points at the wrong
 ## building is the sort of bug that eats an afternoon of someone's work.
 func nearest(world_position: Vector3, reach: float) -> Dictionary:
+	# The game asks this every frame for the bed, and a house is hundreds of
+	# pieces: a scan of them all sixty times a second to be told, again, that
+	# nothing has moved. The last answer stands while the child stands still and
+	# nothing is built or taken down. Exactly still, not nearly: this also picks
+	# the piece a tap takes down, and a piece chosen from where the child was
+	# half a metre ago is the wrong wall.
+	if (
+		_nearest_revision == revision
+		and reach == _nearest_reach
+		and world_position == _nearest_at
+	):
+		return _nearest_record
 	var best := {}
 	var best_distance := reach
 	for record in _records:
@@ -139,7 +154,16 @@ func nearest(world_position: Vector3, reach: float) -> Dictionary:
 		if distance <= best_distance:
 			best_distance = distance
 			best = record
+	_nearest_revision = revision
+	_nearest_reach = reach
+	_nearest_at = world_position
+	_nearest_record = best
 	return best
+
+var _nearest_revision := -1
+var _nearest_reach := 0.0
+var _nearest_at := Vector3.ZERO
+var _nearest_record := {}
 
 ## The nearest piece that also stands in the other child's valley, or an empty
 ## record. The only kind of piece a removal from the other phone may touch.
@@ -244,6 +268,8 @@ func _spawn_node(record: Dictionary) -> void:
 	node.transform = Transform3D(Basis(Vector3.UP, record["spin"]), record["position"])
 	if HouseParts.is_house_part(kind) and HouseParts.is_solid(kind):
 		HouseParts.add_collision(node, kind)
+	elif not HouseParts.is_house_part(kind):
+		BuildKinds.add_collision(node, kind, int(record["stage"]))
 	add_child(node)
 	record["node"] = node
 
@@ -271,10 +297,19 @@ func advance_offline(seconds: float) -> int:
 
 func _process(delta: float) -> void:
 	var any_matured := false
-	for record in _records:
-		if not BuildKinds.INFO.has(record["kind"]) or not BuildKinds.grows(record["kind"]):
-			continue
+	# Only what is still growing is walked. Every piece a child has placed was
+	# asked, sixty times a second, whether it grows and whether it has finished
+	# — and a house is hundreds of pieces that do neither.
+	if _growing_revision != revision:
+		_growing.clear()
+		for record in _records:
+			if BuildKinds.INFO.has(record["kind"]) and BuildKinds.grows(record["kind"]):
+				_growing.append(record)
+		_growing_revision = revision
+	for i in range(_growing.size() - 1, -1, -1):
+		var record := _growing[i]
 		if record["stage"] >= BuildKinds.GROWTH_STAGES - 1:
+			_growing.remove_at(i)
 			continue
 		record["age"] = float(record["age"]) + delta
 		var stage := mini(

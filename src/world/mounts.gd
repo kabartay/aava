@@ -406,7 +406,10 @@ func _lie_on_the_ground(at: Vector3, facing: float, kind: StringName) -> Basis:
 
 	# Held to a limit, so that a wheel over a boulder does not stand the
 	# machine on its nose.
-	var pitch := clampf(atan2(back - front, half_long * 2.0), -LIE_LIMIT, LIE_LIMIT)
+	#
+	# A positive turn about the x axis lifts what points down -z, which is the
+	# nose, so the nose goes up when the front is the higher end.
+	var pitch := clampf(atan2(front - back, half_long * 2.0), -LIE_LIMIT, LIE_LIMIT)
 	var roll := clampf(atan2(right - left, half_wide * 2.0), -LIE_LIMIT, LIE_LIMIT)
 	return turn * Basis(Vector3.RIGHT, pitch) * Basis(Vector3.BACK, roll)
 

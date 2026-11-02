@@ -180,6 +180,14 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_a_machine_noses_up_the_hill()
+	_check_what_a_child_builds_that_is_solid_has_a_collider()
+	_check_the_carousel_canopy_is_striped_once()
+	_check_the_squirrel_hops_with_all_four_legs_together()
+	await _check_a_tile_baked_bare_gets_its_grass_once_near()
+	_check_sounds_have_distance_surfaces_and_a_night()
+	_check_the_building_list_is_not_rescanned_every_frame()
+	_check_the_platform_meets_the_car_and_the_gondola_clears_the_legs()
 	_check_saving_remembers_when_the_child_left()
 	_check_a_guest_is_placed_where_they_stand_and_sharing_needs_company()
 	_check_roofs_face_outwards()
@@ -197,11 +205,13 @@ func _initialize() -> void:
 	_check_an_animal_does_not_wade_into_a_pond()
 	_check_a_pinch_is_not_a_tap()
 	await _check_the_shop_sells_back_only_what_is_chosen()
+	await _check_the_shop_and_the_cafe_keep_up_with_what_happened()
 	_check_the_network_does_not_invent_or_waste()
 	_check_animals_cannot_walk_through_the_shop_or_the_hedge()
 	_check_a_bake_finished_out_of_range_is_dropped()
 	await _check_an_animal_walks_round_a_fence()
 	await _check_the_feelers_are_cheap_and_steady()
+	await _check_a_broad_animal_does_not_clip_a_post()
 	_check_a_sidestep_does_not_outlast_the_errand()
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
@@ -13763,3 +13773,364 @@ func _check_the_microphone_closes_when_the_app_is_taken_away() -> void:
 	voice.notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
 	_expect(not voice.is_talking(), "nor is one that lost focus")
 	voice.queue_free()
+
+## A machine parked or ridden on a slope lies along it: its nose is up when
+## the ground ahead is higher.
+func _check_a_machine_noses_up_the_hill() -> void:
+	print("a machine on a slope tips its nose up the hill, not into it")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	# Look for a gentle rise heading along -z (the way facing 0 points).
+	var found := false
+	var z := -100.0
+	while z > -400.0 and not found:
+		var x := 0.0
+		while x < 200.0 and not found:
+			var rise := field.height_at(x, z - 1.0) - field.height_at(x, z + 1.0)
+			if rise > 0.15 and rise < 0.6 and not field.is_on_the_bridge(Vector3(x, 0.0, z)):
+				found = true
+				var at := Vector3(x, field.height_at(x, z), z)
+				var basis := mounts._lie_on_the_ground(at, 0.0, MountKinds.QUAD)
+				var nose_y := (basis * Vector3(0.0, 0.0, -1.0)).y
+				_expect(nose_y > 0.0, "facing uphill the nose points up (%.3f)" % nose_y)
+			x += 7.0
+		z -= 7.0
+	_expect(found, "a slope was found to test on")
+	mounts.free()
+func _check_what_a_child_builds_that_is_solid_has_a_collider() -> void:
+	print("a fence, a feeder and a grown tree stop a body; a sprout and a path do not")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var spawn := field.find_spawn_point()
+	spawn.y = field.height_at(spawn.x, spawn.z)
+	for kind: StringName in [BuildKinds.FENCE, BuildKinds.FEEDER, BuildKinds.PATH, BuildKinds.CAMPFIRE]:
+		structures.place(kind, spawn, 0.0)
+	structures.place(BuildKinds.SAPLING, spawn + Vector3(8, 0, 0), 0.0)
+	var bodies := {}
+	for record in structures._records:
+		var node: Node3D = record["node"]
+		var found := 0
+		for child in node.get_children():
+			var body := child as StaticBody3D
+			if body != null:
+				found += 1
+				_expect(body.collision_layer == TerrainSpec.LAYER_PROPS, "%s is on the props layer" % record["kind"])
+		bodies[record["kind"]] = found
+	_expect(bodies[BuildKinds.FENCE] == 1, "a fence is solid")
+	_expect(bodies[BuildKinds.FEEDER] == 1, "a feeder's post is solid")
+	_expect(bodies[BuildKinds.PATH] == 0, "a flat path stone is walked over")
+	_expect(bodies[BuildKinds.SAPLING] == 0, "a sprout is not an obstacle")
+	_expect(BuildKinds.is_solid(BuildKinds.PINE, BuildKinds.GROWTH_STAGES - 1), "a grown fir is a trunk")
+	_expect(not BuildKinds.is_solid(BuildKinds.PINE, 1), "a young one is not")
+	var total := BuildKinds.GROWTH_STAGE_SECONDS * float(BuildKinds.GROWTH_STAGES) + 1.0
+	var elapsed := 0.0
+	while elapsed < total:
+		structures._process(1.0)
+		elapsed += 1.0
+	for record in structures._records:
+		if record["kind"] == BuildKinds.SAPLING:
+			var found := 0
+			for child in (record["node"] as Node3D).get_children():
+				if child is StaticBody3D:
+					found += 1
+			_expect(found == 1, "a tree that has grown up has a trunk to bump into")
+	structures.queue_free()
+## The shop's wool row has to follow the bag while the shelf is open: after the
+## wool was sold the button still read "sell 12" and was lit, and a tap on it
+## was refused in silence. The name under a chosen thing says how many there
+## now are, and the café's flower pots are solid, all six of them.
+func _check_the_shop_and_the_cafe_keep_up_with_what_happened() -> void:
+	print("the shop keeps up with what was sold, and the café's pots are solid")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud.set_carried_for_sale(ItemKinds.WOOL, 3)
+	hud.set_shop_open(true, 500, {})
+	hud._shop_tapped(ItemKinds.WOOL)
+	_expect(not hud._shop_buy_button.disabled, "wool in the bag can be sold")
+	hud.set_carried_for_sale(ItemKinds.WOOL, 0)
+	_expect(hud._shop_buy_button.disabled, "once it is sold the button is not lit for nothing")
+	hud._shop_tapped(ShopStock.BOTTLE)
+	hud.set_shop_open(true, 500, {ShopStock.BOTTLE: 2})
+	_expect("×2" in hud._shop_name.text, "the name says ×2 after a second bottle: '%s'" % hud._shop_name.text)
+	hud.queue_free()
+
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var pots := 0
+	for shape in places._cafe_solid.get_children():
+		var collider := shape as CollisionShape3D
+		if collider != null and collider.shape is CylinderShape3D and is_equal_approx((collider.shape as CylinderShape3D).radius, 0.26):
+			pots += 1
+	_expect(pots == 6, "all six of the café's flower pots are solid (%d)" % pots)
+	places.queue_free()
+func _check_the_carousel_canopy_is_striped_once() -> void:
+	print("the carousel canopy is one striped cone, not several cones on top of each other")
+	var carousel := Carousel.new(Vector3.ZERO)
+	get_root().add_child(carousel)
+	var drawn := carousel.get_node("Turntable/Turning") as MeshInstance3D
+	var arrays := drawn.mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var indices = arrays[Mesh.ARRAY_INDEX]
+	var flat: bool = indices == null or indices.is_empty()
+	var count: int = vertices.size() if flat else indices.size()
+	var area := 0.0
+	var seen_a := false
+	var seen_b := false
+	for corner in range(0, count - 2, 3):
+		var at: Array[int] = []
+		for k in 3:
+			at.append(corner + k if flat else indices[corner + k])
+		var colour := colours[at[0]]
+		# Vertex colours are stored in eight bits, so compare with a margin.
+		var is_a := _colour_near(colour, Carousel.CANOPY_A)
+		var is_b := _colour_near(colour, Carousel.CANOPY_B)
+		if not (is_a or is_b):
+			continue
+		seen_a = seen_a or is_a
+		seen_b = seen_b or is_b
+		area += (vertices[at[1]] - vertices[at[0]]).cross(vertices[at[2]] - vertices[at[0]]).length() * 0.5
+	var rim := Carousel.RADIUS + 0.4
+	var one_cone := PI * rim * (sqrt(rim * rim + 1.5 * 1.5) + rim)
+	_expect(seen_a and seen_b, "the canopy has both its stripe colours")
+	_expect(area < one_cone * 1.05, "the canopy is drawn once (%.0f m2 of a %.0f m2 cone)" % [area, one_cone])
+	carousel.queue_free()
+func _colour_near(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) < 0.02 and absf(a.g - b.g) < 0.02 and absf(a.b - b.b) < 0.02
+func _check_the_squirrel_hops_with_all_four_legs_together() -> void:
+	print("a squirrel's legs swing together in a hop; others walk in diagonals")
+	for i in 4:
+		_expect(Animals.leg_phase(i, true) == 1.0, "squirrel leg %d swings with the others" % i)
+	_expect(Animals.leg_phase(0, false) == Animals.leg_phase(3, false), "a walk pairs front-left with hind-right")
+	_expect(Animals.leg_phase(0, false) == -Animals.leg_phase(1, false), "and front-right goes the other way")
+## A tile that was baking without grass when the player came near got none.
+##
+## Walking one tile closer asks again for every tile that has gained grass, but a
+## coordinate already baking is refused, and the bake that finishes is the old
+## bare one. Nothing asked a second time until the next tile boundary, so a child
+## who stopped had a bald patch within sight of their feet.
+func _check_a_tile_baked_bare_gets_its_grass_once_near() -> void:
+	print("a tile baked bare gets its grass once it is near")
+	var field := HeightField.new(20260903)
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+	forest._centre = Vector2i(-6, -6)
+	var coord := Vector2i(-4, -6)
+	var bare := VegetationTile.bake(field, coord, Vegetation.TILE_SIZE, 20260903, null, false)
+	bare["generation"] = forest._generation
+	var job := WorkerThreadPool.add_task(func() -> void: pass)
+	forest._baking[coord] = {"generation": forest._generation, "task": job}
+	forest._finished.append(bare)
+	forest._assemble_finished_now()
+	_expect(forest._tiles.has(coord) and not forest._tiles[coord].has_grass, "the bare tile was drawn")
+	var deadline := Time.get_ticks_msec() + 20000
+	while not forest.is_idle() and Time.get_ticks_msec() < deadline:
+		await process_frame
+	_expect(forest._tiles.has(coord) and forest._tiles[coord].has_grass, "and is replanted with grass, not left bald")
+	forest.queue_free()
+func _check_sounds_have_distance_surfaces_and_a_night() -> void:
+	print("sounds fall off with distance, follow the ground, and the night has crickets")
+	_expect(Sounds.falloff_db(3.0) == 0.0, "a sound beside the child is at full strength")
+	_expect(
+		Sounds.falloff_db(40.0) < -5.0 and Sounds.falloff_db(40.0) > Sounds.falloff_db(60.0),
+		"further away is quieter, and steadily so"
+	)
+	_expect(Sounds.falloff_db(500.0) <= -79.0, "a dam finished across the valley is not heard at all")
+
+	# A quiet footstep must not leave its volume on the player the next chime
+	# is handed: the six players are shared round in turn.
+	var sounds := Sounds.new()
+	get_root().add_child(sounds)
+	sounds.play(Sounds.Sound.STEP_GRASS, 1.0, -20.0)
+	for _i in Sounds.VOICES:
+		sounds.play(Sounds.Sound.CHIME)
+	var stuck := false
+	for player: AudioStreamPlayer in sounds._players:
+		stuck = stuck or player.volume_db != 0.0
+	_expect(not stuck, "a quiet sound's volume does not carry over to the next on the same player")
+	sounds.queue_free()
+
+	var field := HeightField.new(20260903)
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	var deck := field.bridge_deck_at(river_x, BridgeSpec.CENTRE_Z)
+	var plank := Vector3(river_x, deck, BridgeSpec.CENTRE_Z)
+	_expect(
+		Sounds.step_sound(field, plank, false) == Sounds.Sound.STEP_WOOD,
+		"a foot on the bridge knocks on wood"
+	)
+	_expect(
+		Sounds.step_sound(field, plank, true) == Sounds.Sound.STEP_WATER,
+		"and a wet foot is water whatever it is standing on"
+	)
+	var fair := Vector3(
+		(ParkSpec.WEST + ParkSpec.EAST) * 0.5, 5.0, (ParkSpec.NORTH + ParkSpec.SOUTH) * 0.5
+	)
+	_expect(
+		Sounds.step_sound(field, fair, false) == Sounds.Sound.STEP_SAND,
+		"the fairground's trodden ground crunches"
+	)
+	var grass := Vector3.ZERO
+	var found := false
+	for z in range(-300, 301, 20):
+		for x in range(-300, 301, 20):
+			var h := field.height_at(float(x), float(z))
+			var at := Vector3(float(x), h, float(z))
+			if (
+				h - field.water_level_at(at.x, at.z) > 2.0 and ParkSpec.sand(at.x, at.z) < 0.1
+				and not field.is_on_the_bridge(at)
+			):
+				grass = at
+				found = true
+	_expect(
+		found and Sounds.step_sound(field, grass, false) == Sounds.Sound.STEP_GRASS,
+		"meadow is grass"
+	)
+	var beach := Vector3(grass.x, field.water_level_at(grass.x, grass.z) + 0.2, grass.z)
+	_expect(
+		Sounds.step_sound(field, beach, false) == Sounds.Sound.STEP_SAND,
+		"a foot just above the waterline is on sand"
+	)
+
+	var ambience := Ambience.new()
+	get_root().add_child(ambience)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	for _frame in 300:
+		ambience.follow(grass, field, places, 0.0, 1.0 / 60.0, 0.0)
+	_expect(not ambience.is_sounding("crickets"), "no crickets in the day")
+	for _frame in 300:
+		ambience.follow(grass, field, places, 1.0, 1.0 / 60.0, 0.0)
+	_expect(ambience.is_sounding("crickets"), "crickets sing at night")
+	var chirps := ambience._stream_of("crickets")
+	var seam := absi(chirps.data.decode_s16(chirps.data.size() - 2)) + absi(chirps.data.decode_s16(0))
+	_expect(seam < 50, "and the loop's seam is silence, so there is no click")
+	for _frame in 300:
+		ambience.follow(grass, field, places, 1.0, 1.0 / 60.0, 1.0)
+	_expect(not ambience.is_sounding("crickets"), "none under the water")
+	places.queue_free()
+	ambience.queue_free()
+## The game's per-frame questions of the building list stay true when it changes.
+##
+## `_process` walked every piece a child had ever placed, sixty times a second,
+## to age the few that grow, and `nearest` scanned them all every frame for the
+## bed. Both now answer from what they remembered, so this asks that what they
+## remembered is never stale: a sapling planted among walls still grows, the
+## nearest piece follows a child who walks, and a piece taken down is not
+## offered again from the cache.
+func _check_the_building_list_is_not_rescanned_every_frame() -> void:
+	print("the building list is not rescanned every frame")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var at := field.find_spawn_point() + Vector3(4.0, 0.0, 0.0)
+
+	for i in 40:
+		structures.place(HouseParts.BED, at + Vector3(float(i) * 3.0, 0.0, 20.0), 0.0)
+	structures.place(BuildKinds.SAPLING, at, 0.0)
+	structures._process(0.1)
+	_expect(structures._growing.size() == 1, "only the sapling is on the list of things growing")
+	structures.advance_offline(BuildKinds.GROWTH_STAGE_SECONDS + 1.0)
+	structures._process(0.1)
+	var stage := -1
+	for record in structures._records:
+		if record["kind"] == BuildKinds.SAPLING:
+			stage = int(record["stage"])
+	_expect(stage >= 1, "and it still grows among the walls")
+
+	var first := structures.nearest(at, 2.0)
+	_expect(not first.is_empty() and first["kind"] == BuildKinds.SAPLING, "the sapling is nearest to its own spot")
+	_expect(structures.nearest(at + Vector3(0.0, 0.0, 20.0), 2.0)["kind"] == HouseParts.BED, "a child who walks is answered afresh")
+	structures.remove(first)
+	_expect(structures.nearest(at, 2.0).is_empty(), "and what was taken down is not remembered")
+	structures._process(0.1)
+	_expect(structures._growing.is_empty(), "and the list of growing things empties with it")
+	structures.queue_free()
+## The feeler is a single line down the animal's middle, so a cow passing a
+## fence post a hand's breadth off her line walked her flank through it.
+func _check_a_broad_animal_does_not_clip_a_post() -> void:
+	print("a broad animal does not clip a post beside her line")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+	var size := AnimalKinds.body_size(AnimalKinds.COW)
+	var post := StaticBody3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.1, 1.5, 0.1)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	post.add_child(collider)
+	# Close enough beside her line that her flank would be in it, but outside
+	# the single line a feeler used to be.
+	post.position = spot + Vector3(size.x * 0.3, 0.75, -4.0)
+	get_root().add_child(post)
+	await physics_frame
+	await physics_frame
+	animals.follow(spot)
+	var cow := animals.put_one_at(AnimalKinds.COW, spot)
+	var node: Node3D = cow["node"]
+	var deepest := -INF
+	for _tick in 600:
+		cow["target"] = spot + Vector3(0.0, 0.0, -9.0)
+		cow["rest"] = 5.0
+		animals._step(cow, 1.0 / 60.0)
+		# Where the post is, in the cow's own frame.
+		var local := node.global_transform.affine_inverse() * post.global_position
+		if absf(local.z) < size.z * 0.5:
+			deepest = maxf(deepest, size.x * 0.5 - absf(local.x))
+	# A hand's breadth of give: she turns as she passes, and her coat is drawn
+	# wider than she is solid. The line it replaced went in nearly forty.
+	_expect(deepest <= 0.1, "the cow's flank went %.2f m into the post" % deepest)
+	post.queue_free()
+	animals.queue_free()
+## The coaster's platform is level with the top of a car's floor, and a gondola's
+## hangers stay inside the A-frame's legs.
+##
+## Both are measured off what is built rather than off the constants that built
+## it: the deck was laid level with the middle of the car's floor slab, nine
+## centimetres under its top, and the gondola's pin and arms reached out past the
+## hoops to where the frame's legs stand.
+func _check_the_platform_meets_the_car_and_the_gondola_clears_the_legs() -> void:
+	print("the platform meets the car's floor, and a gondola clears the legs")
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	var boards := coaster.point_at(RollerCoaster.distance_of(RollerCoaster.BOARDS_AT))
+	var car_top := -INF
+	for child in coaster.car_at(0).get_children():
+		if child is CollisionShape3D and (child as CollisionShape3D).position == Vector3.ZERO:
+			car_top = (child as CollisionShape3D).shape.size.y * 0.5
+	car_top += boards.y + RollerCoaster.CAR_FLOOR
+	var deck_top := -INF
+	var deck := coaster.get_node("Platform") as StaticBody3D
+	for child in deck.get_children():
+		var piece := child as CollisionShape3D
+		if piece != null and piece.shape.size.z > 10.0:
+			deck_top = piece.position.y + piece.shape.size.y * 0.5
+	_expect(
+		absf(deck_top - car_top) < 0.01,
+		"the platform's top is %.3f m and a car's floor %.3f m: a lip" % [deck_top, car_top]
+	)
+	coaster.queue_free()
+
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	var legs_from := INF
+	for child in (wheel.get_node("Frame") as StaticBody3D).get_children():
+		var leg := child as CollisionShape3D
+		if leg != null and leg.shape.size.y > 20.0:
+			legs_from = minf(legs_from, absf(leg.position.x) - leg.shape.size.x * 0.5)
+	var widest := 0.0
+	for child in wheel.gondola(0).get_children():
+		if child is MeshInstance3D:
+			for point in (child as MeshInstance3D).mesh.get_faces():
+				widest = maxf(widest, absf(point.x))
+	_expect(
+		widest < legs_from,
+		"a gondola reaches %.2f m out and the frame's legs start at %.2f m" % [widest, legs_from]
+	)
+	wheel.queue_free()

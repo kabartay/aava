@@ -51,6 +51,12 @@ const LEAVES_DB := -34.0
 const WATER_DB := -35.0
 const BIRDS_DB := -40.0
 const SWIMMING_DB := -28.0
+## Crickets are the night's voice: very quiet, a presence rather than a sound,
+## and gentle enough for a child going to sleep.
+const CRICKETS_DB := -44.0
+
+var _crickets: AudioStreamPlayer
+var _cricket_level := 0.0
 
 var _wind: AudioStreamPlayer
 var _leaves: AudioStreamPlayer
@@ -87,6 +93,7 @@ func _init() -> void:
 	_leaves = _voice(_make_leaves())
 	_birds = _voice(_make_birds())
 	_swimming = _voice(_make_swimming())
+	_crickets = _voice(_make_crickets())
 	_engine = _voice(_make_engine())
 	_exhaust = _voice(_make_exhaust())
 
@@ -400,6 +407,14 @@ func follow(
 	# Birds: daylight, and where there is something for them to sit in.
 	_bird_level = lerpf(_bird_level, (1.0 - darkness) * clampf(wooded * 1.6, 0.0, 1.0), weight)
 
+	# Crickets: after dark, in the open grass and by the water's edge rather than
+	# under the trees (where the birds were), and not at all while swimming.
+	_cricket_level = lerpf(
+		_cricket_level,
+		darkness * (1.0 - clampf(wooded * 1.2, 0.0, 0.7)) * (1.0 - _swim_level),
+		weight
+	)
+
 	# Quiet. All of these were mixed by ear on a laptop and were far too loud
 	# on a tablet held at arm's length — the wind in particular drowned the
 	# game.
@@ -409,13 +424,14 @@ func follow(
 	_apply(_water, _water_level * (1.0 - _swim_level * 0.5), WATER_DB)
 	_apply(_birds, _bird_level * hushed, BIRDS_DB)
 	_apply(_swimming, _swim_level, SWIMMING_DB)
+	_apply(_crickets, _cricket_level * hushed, CRICKETS_DB)
 
 ## How loud each voice is right now, for the checks: nothing else can hear
 ## the mix.
 func levels() -> Dictionary:
 	return {
 		"wind": _wind_level, "leaves": _leaf_level, "water": _water_level,
-		"birds": _bird_level, "swimming": _swim_level,
+		"birds": _bird_level, "swimming": _swim_level, "crickets": _cricket_level,
 		# How much of the meadow's own voices is let through while the child
 		# is in the water: one on the bank, less than half of it swimming.
 		"hush": 1.0 - _swim_level * HUSHED_IN_WATER,
@@ -433,6 +449,8 @@ func _stream_of(voice: String) -> AudioStreamWAV:
 			return _water.stream as AudioStreamWAV
 		"birds":
 			return _birds.stream as AudioStreamWAV
+		"crickets":
+			return _crickets.stream as AudioStreamWAV
 		_:
 			return _swimming.stream as AudioStreamWAV
 
@@ -447,6 +465,8 @@ func is_sounding(voice: String) -> bool:
 			return _water.playing
 		"birds":
 			return _birds.playing
+		"crickets":
+			return _crickets.playing
 		_:
 			return _swimming.playing
 
@@ -720,6 +740,41 @@ func _make_water() -> AudioStreamWAV:
 			values[(start + i) % samples] += sin(phase) * envelope * 0.22
 
 	return _wrap(_join_ends(values, samples, fade))
+
+## Crickets: two of them, each a short run of soft chirps at its own pace.
+##
+## Pulses of a bare sine, which is what an insect is, and kept to a few hundred
+## milliseconds in every second or so — a continuous trill is a fire alarm. The
+## two paces (half a second and eight-tenths) both divide the loop, and every
+## run ends well before the loop does, so the seam is silence and there is no
+## click to find in it.
+func _make_crickets() -> AudioStreamWAV:
+	var samples := int(RATE * LOOP_SECONDS)
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	# Pace, pitch, offset and loudness of each cricket.
+	for voice: Array in [[0.5, 3300.0, 0.05, 0.5], [0.8, 3700.0, 0.31, 0.38]]:
+		var pace: float = voice[0]
+		var pitch: float = voice[1]
+		var group := 0.0
+		while group + pace <= LOOP_SECONDS + 0.001:
+			for pulse in 4:
+				var start := int(RATE * (group + float(voice[2]) + float(pulse) * 0.045))
+				var length := int(RATE * 0.028)
+				for i in length:
+					var at := start + i
+					if at >= samples:
+						break
+					var progress := float(i) / float(length)
+					# Swelling in and out: no edge for the ear to catch on.
+					var envelope := sin(PI * progress)
+					values[at] += sin(TAU * pitch * float(i) / float(RATE)) * envelope * float(voice[3])
+			group += pace
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 32767.0))
+	return _wrap(data)
 
 ## Birds: a few short whistles scattered through the loop, on the same scale the
 ## rest of the game's sounds use so they belong to it.

@@ -110,26 +110,24 @@ func _init(at: Vector3) -> void:
 		Transform3D(Basis(), Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT * 0.5, 0.0)), POLE
 	)
 
+	# The stripes are twelve slices of one cone, each its own colour. They were
+	# once whole cones turned about their own axis, which is the same cone in
+	# the same place several times over: the colours fought over every pixel
+	# and the canopy had no stripes.
+	var roof_centre := Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT + 0.55, 0.0)
+	var roof_apex := roof_centre + Vector3(0.0, 0.75, 0.0)
+	var roof_base := roof_centre + Vector3(0.0, -0.75, 0.0)
+	var rim := RADIUS + 0.4
 	for wedge in 12:
-		var roof := CylinderMesh.new()
-		roof.top_radius = 0.0
-		roof.bottom_radius = RADIUS + 0.4
-		roof.height = 1.5
-		roof.radial_segments = 12
-		roof.rings = 1
-		# One cone drawn twelve times would be twelve cones; instead each
-		# wedge is a thin slice of colour laid over the last, which is how the
-		# stripes are made without a texture.
-		if wedge % 2 == 1:
-			continue
-		Park._add(
-			turning, roof,
-			Transform3D(
-				Basis(Vector3.UP, TAU * float(wedge) / 12.0),
-				Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT + 0.55, 0.0)
-			),
-			CANOPY_A if wedge % 4 == 0 else CANOPY_B
-		)
+		var from_angle := TAU * float(wedge) / 12.0
+		var to_angle := TAU * float(wedge + 1) / 12.0
+		var near := roof_base + Vector3(cos(from_angle), 0.0, sin(from_angle)) * rim
+		var far := roof_base + Vector3(cos(to_angle), 0.0, sin(to_angle)) * rim
+		var stripe := CANOPY_A if wedge % 2 == 0 else CANOPY_B
+		# The top, then the underside, which a child standing beneath sees.
+		for corner: Vector3 in [roof_apex, near, far, roof_base, far, near]:
+			turning.set_color(stripe)
+			turning.add_vertex(corner)
 
 	# A string of bulbs round the eave — the one thing that says "carousel"
 	# from across the fairground before anyone is close enough to see the

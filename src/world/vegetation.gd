@@ -433,3 +433,10 @@ func _assemble_finished_now() -> void:
 		)
 		add_child(tile)
 		_tiles[coord] = tile
+		# A tile baked bare while the player was further off may have come within
+		# grass range since. Its restart was refused while the bake was in flight,
+		# and nothing asks again until the next tile boundary, so a child who then
+		# stood still had a bald patch at their feet. Ask again now.
+		if not tile.has_grass and (coord - _centre).length_squared() <= GRASS_RADIUS * GRASS_RADIUS:
+			if not _queue.has(coord):
+				_queue.push_front(coord)

@@ -136,6 +136,51 @@ static func build_mesh(kind: StringName, stage := 0) -> Mesh:
 		_:
 			return _campfire()
 
+## Whether a piece, at this growth stage, is something a body must not pass
+## through. A fence that can be walked through does not enclose anything, and a
+## full-grown tree a child planted is as much a trunk as the wild ones, which
+## TreeCollision makes solid. Young trees, paths and the campfire's flat ring of
+## stones are low enough to step over or are not obstacles, so they stay open.
+static func is_solid(kind: StringName, stage := 0) -> bool:
+	match kind:
+		FENCE, FEEDER:
+			return true
+		SAPLING, PINE:
+			return stage >= GROWTH_STAGES - 1
+	return false
+
+## Give a piece the collision `is_solid` promises, as a child of the node its
+## mesh lives on. On the props layer, like the other thin things: the player,
+## the ball and the animals' feelers stop for it and the camera passes it.
+static func add_collision(node: Node3D, kind: StringName, stage := 0) -> void:
+	if not is_solid(kind, stage):
+		return
+	match kind:
+		FENCE:
+			# Two posts and a pair of rails: one slab across the whole panel,
+			# because a child cannot slip between the rails.
+			var panel := BoxShape3D.new()
+			panel.size = Vector3(1.05, 1.1, 0.12)
+			_attach_collision(node, panel, Vector3(0.0, 0.55, 0.0))
+		FEEDER:
+			var post := BoxShape3D.new()
+			post.size = Vector3(0.14, 1.5, 0.14)
+			_attach_collision(node, post, Vector3(0.0, 0.75, 0.0))
+		_:
+			var trunk := CylinderShape3D.new()
+			trunk.radius = TreeCollision.TRUNK_RADIUS
+			trunk.height = TreeCollision.TRUNK_HEIGHT
+			_attach_collision(node, trunk, Vector3(0.0, TreeCollision.TRUNK_HEIGHT * 0.5, 0.0))
+
+static func _attach_collision(node: Node3D, shape: Shape3D, at: Vector3) -> void:
+	var body := StaticBody3D.new()
+	body.collision_layer = TerrainSpec.LAYER_PROPS
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	collider.position = at
+	body.add_child(collider)
+	node.add_child(body)
+
 ## Three visible stages: a sprout you could miss, a young tree at knee height,
 ## and a full tree. The middle stage matters — without it, growth reads as a
 ## tree appearing out of nowhere rather than as something that grew.

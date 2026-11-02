@@ -774,7 +774,12 @@ func _build_station(tool: SurfaceTool) -> void:
 	# metre below the car is one you cannot step across from.
 	var deck := BoxMesh.new()
 	deck.size = Vector3(3.2, 0.24, 16.0)
-	var where := Vector3(at.x + 2.6, at.y + CAR_FLOOR - 0.12, at.z)
+	#
+	# Level with the top of a car's floor, not the middle of it: the slab is
+	# 0.18 thick and rides CAR_FLOOR up, so its top is nine centimetres higher,
+	# and a deck laid at CAR_FLOOR itself left a lip a small foot has to climb at
+	# the one doorway on the ride.
+	var where := Vector3(at.x + 2.6, at.y + CAR_FLOOR + 0.09 - 0.12, at.z)
 	Park._add(tool, deck, Transform3D(Basis(), where), TIMBER)
 
 	var body := StaticBody3D.new()

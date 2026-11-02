@@ -49,7 +49,17 @@ enum Sound {
 	GROWN,      # a sapling reached its next stage
 	CHIME,      # the world answering: a grove, birds
 	SPLASH,     # water: filling the bottle, watering an animal
+	STEP_GRASS, # a foot on meadow: a soft brush
+	STEP_SAND,  # a foot on sand or the fairground's trodden ground: a dry crunch
+	STEP_WOOD,  # a foot on the bridge's planks: a hollow knock
+	STEP_WATER, # a foot, or a stroke, in water: a small wet slap
 }
+
+## How far a sound that happens somewhere else in the valley carries, and how
+## near it has to be to be heard at full strength. A dam finished by a brother
+## half a valley away is news, not something that happens in the child's ear.
+const HEARD_FULL := 12.0
+const HEARD_NOT := 70.0
 
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
@@ -67,7 +77,7 @@ func _init() -> void:
 		add_child(player)
 		_players.append(player)
 
-func play(sound: Sound, pitch := 1.0) -> void:
+func play(sound: Sound, pitch := 1.0, volume_db := 0.0) -> void:
 	var stream: AudioStreamWAV = _cache.get(sound)
 	if stream == null:
 		stream = _build(sound)
@@ -78,7 +88,45 @@ func play(sound: Sound, pitch := 1.0) -> void:
 	# A little variation, so the twentieth stick does not sound identical to the
 	# first. Repetition is what makes a confirmation sound become a nuisance.
 	player.pitch_scale = pitch * randf_range(0.97, 1.05)
+	# Set every time: the players are shared round the ring, and a quiet footstep
+	# would otherwise leave its volume behind for the next chime to be given.
+	player.volume_db = volume_db
 	player.play()
+
+## How much quieter, in decibels, a sound is for happening `metres` away from
+## the child. Nothing within HEARD_FULL, a straight fall in decibels beyond it,
+## and -80 (nothing) from HEARD_NOT.
+static func falloff_db(metres: float) -> float:
+	if metres <= HEARD_FULL:
+		return 0.0
+	if metres >= HEARD_NOT:
+		return -80.0
+	return lerpf(0.0, -30.0, (metres - HEARD_FULL) / (HEARD_NOT - HEARD_FULL))
+
+## Play a sound that happened somewhere, as loud as that somewhere is near.
+func play_at(sound: Sound, metres: float, pitch := 1.0) -> void:
+	var quieter := falloff_db(metres)
+	if quieter > -79.0:
+		play(sound, pitch, quieter)
+
+## What a foot lands on here, as the sound it makes.
+##
+## Asked of the world rather than remembered, so there is no table of places to
+## fall out of step with the ground: the bridge's own deck, the fairground's
+## trodden sand and the beach — which the terrain paints by this same height
+## above the waterline — and everything else is meadow. Water wins over all of
+## them, because a foot in the river makes the river's noise whatever the bank
+## is made of.
+static func step_sound(field: HeightField, at: Vector3, wading: bool) -> Sound:
+	if wading:
+		return Sound.STEP_WATER
+	if field.is_on_the_bridge(at):
+		return Sound.STEP_WOOD
+	if ParkSpec.sand(at.x, at.z) > 0.5:
+		return Sound.STEP_SAND
+	if at.y - field.water_level_at(at.x, at.z) < 0.6:
+		return Sound.STEP_SAND
+	return Sound.STEP_GRASS
 
 func _build(sound: Sound) -> AudioStreamWAV:
 	match sound:
@@ -111,6 +159,14 @@ func _build(sound: Sound) -> AudioStreamWAV:
 			return _tone([SCALE[1], SCALE[3], SCALE[6]], 0.42, 0.5)
 		Sound.SPLASH:
 			return _splash(0.22)
+		Sound.STEP_GRASS:
+			return _scuff(0.07, 0.10, 0.30)
+		Sound.STEP_SAND:
+			return _scuff(0.08, 0.30, 0.38)
+		Sound.STEP_WOOD:
+			return _tone([SCALE[0], SCALE[2]], 0.08, 0.30)
+		Sound.STEP_WATER:
+			return _splash(0.12)
 		_:
 			return _tone([SCALE[7], SCALE[9], SCALE[8]], 0.60, 0.45)
 
@@ -171,6 +227,23 @@ func _tone(partials: Array, seconds: float, volume: float, rising := false) -> A
 			value += (sin(phase) + 0.30 * sin(phase * 2.0) + 0.12 * sin(phase * 3.0)) * weight / HARMONIC_SUM
 		value = value / float(partials.size()) * envelope * volume
 		_write(data, i, value)
+	return _wav(data)
+
+## A footfall on something loose: noise with a soft attack and a quick fall, so
+## it is a brush rather than a knock. `brightness` is how much of the noise is
+## let through undamped — low is grass, higher is the grit of sand.
+func _scuff(seconds: float, brightness: float, volume: float) -> AudioStreamWAV:
+	var samples := int(RATE * seconds)
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 31
+	var last := 0.0
+	for i in samples:
+		var progress := float(i) / float(samples)
+		var envelope := minf(progress * 14.0, 1.0) * pow(1.0 - progress, 2.4)
+		last = lerpf(last, noise.randf_range(-1.0, 1.0), brightness)
+		_write(data, i, last * envelope * volume)
 	return _wav(data)
 
 ## A soft percussive knock: noise through a falling envelope, no pitch.

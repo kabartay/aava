@@ -2996,7 +2996,7 @@ func _build_cafe(at: Vector3) -> void:
 		_build_table(tool, table_at, Color.WHITE, solid, false)
 	_build_sofa(tool, Vector3(4.0, 0.0, 2.9), solid)
 	for pot_at: Vector3 in [Vector3(-4.6, 0.0, back - 0.7), Vector3(4.6, 0.0, front + 0.7)]:
-		_build_pot(tool, pot_at)
+		_build_pot(tool, pot_at, solid)
 	for light_at: Vector3 in [Vector3(-3.2, 0.0, 1.1), Vector3(bar_x, 0.0, bar_z - 0.6), Vector3(3.2, 0.0, 0.6)]:
 		_hang_light(tool, at, light_at)
 
@@ -3005,7 +3005,7 @@ func _build_cafe(at: Vector3) -> void:
 	for i in CAFE_TERRACE.size():
 		_build_table(tool, CAFE_TERRACE[i], canopies[i % canopies.size()], solid, true)
 	for pot_at: Vector3 in [Vector3(-1.5, 0.0, front - 0.6), Vector3(1.5, 0.0, front - 0.6), Vector3(-5.6, 0.0, front - 0.8), Vector3(5.6, 0.0, front - 0.8)]:
-		_build_pot(tool, pot_at)
+		_build_pot(tool, pot_at, solid)
 	_build_menu_board(tool, Vector3(2.6, 0.0, front - 1.6), solid)
 	for lamp_at in CAFE_LAMPS:
 		_build_lamp(tool, at, lamp_at, solid, 0.16)
@@ -3352,7 +3352,13 @@ func _hang_light(tool: SurfaceTool, at: Vector3, local: Vector3) -> void:
 	add_child(light)
 
 ## A terracotta pot with a bush of flowers in it.
-func _build_pot(tool: SurfaceTool, local: Vector3) -> void:
+func _build_pot(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void:
+	# Solid, like everything else a child could walk up to: the bush was drawn
+	# at chest height and walked straight through.
+	var pot_shape := CylinderShape3D.new()
+	pot_shape.radius = 0.26
+	pot_shape.height = 0.7
+	_collide(solid, pot_shape, Transform3D(Basis(), local + Vector3(0.0, 0.35, 0.0)))
 	var pot := CylinderMesh.new()
 	pot.top_radius = 0.24
 	pot.bottom_radius = 0.18

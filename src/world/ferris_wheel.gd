@@ -565,7 +565,7 @@ func _build_car(index: int) -> AnimatableBody3D:
 			Transform3D(
 				Basis(),
 				Vector3(
-					side * 1.55 * CAR_SCALE,
+					side * HOOP_X,
 					0.55 * CAR_SCALE + (HANGS_BELOW - 0.55 * CAR_SCALE) * 0.5,
 					0.0
 				)
@@ -575,7 +575,7 @@ func _build_car(index: int) -> AnimatableBody3D:
 		# The bracket where the arm meets the car, which is what says the two
 		# are bolted together rather than passing one another.
 		var bracket := BoxMesh.new()
-		bracket.size = Vector3(0.34, 0.26, 0.5) * CAR_SCALE
+		bracket.size = Vector3(0.30, 0.26, 0.5) * CAR_SCALE
 		Park._add(
 			tool, bracket,
 			Transform3D(Basis(), Vector3(side * 1.4, 0.62, 0.0) * CAR_SCALE),
@@ -584,7 +584,11 @@ func _build_car(index: int) -> AnimatableBody3D:
 	var pin := CylinderMesh.new()
 	pin.top_radius = 0.16
 	pin.bottom_radius = 0.16
-	pin.height = 3.6 * CAR_SCALE
+	# Ending inside the hoops' own tube rather than poking out past them: the
+	# A-frame's legs stand just outside the hoops, and a pin 5.4 m long, with its
+	# arms out at 2.3 m, went through a leg as each gondola came round the
+	# bottom.
+	pin.height = (HOOP_X + 0.1) * 2.0
 	pin.radial_segments = 8
 	pin.rings = 1
 	Park._add(

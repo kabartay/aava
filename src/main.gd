@@ -282,11 +282,11 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.hearths.went_out.connect(func(_at: Vector3) -> void:
 		hud.announce(Text.of("say_fire_out"), 3.0))
 
-	world.dams.stick_delivered.connect(func(_site: float, carried: int, needed: int) -> void:
-		sounds.play(Sounds.Sound.PLACE, 0.8)
+	world.dams.stick_delivered.connect(func(site: float, carried: int, needed: int) -> void:
+		sounds.play_at(Sounds.Sound.PLACE, _metres_to_dam(site), 0.8)
 		hud.announce(Text.format("say_dam_stick", [needed - carried]), 2.0))
-	world.dams.dam_finished.connect(func(_site: float) -> void:
-		sounds.play(Sounds.Sound.GOAL)
+	world.dams.dam_finished.connect(func(site: float) -> void:
+		sounds.play_at(Sounds.Sound.GOAL, _metres_to_dam(site))
 		hud.announce(Text.of("say_dam_done"), 5.0))
 	# A bicycle already bought must be standing in the world on reload.
 	lantern.owned = wallet.has(ShopStock.LANTERN)
@@ -549,6 +549,10 @@ func _physics_process(delta: float) -> void:
 		if _aboard == &"wheel" and aboard != &"wheel":
 			_wheel_rider_paid = false
 		_aboard = aboard
+		# Getting on is heard, and so is getting off: a soft knock either way, so
+		# a ride starting is something that happened and not only a picture
+		# beginning to move.
+		sounds.play(Sounds.Sound.PLACE if aboard != &"" else Sounds.Sound.LAND, 1.2, -6.0)
 		# The coaster and the wheel are both paid for at their own buttons, so
 		# stepping into one of those is not a second sale.
 		if aboard == &"wheel":
@@ -683,6 +687,7 @@ func _process(delta: float) -> void:
 			sounds.play(Sounds.Sound.SPLASH)
 			hud.announce(Text.of("say_filled"), 1.6)
 
+	_footsteps(delta)
 	lantern.follow(world.atmosphere.darkness(), delta)
 	world.places.light_lamps(world.atmosphere.evening(), delta)
 	ambience.follow(
@@ -1515,6 +1520,45 @@ func _on_remote_felled(at: Vector3) -> void:
 func _on_remote_dam_stick(site: float) -> void:
 	world.dams.deliver(site)
 
+## How far the child is from a dam site, for how loudly its news is heard. A
+## site is only a place along the river, so the river's own x is asked for.
+func _metres_to_dam(site: float) -> float:
+	if player == null:
+		return 0.0
+	var at := player.global_position
+	return Vector2(at.x, at.z).distance_to(Vector2(world.field.river_centre_x(site), site))
+
+## Footfalls, and the splash of going into the water and out of it.
+##
+## Walking only: a rider hears the machine under them, and a child on a ride is
+## carried, not walking. The sound follows what is underfoot — see
+## Sounds.step_sound — and each foot is a little different from the last, so
+## the twentieth step is not the first over again.
+func _footsteps(delta: float) -> void:
+	var wading := player.water_depth > WADING
+	if wading != _was_wading:
+		_was_wading = wading
+		if player.riding == &"" and not player.is_carried:
+			sounds.play(Sounds.Sound.SPLASH, 1.0 if wading else 1.25, -6.0)
+	var afloat := player.is_swimming
+	var walking := (
+		player.riding == &"" and not player.is_carried and player.is_moving
+		and (player.is_on_floor() or afloat)
+	)
+	if not walking:
+		_stride = 0.0
+		return
+	_stride += Vector2(player.velocity.x, player.velocity.z).length() * delta
+	if _stride < (STROKE if afloat else STRIDE):
+		return
+	_stride = 0.0
+	_left_foot = not _left_foot
+	var on := Sounds.step_sound(world.field, player.global_position, wading)
+	sounds.play(
+		on, (0.92 if _left_foot else 1.06) * randf_range(0.95, 1.05),
+		-10.0 if on == Sounds.Sound.STEP_WOOD else -8.0
+	)
+
 func _refresh_fires() -> void:
 	world.hearths.set_fires(structures.positions_of(BuildKinds.CAMPFIRE))
 
@@ -1888,6 +1932,19 @@ func _catch_a_fall(at: Vector3) -> void:
 const STUCK_GROUND := 0.45
 ## Whether the camera was under the surface last frame, so crossing it is heard.
 var _eye_was_under := false
+
+## How far the child has walked since their last footfall, whether they were in
+## the water a moment ago, and which foot it was.
+var _stride := 0.0
+var _was_wading := false
+var _left_foot := false
+
+## How far apart footfalls are, in metres, walking; a swimmer's strokes are
+## further apart. Running covers more ground a second, so steps come faster
+## without a second rule for it.
+const STRIDE := 1.5
+const STROKE := 2.4
+const WADING := 0.15
 var _bad_ground := 0.0
 var _held_last := Player.NOT_HELD
 var _held_rate := 0.0

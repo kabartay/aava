@@ -164,8 +164,14 @@ var _living: Array[Dictionary] = []
 ## for with physics: nobody sees them, and no collider is built out there.
 var _player := Vector3.ZERO
 var _has_player := false
-## One ray query for every feeler, refilled each time, not one made per ray.
-var _feeler := PhysicsRayQueryParameters3D.new()
+## One shape query for every feeler, refilled each time, not one made per look.
+var _feeler_shape := BoxShape3D.new()
+var _feeler := _make_feeler()
+
+func _make_feeler() -> PhysicsShapeQueryParameters3D:
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = _feeler_shape
+	return query
 
 func _init(height_field: HeightField, seed_value: int) -> void:
 	# Animated in _process, so the engine's physics interpolation must not
@@ -517,6 +523,15 @@ func _step(animal: Dictionary, delta: float) -> void:
 	)
 	_stride(animal, node, kind, bob, trot, delta)
 
+## Which way a leg swings with the sine of the stride: diagonal pairs for a
+## walk, every leg together for the squirrel's hop. The hop used to send the
+## front legs forward as the hind ones went back, which is a stretch, not a
+## bound.
+static func leg_phase(index: int, hops: bool) -> float:
+	if hops:
+		return 1.0
+	return 1.0 if (index == 0 or index == 3) else -1.0
+
 ## The legs and the body as the animal walks: legs swing in diagonal pairs
 ## — front-left with hind-right — as far as the kind's stride, or, for the
 ## squirrel, front and hind together in a hop; standing, they hang straight
@@ -538,9 +553,7 @@ func _stride(animal: Dictionary, node: Node3D, kind: StringName, bob: float, tro
 	var hops := kind == AnimalKinds.SQUIRREL
 	for i in legs.size():
 		var leg: Node3D = legs[i]
-		var pair := 1.0 if (i == 0 or i == 3) else -1.0
-		if hops:
-			pair = 1.0 if i < 2 else -1.0
+		var pair := leg_phase(i, hops)
 		var swing := sin(bob) * swing_amount * trot * pair
 		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-12.0 * delta))
 	body.scale.y = 1.0 + 0.015 * sin(bob * 0.5) * (1.0 - trot)
@@ -648,27 +661,36 @@ func _solid_ahead(animal: Dictionary, at: Vector3, way: Vector3) -> bool:
 		return false
 	var kind: StringName = animal["kind"]
 	var size := AnimalKinds.body_size(kind)
-	var reach := size.z * 0.5 + 0.25
-	for height: float in [0.15, AnimalKinds.size_of(kind) * 0.45 + size.y * 0.5]:
-		var from := at + Vector3(0.0, height, 0.0)
-		var query := _feeler
-		query.from = from
-		query.to = from + way * reach
-		query.collision_mask = FEEL_MASK
-		query.exclude = []
-		# A hit on something an animal walks through anyway is looked past,
-		# a few times, in case a fence stands just behind it.
-		for _look in 3:
-			var hit := space.intersect_ray(query)
-			if hit.is_empty():
-				break
+	# One box as wide as the animal, laid just ahead of its nose, from the
+	# shins to the top of the body: a single line down the middle let a cow
+	# pass a post a hand's breadth off it with her flank in the post.
+	var low := 0.15
+	var high := maxf(AnimalKinds.size_of(kind) * 0.45 + size.y * 0.5, low + 0.1)
+	var depth := 0.4
+	_feeler_shape.size = Vector3(maxf(size.x, 0.1), high - low, depth)
+	var query := _feeler
+	var facing := Basis(Vector3.UP, atan2(-way.x, -way.z))
+	query.transform = Transform3D(
+		facing, at + way * (size.z * 0.5 + 0.05) + Vector3(0.0, (low + high) * 0.5, 0.0)
+	)
+	query.collision_mask = FEEL_MASK
+	query.exclude = []
+	# A hit on something an animal walks through anyway is looked past, a few
+	# times, in case a fence stands just behind it.
+	for _look in 3:
+		var found := space.intersect_shape(query, 8)
+		var skip := query.exclude
+		var seen := false
+		for hit in found:
 			var thing := hit["collider"] as Object
 			if thing != null and thing.has_meta(TerrainSpec.ANIMALS_IGNORE):
-				var skip := query.exclude
 				skip.append(hit["rid"])
-				query.exclude = skip
-				continue
-			return true
+				seen = true
+			else:
+				return true
+		if not seen:
+			break
+		query.exclude = skip
 	return false
 
 ## Is this spot inside something solid — somewhere not to wander to?
