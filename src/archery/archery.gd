@@ -221,8 +221,11 @@ func _check_hit(was: Vector3, now: Vector3) -> int:
 		var normal := -_facing
 		var before := (was - centre).dot(normal)
 		var after := (now - centre).dot(normal)
-		# Same side of the face at both ends of the step: no crossing.
-		if (before > 0.0) == (after > 0.0):
+		# Same side of the face at both ends of the step: no crossing. And only
+		# from the front: the paint is on one side of the butt, and an arrow
+		# loosed from behind it (a child walks round the back of the range)
+		# went through the straw and was paid for the rings on the far side.
+		if before <= 0.0 or after > 0.0:
 			continue
 
 		var span := before - after

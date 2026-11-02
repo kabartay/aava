@@ -314,6 +314,11 @@ func _process(delta: float) -> void:
 			camera.fov, lerpf(FOV_WALK, FOV_RUN, _player.run_fraction()),
 			1.0 - exp(-6.0 * delta)
 		)
+		# The aim point comes along too. It is only eased in the branch below,
+		# so left alone here it stayed wherever it was when the child looked
+		# out of their own eyes, and stepping back out after a walk had the
+		# camera swing round to look at a spot they left a hundred metres ago.
+		_aim = anchor + Vector3.UP * (AIM_HEIGHT + _eye_lift)
 		_player.camera_yaw = yaw
 		return
 

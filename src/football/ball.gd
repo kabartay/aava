@@ -103,6 +103,11 @@ func _init(start: Vector3, which: Look = Look.FOOTBALL) -> void:
 	continuous_cd = true
 	# Bounces off a hoop's pole and a swing's post, not only the ground.
 	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+	# On the props layer, not the default ground layer: the camera's arm stops
+	# at the ground and the walls, and a ball left behind the child on the
+	# ground layer shoved the camera in to nothing whenever it rolled between
+	# the two. The player still meets it, because the player's mask has props.
+	collision_layer = TerrainSpec.LAYER_PROPS
 	can_sleep = true
 	linear_damp = ROLL_DAMP
 	angular_damp = SPIN_DAMP

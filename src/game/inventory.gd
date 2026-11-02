@@ -44,11 +44,17 @@ func to_data() -> Dictionary:
 	return data
 
 func from_data(data: Dictionary) -> void:
+	# What was held and no longer is must be announced as nought, or a bag
+	# showing four sticks goes on showing them after the valley is reset.
+	var before := _counts.keys()
 	_counts.clear()
 	for key in data:
 		var kind := StringName(key)
 		var amount := int(data[key])
 		if amount > 0:
 			_counts[kind] = amount
+	for kind in before:
+		if not _counts.has(kind):
+			changed.emit(kind, 0)
 	for kind in _counts:
 		changed.emit(kind, _counts[kind])

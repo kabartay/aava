@@ -226,6 +226,10 @@ func _solid_turned(at: Vector3, size: Vector3, basis: Basis, bounce: float) -> v
 	collider.shape = box
 
 	var body := StaticBody3D.new()
+	# Props, like the other thin things: the ball and the child stop for a post,
+	# the camera looks past it. On the default ground layer a goal behind the
+	# child dragged the camera in against the net.
+	body.collision_layer = TerrainSpec.LAYER_PROPS
 	body.transform = Transform3D(basis, at)
 	var material := PhysicsMaterial.new()
 	material.bounce = bounce

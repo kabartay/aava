@@ -48,8 +48,12 @@ func is_finished() -> bool:
 	return step == Step.FREE
 
 ## Called whenever anything is collected.
-func on_collected(inventory: Inventory) -> void:
+func on_collected(inventory: Inventory, kind: StringName = ItemKinds.STICK) -> void:
 	if step != Step.GATHER:
+		return
+	# Only a stick counts. A stone picked up while three sticks from a refund
+	# were already in the bag finished "gather sticks" without one being found.
+	if kind != ItemKinds.STICK:
 		return
 	if _sticks_at_start < 0:
 		_sticks_at_start = 0

@@ -413,6 +413,9 @@ const STRINGS := {
 	"say_ate": {
 		EN: "that was good", FR: "c'était bon", RU: "вкусно",
 	},
+	"say_not_hungry": {
+		EN: "not hungry yet", FR: "pas encore faim", RU: "пока не хочется есть",
+	},
 	"say_no_coins": {
 		EN: "you need %d coins", FR: "il te faut %d pièces", RU: "нужно монет: %d",
 	},

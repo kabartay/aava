@@ -243,6 +243,37 @@ func _build_platform(tool: SurfaceTool, solid: StaticBody3D) -> void:
 	top.size = Vector3(PLATFORM_HALF_X * 2.0 + 0.1, 0.08, PLATFORM_DEPTH + 0.1)
 	Park._add(tool, top, Transform3D(Basis(), Vector3(0.0, DECK_REST - 0.02, middle_z)), DECK)
 
+	# The deck stands as a bare brown block otherwise, which reads as a crate
+	# rather than a jetty. Planking is drawn as upright battens a few
+	# centimetres proud of the three open faces, with a dark skirting at the
+	# foot and a pale fascia under the edge. The gate side is left bare: the
+	# hull swings past that face, and nothing may stand out into its sweep.
+	var far_face := PLATFORM_FROM + PLATFORM_DEPTH
+	for side: float in [-1.0, 1.0]:
+		var face_x := side * (PLATFORM_HALF_X + 0.02)
+		for batten in int(PLATFORM_DEPTH / 0.5):
+			var batten_z := PLATFORM_FROM + (float(batten) + 0.5) * 0.5
+			var plank := BoxMesh.new()
+			plank.size = Vector3(0.04, DECK_REST - 0.3, 0.07)
+			Park._add(tool, plank, Transform3D(Basis(), Vector3(face_x, DECK_REST * 0.5 - 0.05, batten_z)), TIMBER.darkened(0.2))
+		var skirt := BoxMesh.new()
+		skirt.size = Vector3(0.08, 0.2, PLATFORM_DEPTH)
+		Park._add(tool, skirt, Transform3D(Basis(), Vector3(side * (PLATFORM_HALF_X + 0.03), 0.1, middle_z)), TIMBER.darkened(0.4))
+		var fascia := BoxMesh.new()
+		fascia.size = Vector3(0.08, 0.12, PLATFORM_DEPTH)
+		Park._add(tool, fascia, Transform3D(Basis(), Vector3(side * (PLATFORM_HALF_X + 0.03), DECK_REST - 0.1, middle_z)), DECK)
+	for batten in int(PLATFORM_HALF_X * 2.0 / 0.5):
+		var batten_x := -PLATFORM_HALF_X + (float(batten) + 0.5) * 0.5
+		var plank := BoxMesh.new()
+		plank.size = Vector3(0.07, DECK_REST - 0.3, 0.04)
+		Park._add(tool, plank, Transform3D(Basis(), Vector3(batten_x, DECK_REST * 0.5 - 0.05, far_face + 0.02)), TIMBER.darkened(0.2))
+	var far_skirt := BoxMesh.new()
+	far_skirt.size = Vector3(PLATFORM_HALF_X * 2.0 + 0.16, 0.2, 0.08)
+	Park._add(tool, far_skirt, Transform3D(Basis(), Vector3(0.0, 0.1, far_face + 0.03)), TIMBER.darkened(0.4))
+	var far_fascia := BoxMesh.new()
+	far_fascia.size = Vector3(PLATFORM_HALF_X * 2.0 + 0.16, 0.12, 0.08)
+	Park._add(tool, far_fascia, Transform3D(Basis(), Vector3(0.0, DECK_REST - 0.1, far_face + 0.03)), DECK)
+
 	# The ramp: steep enough to be short, gentle enough to walk up.
 	var far_z := PLATFORM_FROM + PLATFORM_DEPTH
 	var ramp_top := Vector3(0.0, DECK_REST, far_z)

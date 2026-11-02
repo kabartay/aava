@@ -66,7 +66,7 @@ static func conifer(height := 6.0, seed_value := 0) -> ArrayMesh:
 				Basis(Vector3.UP, rng.randf_range(0.0, TAU)),
 				Vector3(rng.randf_range(-0.02, 0.02) * height, at, rng.randf_range(-0.02, 0.02) * height)
 			),
-			LEAF_DARK.lerp(LEAF_LIGHT, t * 0.8)
+			LEAF_DARK.lerp(LEAF_LIGHT, t * 0.8), 0.35
 		)
 	# The leader: the thin spire a spruce ends in.
 	var leader := CylinderMesh.new()
@@ -139,7 +139,7 @@ static func broadleaf(height := 5.0, seed_value := 0) -> ArrayMesh:
 				height * lerpf(0.74, 0.94, float(i) / float(lumps - 1)),
 				sin(angle) * out
 			)),
-			LEAF_DARK.lerp(LEAF_LIGHT, rng.randf_range(0.1, 0.9))
+			LEAF_DARK.lerp(LEAF_LIGHT, rng.randf_range(0.1, 0.9)), 0.4
 		)
 
 	tool.generate_normals()
@@ -189,8 +189,8 @@ static func grass_tuft(height := 0.3, blades := 5) -> ArrayMesh:
 	for blade in blades:
 		var angle := TAU * float(blade) / float(blades) + float(blade) * 0.7
 		var spread := 0.18 + 0.22 * float(blade % 3)
-		var right := Vector3(cos(angle), 0.0, sin(angle)) * height * 0.085
-		var lean := Vector3(cos(angle + 0.6), 0.0, sin(angle + 0.6)) * height * spread * 2.4
+		var right := Vector3(cos(angle), 0.0, sin(angle)) * height * 0.12
+		var lean := Vector3(cos(angle + 0.6), 0.0, sin(angle + 0.6)) * height * spread * 1.7
 		var root := Vector3(cos(angle) * height * spread * 0.5, 0.0, sin(angle) * height * spread * 0.5)
 		var tip := root + Vector3(0.0, height * (0.75 + 0.35 * float(blade % 2)), 0.0) + lean
 		right += root
@@ -224,15 +224,30 @@ static func _triangle(
 ## Copies a primitive's vertices into the shared surface, tinted. Done by hand
 ## rather than with append_from because that carries no way to set a colour, and
 ## a single surface with per-vertex colour is what makes instancing possible.
-static func _append(tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, color: Color) -> void:
+##
+## `shade` darkens the underside of the part, fading to its plain colour at the
+## top. A skirt of needles or a mass of leaf is lit from above and dark beneath,
+## and painting that into the vertices gives each tier its volume for no extra
+## triangles and no extra work per frame.
+static func _append(
+	tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, color: Color, shade := 0.0
+) -> void:
 	var arrays := source.get_mesh_arrays()
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var low := INF
+	var high := -INF
+	for v in vertices:
+		low = minf(low, v.y)
+		high = maxf(high, v.y)
+	var span := maxf(high - low, 0.0001)
+	var dark := color.darkened(shade)
 	if indices.is_empty():
 		for i in vertices.size():
-			tool.set_color(color)
+			tool.set_color(dark.lerp(color, (vertices[i].y - low) / span))
 			tool.add_vertex(transform * vertices[i])
 		return
 	for i in indices.size():
-		tool.set_color(color)
-		tool.add_vertex(transform * vertices[indices[i]])
+		var v := vertices[indices[i]]
+		tool.set_color(dark.lerp(color, (v.y - low) / span))
+		tool.add_vertex(transform * v)

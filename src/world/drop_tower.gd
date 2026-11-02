@@ -80,6 +80,11 @@ const DROP_KICK := 0.5
 const STEEL := RollerCoaster.RAIL
 const STEEL_DARK := Color(0.52, 0.20, 0.16)
 const DECK := Color(0.30, 0.30, 0.32)
+const SAFETY := Color(0.92, 0.76, 0.22)
+## The squat block the shaft stands on: a little wider than the shaft, and far
+## inside the ring's own radius.
+const PLINTH_SIZE := SHAFT_HALF_WIDTH * 2.0 + 0.7
+const PLINTH_HEIGHT := 0.6
 const SEAT_COLOUR := RollerCoaster.HARNESS
 const BEACON := Color(0.96, 0.24, 0.20)
 
@@ -196,6 +201,27 @@ func _build_platform(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		solid, Vector3(PLATFORM_SIZE, PLATFORM_HEIGHT, PLATFORM_SIZE),
 		Transform3D(Basis(), Vector3(0.0, PLATFORM_HEIGHT * 0.5, 0.0))
 	)
+	# A bare dark slab reads as a sheet of tarmac, not a deck. A yellow safety
+	# border is painted along each edge (flush, a hair above the surface, so
+	# the collider still describes what is drawn) and the tower stands on a
+	# squat plinth with its own collider, well inside the ring's 2.3 m sweep.
+	var border := 0.35
+	var edge := PLATFORM_SIZE * 0.5 - border * 0.5
+	for side: float in [-1.0, 1.0]:
+		var along_x := BoxMesh.new()
+		along_x.size = Vector3(PLATFORM_SIZE, 0.02, border)
+		Park._add(tool, along_x, Transform3D(Basis(), Vector3(0.0, PLATFORM_HEIGHT + 0.01, side * edge)), SAFETY)
+		var along_z := BoxMesh.new()
+		along_z.size = Vector3(border, 0.02, PLATFORM_SIZE - border * 2.0)
+		Park._add(tool, along_z, Transform3D(Basis(), Vector3(side * edge, PLATFORM_HEIGHT + 0.01, 0.0)), SAFETY)
+	var plinth := BoxMesh.new()
+	plinth.size = Vector3(PLINTH_SIZE, PLINTH_HEIGHT, PLINTH_SIZE)
+	var plinth_at := Transform3D(Basis(), Vector3(0.0, PLATFORM_HEIGHT + PLINTH_HEIGHT * 0.5, 0.0))
+	Park._add(tool, plinth, plinth_at, STEEL_DARK)
+	Park._solid(solid, plinth.size, plinth_at)
+	var collar := BoxMesh.new()
+	collar.size = Vector3(PLINTH_SIZE * 0.8, 0.08, PLINTH_SIZE * 0.8)
+	Park._add(tool, collar, Transform3D(Basis(), Vector3(0.0, PLATFORM_HEIGHT + PLINTH_HEIGHT + 0.04, 0.0)), DECK)
 	var step := BoxMesh.new()
 	step.size = Vector3(1.6, PLATFORM_HEIGHT * 0.5, 0.6)
 	Park._add(

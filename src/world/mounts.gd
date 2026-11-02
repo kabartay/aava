@@ -545,7 +545,7 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 	if is_instance_valid(node):
 		# A stride to the rider's right: forward is (-sin, 0, -cos), so right
 		# is (cos, 0, -sin).
-		var spot := at + Vector3(cos(facing), 0.0, -sin(facing)) * STEP_ASIDE
+		var spot := _where_to_leave_it(kind, at, facing)
 		spot.y = _rest_height(kind, spot)
 		node.global_position = spot
 		node.transform.basis = _lie_on_the_ground(spot, facing, kind)
@@ -554,6 +554,25 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 	_waiting_to_be_solid[kind] = true
 	dismounted.emit(kind)
 	return kind
+
+## Where a mount got off is left: a stride to the rider's right, unless that
+## is somewhere it cannot stand.
+##
+## It was always the right-hand side, so a child getting off a bicycle on the
+## river bank with the water to their right left it a stride out in the river,
+## its wheels under the surface, or in the pool, or in the shop. The left is
+## tried next, then ahead and behind, then the rider's own spot, which is
+## where the mount is known to have been rideable.
+func _where_to_leave_it(kind: StringName, at: Vector3, facing: float) -> Vector3:
+	var right := Vector3(cos(facing), 0.0, -sin(facing))
+	var ahead := Vector3(-sin(facing), 0.0, -cos(facing))
+	for way: Vector3 in [right, -right, ahead, -ahead]:
+		var spot := at + way * STEP_ASIDE
+		if can_ride_over(kind, spot):
+			return spot
+	# Nowhere beside them is any good, so the old answer stands unless their
+	# own spot is better.
+	return at if can_ride_over(kind, at) else at + right * STEP_ASIDE
 
 ## Turn `count` horses out across the valley: one near the camp, so the first
 ## afternoon has one to find, and the rest spread evenly round it at a

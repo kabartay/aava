@@ -211,8 +211,13 @@ func _apply_time() -> void:
 	# smudges, and the valley they are meant to be exploring is gone. Raised
 	# until the shape of the land reads without the lantern, which is the point
 	# — the lantern shows you what is in the grass, not where the hills are.
-	_ambient_in_air = lerpf(0.55, 0.20, night) if night > 0.0 else lerpf(
-		0.12, 0.55, smoothstep(-0.15, 0.25, height)
+	#
+	# One curve that the night then pulls down to its own floor. It was two
+	# separate branches, and the night one began from the full daytime 0.55: as
+	# the sun crossed 0.02 the ambient light leapt from about 0.29 to 0.54 and
+	# then sank to 0.20 — a flash of brightness at dusk.
+	_ambient_in_air = lerpf(
+		lerpf(0.12, 0.55, smoothstep(-0.15, 0.25, height)), 0.20, night
 	)
 	# The sky has had its say; the water gets the last word, because what is
 	# between the eye and everything else wins over what is lighting it.

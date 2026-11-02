@@ -69,6 +69,19 @@ func clear_stumps_near(world_position: Vector3, radius: float) -> int:
 func shows_stump(world_x: float, world_z: float) -> bool:
 	return is_felled(world_x, world_z) and not _is_cleared(world_x, world_z)
 
+func _uncheck_cleared(world_x: float, world_z: float) -> void:
+	var base := Vector2i(int(floor(world_x / CELL)), int(floor(world_z / CELL)))
+	for dx: int in [-1, 0, 1]:
+		for dz: int in [-1, 0, 1]:
+			var key := Vector2i(base.x + dx, base.y + dz)
+			if not _cleared.has(key):
+				continue
+			var kept := PackedVector2Array()
+			for stump in _cleared[key] as PackedVector2Array:
+				if Vector2(world_x, world_z).distance_to(stump) > MATCH_RADIUS:
+					kept.append(stump)
+			_cleared[key] = kept
+
 func _is_cleared(world_x: float, world_z: float) -> bool:
 	if _cleared.is_empty():
 		return false
@@ -84,6 +97,10 @@ func _is_cleared(world_x: float, world_z: float) -> bool:
 	return false
 
 func fell(world_position: Vector3) -> void:
+	# A tree felled where a stump was grubbed out leaves a stump again. The old
+	# record of clearing would otherwise swallow the new one, and a tree grown
+	# on tidied ground and then cut down would leave bare grass behind it.
+	_uncheck_cleared(world_position.x, world_position.z)
 	var key := _cell_of(world_position.x, world_position.z)
 	if not _stumps.has(key):
 		_stumps[key] = PackedVector2Array()

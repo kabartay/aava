@@ -180,7 +180,16 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_ride_dressing_stays_out_of_the_sweep()
+	_check_the_animals_come_in_several_coats()
+	_check_the_camera_looks_past_the_ball_and_the_goal()
+	await _check_the_aim_follows_through_first_person()
+	_check_dusk_has_no_flash_of_ambient_light()
+	_check_a_rebuild_asked_for_outlives_a_step_into_the_next_tile()
+	_check_the_butts_score_only_from_the_front_and_the_shop_shuts_when_left()
+	_check_the_camp_forgets_and_remembers_rightly()
 	_check_a_machine_noses_up_the_hill()
+	_check_a_bicycle_is_not_left_in_the_river()
 	_check_what_a_child_builds_that_is_solid_has_a_collider()
 	_check_the_carousel_canopy_is_striped_once()
 	_check_the_squirrel_hops_with_all_four_legs_together()
@@ -207,6 +216,7 @@ func _initialize() -> void:
 	_check_a_pinch_is_not_a_tap()
 	await _check_the_shop_sells_back_only_what_is_chosen()
 	await _check_the_shop_and_the_cafe_keep_up_with_what_happened()
+	_check_the_cafe_does_not_charge_twice_or_for_nothing()
 	_check_the_network_does_not_invent_or_waste()
 	_check_animals_cannot_walk_through_the_shop_or_the_hedge()
 	_check_a_bake_finished_out_of_range_is_dropped()
@@ -14169,3 +14179,265 @@ func _check_the_pirate_ship_bars_hold() -> void:
 	)
 	ship.queue_free()
 
+
+## The drop tower's plinth was dressed up from a bare shaft. It must stay
+## inside the seat ring's sweep radius, and being drawn it must be solid.
+func _check_the_ride_dressing_stays_out_of_the_sweep() -> void:
+	_expect(
+		DropTower.PLINTH_SIZE * 0.5 * sqrt(2.0) < DropTower.RING_RADIUS,
+		"the drop tower's plinth corner reaches into the seat ring's sweep"
+	)
+	var tower := DropTower.new(Vector3.ZERO)
+	var found := false
+	for child in (tower.get_node("Solid") as StaticBody3D).get_children():
+		var shape := child as CollisionShape3D
+		if shape != null and absf((shape.shape as BoxShape3D).size.x - DropTower.PLINTH_SIZE) < 0.001:
+			found = true
+	_expect(found, "the drop tower's plinth is drawn but has no collider")
+	tower.free()
+## Individuals of a kind wear different coats, the coats are the same animal
+## underneath, and the meshes are built once and shared rather than once per
+## animal. Colour must never change what a child can bump into.
+func _check_the_animals_come_in_several_coats() -> void:
+	for kind in AnimalKinds.ALL:
+		var seen := {}
+		var middle := AnimalKinds.size_of(kind) * float(AnimalKinds._shape(kind)["long"]) * 1.62 * 0.3
+		for variant in AnimalKinds.VARIANTS:
+			var mesh := AnimalKinds.body_mesh(kind, variant)
+			seen[AnimalKinds.tint(kind, variant).to_html()] = true
+			# Whatever the markings, no coat may stand out past the width the
+			# collision was measured from.
+			var widest := 0.0
+			for point in (mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array:
+				if absf(point.z) <= middle:
+					widest = maxf(widest, absf(point.x) * 2.0)
+			_expect(
+				widest <= AnimalKinds.body_size(kind).x + 0.001,
+				"a %s in coat %d is %.3f m across and her collision %.3f m" % [kind, variant, widest, AnimalKinds.body_size(kind).x]
+			)
+			_expect(
+				mesh == AnimalKinds.body_mesh(kind, variant),
+				"a %s in coat %d is built afresh on every ask" % [kind, variant]
+			)
+		_expect(seen.size() == AnimalKinds.VARIANTS, "%s has %d distinct coats, not %d" % [kind, seen.size(), AnimalKinds.VARIANTS])
+	var coats := {}
+	for i in 200:
+		coats[AnimalKinds.variant_at(float(i) * 7.3, float(i) * -3.1)] = true
+	_expect(coats.size() == AnimalKinds.VARIANTS, "spawn spots reach only %d of the coats" % coats.size())
+## Getting off a bicycle on the river bank, with the water to the right, must
+## not leave it standing in the river.
+func _check_a_bicycle_is_not_left_in_the_river() -> void:
+	print("a bicycle is not left in the river")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var kind := MountKinds.BICYCLE
+	var found := false
+	var bank := Vector3.ZERO
+	for z in range(-400, 401, 20):
+		if found:
+			break
+		var centre := field.river_centre_x(float(z))
+		for step in 120:
+			var x := centre - 60.0 + float(step)
+			var here := Vector3(x, field.height_at(x, float(z)), float(z))
+			var beside := here + Vector3(Mounts.STEP_ASIDE, 0.0, 0.0)
+			if mounts.can_ride_over(kind, here) and not mounts.can_ride_over(kind, beside):
+				found = true
+				bank = here
+				break
+	_expect(found, "a bank with water to the right of it was found")
+	if found:
+		mounts.place(kind, bank)
+		mounts.mount(kind)
+		mounts.dismount(bank, 0.0)
+		_expect(
+			mounts.can_ride_over(kind, mounts.position_of(kind)),
+			"the bicycle is left on ground it can stand on, not in the water"
+		)
+	mounts.queue_free()
+func _check_the_camera_looks_past_the_ball_and_the_goal() -> void:
+	print("the camera looks past the ball and the goal")
+	var ball := Ball.new(Vector3(0.0, Ball.RADIUS, 0.0))
+	_expect((ball.collision_layer & TerrainSpec.LAYER_GROUND) == 0, "a ball is not on the ground layer, which the camera arm stops at")
+	_expect((ball.collision_layer & TerrainSpec.LAYER_WALLS) == 0, "nor the walls layer")
+	var probe_player := Player.new()
+	_expect((probe_player.collision_mask & ball.collision_layer) != 0, "but the child still meets it")
+	_expect((ball.collision_mask & ball.collision_layer) != 0, "and balls still meet each other")
+	var goal := Goal.new(0, Vector3.ZERO)
+	var bodies := 0
+	for child in goal.get_children():
+		var body := child as StaticBody3D
+		if body == null:
+			continue
+		bodies += 1
+		_expect(body.collision_layer == TerrainSpec.LAYER_PROPS, "a goal's post or net is on the props layer")
+		_expect((ball.collision_mask & body.collision_layer) != 0, "which the ball still bounces off")
+	_expect(bodies > 0, "a goal has solid parts")
+	goal.free()
+	probe_player.free()
+	ball.free()
+## A meal is paid for once, and only by somebody hungry. The café button stayed
+## lit while a child sat eating, so each tap bought another tray, and a child
+## who had not yet spent any energy paid three coins for a bar that could not
+## rise. Read from the source, as the name check is: the function needs a whole
+## game around it.
+func _check_the_cafe_does_not_charge_twice_or_for_nothing() -> void:
+	print("the café charges once, and only the hungry")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var eat := game.substr(game.find("func _eat()"))
+	eat = eat.substr(0, eat.find("\nfunc ", 1))
+	var pays := eat.find("wallet.spend(")
+	_expect(pays > 0, "the café takes payment")
+	_expect(
+		eat.find("_dining > 0.0") >= 0 and eat.find("_dining > 0.0") < pays,
+		"a child already at the table is not charged for a second tray"
+	)
+	_expect(
+		eat.find("vitals.energy >= Vitals.MAX_ENERGY") >= 0
+		and eat.find("vitals.energy >= Vitals.MAX_ENERGY") < pays,
+		"a child with a full bar is not charged for a meal"
+	)
+	_expect(Text.of("say_not_hungry") != "say_not_hungry", "and is told so in words")
+## Stepping back out of first person must not look at where the child was.
+##
+## The aim point is only eased in the over-the-shoulder branch, so it was left
+## behind while looking out of the eyes, and the first frames after switching
+## back pointed the camera at a spot the child had walked away from.
+func _check_the_aim_follows_through_first_person() -> void:
+	print("the aim follows through first person")
+	var player := Player.new()
+	get_root().add_child(player)
+	await process_frame
+	var rig := CameraRig.new(player)
+	player.add_child(rig)
+	await process_frame
+	rig.set_first_person(true)
+	await process_frame
+	player.global_position += Vector3(80.0, 0.0, 0.0)
+	# The rig follows the body's interpolated position, which only catches up
+	# once physics has ticked: waiting on drawn frames alone measured the lag of
+	# the interpolation, not the aim.
+	await physics_frame
+	await physics_frame
+	await process_frame
+	var gap := rig._aim.distance_to(player.global_position)
+	_expect(gap < 3.0, "in first person the aim point is %.1f m from the child" % gap)
+	rig.queue_free()
+	player.queue_free()
+## The ambient light at dusk is one smooth curve, with no flash as the sun goes.
+func _check_dusk_has_no_flash_of_ambient_light() -> void:
+	print("the ambient light does not jump at dusk")
+	var atmosphere := Atmosphere.new()
+	get_root().add_child(atmosphere)
+	var last := -1.0
+	var biggest := 0.0
+	var at := 0.0
+	for step in 1001:
+		atmosphere.set_time(float(step) / 1000.0)
+		var now: float = atmosphere._environment.ambient_light_energy
+		if last >= 0.0 and absf(now - last) > biggest:
+			biggest = absf(now - last)
+			at = float(step) / 1000.0
+		last = now
+	_expect(
+		biggest < 0.02,
+		"the ambient light jumps by %.3f between two thousandths of a day, at %.3f" % [biggest, at]
+	)
+	atmosphere.queue_free()
+
+## A request to rebuild ground or trees that are already standing survives the
+## player crossing into the next chunk or tile.
+func _check_a_rebuild_asked_for_outlives_a_step_into_the_next_tile() -> void:
+	print("a rebuild waiting in the queue is not lost when the player walks on")
+	var field := HeightField.new(20260903)
+	var spot := field.find_spawn_point()
+
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	terrain.follow(spot)
+	var deadline := Time.get_ticks_msec() + 30000
+	while not terrain.is_idle() and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	var here := TerrainSpec.chunk_at(spot)
+	terrain.rebuild_near(spot, 20.0)
+	_expect(terrain._queue.has(here), "a dam queues the chunk the player stands in")
+	terrain.follow(spot + Vector3(float(TerrainSpec.CHUNK_SIZE), 0.0, 0.0))
+	_expect(terrain._queue.has(here), "and still wants it after the player steps into the next chunk")
+	terrain.queue_free()
+
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+	forest.follow(spot)
+	deadline = Time.get_ticks_msec() + 30000
+	while not forest.is_idle() and Time.get_ticks_msec() < deadline:
+		forest._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	var tile := Vector2i(
+		floori(spot.x / float(Vegetation.TILE_SIZE)), floori(spot.z / float(Vegetation.TILE_SIZE))
+	)
+	forest.rebuild_all()
+	_expect(forest._queue.has(tile), "felling queues the tile the player stands in")
+	forest.follow(spot + Vector3(float(Vegetation.TILE_SIZE), 0.0, 0.0))
+	_expect(forest._queue.has(tile), "and it is still waiting for its trees after the player walks on")
+	forest.queue_free()
+## An arrow through the back of a butt scores nothing, and the shop's shelf is
+## put away when a child is no longer at the shop.
+func _check_the_butts_score_only_from_the_front_and_the_shop_shuts_when_left() -> void:
+	print("the butts score from the front only, and the shop shuts behind a child")
+	var field := HeightField.new(20260904)
+	var range_ := Archery.new(field)
+	get_root().add_child(range_)
+	var line := Pitch.centre() + Vector3(0.0, 0.0, 60.0)
+	range_.stand_up(line, Vector3.FORWARD)
+	var scored: Array[int] = []
+	range_.hit_target.connect(func(_i: int, _r: int, points: int) -> void: scored.append(points))
+	var gold := range_.target_centre(0)
+	# From the shooting side, straight into the gold: scores.
+	range_._check_hit(gold + Vector3(0.0, 0.0, 0.3), gold - Vector3(0.0, 0.0, 0.3))
+	_expect(scored.size() == 1, "an arrow into the face scores")
+	# From behind, straight through the same gold: does not.
+	range_._check_hit(gold - Vector3(0.0, 0.0, 0.3), gold + Vector3(0.0, 0.0, 0.3))
+	_expect(scored.size() == 1, "an arrow through the back of the butt does not")
+	range_.queue_free()
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("if hud.is_shop_open() and here != Places.SHOP:"),
+		"the shop panel is closed once the child is no longer at the shop"
+	)
+## Gathering and the camp: a bag that is emptied says so, a stone is not a stick,
+## and a tree felled on tidied ground leaves a stump again.
+func _check_the_camp_forgets_and_remembers_rightly() -> void:
+	print("the camp forgets and remembers rightly")
+	var inventory := Inventory.new()
+	inventory.add(ItemKinds.STICK, 4)
+	var told: Dictionary = {}
+	inventory.changed.connect(func(kind: StringName, total: int) -> void: told[kind] = total)
+	inventory.from_data({})
+	if told.get(ItemKinds.STICK, -1) != 0:
+		_fail("emptying the bag never told the display the sticks were gone")
+	else:
+		_ok("an emptied bag announces nought")
+
+	var tasks := Tasks.new()
+	get_root().add_child(tasks)
+	var full := Inventory.new()
+	full.add(ItemKinds.STICK, Tasks.STICKS_WANTED)
+	tasks.on_collected(full, ItemKinds.STONE)
+	if tasks.step != Tasks.Step.GATHER:
+		_fail("picking up a stone finished the gathering task")
+	else:
+		_ok("only a stick counts towards the sticks")
+	tasks.queue_free()
+
+	var felled := Felled.new()
+	var at := Vector3(40.0, 0.0, 40.0)
+	felled.fell(at)
+	felled.clear_stumps_near(at, 1.0)
+	felled.fell(at)
+	if not felled.shows_stump(at.x, at.z):
+		_fail("a tree felled where a stump was grubbed out left no stump")
+	else:
+		_ok("a second felling leaves its stump")

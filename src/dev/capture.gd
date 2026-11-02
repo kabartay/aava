@@ -131,7 +131,7 @@ func _ready() -> void:
 			await RenderingServer.frame_post_draw
 			if _world.terrain.is_idle() and _world.vegetation.is_idle():
 				break
-	if _chop > 0 or _mounts:
+	if _chop > 0 or _mounts or _animals:
 		# Let the queued rebuilds actually run before the shutter opens.
 		for _i in 12:
 			await get_tree().process_frame
@@ -569,7 +569,7 @@ func _gather_animals() -> void:
 		var spot := origin + forward * 9.0 + across * (float(i) - middle) * 1.9
 		spot.y = _world.field.height_at(spot.x, spot.z)
 		var body := MeshInstance3D.new()
-		body.mesh = AnimalKinds.build_mesh(kind)
+		body.mesh = AnimalKinds.build_mesh(kind, AnimalKinds.variant_at(spot.x, spot.z))
 		# Facing the camera, so a screenshot shows heads rather than tails. The
 		# meshes face -Z, as Godot does, so turning them by the heading alone
 		# pointed them the way the camera looks — tails first.

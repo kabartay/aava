@@ -331,6 +331,15 @@ func _rebuild_queue() -> void:
 		if existing == null or (wanted[coord] and not existing.has_grass):
 			pending.append(coord)
 
+	# A tile already standing and already waiting in the queue is waiting because
+	# a tree was felled, and the queue is about to be replaced. Throwing those
+	# requests away left the felled tree drawn until the tile happened to be
+	# rebuilt for some other reason. Felling queues every loaded tile and they
+	# drain one a frame, so a child who walked on meanwhile met it standing.
+	for coord in _queue:
+		if _tiles.has(coord) and wanted.has(coord) and not pending.has(coord):
+			pending.append(coord)
+
 	pending.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return (a - _centre).length_squared() < (b - _centre).length_squared())
 	_queue = pending

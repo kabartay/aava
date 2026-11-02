@@ -102,6 +102,12 @@ func _rebuild_queue() -> void:
 			_chunks[coord].queue_free()
 			_chunks.erase(coord)
 
+	# What was already waiting. Chunks that stand and are queued are waiting for a
+	# rebuild somebody asked for — a finished dam queues the ground round it, and
+	# a stale bake is put back — not for streaming. Replacing the queue outright
+	# lost those, and crossing a chunk boundary before they drained left the
+	# pre-dam riverbed drawn and solid until the player next came by.
+	var carried := _queue.duplicate()
 	_queue.clear()
 	_lazy.clear()
 
@@ -131,6 +137,11 @@ func _rebuild_queue() -> void:
 			# with fine meshes the player has wandered away from — but only when
 			# there is nothing more urgent to do.
 			_lazy.append(coord)
+
+	for coord in carried:
+		if _chunks.has(coord) and wanted.has(coord) and not pending.has(coord):
+			pending.append(coord)
+			_lazy.erase(coord)
 
 	# Nearest first: the ground under the player must exist before scenery does.
 	pending.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:

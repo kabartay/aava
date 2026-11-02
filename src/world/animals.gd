@@ -262,7 +262,7 @@ func _build_tile(coord: Vector2i) -> void:
 			continue
 
 		var home := Vector3(x, _footing(x, z), z)
-		var node := AnimalKinds.build_node(kind)
+		var node := AnimalKinds.build_node(kind, AnimalKinds.variant_at(x, z))
 		node.position = home
 		var heading := rng.randf() * TAU
 		node.rotation.y = heading
@@ -284,7 +284,7 @@ func _build_tile(coord: Vector2i) -> void:
 ## Put one animal somewhere, for the checks. The world spawns them by tile and
 ## by chance, which is no way to ask "what does a cat standing in the lake do".
 func put_one_at(kind: StringName, at: Vector3) -> Dictionary:
-	var node := AnimalKinds.build_node(kind)
+	var node := AnimalKinds.build_node(kind, AnimalKinds.variant_at(at.x, at.z))
 	node.position = at
 	add_child(node)
 	var animal := {

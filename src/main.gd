@@ -151,6 +151,10 @@ func _ready() -> void:
 		vitals.grant_bottle()
 	if save.has("vitals"):
 		vitals.from_data(save["vitals"])
+		# The purse is the authority on the bottle: a vitals record without one
+		# would leave a bought bottle that cannot be filled.
+		if wallet.has(ShopStock.BOTTLE) and not vitals.has_bottle:
+			vitals.grant_bottle()
 
 	lantern = Lantern.new()
 	lantern.name = "Lantern"
@@ -859,6 +863,10 @@ func _process(delta: float) -> void:
 		# put down where they were, a child ended up in the hillside.
 		var back_at := world.mounts.safe_ground(player.global_position)
 		player.global_position = back_at + Vector3(0.0, 0.2, 0.0)
+		# Put down standing still: the machine's speed stayed with the body, and
+		# a motorcycle's sixteen metres a second carried the child on, off the
+		# safe ground and straight back into the bank they were taken off.
+		player.velocity = Vector3.ZERO
 		world.mounts.dismount(back_at, player.facing_angle())
 		player.riding = &""
 		camera_rig.set_eye_lift(0.0)
@@ -901,6 +909,11 @@ func _process(delta: float) -> void:
 	# Whatever the place a child is standing in offers.
 	var here := world.places.nearest(at)
 	hud.set_place_offer(_offer_at(here))
+	# The shelf is for standing at the counter. Left open, it went on selling
+	# to a child who had walked off across the valley, with the stick still live
+	# under it, and they came back to find the screen covered.
+	if hud.is_shop_open() and here != Places.SHOP:
+		hud.set_shop_open(false, wallet.coins, wallet.owned)
 
 	# A bed offers itself at night, and says nothing in the daytime.
 	var bed := structures.nearest(at, BED_REACH)
@@ -1012,7 +1025,7 @@ func _on_collected(kind: StringName, _at: Vector3) -> void:
 	# something that sounds like progress.
 	var held := inventory.count(kind)
 	sounds.play(Sounds.Sound.PICKUP, 1.0 + minf(float(held % 6), 5.0) * 0.045)
-	tasks.on_collected(inventory)
+	tasks.on_collected(inventory, kind)
 
 ## Switching language rebuilds the interface rather than trying to retranslate
 ## it in place. Every button was created with its text baked in, and hunting
@@ -1031,6 +1044,8 @@ func _on_language(code: StringName) -> void:
 func _on_reset() -> void:
 	if structures != null:
 		structures.from_data([])
+		# Its campfires are gone, so no fire can go on burning without one.
+		_refresh_fires()
 	inventory.from_data({})
 	world.pickups.from_data([])
 	world.boulders.from_data({})
@@ -1645,6 +1660,17 @@ func _on_place_used() -> void:
 ## A meal at the café: coins for energy. This closes the energy loop from the
 ## other end — animals earn coins, the café turns coins back into a full bar.
 func _eat() -> void:
+	# One meal at a time. The button stays lit while a child is sat at the
+	# table, and every tap on it paid three coins for another tray on top of
+	# the first and started the sitting again.
+	if _dining > 0.0:
+		return
+	# Nor a meal for a child who is already full: a bar that cannot rise is
+	# three coins for nothing, and the child has no way to tell.
+	if vitals.energy >= Vitals.MAX_ENERGY - 0.01:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_not_hungry"), 2.0)
+		return
 	if wallet.coins < Places.MEAL_PRICE:
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.format("say_no_coins", [Places.MEAL_PRICE]), 2.2)
@@ -2421,7 +2447,9 @@ func _on_groves_changed(centres: Array) -> void:
 	# Fired while a save is being restored, which is before the birds exist.
 	if birds != null:
 		birds.set_points(structures.attract_points())
-	tasks.on_grove()
+	# Only a grove standing counts: this also fires when the last one is felled.
+	if not centres.is_empty():
+		tasks.on_grove()
 	if centres.is_empty():
 		return
 	if not _seen_first_grove:
