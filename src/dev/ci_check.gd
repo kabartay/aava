@@ -119,6 +119,7 @@ func _initialize() -> void:
 	_check_the_far_country_is_there()
 	_check_the_far_ring_does_not_fight_the_chunks()
 	_check_the_mountainside_has_zones()
+	_check_far_chunks_paint_the_slopes_as_near_ones_do()
 	_check_every_buildable_thing_has_a_picture()
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
@@ -181,18 +182,23 @@ func _initialize() -> void:
 	_check_the_coaster_stands_on_the_ground()
 	await _check_the_rides_are_solid()
 	_check_a_carousel_horse_seats_where_its_saddle_is()
+	_check_ride_decks_are_collided_as_drawn()
 	_check_the_pirate_ship_swings()
 	_check_the_drop_tower_climbs_and_falls()
 	_check_the_wheel_turns_with_its_gondolas_and_the_platform_is_not_the_ring()
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_sky_below_the_horizon_goes_dark_at_night()
+	_check_the_bridge_foam_is_a_wake_not_rings()
 	_check_an_arrow_that_hits_stops_in_the_face()
 	_check_a_machine_in_reverse_points_where_it_is_steered_and_rolls_back()
+	_check_a_parked_mount_keeps_its_heading_across_a_save()
 	_check_a_duck_turning_from_the_bank_keeps_its_clock()
 	_check_the_far_country_paints_a_raised_pond_bed_as_silt()
 	_check_no_grass_comes_up_through_the_bridge_deck()
 	_check_the_flags_fly_the_valley_wind()
+	_check_the_belt_treads_are_evenly_spaced_and_the_trestles_splay_across()
 	_check_the_ship_sails_belly_with_the_wind()
 	_check_the_ride_trim_stays_in_its_place()
 	_check_the_small_fittings_meet_their_parts()
@@ -15907,4 +15913,139 @@ func _check_walls_stack_and_old_walls_stay_put() -> void:
 	build.free()
 	structures.free()
 
+func _check_the_bridge_foam_is_a_wake_not_rings() -> void:
+	# Foam round a trestle leg once pulsed outwards in concentric rings (a sine of
+	# the distance from the leg), which read as a white target on the water. The
+	# shader has to build the wake from the river's own along and across, and the
+	# bank foam must be cut so it can go bare rather than being a steady band.
+	var water := Water.new()
+	var code := (water.material_override as ShaderMaterial).shader.code
+	_expect(not code.contains("ring * 9.0"), "the water has no concentric rings round the bridge legs")
+	_expect(code.contains("float down = max(gap.y, 0.0)"), "the wake behind a leg trails downstream")
+	_expect(code.contains("bank_foam = rim * smoothstep"), "the bank foam is broken, not a painted line")
+	water.free()
+
+## The slats of a walkway belt lie evenly all the way round as they scroll, and
+## the legs of a bridge trestle lean across the crossing.
+##
+## The treads were 1.6 m apart, eighteen to a 30 m belt, and wrapped at 30 m: a
+## 2.8 m gap in a row of 1.6 m ones, crawling along under a child's feet. The
+## trestle legs were turned about the axis that runs across the bridge, so they
+## leaned up and down the river, in opposite directions, rather than splaying.
+func _check_the_belt_treads_are_evenly_spaced_and_the_trestles_splay_across() -> void:
+	print("the belt treads are evenly spaced and the trestles splay across")
+	var walkway := Walkway.new(Vector3.ZERO)
+	for side in 2:
+		for along: float in [0.0, 0.4, 1.1]:
+			walkway._belts[side]["along"] = along
+			var spots: Array[float] = []
+			for index in Walkway.TREADS:
+				spots.append(walkway.tread_at(side, index))
+			spots.sort()
+			var narrowest := 1000.0
+			var widest := 0.0
+			for index in spots.size():
+				var next := spots[index + 1] if index + 1 < spots.size() else spots[0] + Walkway.LENGTH
+				narrowest = minf(narrowest, next - spots[index])
+				widest = maxf(widest, next - spots[index])
+			_expect(
+				widest - narrowest < 0.01,
+				"belt %d, scrolled %.1f m: its treads lie %.2f to %.2f m apart" % [side, along, narrowest, widest]
+			)
+	walkway.free()
+	for side: float in [-1.0, 1.0]:
+		var head := Bridge._splay(side) * Vector3.UP
+		_expect(
+			absf(head.x) < 0.001 and head.z * side < -0.01,
+			"the trestle leg on side %+.0f leans its head in across the bridge, not along it (%.3f, %.3f)" % [side, head.x, head.z]
+		)
+
+func _check_the_sky_below_the_horizon_goes_dark_at_night() -> void:
+	print("the ground half of the sky follows the hour")
+	var sky := Atmosphere.new()
+	sky.set_time(0.0)
+	var material: ProceduralSkyMaterial = sky._sky_material
+	var night_ground: Color = material.ground_horizon_color
+	_expect(night_ground.get_luminance() < 0.2,
+		"at midnight the ground horizon is dark, not %.2f" % night_ground.get_luminance())
+	_expect(material.ground_bottom_color.get_luminance() < 0.1,
+		"and so is the ground below it")
+	sky.set_time(0.5)
+	_expect(material.ground_horizon_color.get_luminance() > 0.6,
+		"at noon it is still the pale daylight one")
+	sky.free()
+
+## A chunk's rock and snow are chosen from its slope, and the slope was read
+## across two steps of the mesh: two metres at full detail, thirty-two in the
+## far ring. A terrace riser or a buttress is steep over a few metres and
+## gentle over thirty, so the far ring painted cliffs white and green and the
+## colour changed along the line where the rings meet.
+func _check_far_chunks_paint_the_slopes_as_near_ones_do() -> void:
+	print("far chunks paint the slopes as near ones do")
+	var field := HeightField.new(20260904)
+	var total := 0.0
+	var count := 0
+	var worst := 0.0
+	for i in 12:
+		var angle := float(i) * TAU / 12.0
+		var coord := Vector2i(
+			roundi(cos(angle) * 850.0 / 64.0), roundi(sin(angle) * 850.0 / 64.0)
+		)
+		var near: PackedColorArray = TerrainChunk.bake(field, coord, 1, false)["arrays"][Mesh.ARRAY_COLOR]
+		var far: PackedColorArray = TerrainChunk.bake(field, coord, 16, false)["arrays"][Mesh.ARRAY_COLOR]
+		for gz in 5:
+			for gx in 5:
+				var a := near[gz * 16 * 65 + gx * 16]
+				var b := far[gz * 5 + gx]
+				var gap := absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
+				total += gap
+				count += 1
+				worst = maxf(worst, gap)
+	var mean := total / float(count)
+	print("  mean colour gap %.3f, worst %.3f" % [mean, worst])
+	_expect(mean < 0.12, "near and far chunks agree on the colour of the range (%.3f)" % mean)
+
+func _check_ride_decks_are_collided_as_drawn() -> void:
+	print("the carousel and drop tower decks are collided exactly as thick as they are drawn")
+	var carousel := Carousel.new(Vector3.ZERO)
+	var floor_shape := carousel.get_node("Floor").get_child(0) as CollisionShape3D
+	var floor_top: float = floor_shape.position.y + (floor_shape.shape as CylinderShape3D).height * 0.5
+	var floor_drawn := Carousel.FLOOR_HEIGHT + Carousel.DECK_THICKNESS * 0.5
+	_expect(
+		is_equal_approx(floor_top, floor_drawn),
+		"the carousel floor collides up to %.3f m but is drawn up to %.3f m" % [floor_top, floor_drawn]
+	)
+	carousel.free()
+	var tower := DropTower.new(Vector3.ZERO)
+	var ring_shape := tower._ring.get_child(0) as CollisionShape3D
+	var ring_top: float = ring_shape.position.y + (ring_shape.shape as CylinderShape3D).height * 0.5
+	_expect(
+		is_equal_approx(ring_top, DropTower.RING_THICKNESS * 0.5),
+		"the drop tower ring collides up to %.3f m but is drawn up to %.3f m"
+			% [ring_top, DropTower.RING_THICKNESS * 0.5]
+	)
+	tower.free()
+
+## A parked machine or horse is left pointing some way, and a reload must keep
+## it: they all came back facing north, which lined a herd up like a fence.
+func _check_a_parked_mount_keeps_its_heading_across_a_save() -> void:
+	print("a parked mount keeps the way it points across a save")
+	var field := HeightField.new(20260904)
+	var parked := Mounts.new(field)
+	get_root().add_child(parked)
+	var spot := field.camp_centre() + Vector3(14.0, 0.0, 9.0)
+	parked.place(MountKinds.horse_id(1), spot, 2.1)
+	var restored := Mounts.new(field)
+	get_root().add_child(restored)
+	restored.from_data(parked.to_data())
+	_expect(restored.exists(MountKinds.horse_id(1)), "the horse is back")
+	_expect(
+		absf(angle_difference(restored.facing_of(MountKinds.horse_id(1)), 2.1)) < 0.01,
+		"pointing as it was left, not %.2f" % restored.facing_of(MountKinds.horse_id(1))
+	)
+	# An old save has three numbers and no heading, and still loads.
+	restored.from_data({"bicycle:0": [spot.x, 0.0, spot.z]})
+	_expect(restored.exists(&"bicycle:0"), "and a save with no heading still loads")
+	parked.queue_free()
+	restored.queue_free()
 

@@ -1045,7 +1045,9 @@ func to_data() -> Dictionary:
 	var out: Dictionary = {}
 	for kind in _positions:
 		var at: Vector3 = _positions[kind]
-		out[String(kind)] = [at.x, at.y, at.z]
+		# Which way it points goes after the position, so a save written before
+		# this is still read: the loader only insists on the first three.
+		out[String(kind)] = [at.x, at.y, at.z, facing_of(kind)]
 	return out
 
 func from_data(data: Dictionary) -> void:
@@ -1079,7 +1081,11 @@ func from_data(data: Dictionary) -> void:
 		# case and leaves everything else exactly where it was.
 		if not MountKinds.floats(id) and not _is_dry_footing(at):
 			at = _walk_out_of_the_water(at)
-		place(id, at)
+		# Pointed the way it was left. It was put back facing north, so a herd
+		# that had been standing every which way came out of a reload lined up
+		# like a fence, and a bicycle left across the path stood along it.
+		var facing := float(entry[3]) if entry.size() >= 4 else 0.0
+		place(id, at, facing)
 
 ## How fast the ground a rider is held to may rise *faster than the slope says
 ## it should*, in metres a second. A wheel meeting a step — the edge of a

@@ -59,6 +59,8 @@ const SHAFT_HALF_WIDTH := 0.7
 const BAND_COUNT := 26
 
 const RING_RADIUS := 2.3
+## The ring deck's thickness, drawn and collided alike.
+const RING_THICKNESS := 0.18
 const SEATS := 6
 
 ## How long the ring waits at the ground for a child to step on, climbs,
@@ -243,12 +245,12 @@ func _build_ring(body: AnimatableBody3D) -> void:
 	var deck := CylinderMesh.new()
 	deck.top_radius = RING_RADIUS
 	deck.bottom_radius = RING_RADIUS
-	deck.height = 0.18
+	deck.height = RING_THICKNESS
 	deck.radial_segments = 20
 	Park._add(tool, deck, Transform3D(Basis(), Vector3.ZERO), DECK)
 	var pad := CylinderShape3D.new()
 	pad.radius = RING_RADIUS
-	pad.height = 0.2
+	pad.height = RING_THICKNESS
 	var collider := CollisionShape3D.new()
 	collider.shape = pad
 	body.add_child(collider)

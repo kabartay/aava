@@ -217,24 +217,39 @@ void fragment() {
 	// where the sheet fades out against the shore, broken up so it reads as
 	// froth and not a painted line.
 	float rim = smoothstep(river_half_width - 2.5, river_half_width - 0.5, from_line) * (1.0 - smoothstep(river_half_width + 0.5, river_half_width + 3.0, from_line)) * river_weight;
+	// Two slow patterns of different length, then cut: where both peak there is
+	// froth, and between them the rim is bare water, so the band comes and goes
+	// along the bank instead of drawing a line down it.
 	float froth = sin(world_vertex.z * 0.45 - TIME * 0.6 + sin(across_line * 1.9) * 1.5) * 0.5 + 0.5;
-	float bank_foam = rim * (0.35 + 0.65 * froth);
+	float patches = sin(world_vertex.z * 0.19 + TIME * 0.2 + 2.0 + sin(across_line * 1.1)) * 0.5 + 0.5;
+	float bank_foam = rim * smoothstep(0.25, 0.7, froth * patches + froth * 0.25);
 
-	// And a collar of broken water round each trestle leg standing in the
-	// river, trailing away downstream (towards +z) in a short wake.
+	// And a wake behind each trestle leg standing in the river: a soft, broken
+	// streak that spreads a little and fades as it trails downstream (towards
+	// +z), with a faint cushion where the stream meets the leg. It is built in
+	// the river's own terms, along and across, with no rings in it: rings round
+	// a post read as a target, and water does not do that.
 	float pier_foam = 0.0;
 	// Only near the crossing: the loop is per pixel, and most of the river is
 	// nowhere near a leg.
-	int piers_here = abs(world_vertex.z - bridge_z) < 12.0 ? pier_count : 0;
+	int piers_here = abs(world_vertex.z - bridge_z) < 14.0 ? pier_count : 0;
 	for (int i = 0; i < piers_here; i++) {
 		vec2 leg = vec2(river_centre_x(bridge_z) + pier_offset[i].x, bridge_z + pier_offset[i].y);
 		vec2 gap = world_vertex.xz - leg;
-		float ring = length(vec2(gap.x, gap.y * (gap.y > 0.0 ? 0.35 : 1.0)));
-		float collar = 1.0 - smoothstep(0.35, 1.3, ring);
-		float ripple = 0.6 + 0.4 * sin(ring * 9.0 - TIME * 3.0);
-		pier_foam = max(pier_foam, collar * ripple);
+		float down = max(gap.y, 0.0);
+		float width = 0.45 + down * 0.1;
+		float lateral = abs(gap.x) / width;
+		float trail = (1.0 - smoothstep(0.0, 1.0, lateral)) * (1.0 - smoothstep(0.5, 7.0, down));
+		// Upstream of the leg there is only a short cushion, not a trail.
+		trail *= gap.y > 0.0 ? 1.0 : 1.0 - smoothstep(0.0, 0.6, -gap.y);
+		// The flecks slide down at the streaks' own pace, so the wake is part of
+		// the same current and not a sticker on it.
+		float slid = gap.y - TIME * river_current * 2.0;
+		float flecks = sin(gap.x * 3.1 + slid * 1.3) * sin(slid * 0.9 - gap.x * 2.3 + float(i));
+		float broken = smoothstep(-0.1, 0.7, flecks * 0.5 + 0.5 + 0.2 * sin(slid * 0.37));
+		pier_foam = max(pier_foam, trail * (0.15 + 0.85 * broken) * 0.8);
 	}
-	float foam = clamp(max(max(bank_foam * 0.45, pier_foam), streak * 0.2), 0.0, 1.0);
+	float foam = clamp(max(max(bank_foam * 0.5, pier_foam), streak * 0.2), 0.0, 1.0);
 
 	if (below) {
 		// Looking up at it. Brighter the more square-on you look, because what

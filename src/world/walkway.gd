@@ -35,8 +35,13 @@ var _sides: StaticBody3D
 var _belts: Array[Dictionary] = []
 
 ## How many treads a belt carries, and how far apart they lie.
-const TREAD_SPACING := 1.6
-const TREADS := int(LENGTH / TREAD_SPACING)
+##
+## The spacing is worked out from the count, so that the treads divide the belt
+## exactly. They were 1.6 m apart and eighteen of them, which is 28.8 m of a 30 m
+## belt: as they scrolled and wrapped round, one gap in the row was 2.8 m wide
+## while every other was 1.6, a hole crawling along the belt under a child's feet.
+const TREADS := int(LENGTH / 1.6) + 1
+const TREAD_SPACING := LENGTH / float(TREADS)
 
 func _init(at: Vector3) -> void:
 	name = "Walkway"

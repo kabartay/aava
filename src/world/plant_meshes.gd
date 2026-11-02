@@ -56,8 +56,11 @@ static func conifer(height := 6.0, seed_value := 0) -> ArrayMesh:
 	for i in tiers:
 		var t := float(i) / float(tiers - 1)
 		var skirt := CylinderMesh.new()
-		skirt.top_radius = height * lerpf(0.10, 0.02, t)
-		skirt.bottom_radius = height * lerpf(0.27, 0.10, t)
+		# The top of each skirt is well inside its own foot, so the tier above
+		# sits on a visible ledge: the stepped edge is what still says "spruce"
+		# at two hundred metres, where the shading is too small to see.
+		skirt.top_radius = height * lerpf(0.07, 0.015, t)
+		skirt.bottom_radius = height * lerpf(0.29, 0.11, t)
 		skirt.height = height * lerpf(0.30, 0.20, t)
 		skirt.radial_segments = 8
 		skirt.rings = 1
@@ -68,7 +71,7 @@ static func conifer(height := 6.0, seed_value := 0) -> ArrayMesh:
 				Basis(Vector3.UP, rng.randf_range(0.0, TAU)),
 				Vector3(rng.randf_range(-0.02, 0.02) * height, at, rng.randf_range(-0.02, 0.02) * height)
 			),
-			LEAF_DARK.lerp(LEAF_LIGHT, t * 0.8), 0.35
+			LEAF_DARK.lerp(LEAF_LIGHT, t * 0.8), 0.55
 		)
 	# The leader: the thin spire a spruce ends in.
 	var leader := CylinderMesh.new()
@@ -138,7 +141,7 @@ static func broadleaf(height := 5.0, seed_value := 0) -> ArrayMesh:
 	var lumps := 4
 	for i in lumps:
 		var mass := SphereMesh.new()
-		var size := height * lerpf(0.27, 0.17, float(i) / float(lumps - 1))
+		var size := height * lerpf(0.29, 0.17, float(i) / float(lumps - 1)) * rng.randf_range(0.9, 1.1)
 		mass.radius = size
 		mass.height = size * 1.7
 		mass.radial_segments = 9
@@ -152,7 +155,12 @@ static func broadleaf(height := 5.0, seed_value := 0) -> ArrayMesh:
 				height * lerpf(0.74, 0.94, float(i) / float(lumps - 1)),
 				sin(angle) * out
 			)),
-			LEAF_DARK.lerp(LEAF_LIGHT, rng.randf_range(0.1, 0.9)), 0.4
+			# The higher the mass, the more sun it gets: a crown lit on top and
+			# dark beneath reads as a rounded tree from far off, where a random
+			# mix of greens reads as a smudge.
+			LEAF_DARK.lerp(LEAF_LIGHT, clampf(
+				lerpf(0.15, 0.85, float(i) / float(lumps - 1)) + rng.randf_range(-0.15, 0.15), 0.0, 1.0
+			)), 0.55
 		)
 
 	tool.generate_normals()

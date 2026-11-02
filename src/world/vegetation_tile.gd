@@ -324,10 +324,18 @@ func _add_layer(
 		# tells one tree from the next at a distance.
 		var at := transforms[i].origin
 		var seed_at := hash(Vector3i(int(at.x * 10.0), int(at.y * 10.0), int(at.z * 10.0)))
-		var shade := 0.86 + float(seed_at % 1000) * 0.00028
+		var shade := 0.82 + float(seed_at % 1000) * 0.00036
 		var warm := float((seed_at >> 10) % 1000) * 0.001 - 0.5
+		# One plant in six is a young, yellow-green one: the lighter flush of new
+		# growth, which breaks up a wood of identical dark greens for nothing
+		# but a colour per instance.
+		var young := 0.0
+		if (seed_at >> 20) % 6 == 0:
+			young = 0.14
 		multimesh.set_instance_color(i, Color(
-			shade * (1.0 + warm * 0.16), shade * 1.02, shade * (0.94 - warm * 0.16)
+			shade * (1.0 + warm * 0.30 + young),
+			shade * (1.02 + young * 0.8),
+			shade * (0.94 - warm * 0.26 - young * 1.6)
 		))
 
 	var instance := MultiMeshInstance3D.new()

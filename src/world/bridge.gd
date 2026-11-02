@@ -156,7 +156,7 @@ func _build() -> void:
 			# posts dropped straight down.
 			Bridge._add(
 				tool, post,
-				Transform3D(Basis(Vector3.BACK, side * -0.06), at),
+				Transform3D(Bridge._splay(side), at),
 				TIMBER_DARK
 			)
 		# The brace across the pair, up under the beams.
@@ -347,6 +347,17 @@ func _surface_at(x: float) -> float:
 ## deck came out as a sawtooth that had to be jumped up board by board.
 static func _slope(rise: float, run: float) -> Basis:
 	return Basis(Vector3.BACK, atan2(rise, run))
+
+## How a trestle's leg leans: its foot out and its head in, across the crossing.
+##
+## It was turned about Vector3.BACK, which is the axis that runs across the
+## bridge, so it leaned along the bridge instead: the two legs of a pair tipped
+## opposite ways, one up-river of its brace and one down, a pair twisted rather
+## than splayed. Splaying across is a turn about the axis that runs along the
+## bridge. A turn about X sends the head towards +Z when the angle is positive,
+## so the leg on the +Z side wants a negative one to bring its head back in.
+static func _splay(side: float) -> Basis:
+	return Basis(Vector3.RIGHT, side * -0.06)
 
 ## Two triangles, wound the same way round.
 static func _quad(faces: PackedVector3Array, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:

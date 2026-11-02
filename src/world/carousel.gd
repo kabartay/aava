@@ -11,6 +11,9 @@ extends Node3D
 
 const RADIUS := 6.0
 const FLOOR_HEIGHT := 0.55
+## How thick the drawn deck is, and its collider with it: a child's feet stand
+## on exactly what is drawn rather than a centimetre above it.
+const DECK_THICKNESS := 0.22
 const CANOPY_HEIGHT := 4.6
 ## A turn every fifty seconds or so: slow enough to step onto, fast enough that
 ## a six-year-old can see it is going round.
@@ -66,7 +69,7 @@ func _init(at: Vector3) -> void:
 	var deck := CylinderMesh.new()
 	deck.top_radius = RADIUS
 	deck.bottom_radius = RADIUS
-	deck.height = 0.22
+	deck.height = DECK_THICKNESS
 	deck.radial_segments = 28
 	deck.rings = 1
 	Park._add(turning, deck, Transform3D(Basis(), Vector3(0.0, FLOOR_HEIGHT, 0.0)), FLOOR_COLOUR)
@@ -80,7 +83,7 @@ func _init(at: Vector3) -> void:
 
 	var pad := CylinderShape3D.new()
 	pad.radius = RADIUS
-	pad.height = 0.24
+	pad.height = DECK_THICKNESS
 	var collider := CollisionShape3D.new()
 	collider.shape = pad
 	collider.position = Vector3(0.0, FLOOR_HEIGHT, 0.0)

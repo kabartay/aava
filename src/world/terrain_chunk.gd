@@ -106,6 +106,14 @@ static func bake(
 			# about a half, so near ground went rocky and bare of snow on slopes
 			# the far mountains painted green and white.
 			var slope := HeightField.steepness_of_gradient(Vector2(dx, dz).length() / span)
+			# Where the vertices are far apart the grid's slope is an average over
+			# tens of metres, which smooths a terrace riser or a buttress into a
+			# gentle hillside: snow and grass were painted on cliffs, and the
+			# colour jumped where a coarse ring met a fine one. The field is asked
+			# for the slope at the point itself instead, as the near ground sees it.
+			# Only for the coarse steps, which have few enough vertices to afford it.
+			if step >= 4:
+				slope = field.steepness_at(world_x, world_z)
 
 			var index := gz * grid + gx
 			vertices[index] = Vector3(local_x, height, local_z)

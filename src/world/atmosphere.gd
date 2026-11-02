@@ -206,6 +206,18 @@ func _apply_time() -> void:
 	_sky_material.sky_top_color = sky_top.lerp(Color(0.045, 0.062, 0.135), night)
 	_sky_material.sky_horizon_color = sky_horizon.lerp(Color(0.115, 0.145, 0.235), night)
 	_sky_material.sun_angle_max = lerpf(12.0, 30.0, dusk)
+	# The half of the sky below the horizon is set here too. It was a pair of
+	# daytime constants, so at midnight the sky above was deep blue while the
+	# ground hemisphere stayed pale daylight grey-blue: every downward-facing
+	# surface (eaves, bridge undersides, animals' bellies) was lit by a sky that
+	# was not there, and the horizon had a bright edge.
+	var ground_horizon := Color(0.72, 0.80, 0.84).lerp(sky_horizon, dusk * 0.6)
+	_sky_material.ground_horizon_color = ground_horizon.lerp(
+		Color(0.09, 0.115, 0.19), night
+	)
+	_sky_material.ground_bottom_color = Color(0.24, 0.28, 0.24).lerp(
+		Color(0.03, 0.04, 0.06), maxf(night, dusk * 0.5)
+	)
 
 	_fog_in_air = _sky_material.sky_horizon_color.lerp(
 		Color(0.86, 0.91, 0.96).lerp(Color(0.10, 0.13, 0.22), night), 0.35
