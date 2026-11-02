@@ -131,6 +131,26 @@ func _init(at: Vector3) -> void:
 			CANOPY_A if wedge % 4 == 0 else CANOPY_B
 		)
 
+	# A string of bulbs round the eave — the one thing that says "carousel"
+	# from across the fairground before anyone is close enough to see the
+	# horses at all.
+	for bulb in 16:
+		var bulb_angle := TAU * float(bulb) / 16.0
+		var bulb_mesh := SphereMesh.new()
+		bulb_mesh.radius = 0.09
+		bulb_mesh.height = 0.18
+		bulb_mesh.radial_segments = 8
+		bulb_mesh.rings = 5
+		Park._add(
+			turning, bulb_mesh,
+			Transform3D(
+				Basis(),
+				Vector3(cos(bulb_angle), 0.0, sin(bulb_angle)) * (RADIUS + 0.4)
+					+ Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT + 0.08, 0.0)
+			),
+			Color(1.0, 0.92, 0.55) if bulb % 2 == 0 else Color(0.98, 0.70, 0.30)
+		)
+
 	# The horses: a body on a brass pole, facing the way round.
 	for horse in HORSES:
 		var angle := TAU * float(horse) / float(HORSES)
@@ -166,12 +186,38 @@ func _init(at: Vector3) -> void:
 			Transform3D(facing, ride_at + facing * Vector3(0.62, 0.42, 0.0)),
 			MountKinds.HORSE_COATS[horse % MountKinds.HORSE_COATS.size()]
 		)
-		# What a child bumps into: the barrel of the horse, turned with it.
+
+		# The saddle: a proper seat on the horse's own back, the thing missing
+		# before that made climbing onto one read as standing near a horse
+		# rather than riding it. Leather-coloured, like every other saddle in
+		# the game, and a child's own foot has somewhere to look for.
+		var saddle_top := ride_at.y + 0.35
+		var saddle := BoxMesh.new()
+		saddle.size = Vector3(0.5, 0.1, 0.4)
+		var saddle_at := Vector3(ride_at.x, saddle_top - 0.05, ride_at.z)
+		Park._add(turning, saddle, Transform3D(facing, saddle_at), ShopStock.colour(ShopStock.SADDLE))
+		var cantle := BoxMesh.new()
+		cantle.size = Vector3(0.08, 0.18, 0.4)
+		Park._add(
+			turning, cantle,
+			Transform3D(facing, saddle_at + facing * Vector3(-0.2, 0.08, 0.0)),
+			ShopStock.colour(ShopStock.SADDLE).darkened(0.2)
+		)
+
+		# What a child bumps into, and stands on: the barrel of the horse,
+		# turned with it, and topped exactly where the saddle sits rather than
+		# a fraction above or below it — a horse a child climbs onto and finds
+		# themselves floating over the saddle, or sunk into it, is not one
+		# that reads as ridden.
+		var barrel_bottom := ride_at.y - 0.775
+		var barrel_height := saddle_top - barrel_bottom
 		var solid := BoxShape3D.new()
-		solid.size = Vector3(1.6, 1.15, 0.5)
+		solid.size = Vector3(1.6, barrel_height, 0.5)
 		var barrel := CollisionShape3D.new()
 		barrel.shape = solid
-		barrel.transform = Transform3D(facing, ride_at - Vector3(0.0, 0.2, 0.0))
+		barrel.transform = Transform3D(
+			facing, Vector3(ride_at.x, barrel_bottom + barrel_height * 0.5, ride_at.z)
+		)
 		_horses.add_child(barrel)
 
 		var head := BoxMesh.new()

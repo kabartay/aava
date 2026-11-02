@@ -20,7 +20,10 @@ const WEST := 56.0
 const EAST := 96.0
 ## Remember that north is -z in this valley.
 const SOUTH := 16.0
-const NORTH := -152.0
+## Pushed further out than the coaster and the wheel need on their own,
+## deliberately: the far end past them is ground held for rides that have not
+## been asked for yet, not a margin the two existing ones were meant to fill.
+const NORTH := -210.0
 
 ## What the whole ground is levelled to. Chosen a little above the flood plain
 ## it stands on, so the fairground is a dry platform rather than a hollow that

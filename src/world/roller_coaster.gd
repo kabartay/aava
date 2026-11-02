@@ -523,6 +523,11 @@ func button_at() -> Vector3:
 	)
 
 func at_the_button(at: Vector3) -> bool:
+	# Nothing to buy while a ride is already booked or the train is standing
+	# there: the wheel's button says the same. Without it a second press was
+	# asked for and took a second ticket for the one train.
+	if _booked or boarding():
+		return false
 	return at.distance_to(button_at()) < BUTTON_REACH
 
 ## A ride has been paid for: the next time the train comes past the platform

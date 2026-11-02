@@ -1,7 +1,7 @@
 class_name Park
 extends Node3D
 
-## The fairground east of the river: a fenced sandy ground with five rides on
+## The fairground east of the river: a fenced sandy ground with seven rides on
 ## it.
 ##
 ## Where it stands and how its floor is made flat is ParkSpec's business, the
@@ -31,6 +31,17 @@ const WHEEL_AT := Vector3(82.0, 0.0, -112.0)
 ## The coaster runs down the western side, along the river, the whole length of
 ## the ground.
 const COASTER_AT := Vector3(64.0, 0.0, -70.0)
+## Behind the wheel, in the ground that was added past it: far enough north of
+## it that the two footprints do not touch, on the same side of the park as
+## the wheel and the trampoline rather than crossing to the coaster's. Five
+## metres nearer the wheel than it first stood, so the ship's frame and the
+## tower's deck no longer overlap.
+const DROP_TOWER_AT := Vector3(82.0, 0.0, -165.0)
+## Further north again, past the tower, in the ground that was lengthened
+## for it — and in the middle of the park's width, since the boat swings
+## across the park, towards the river and away, and its whole sweep has to
+## land inside the fence on both sides.
+const PIRATE_SHIP_AT := Vector3(76.0, 0.0, -195.0)
 
 ## The big trampoline: twice the one on the playground, which is 3.5 m across.
 const TRAMPOLINE_RADIUS := 7.0
@@ -71,7 +82,9 @@ const BOOTH_REACH := 4.0
 ## walkways are free: they are the two a child uses while working out what the
 ## place is, and charging for them would make the fairground a shop.
 const RIDE_PRICE := 10
-const PAID_RIDES: Array[StringName] = [&"carousel", &"wheel", &"coaster"]
+const PAID_RIDES: Array[StringName] = [
+	&"carousel", &"wheel", &"coaster", &"drop_tower", &"pirate_ship",
+]
 
 static func charges_for(ride: StringName) -> bool:
 	return PAID_RIDES.has(ride)
@@ -85,6 +98,8 @@ var carousel: Carousel
 var walkway: Walkway
 var wheel: FerrisWheel
 var coaster: RollerCoaster
+var drop_tower: DropTower
+var pirate_ship: PirateShip
 
 func _init(height_field: HeightField) -> void:
 	name = "Park"
@@ -119,6 +134,10 @@ func _init(height_field: HeightField) -> void:
 	add_child(wheel)
 	coaster = RollerCoaster.new(_at(COASTER_AT))
 	add_child(coaster)
+	drop_tower = DropTower.new(_at(DROP_TOWER_AT))
+	add_child(drop_tower)
+	pirate_ship = PirateShip.new(_at(PIRATE_SHIP_AT))
+	add_child(pirate_ship)
 
 ## A spot on the fairground's own floor.
 func _at(spot: Vector3) -> Vector3:
@@ -138,7 +157,8 @@ func carry(at: Vector3, delta: float) -> Vector3:
 	_carrier = &""
 	for ride: Array in [
 		[&"carousel", carousel], [&"walkway", walkway],
-		[&"wheel", wheel], [&"coaster", coaster],
+		[&"wheel", wheel], [&"coaster", coaster], [&"drop_tower", drop_tower],
+		[&"pirate_ship", pirate_ship],
 	]:
 		var moved: Vector3 = (ride[1] as Node).call("carry", at, delta)
 		if moved != Vector3.ZERO:
@@ -171,6 +191,10 @@ func ride_under(at: Vector3) -> StringName:
 		var inside := seat.global_transform.affine_inverse() * at
 		if absf(inside.x) < 0.95 and absf(inside.z) < 0.65 and inside.y > -0.4 and inside.y < 2.0:
 			return &"coaster"
+	if drop_tower.aboard(at):
+		return &"drop_tower"
+	if pirate_ship.aboard(at):
+		return &"pirate_ship"
 	return &""
 
 ## Where the ticket kiosk stands.
@@ -405,9 +429,12 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		var round_it := TAU * float(piece) / 28.0
 		var on_rim := Vector2(cos(round_it), sin(round_it)) * TRAMPOLINE_RADIUS
 		# Wide enough to overlap its neighbours: a ring of posts with gaps in
-		# it is a ring with a way through, and a bicycle is narrow.
+		# it is a ring with a way through, and a bicycle is narrow. The turn
+		# below lays a box's x along the radius, so the long side is z: it was
+		# the other way about, a post 0.9 m along the rim with two thirds of a
+		# metre of gap between each pair.
 		Park._solid(
-			solid, Vector3(1.9, TRAMPOLINE_TOP + 0.4, 0.9),
+			solid, Vector3(0.9, TRAMPOLINE_TOP + 0.4, 1.9),
 			Transform3D(
 				Basis(Vector3.UP, -round_it),
 				at + Vector3(on_rim.x, (TRAMPOLINE_TOP + 0.4) * 0.5, on_rim.y)

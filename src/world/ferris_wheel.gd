@@ -31,6 +31,8 @@ const HANGS_BELOW := 2.0 * CAR_SCALE
 const BOARDING_HEIGHT := 0.9
 const HUB_HEIGHT := RADIUS + HANGS_BELOW + BOARDING_HEIGHT
 const GONDOLAS := 10
+## How far either side of the wheel's plane its two rim hoops stand.
+const HOOP_X := 2.1
 ## A turn every two minutes: a whole ride is a long slow look at the valley.
 const TURN_RATE := deg_to_rad(3.0)
 
@@ -226,15 +228,20 @@ func _init(at: Vector3) -> void:
 
 	# The rim: two hoops on either side of the wheel's plane, spokes between
 	# the hub and the rim, and a lamp at every second spoke.
+	#
+	# The hoops stand at HOOP_X with a tube of 0.2. At 1.9 and 0.26 their inner
+	# edge was 1.64 out, and a gondola's roof reaches 1.875 either side of its
+	# pin, so every car pushed its roof through both hoops at the bottom. Now
+	# outside the roof, and still clear of the A-frame's legs at 2.6.
 	for face: float in [-1.0, 1.0]:
 		var hoop := TorusMesh.new()
-		hoop.inner_radius = RADIUS - 0.26
-		hoop.outer_radius = RADIUS + 0.26
+		hoop.inner_radius = RADIUS - 0.2
+		hoop.outer_radius = RADIUS + 0.2
 		hoop.rings = 44
 		hoop.ring_segments = 6
 		Park._add(
 			turning, hoop,
-			Transform3D(Basis(Vector3.BACK, PI * 0.5), Vector3(face * 1.9, 0.0, 0.0)),
+			Transform3D(Basis(Vector3.BACK, PI * 0.5), Vector3(face * HOOP_X, 0.0, 0.0)),
 			STEEL
 		)
 	for spoke in GONDOLAS * 2:
@@ -247,14 +254,14 @@ func _init(at: Vector3) -> void:
 				turning, bar,
 				Transform3D(
 					Basis(Vector3.RIGHT, -angle),
-					Vector3(face * 1.9, 0.0, 0.0) + out * (RADIUS * 0.5)
+					Vector3(face * HOOP_X, 0.0, 0.0) + out * (RADIUS * 0.5)
 				),
 				STEEL
 			)
 		# Cross-bracing between the two hoops, in the same triangles a real
 		# wheel is braced with.
 		var brace := BoxMesh.new()
-		brace.size = Vector3(3.8, 0.10, 0.10)
+		brace.size = Vector3(HOOP_X * 2.0, 0.10, 0.10)
 		Park._add(
 			turning, brace,
 			Transform3D(Basis(Vector3.RIGHT, -angle), out * RADIUS),
