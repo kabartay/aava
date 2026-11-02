@@ -56,6 +56,26 @@ var _valid := false
 var _reason := ""
 var _last_signature := ""
 
+## The storey a house piece starts from, chosen with the up and down buttons.
+##
+## A fallback, not the way up: a wall tapped onto a wall goes on top of it by
+## itself, and a roof finds the top of the walls round it. This is for what
+## cannot be found by looking — a floor laid upstairs, a bed on it.
+var lift := 0
+
+## How many squares the piece covers, across and along: only a whole roof
+## covers more than one.
+var _extent := Vector2i.ONE
+var _ghost_extent := Vector2i.ZERO
+## The level of the house's ground floor where the ghost is aimed.
+var _floor_level := 0.0
+## Why a house piece cannot go where it is aimed, found while aiming — a whole
+## roof with no room under it, a wall stack already as tall as a house goes.
+var _problem := ""
+
+## What this child has put up, newest last, for the undo button.
+var _history: Array[Dictionary] = []
+
 ## Everything is built here rather than in _ready, because add_child() defers
 ## _ready until the tree next processes — so a caller that adds this node and
 ## then immediately calls set_active() would find no ghost to show. That has
@@ -129,6 +149,32 @@ func preview_position() -> Vector3:
 func preview_spin() -> float:
 	return _spin
 
+## How many squares the next piece covers, across and along its ridge — sent
+## with a whole roof so the other phone builds one the same size.
+func preview_extent() -> Vector2i:
+	return _extent
+
+## The up and down buttons.
+func change_lift(step: int) -> void:
+	lift = clampi(lift + step, 0, HouseParts.MAX_STOREYS - 1)
+	_last_signature = ""
+
+## The newest piece this child put up that is still standing, taken off the
+## list; or an empty record when there is nothing left to take back. The
+## caller takes it down and refunds it, the same way a tap does.
+func take_last() -> Dictionary:
+	while not _history.is_empty():
+		var record: Dictionary = _history.pop_back()
+		if structures.has(record):
+			return record
+	return {}
+
+## What the piece being aimed would cost, a whole roof by the squares it covers.
+func preview_cost() -> Dictionary:
+	if HouseParts.is_house_part(selected):
+		return HouseParts.cost_for(selected, _extent.x * _extent.y)
+	return BuildKinds.cost(selected)
+
 func set_active(enabled: bool) -> void:
 	active = enabled
 	_ghost.visible = enabled
@@ -147,8 +193,9 @@ func select(kind: StringName) -> void:
 	_last_signature = ""
 
 func _refresh_mesh() -> void:
+	_ghost_extent = _extent
 	if HouseParts.is_house_part(selected):
-		_ghost.mesh = HouseParts.build_mesh(selected)
+		_ghost.mesh = HouseParts.mesh_for(selected, _extent)
 		return
 	# The ghost of something that grows shows what it will become, not the sprout
 	# it starts as: a child is choosing a tree, not a twig.
@@ -159,9 +206,6 @@ func _refresh_mesh() -> void:
 ## is the one place that has to know which is which.
 func _is_house() -> bool:
 	return HouseParts.is_house_part(selected)
-
-func _cost_of(kind: StringName) -> Dictionary:
-	return HouseParts.cost(kind) if HouseParts.is_house_part(kind) else BuildKinds.cost(kind)
 
 func _footprint_of(kind: StringName) -> float:
 	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
@@ -177,43 +221,114 @@ func aim(player_position: Vector3, yaw: float) -> void:
 	var forward := Vector3(-sin(yaw), 0.0, -cos(yaw))
 	var raw := player_position + forward * REACH
 
-	var grid := HouseParts.MODULE if _is_house() else GRID
-	_target = Vector3(snappedf(raw.x, grid), 0.0, snappedf(raw.z, grid))
-
-	var ground := field.height_at(_target.x, _target.z)
+	_extent = Vector2i.ONE
+	_problem = ""
+	var tile_shape := Vector3.ONE * (_footprint_of(selected) / HouseParts.MODULE)
 	if _is_house():
-		# A house part sits on a storey, not on the ground.
-		#
-		# Which storey is decided by how high the player is standing — walk
-		# upstairs and you build upstairs, which needs no control and is the
-		# only scheme a child works out unaided.
-		#
-		# The height it counts from is the level of whatever is already built
-		# nearby, not the ground under this particular square. Following the
-		# ground meant three walls in a row sat at 1.81, 1.64 and 1.35 metres:
-		# a house that leans downhill, with the roof over one end of it. A
-		# building has one floor level, so the first piece sets it and the rest
-		# join it.
-		var datum := structures.nearby_datum(_target, HouseParts.MODULE * 2.6)
-		var floor_level := ground if is_inf(datum) else datum
-		var above := maxf(player_position.y - floor_level, 0.0)
-		_target.y = floor_level + HouseParts.snap_height(above)
+		tile_shape = _aim_house(raw, yaw)
 	else:
-		_target.y = ground
+		_target = Vector3(snappedf(raw.x, GRID), 0.0, snappedf(raw.z, GRID))
+		_target.y = field.height_at(_target.x, _target.z)
+		_spin = snappedf(yaw, TAU / float(TURN_STEPS))
 
-	var steps := HOUSE_TURN_STEPS if _is_house() else TURN_STEPS
-	_spin = snappedf(yaw, TAU / float(steps))
-
+	if _ghost_extent != _extent:
+		_refresh_mesh()
 	_ghost.transform = Transform3D(Basis(Vector3.UP, _spin), _target)
 
 	# Lifted clear of the ground, or it fights the terrain for the same pixels
-	# and shimmers.
+	# and shimmers. Turned with the piece and shaped like what it stands on: a
+	# strip along an edge for a wall, the whole room for a whole roof.
 	_tile.visible = true
-	_tile.position = Vector3(_target.x, _target.y + 0.03, _target.z)
-	_tile.scale = Vector3.ONE * (_footprint_of(selected) / HouseParts.MODULE)
+	_tile.transform = Transform3D(
+		Basis(Vector3.UP, _spin) * Basis.from_scale(tile_shape),
+		Vector3(_target.x, _target.y + 0.03, _target.z)
+	)
 
 	_show_neighbours()
 	_evaluate()
+
+## Where a house piece goes, and how high. Returns the shape of the ground
+## tile under it, in modules.
+##
+## The height counts from the level of whatever is already built nearby, not
+## the ground under this particular square. Following the ground meant three
+## walls in a row sat at 1.81, 1.64 and 1.35 metres: a house that leans
+## downhill, with the roof over one end of it. A building has one floor level,
+## so the first piece sets it and the rest join it.
+##
+## Which storey is no longer decided by how high the child is standing. That
+## meant climbing onto the walls to put a roof on them — which a six-year-old
+## cannot do, so no house was ever finished. Now a wall tapped onto a wall goes
+## on top of it, a roof goes on top of the walls round it, and the up and down
+## buttons are there for the rest.
+func _aim_house(raw: Vector3, yaw: float) -> Vector3:
+	# A quarter turn, counted. The wall runs across the way the child is
+	# looking, so it appears straight ahead of them, face on.
+	var turn := TAU / float(HOUSE_TURN_STEPS)
+	var quarter := posmod(roundi(yaw / turn), HOUSE_TURN_STEPS)
+	_spin = float(quarter) * turn
+	var spot: Vector2
+	match HouseParts.seat(selected):
+		HouseParts.Seat.EDGE:
+			spot = HouseParts.snap_edge(raw.x, raw.z, quarter % 2 == 0)
+		HouseParts.Seat.CORNER:
+			spot = HouseParts.snap_corner(raw.x, raw.z)
+		_:
+			spot = HouseParts.snap_cell(raw.x, raw.z)
+	_target = Vector3(spot.x, 0.0, spot.y)
+
+	var ground := field.height_at(spot.x, spot.y)
+	var datum := structures.nearby_datum(_target, HouseParts.MODULE * 2.6)
+	_floor_level = ground if is_inf(datum) else datum
+	var key := HouseParts.key_of(_target)
+	var storey_height := HouseParts.STOREY
+	_target.y = _floor_level + float(lift) * storey_height
+
+	var tile := Vector3.ONE
+	match selected:
+		HouseParts.WALL, HouseParts.WALL_DOOR, HouseParts.WALL_WINDOW, HouseParts.POST:
+			# Onto whatever already stands here: the first free storey up.
+			var storey := structures.free_storey(HouseParts.layer(selected), key, _floor_level, lift)
+			if storey >= HouseParts.MAX_STOREYS:
+				_problem = Text.of("why_too_high")
+				storey = HouseParts.MAX_STOREYS - 1
+			_target.y = _floor_level + float(storey) * storey_height
+			tile = Vector3(1.0, 1.0, 0.22) if selected != HouseParts.POST else Vector3.ONE * 0.2
+		HouseParts.ROOF, HouseParts.ROOF_PEAK:
+			var top := structures.wall_top_round(key)
+			_target.y = top if is_finite(top) else _floor_level + float(lift + 1) * storey_height
+		HouseParts.ROOF_ROOM:
+			tile = _aim_whole_roof(key)
+		HouseParts.BED:
+			# On the boards, if there are boards.
+			if structures.floor_under(key, _target.y):
+				_target.y += HouseParts.FLOOR_TOP
+	return tile
+
+## The whole roof: find the room the child is aiming into and cover it.
+func _aim_whole_roof(key: Vector2i) -> Vector3:
+	var room := structures.enclosed_room(key)
+	if room.is_empty():
+		_problem = Text.of("why_no_walls")
+		_target.y = _floor_level + float(lift + 1) * HouseParts.STOREY
+		return Vector3.ONE
+	var span: Vector2i = room["span"]
+	if not bool(room["rectangle"]):
+		_problem = Text.of("why_not_box")
+	var low: Vector2i = room["low"]
+	var high: Vector2i = room["high"]
+	_target.x = float(low.x + high.x) * 0.5 * HouseParts.HALF
+	_target.z = float(low.y + high.y) * 0.5 * HouseParts.HALF
+	_target.y = float(room["top"])
+	# The ridge runs the long way, which is how a house is roofed: the gables
+	# on the short ends, and the slopes as gentle as the room allows.
+	if span.y >= span.x:
+		_spin = 0.0
+		_extent = Vector2i(span.x, span.y)
+	else:
+		_spin = PI * 0.5
+		_extent = Vector2i(span.y, span.x)
+	return Vector3(float(_extent.x), 1.0, float(_extent.y))
 
 ## Outline whatever the new piece will stand against, so a child can see it is
 ## about to join a wall rather than land beside one.
@@ -223,20 +338,31 @@ func _show_neighbours() -> void:
 	if not _is_house():
 		return
 
-	var module := HouseParts.MODULE
-	var offsets: Array[Vector3] = [
-		Vector3(module, 0.0, 0.0), Vector3(-module, 0.0, 0.0),
-		Vector3(0.0, 0.0, module), Vector3(0.0, 0.0, -module),
-	]
-	for i in offsets.size():
-		var beside := _target + offsets[i]
-		# is_clear is false where something already stands, which is exactly
-		# the question being asked: is there a neighbour here?
-		if structures.is_clear(beside, _footprint_of(selected)):
+	# The pieces of the same layer that the new one meets, on its storey: the
+	# walls sharing an end with a wall, the floors beside a floor. A whole roof
+	# shows its room with its tile instead.
+	if selected == HouseParts.ROOF_ROOM:
+		return
+	var layer := HouseParts.layer(selected)
+	var key := HouseParts.key_of(_target)
+	var shown := 0
+	for record in structures.house_pieces_near(_target, HouseParts.MODULE * 1.05):
+		if shown >= _neighbour_markers.size():
+			break
+		var kind: StringName = record["kind"]
+		var at: Vector3 = record["position"]
+		if HouseParts.layer(kind) != layer or HouseParts.key_of(at) == key:
 			continue
-		var marker := _neighbour_markers[i]
-		marker.position = Vector3(beside.x, beside.y + 0.05, beside.z)
+		if absf(at.y - _target.y) > HouseParts.STOREY * 0.5:
+			continue
+		var shape := Vector3(1.0, 1.0, 0.22) if layer == &"wall" else Vector3.ONE
+		var marker := _neighbour_markers[shown]
+		marker.transform = Transform3D(
+			Basis(Vector3.UP, float(record["spin"])) * Basis.from_scale(shape),
+			Vector3(at.x, at.y + 0.05, at.z)
+		)
 		marker.visible = true
+		shown += 1
 
 ## Would anything go up here? Asked by the checks: the rule about wet ground is
 ## easy to get wrong in a valley where the water is not all at one height, and
@@ -251,7 +377,7 @@ func would_build_at(at: Vector3) -> bool:
 	return not PlaceSpec.reserved(at.x, at.z, field.camp_centre())
 
 func _evaluate() -> void:
-	var cost := _cost_of(selected)
+	var cost := preview_cost()
 	_valid = true
 	_reason = ""
 
@@ -276,9 +402,16 @@ func _evaluate() -> void:
 		# sapling planted beside the trampoline became a tree standing in it.
 		_valid = false
 		_reason = Text.of("why_reserved")
-	elif not structures.is_clear(_target, _footprint_of(selected)):
+	elif not _problem.is_empty():
+		_valid = false
+		_reason = _problem
+	elif not structures.is_clear(_target, _footprint_of(selected), selected, _spin, _extent):
 		_valid = false
 		_reason = Text.of("why_no_room")
+	elif selected == HouseParts.ROOF_ROOM:
+		# Not a refusal: what the whole roof will take out of the bag, which
+		# depends on the room and so cannot be printed on its button.
+		_reason = _cost_text(cost)
 
 	_material.albedo_color = (
 		Color(0.45, 1.0, 0.55, 0.5) if _valid
@@ -321,9 +454,9 @@ func _cost_text(cost: Dictionary) -> String:
 func place() -> bool:
 	if not active or not _valid:
 		return false
-	if not inventory.spend(_cost_of(selected)):
+	if not inventory.spend(preview_cost()):
 		return false
-	structures.place(selected, _target, _spin)
+	_history.append(structures.place(selected, _target, _spin, true, _extent))
 	# Re-evaluate immediately: the same spot is now occupied and the resources
 	# are spent, and the ghost has to say so before the next tap.
 	_evaluate()
@@ -335,10 +468,13 @@ func target() -> Vector3:
 
 ## Which storey the ghost is on, counting from zero at ground level.
 ##
-## Shown to the player because building upstairs by standing upstairs is the one
-## rule here that cannot be seen without being told.
+## Shown beside the up and down buttons, because the storey a piece lands on is
+## the one thing about it that is hard to judge by eye from the ground. A roof
+## counts as the storey of the walls it covers.
 func storey() -> int:
 	if not _is_house():
 		return 0
-	var ground := field.height_at(_target.x, _target.z)
-	return HouseParts.storey_of(_target.y - ground)
+	var counted := HouseParts.storey_of(_target.y - _floor_level)
+	if HouseParts.is_roof(selected):
+		counted -= 1
+	return maxi(counted, 0)

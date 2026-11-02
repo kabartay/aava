@@ -274,6 +274,8 @@ func _initialize() -> void:
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
 	_check_a_rider_stays_on_a_bank()
 	_check_the_bridge_carries_what_crosses_it()
+	await _check_a_child_builds_a_whole_house_from_the_ground()
+	_check_walls_stack_and_old_walls_stay_put()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -12515,6 +12517,10 @@ func _check_the_view_can_be_swapped() -> void:
 	print("the view can be swapped")
 	var player := Player.new()
 	get_root().add_child(player)
+	# Held still: with no ground under it the body falls, and the camera follows
+	# its interpolated position a physics tick behind, so how far apart the two
+	# were depended on the timing of the whole run, not on the camera.
+	player.set_physics_process(false)
 	await process_frame
 	var rig := CameraRig.new(player)
 	player.add_child(rig)
@@ -15558,4 +15564,347 @@ func _check_an_arrow_that_hits_stops_in_the_face() -> void:
 	var past := (head - gold).dot(Vector3.FORWARD)
 	_expect(absf(past) < 0.15, "and its head is in the face, not %.2f m from it" % past)
 	range_.queue_free()
+
+## A child can build a whole house without leaving the ground, and it is a
+## house when they have.
+##
+## Building was hard to understand and harder to finish: walls stood in the
+## middle of a square with a floor's footprint, so a wall and the floor of the
+## same room clashed; and the storey was chosen by how high the child stood, so
+## a roof meant climbing onto the walls first, which nobody six years old ever
+## managed. Here a two-by-two room goes up exactly as a child builds it —
+## stand, face, tap — through BuildMode: eight walls with a door and a window,
+## four floors, one whole roof from the ground outside the door, and a bed.
+## Then it is walked into, bumped against, looked up in, and saved.
+func _check_a_child_builds_a_whole_house_from_the_ground() -> void:
+	print("a child builds a whole house from the ground")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var inventory := Inventory.new()
+	for kind in ItemKinds.ALL:
+		inventory.add(kind, 200)
+	var build := BuildMode.new(field, structures, inventory)
+	get_root().add_child(build)
+	var origin: Vector3 = TestHouse.find_site(build, field, field.find_spawn_point())
+	_expect(origin.is_finite(), "there is ground near the spawn to build a house on")
+	if not origin.is_finite():
+		build.queue_free()
+		structures.queue_free()
+		return
+	var x0 := origin.x
+	var z0 := origin.z
+
+	var reeds_before := inventory.count(ItemKinds.REED)
+	var steps: Array[Dictionary] = TestHouse.build(build, field, origin)
+
+	# Everything went up, nothing was refused for overlapping, and every piece
+	# is where it was meant to be.
+	var refused: Array[String] = []
+	var astray: Array[String] = []
+	for step in steps:
+		var aimed: Vector3 = step["aimed"]
+		var meant: Vector2 = step["meant"]
+		if not bool(step["built"]):
+			refused.append(String(step["kind"]))
+		if absf(aimed.x - meant.x) > 0.001 or absf(aimed.z - meant.y) > 0.001:
+			astray.append("%s at (%.2f, %.2f), meant (%.2f, %.2f)" % [
+				step["kind"], aimed.x - x0, aimed.z - z0, meant.x - x0, meant.y - z0
+			])
+	_expect(refused.is_empty(), "all %d pieces went up and none was refused: %s" % [steps.size(), ", ".join(refused)])
+	_expect(astray.is_empty(), "every piece landed where the child aimed it: %s" % "; ".join(astray))
+
+	var level: float = (steps[0]["aimed"] as Vector3).y
+	var counts := {}
+	var walls: Array[Dictionary] = []
+	var roof := {}
+	var bed := {}
+	for record in structures._records:
+		var kind: StringName = record["kind"]
+		counts[kind] = int(counts.get(kind, 0)) + 1
+		if HouseParts.layer(kind) == &"wall":
+			walls.append(record)
+		elif kind == HouseParts.ROOF_ROOM:
+			roof = record
+		elif kind == HouseParts.BED:
+			bed = record
+	_expect(
+		counts.get(HouseParts.WALL, 0) == 6 and counts.get(HouseParts.WALL_DOOR, 0) == 1
+		and counts.get(HouseParts.WALL_WINDOW, 0) == 1 and counts.get(HouseParts.FLOOR, 0) == 4
+		and counts.get(HouseParts.ROOF_ROOM, 0) == 1 and counts.get(HouseParts.BED, 0) == 1,
+		"six walls, a door, a window, four floors, one roof and a bed stand: %s" % [counts]
+	)
+
+	# Walls on the edges, the right way round, all at the one floor level, with
+	# the floors in the very squares they bound.
+	var crooked := 0
+	for record in walls:
+		var at: Vector3 = record["position"]
+		var key := HouseParts.key_of(at)
+		var runs_along_x := posmod(roundi(float(record["spin"]) / (PI * 0.5)), 2) == 0
+		# Along x: x on a square's centre (even), z on a line (odd).
+		if posmod(key.x, 2) != (1 if not runs_along_x else 0) or posmod(key.y, 2) != (0 if not runs_along_x else 1):
+			crooked += 1
+		if absf(at.y - level) > 0.001:
+			crooked += 1
+	_expect(crooked == 0, "every wall stands on an edge, across it, at the floor level (%d wrong)" % crooked)
+	for record in structures._records:
+		if record["kind"] == HouseParts.FLOOR:
+			_expect(absf((record["position"] as Vector3).y - level) < 0.001, "a floor lies at the floor level, in its square beside the walls")
+	_expect(
+		not bed.is_empty() and absf((bed["position"] as Vector3).y - (level + HouseParts.FLOOR_TOP)) < 0.001,
+		"the bed stands on the floor boards"
+	)
+
+	# One roof over the whole room: two squares by two, and resting on the
+	# wall tops — no gap of sky over them, and not sunk into them.
+	_expect(not roof.is_empty(), "the whole roof went up in one tap")
+	if roof.is_empty():
+		build.free()
+		structures.free()
+		return
+	var roof_at: Vector3 = roof["position"]
+	_expect(roof["extent"] == Vector2i(2, 2), "it covers all four squares: %s" % [roof["extent"]])
+	var resting := true
+	for record in walls:
+		if absf((record["position"] as Vector3).y + HouseParts.STOREY - roof_at.y) > 0.001:
+			resting = false
+	_expect(resting, "and sits exactly on top of every wall, at %.2f m over the floor" % (roof_at.y - level))
+	var roof_step: Dictionary = steps[12]
+	_expect(
+		(roof_step["stand"] as Vector3).y < roof_at.y - HouseParts.STOREY * 0.9,
+		"put up by a child standing on the ground outside the door, not on the walls"
+	)
+	_expect(
+		reeds_before - inventory.count(ItemKinds.REED) == 1 + 4 * 2 + 3,
+		"the roof cost a roof square's reeds for every square it covers (%d reeds spent in all)" % (
+			reeds_before - inventory.count(ItemKinds.REED)
+		)
+	)
+
+	# Now a body: ground to stand on, and physics to bump into the walls with.
+	var ground := StaticBody3D.new()
+	var slab := CollisionShape3D.new()
+	var slab_box := BoxShape3D.new()
+	slab_box.size = Vector3(40.0, 1.0, 40.0)
+	slab.shape = slab_box
+	ground.add_child(slab)
+	get_root().add_child(ground)
+	ground.global_position = Vector3(x0 + 1.0, level - 0.5, z0 + 1.0)
+	await physics_frame
+	await physics_frame
+
+	# Straight up from the middle of the room: the roof, at the ridge.
+	var space := structures.get_world_3d().direct_space_state
+	var middle := Vector3(x0 + 1.0, level + 1.0, z0 + 1.0)
+	var up := space.intersect_ray(PhysicsRayQueryParameters3D.create(middle, middle + Vector3.UP * 20.0))
+	var ridge := roof_at.y + 2.0 * HouseParts.ROOF_PITCH
+	_expect(
+		not up.is_empty() and (roof["node"] as Node).is_ancestor_of(up["collider"]),
+		"a ray straight up from the middle of the room hits the roof"
+	)
+	_expect(
+		not up.is_empty() and absf((up["position"] as Vector3).y - ridge) < 0.05,
+		"under its ridge, %.2f m over the floor" % ((up["position"] as Vector3).y - level if not up.is_empty() else -1.0)
+	)
+	# And beside a wall, the underside of the slope is where the wall top is.
+	var by_wall := Vector3(x0 - 1.0 + 0.15, level + 1.0, z0 + 1.0)
+	var eave := space.intersect_ray(PhysicsRayQueryParameters3D.create(by_wall, by_wall + Vector3.UP * 20.0))
+	var meets := roof_at.y + 0.15 * HouseParts.ROOF_PITCH
+	_expect(
+		not eave.is_empty() and absf((eave["position"] as Vector3).y - meets) < 0.02,
+		"and just inside a wall the ceiling meets the wall top: %.3f m above it, %.3f expected" % [
+			(eave["position"] as Vector3).y - roof_at.y if not eave.is_empty() else -1.0, meets - roof_at.y
+		]
+	)
+
+	# In through the door, from outside, walking north as a child would.
+	var child := Player.new()
+	get_root().add_child(child)
+	child.global_position = Vector3(x0, level + 0.05, z0 + 3.0 + 1.5)
+	child.camera_yaw = 0.0
+	Input.action_press(InputActions.MOVE_FORWARD)
+	for _frame in 150:
+		await physics_frame
+	Input.action_release(InputActions.MOVE_FORWARD)
+	var walked := child.global_position
+	_expect(
+		walked.z < z0 + 3.0 - 0.5 and walked.x > x0 - 1.0 and walked.x < x0 + 3.0,
+		"a child walks in through the door: now %.2f m inside the south wall" % (z0 + 3.0 - walked.z)
+	)
+	# And on to the far wall, which stops them.
+	_expect(
+		walked.z > z0 - 1.0 + Player.RADIUS * 0.8,
+		"and the north wall stops them: %.2f m short of its line" % (walked.z - (z0 - 1.0))
+	)
+	# Then east, into the window wall.
+	child.camera_yaw = -PI * 0.5
+	Input.action_press(InputActions.MOVE_FORWARD)
+	for _frame in 120:
+		await physics_frame
+	Input.action_release(InputActions.MOVE_FORWARD)
+	_expect(
+		child.global_position.x < x0 + 3.0 - Player.RADIUS * 0.8,
+		"nor can they walk out through the wall with the window in it (%.2f m short of it)" % (
+			x0 + 3.0 - child.global_position.x
+		)
+	)
+	# Freed now, not at the end of the frame: the checks after this one run
+	# without a frame between them, and a house left standing by the spawn is
+	# a wall in front of every animal they put there.
+	child.free()
+	ground.free()
+
+	# Saved, through the same JSON a save goes through, and loaded again.
+	var data := structures.to_data()
+	var reloaded := Structures.new(field)
+	get_root().add_child(reloaded)
+	reloaded.from_data(JSON.parse_string(JSON.stringify(data)))
+	var same := reloaded._records.size() == structures._records.size()
+	for i in mini(reloaded._records.size(), structures._records.size()):
+		var a: Dictionary = structures._records[i]
+		var b: Dictionary = reloaded._records[i]
+		if (
+			a["kind"] != b["kind"]
+			or (a["position"] as Vector3).distance_to(b["position"]) > 0.0001
+			or absf(float(a["spin"]) - float(b["spin"])) > 0.0001
+			or a["extent"] != b["extent"]
+		):
+			same = false
+	_expect(same, "saved and loaded, every piece comes back where it was, the roof the same size")
+
+	# Undo takes back the last thing put up, which was the bed; and a whole
+	# roof refunds every square it cost.
+	var last := build.take_last()
+	_expect(not last.is_empty() and last["kind"] == HouseParts.BED, "undo offers back the last piece put up, the bed")
+	_expect(Structures.cost_of(roof) == {&"reed": 8}, "and the whole roof gives back all eight reeds: %s" % [Structures.cost_of(roof)])
+
+	reloaded.free()
+	build.free()
+	structures.free()
+
+## The rest of how a house goes up: a wall tapped onto a wall goes on top of
+## it, a roof square finds the top of the walls round it, the storey buttons
+## lift a floor, a wall and a floor share a square, a whole roof needs a room,
+## walls saved before walls moved onto edges stand where they stood, and the
+## other phone is told the size of a whole roof.
+func _check_walls_stack_and_old_walls_stay_put() -> void:
+	print("walls stack, roofs find the wall tops, and old walls stay put")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var inventory := Inventory.new()
+	for kind in ItemKinds.ALL:
+		inventory.add(kind, 200)
+	var build := BuildMode.new(field, structures, inventory)
+	get_root().add_child(build)
+	build.set_active(true)
+	var origin: Vector3 = TestHouse.find_site(build, field, field.find_spawn_point())
+	if not origin.is_finite():
+		_fail("no ground near the spawn to build on")
+		build.queue_free()
+		structures.queue_free()
+		return
+	var x0 := origin.x
+	var z0 := origin.z
+	var reach := BuildMode.REACH
+	var stand := Vector3(x0, field.height_at(x0, z0 + 2.2), z0 - 1.0 + reach)
+
+	# The same edge, tapped again and again from the same spot on the ground.
+	build.select(HouseParts.WALL)
+	var heights: Array[float] = []
+	for _tap in HouseParts.MAX_STOREYS:
+		build.aim(stand, 0.0)
+		heights.append(build.target().y)
+		_expect(build.place(), "a wall goes onto the edge (storey %d)" % heights.size())
+	_expect(
+		absf(heights[1] - heights[0] - HouseParts.STOREY) < 0.001
+		and absf(heights[2] - heights[0] - HouseParts.STOREY * 2.0) < 0.001,
+		"each wall tapped onto the same edge goes on top of the last: %s" % [heights]
+	)
+	build.aim(stand, 0.0)
+	_expect(not build._valid and build._reason == Text.of("why_too_high"), "and a house stops at %d storeys" % HouseParts.MAX_STOREYS)
+
+	# A roof square beside that tower sits on top of it, from the ground.
+	build.select(HouseParts.ROOF_PEAK)
+	build.aim(Vector3(x0, field.height_at(x0, z0 + reach), z0 + reach), 0.0)
+	_expect(
+		absf(build.target().y - (heights[2] + HouseParts.STOREY)) < 0.001,
+		"a roof square aimed beside the walls sits on the highest wall top round it"
+	)
+
+	# A floor in the square that wall bounds: once a clash, now its own place.
+	build.select(HouseParts.FLOOR)
+	build.aim(Vector3(x0, field.height_at(x0, z0 + reach), z0 + reach), 0.0)
+	_expect(build._valid, "a floor goes in the square beside a wall: %s" % build._reason)
+	_expect(build.place(), "and is built")
+	build.aim(Vector3(x0, field.height_at(x0, z0 + reach), z0 + reach), 0.0)
+	_expect(not build._valid and build._reason == Text.of("why_no_room"), "but one floor per square: a second is refused")
+
+	# The storey buttons lift a floor a storey, and put it back down.
+	build.change_lift(1)
+	build.aim(Vector3(x0, field.height_at(x0, z0 + reach), z0 + reach), 0.0)
+	_expect(absf(build.target().y - (heights[0] + HouseParts.STOREY)) < 0.001, "the up button lays the floor a storey up")
+	_expect(build.storey() == 1, "and the storey shown says so")
+	_expect(build._valid, "where there is room for it")
+	build.change_lift(-1)
+	build.change_lift(-1)
+	_expect(build.lift == 0, "the down button stops at the ground")
+
+	# A whole roof aimed where there is no room is refused, and says why.
+	build.select(HouseParts.ROOF_ROOM)
+	build.aim(Vector3(x0 + 2.0, field.height_at(x0 + 2.0, z0 + 2.0 + reach), z0 + 2.0 + reach), 0.0)
+	_expect(not build._valid and build._reason == Text.of("why_no_walls"), "a whole roof needs walls all round: %s" % build._reason)
+
+	# Walls saved before walls moved onto edges stood on a square's centre.
+	# They load exactly there, and are saved again exactly as they were.
+	# On the house's own site, which is ground nothing else claims, so nothing
+	# on loading has a reason to move them.
+	var old_x := x0
+	var old_z := z0
+	var old_save: Array = [
+		{"kind": "wall", "x": old_x, "y": 3.25, "z": old_z, "spin": 0.0, "age": 0.0},
+		{"kind": "wall", "x": old_x + 2.0, "y": 3.25, "z": old_z, "spin": 0.0, "age": 0.0, "paid": true},
+		{"kind": "roof_peak", "x": old_x, "y": 5.65, "z": old_z, "spin": 0.0, "age": 0.0},
+	]
+	var loaded := Structures.new(field)
+	get_root().add_child(loaded)
+	loaded.from_data(old_save)
+	var where := loaded.positions()
+	_expect(
+		where.size() == 3 and where[0].is_equal_approx(Vector3(old_x, 3.25, old_z))
+		and where[1].is_equal_approx(Vector3(old_x + 2.0, 3.25, old_z))
+		and where[2].is_equal_approx(Vector3(old_x, 5.65, old_z)),
+		"an old house's walls and roof load where they stood"
+	)
+	var resaved := loaded.to_data()
+	_expect(
+		not resaved[0].has("across") and not resaved[0].has("along"),
+		"and save again with no new fields, where they have nothing to say"
+	)
+	loaded.free()
+
+	# The other phone: a whole roof arrives with its size, anything else with
+	# the three values it always had, and a size no room could be is dropped.
+	var session := Session.new()
+	get_root().add_child(session)
+	var heard: Array = []
+	session.remote_built.connect(func(kind: StringName, _at: Vector3, _spin: float, extent: Vector2i) -> void:
+		heard.append([kind, extent]))
+	session._send_built("roof_room", Vector3(1.0, 2.0, 3.0), PI * 0.5, Vector2i(2, 3))
+	session._send_built("wall", Vector3(1.0, 2.0, 3.0), 0.0)
+	session._send_built("roof_room", Vector3(1.0, 2.0, 3.0), 0.0, Vector2i(40, 2))
+	_expect(
+		heard.size() == 2 and heard[0] == [&"roof_room", Vector2i(2, 3)] and heard[1] == [&"wall", Vector2i.ONE],
+		"a whole roof reaches the other phone with its size, and an old three-value message still builds: %s" % [heard]
+	)
+	session.queue_free()
+
+	# Freed at once, like the house before it: no frame passes before the
+	# next checks put animals down by the spawn.
+	build.free()
+	structures.free()
+
 

@@ -28,6 +28,13 @@ const FLAME := Color(0.96, 0.62, 0.20)
 const EMBER := Color(0.88, 0.32, 0.18)
 const SEED := Color(0.92, 0.78, 0.34)
 
+## Not pieces, but drawn here because they sit among the pieces and should look
+## like the same set: take back the last piece, and build a storey higher or
+## lower.
+const UNDO := &"undo"
+const STOREY_UP := &"storey_up"
+const STOREY_DOWN := &"storey_down"
+
 var kind: StringName
 
 func _init(part_kind: StringName) -> void:
@@ -65,6 +72,8 @@ func _draw() -> void:
 			_lean_to(box)
 		HouseParts.ROOF_PEAK:
 			_gable(box)
+		HouseParts.ROOF_ROOM:
+			_whole_roof(box)
 		HouseParts.STAIRS:
 			_stairs(box)
 		HouseParts.POST:
@@ -83,6 +92,12 @@ func _draw() -> void:
 			_fence(box)
 		BuildKinds.CAMPFIRE:
 			_campfire(box)
+		UNDO:
+			_undo(box)
+		STOREY_UP:
+			_storey_arrow(box, -1.0)
+		STOREY_DOWN:
+			_storey_arrow(box, 1.0)
 
 ## Whether this is something the palette can draw. The checks walk every
 ## buildable kind through it, so a piece added without a picture is caught
@@ -272,6 +287,62 @@ func _gable(box: Rect2) -> void:
 		var t := 0.3 + 0.24 * float(i)
 		draw_line(apex.lerp(left, t), apex.lerp(right, t), ROOF_COLOR.darkened(0.18), 1.5)
 	draw_line(left, right, DARK, 2.0)
+
+## The whole roof: a house, walls and door, with one big roof over all of it.
+## The single roof pieces are a roof on its own; this one is drawn on a house,
+## because a house is what it finishes.
+func _whole_roof(box: Rect2) -> void:
+	var walls := Rect2(
+		Vector2(box.position.x + box.size.x * 0.12, box.position.y + box.size.y * 0.52),
+		Vector2(box.size.x * 0.76, box.size.y * 0.48)
+	)
+	draw_rect(walls, WALL_COLOR)
+	draw_rect(Rect2(
+		Vector2(walls.get_center().x - walls.size.x * 0.12, walls.position.y + walls.size.y * 0.35),
+		Vector2(walls.size.x * 0.24, walls.size.y * 0.65)
+	), DARK)
+	var apex := Vector2(box.get_center().x, box.position.y)
+	var left := Vector2(box.position.x - box.size.x * 0.04, walls.position.y + box.size.y * 0.04)
+	var right := Vector2(box.end.x + box.size.x * 0.04, walls.position.y + box.size.y * 0.04)
+	draw_colored_polygon(PackedVector2Array([apex, right, left]), ROOF_COLOR)
+	for i in 2:
+		var t := 0.4 + 0.3 * float(i)
+		draw_line(apex.lerp(left, t), apex.lerp(right, t), ROOF_COLOR.darkened(0.18), 1.5)
+
+## Take back the last piece: an arrow curling back on itself.
+func _undo(box: Rect2) -> void:
+	var ink := Color(0.98, 0.96, 0.92)
+	var centre := box.get_center() + Vector2(0.0, box.size.y * 0.06)
+	var radius := box.size.x * 0.32
+	var width := maxf(3.0, box.size.x * 0.10)
+	draw_arc(centre, radius, PI * 1.1, PI * 2.25, 18, ink, width)
+	# The head, at the left-hand end where the arc starts.
+	var tip := centre + Vector2(cos(PI * 1.1), sin(PI * 1.1)) * radius
+	var head := box.size.x * 0.20
+	draw_colored_polygon(PackedVector2Array([
+		tip + Vector2(-head * 0.75, -head * 0.05),
+		tip + Vector2(head * 0.55, -head * 0.55),
+		tip + Vector2(head * 0.35, head * 0.70),
+	]), ink)
+
+## A storey higher or lower: a wall with an arrow over it pointing the way.
+## `way` is -1 for up the screen and +1 for down it.
+func _storey_arrow(box: Rect2, way: float) -> void:
+	var wall := Rect2(
+		Vector2(box.position.x + box.size.x * 0.18, box.get_center().y - box.size.y * 0.16),
+		Vector2(box.size.x * 0.64, box.size.y * 0.32)
+	)
+	draw_rect(wall, WALL_COLOR)
+	draw_rect(Rect2(wall.position, Vector2(wall.size.x * 0.14, wall.size.y)), TIMBER)
+	draw_rect(Rect2(Vector2(wall.end.x - wall.size.x * 0.14, wall.position.y), Vector2(wall.size.x * 0.14, wall.size.y)), TIMBER)
+	var ink := Color(0.98, 0.96, 0.92)
+	var tip := Vector2(box.get_center().x, box.get_center().y + way * box.size.y * 0.50)
+	var base := box.get_center().y + way * box.size.y * 0.24
+	draw_colored_polygon(PackedVector2Array([
+		tip,
+		Vector2(box.get_center().x + box.size.x * 0.26, base),
+		Vector2(box.get_center().x - box.size.x * 0.26, base),
+	]), ink)
 
 func _lean_to(box: Rect2) -> void:
 	var points := PackedVector2Array([

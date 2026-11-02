@@ -132,14 +132,24 @@ const STRINGS := {
 	"part_wall_door": {EN: "door", FR: "porte", RU: "дверь"},
 	"part_wall_window": {EN: "window", FR: "fenêtre", RU: "окно"},
 	"part_floor": {EN: "floor", FR: "plancher", RU: "пол"},
-	"part_roof": {EN: "roof", FR: "toit", RU: "крыша"},
+	# The single-slope roof square. Called "roof" while it was the only roof,
+	# it now sits in the roof group beside the whole roof, and three buttons
+	# reading roof, peak and roof said nothing about which was which.
+	"part_roof": {EN: "slope", FR: "pente", RU: "скат"},
 	"part_roof_peak": {EN: "peak", FR: "faîte", RU: "конёк"},
+	# The roof that covers a whole room in one tap. Short, because it is
+	# written under a picture on a button a thumb wide.
+	"part_roof_room": {EN: "whole roof", FR: "toit entier", RU: "вся крыша"},
 	"part_stairs": {EN: "stairs", FR: "escalier", RU: "лестница"},
 	"part_post": {EN: "post", FR: "poteau", RU: "столб"},
 
 	# Buttons.
 	"ui_things": {EN: "things", FR: "objets", RU: "вещи"},
-	"ui_house": {EN: "house", FR: "maison", RU: "дом"},
+	# The groups of the build palette, written small under each group's picture.
+	"ui_group_walls": {EN: "walls", FR: "murs", RU: "стены"},
+	"ui_group_floor": {EN: "floor", FR: "sol", RU: "пол"},
+	"ui_group_roof": {EN: "roof", FR: "toit", RU: "крыша"},
+	"ui_group_furniture": {EN: "furniture", FR: "meubles", RU: "мебель"},
 	"ui_language": {EN: "language", FR: "langue", RU: "язык"},
 	# Who is playing. The name a child types here is the name that floats over
 	# their head in somebody else's valley, which is the whole reason to ask
@@ -590,6 +600,19 @@ const STRINGS := {
 	"why_steep": {EN: "too steep", FR: "trop pentu", RU: "слишком круто"},
 	"why_no_room": {EN: "no room", FR: "pas de place", RU: "нет места"},
 	"why_reserved": {EN: "not here", FR: "pas ici", RU: "не здесь"},
+	# The whole roof, aimed where there is no room to cover.
+	"why_no_walls": {
+		EN: "put walls all the way round first",
+		FR: "mets d'abord des murs tout autour",
+		RU: "сначала поставь стены вокруг",
+	},
+	"why_not_box": {
+		EN: "the room needs four straight sides",
+		FR: "la pièce doit avoir quatre côtés droits",
+		RU: "у комнаты должно быть четыре ровные стороны",
+	},
+	# A stack of walls already as tall as a house may be.
+	"why_too_high": {EN: "as high as it goes", FR: "on ne peut pas plus haut", RU: "выше нельзя"},
 	# The pool's turnstile.
 	"say_ticket": {EN: "pool: %d coins to go in", FR: "piscine : %d pièces pour entrer", RU: "бассейн: вход %d монет"},
 	"ask_buy_ride": {
@@ -645,11 +668,6 @@ const STRINGS := {
 	# because "floor 0" means nothing to a child.
 	"ui_ground_floor": {EN: "ground floor", FR: "rez-de-chaussée", RU: "первый этаж"},
 	"ui_upper_floor": {EN: "floor %d", FR: "étage %d", RU: "этаж %d"},
-	"ui_go_up_hint": {
-		EN: "stand higher to build higher",
-		FR: "monte pour bâtir plus haut",
-		RU: "встань выше — построишь выше",
-	},
 
 	# Aiming a kick.
 	"aim_ground": {EN: "along the ground", FR: "au ras du sol", RU: "низом"},
@@ -678,6 +696,7 @@ const STRINGS := {
 		FR: "rien à démonter ici",
 		RU: "тут нечего разбирать",
 	},
+	"say_nothing_to_undo": {EN: "nothing to undo", FR: "rien à annuler", RU: "нечего отменять"},
 	# %s is the name of the piece.
 	"say_took_back": {EN: "took the %s back", FR: "%s récupéré", RU: "разобрано: %s"},
 }

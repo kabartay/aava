@@ -63,8 +63,9 @@ Leave a row alone to skip it.
 | `part_bed` | bed | кровать |  |
 | `part_floor` | floor | пол |  |
 | `part_post` | post | столб |  |
-| `part_roof` | roof | крыша |  |
+| `part_roof` | slope | скат |  |
 | `part_roof_peak` | peak | конёк |  |
+| `part_roof_room` | whole roof | вся крыша |  |
 | `part_stairs` | stairs | лестница |  |
 | `part_wall` | wall | стена |  |
 | `part_wall_door` | door | дверь |  |
@@ -117,6 +118,7 @@ Leave a row alone to skip it.
 | `say_not_ridden_here` | the %s cannot go from here — push it clear first | отсюда на нём не проехать: откати %s в сторону |  |
 | `say_not_tired` | it is daylight — there is a whole valley out there | сейчас день — вон целая долина ждёт |  |
 | `say_nothing_here` | nothing to take down here | тут нечего разбирать |  |
+| `say_nothing_to_undo` | nothing to undo | нечего отменять |  |
 | `say_park_bought` | ticket bought — you have %d | билет куплен — у тебя их %d |  |
 | `say_park_needs_ticket` | this ride wants a ticket | на этот аттракцион нужен билет |  |
 | `say_park_put_off` | no ticket, no ride — off you get | без билета кататься нельзя — выходим |  |
@@ -192,9 +194,11 @@ Leave a row alone to skip it.
 | `ui_feed_fire` | add wood | подбросить дров |  |
 | `ui_getoff` | get off | слезть |  |
 | `ui_give_stick` | give a stick | дать ветку |  |
-| `ui_go_up_hint` | stand higher to build higher | встань выше — построишь выше |  |
 | `ui_ground_floor` | ground floor | первый этаж |  |
-| `ui_house` | house | дом |  |
+| `ui_group_floor` | floor | пол |  |
+| `ui_group_furniture` | furniture | мебель |  |
+| `ui_group_roof` | roof | крыша |  |
+| `ui_group_walls` | walls | стены |  |
 | `ui_invite` | invite someone | позвать к себе |  |
 | `ui_jump` | jump | прыжок |  |
 | `ui_kick` | kick | удар |  |
@@ -228,8 +232,11 @@ Leave a row alone to skip it.
 | `ui_your_number` | your number | твой номер |  |
 | `why_need` | need %s | нужно %s |  |
 | `why_no_room` | no room | нет места |  |
+| `why_no_walls` | put walls all the way round first | сначала поставь стены вокруг |  |
+| `why_not_box` | the room needs four straight sides | у комнаты должно быть четыре ровные стороны |  |
 | `why_reserved` | not here | не здесь |  |
 | `why_steep` | too steep | слишком круто |  |
+| `why_too_high` | as high as it goes | выше нельзя |  |
 | `why_wet` | too wet | слишком мокро |  |
 | `wish_give` | wants a %s | хочет %s |  |
 | `wish_milk` | has milk to spare | можно подоить |  |

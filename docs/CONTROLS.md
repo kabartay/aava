@@ -54,8 +54,17 @@ button becomes a throw, and releasing it lobs the ball at the ring. Holding
 longer steadies the aim; a tap still goes in more often than not. A ball
 through the ring is a basket, and the game says so.
 
-**You build on the storey you are standing on.** Walk up, build up. The screen
-says which floor the piece will land on.
+**A house goes up from the ground.** The palette is in groups — walls, floor,
+roof, furniture, and the other things — each a picture with its name and its
+cost. Walls, doors and windows go on the lines between squares, across the way
+you are looking; floors, beds and roofs fill the squares. Tap a wall onto a
+wall and it goes on top of it. A roof square sits on the walls round it, and
+the **whole roof**, aimed into a room with walls all round, covers the room in
+one tap — nobody has to climb onto the walls. The small arrows either side of
+the floor name lift a piece a storey, for a floor upstairs.
+
+**Undo takes back the last piece**, wherever you are standing, and gives back
+what it cost.
 
 **Removing gives everything back.** There is no penalty for trying something and
 changing your mind — that is the point.

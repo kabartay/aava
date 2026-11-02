@@ -1146,6 +1146,7 @@ func _handlers() -> Dictionary:
 		&"jump": _on_jump,
 		&"dive": _on_dive,
 		&"remove": _on_remove,
+		&"undo": _on_undo,
 		&"language": _on_language,
 		&"reset": _on_reset,
 		&"care": _on_care,
@@ -1486,7 +1487,7 @@ func _on_session_failed(reason: String) -> void:
 func _footprint_of_kind(kind: StringName) -> float:
 	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
 
-func _on_remote_built(kind: StringName, at: Vector3, spin: float) -> void:
+func _on_remote_built(kind: StringName, at: Vector3, spin: float, extent := Vector2i.ONE) -> void:
 	# Only things this version knows how to build. A brother on a newer copy of
 	# the game can build something this one has never heard of, and stored
 	# here it was asked about every frame by the build ghost — which then never
@@ -1497,10 +1498,10 @@ func _on_remote_built(kind: StringName, at: Vector3, spin: float) -> void:
 	# green in its own valley. The ghost is the only check a local piece gets,
 	# so this is the arriving piece's: a second piece in the same place cannot
 	# be taken down by one tap.
-	if not structures.is_clear(at, _footprint_of_kind(kind)):
+	if not structures.is_clear(at, _footprint_of_kind(kind), kind, spin, extent):
 		return
 	# Not paid for here: it came out of the other child's bag.
-	structures.place(kind, at, spin, false)
+	structures.place(kind, at, spin, false, extent if kind == HouseParts.ROOF_ROOM else Vector2i.ONE)
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
 
@@ -1518,14 +1519,12 @@ func _on_remote_removed(at: Vector3) -> void:
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
 	if paid and kind != &"":
-		_give_back(kind)
+		_give_back(record)
 
-## The materials a piece cost, back into the bag.
-func _give_back(kind: StringName) -> void:
-	var cost := (
-		HouseParts.cost(kind) if HouseParts.is_house_part(kind)
-		else BuildKinds.cost(kind)
-	)
+## The materials a piece cost, back into the bag — all of them, for a whole
+## roof that covered a room.
+func _give_back(record: Dictionary) -> void:
+	var cost := Structures.cost_of(record)
 	for item in cost:
 		inventory.add(item, int(cost[item]))
 
@@ -2137,6 +2136,23 @@ func _on_remove() -> void:
 	if record.is_empty():
 		hud.announce(Text.of("say_nothing_here"))
 		return
+	_take_down(record)
+
+## Take back the last thing this child put up, wherever they are standing now.
+##
+## A tap takes down the piece nearest the child, which after a wall went on the
+## wrong edge is as likely to be the floor under their feet. Undo is the piece
+## they meant: the last one, refunded exactly the same way.
+func _on_undo() -> void:
+	var record := build_mode.take_last()
+	if record.is_empty():
+		hud.announce(Text.of("say_nothing_to_undo"))
+		return
+	_take_down(record)
+
+## Take one piece down: off the other phone too if it is there, and back into
+## the bag of whoever paid for it.
+func _take_down(record: Dictionary) -> void:
 	var at: Vector3 = record["position"]
 	var shared := bool(record.get("shared", false))
 	var paid := bool(record.get("paid", true))
@@ -2162,7 +2178,7 @@ func _on_remove() -> void:
 	# bag; taking it down here hands nothing to this child, or every wall built
 	# together could be taken down twice and paid for twice.
 	if paid:
-		_give_back(kind)
+		_give_back(record)
 	hud.announce(Text.format("say_took_back", [
 		HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
 	]), 1.6)
@@ -2390,8 +2406,9 @@ func _on_place() -> void:
 	var placing := build_mode.selected
 	var placing_at := build_mode.preview_position()
 	var placing_spin := build_mode.preview_spin()
+	var placing_extent := build_mode.preview_extent()
 	if build_mode.place():
-		session.report_built(placing, placing_at, placing_spin)
+		session.report_built(placing, placing_at, placing_spin, placing_extent)
 		if placing == BuildKinds.CAMPFIRE:
 			_refresh_fires()
 		# A sapling is planted, everything else is built. The distinction

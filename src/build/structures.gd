@@ -55,22 +55,179 @@ func _init(height_field: HeightField) -> void:
 
 ## True when nothing already stands close enough to overlap. Checked before
 ## placing so two saplings cannot occupy the same metre of ground.
-func is_clear(world_position: Vector3, radius: float) -> bool:
+##
+## Told what is being placed, a house part is judged against other house parts
+## by the place it takes on the grid rather than by distance: one wall per edge
+## per storey, one floor per square per storey. Judged by distance, a wall on
+## the edge of a square and the floor in it were a metre apart with two-metre
+## footprints, and the floor was refused — so a room could not have both.
+## Everything else, and a house part against everything else, is still judged
+## by footprint.
+func is_clear(
+	world_position: Vector3, radius: float,
+	kind := &"", spin := 0.0, extent := Vector2i.ONE
+) -> bool:
+	var layer := HouseParts.layer(kind)
+	var keys: Array[Vector2i] = []
+	if layer != &"":
+		keys = HouseParts.keys_of(kind, world_position, spin, extent)
 	for record in _records:
 		var other: Vector3 = record["position"]
-		var kind: StringName = record["kind"]
-		var other_footprint := (
-			HouseParts.footprint(kind) if HouseParts.is_house_part(kind)
-			else BuildKinds.footprint(kind)
-		)
+		var other_kind: StringName = record["kind"]
 		# Different storeys never conflict: a wall upstairs stands directly over
 		# the wall below it, and that is the whole point of building upwards.
 		if absf(other.y - world_position.y) > HouseParts.STOREY * 0.5:
 			continue
+		var other_layer := HouseParts.layer(other_kind)
+		if layer != &"" and other_layer != &"":
+			if other_layer != layer:
+				continue
+			for key in _keys_of(record):
+				if keys.has(key):
+					return false
+			continue
+		var other_footprint := (
+			HouseParts.footprint(other_kind) if HouseParts.is_house_part(other_kind)
+			else BuildKinds.footprint(other_kind)
+		)
 		var minimum := radius + other_footprint
 		if Vector2(other.x - world_position.x, other.z - world_position.z).length() < minimum * 0.5:
 			return false
 	return true
+
+func _keys_of(record: Dictionary) -> Array[Vector2i]:
+	return HouseParts.keys_of(
+		record["kind"], record["position"], float(record["spin"]),
+		record.get("extent", Vector2i.ONE)
+	)
+
+## The house pieces standing within `reach` of a point, measured across the
+## ground. The build ghost outlines the ones it is about to join.
+func house_pieces_near(world_position: Vector3, reach: float) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	for record in _records:
+		if not HouseParts.is_house_part(record["kind"]):
+			continue
+		var at: Vector3 = record["position"]
+		if Vector2(at.x - world_position.x, at.z - world_position.z).length() <= reach:
+			found.append(record)
+	return found
+
+## Whether this record still stands — the undo button asks before taking back
+## a piece that a tap may already have taken down.
+func has(record: Dictionary) -> bool:
+	return _records.has(record)
+
+## What a standing piece cost, so it can be given back exactly: a whole roof
+## cost every square it covers.
+static func cost_of(record: Dictionary) -> Dictionary:
+	var kind: StringName = record.get("kind", &"")
+	if HouseParts.is_house_part(kind):
+		var extent: Vector2i = record.get("extent", Vector2i.ONE)
+		return HouseParts.cost_for(kind, extent.x * extent.y)
+	if BuildKinds.INFO.has(kind):
+		return BuildKinds.cost(kind)
+	return {}
+
+## The lowest storey, from `from` up, with no piece of this layer on this grid
+## point. Storeys are counted from the house's floor level.
+##
+## This is how a wall goes on top of a wall: a child taps the same edge again,
+## and the next storey is the first one free there. Choosing the storey by how
+## high the child was standing meant climbing onto the walls to build on them.
+func free_storey(layer: StringName, key: Vector2i, floor_level: float, from: int) -> int:
+	var taken := {}
+	for record in _records:
+		if HouseParts.layer(record["kind"]) != layer:
+			continue
+		if not _keys_of(record).has(key):
+			continue
+		var at: Vector3 = record["position"]
+		taken[roundi((at.y - floor_level) / HouseParts.STOREY)] = true
+	var storey := from
+	while taken.has(storey):
+		storey += 1
+	return storey
+
+## The top of the highest wall or post round a square, or -INF if nothing
+## stands round it. A roof square sits there, whatever height the child is
+## standing at.
+func wall_top_round(cell: Vector2i) -> float:
+	var top := -INF
+	for record in _records:
+		var layer := HouseParts.layer(record["kind"])
+		if layer != &"wall" and layer != &"post":
+			continue
+		var offset: Vector2i = HouseParts.key_of(record["position"]) - cell
+		# The four edges of the square and its four corners — and its centre,
+		# where a wall saved before walls moved onto edges still stands.
+		if absi(offset.x) > 1 or absi(offset.y) > 1:
+			continue
+		var at: Vector3 = record["position"]
+		top = maxf(top, at.y + HouseParts.STOREY)
+	return top
+
+## Whether a floor already lies in this square on this storey, for a bed to
+## stand on rather than in.
+func floor_under(cell: Vector2i, level: float) -> bool:
+	for record in _records:
+		if HouseParts.layer(record["kind"]) != &"floor":
+			continue
+		var at: Vector3 = record["position"]
+		if HouseParts.key_of(at) == cell and absf(at.y - level) < HouseParts.STOREY * 0.5:
+			return true
+	return false
+
+## The room a square is in: every square reachable from it without crossing a
+## wall, a door or a window, or an empty answer if the walls do not close it in
+## within ROOM_LONGEST squares either way.
+##
+## Answered as the squares, their bounds in grid keys, whether they make a
+## rectangle, and the top of the highest wall round them — which is where the
+## whole roof goes.
+func enclosed_room(start: Vector2i) -> Dictionary:
+	var walls := {}
+	for record in _records:
+		if HouseParts.layer(record["kind"]) != &"wall":
+			continue
+		var at: Vector3 = record["position"]
+		var key := HouseParts.key_of(at)
+		walls[key] = maxf(float(walls.get(key, -INF)), at.y + HouseParts.STOREY)
+	if walls.is_empty():
+		return {}
+
+	var steps: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	var seen := {start: true}
+	var queue: Array[Vector2i] = [start]
+	var low := start
+	var high := start
+	var top := -INF
+	while not queue.is_empty():
+		var cell: Vector2i = queue.pop_back()
+		for step in steps:
+			var edge := cell + step
+			if walls.has(edge):
+				top = maxf(top, float(walls[edge]))
+				continue
+			var next := cell + step * 2
+			if seen.has(next):
+				continue
+			seen[next] = true
+			low = Vector2i(mini(low.x, next.x), mini(low.y, next.y))
+			high = Vector2i(maxi(high.x, next.x), maxi(high.y, next.y))
+			# Out into the valley: no room here.
+			if (high.x - low.x) / 2 >= HouseParts.ROOM_LONGEST or (high.y - low.y) / 2 >= HouseParts.ROOM_LONGEST:
+				return {}
+			queue.append(next)
+	var span := Vector2i((high.x - low.x) / 2 + 1, (high.y - low.y) / 2 + 1)
+	return {
+		"cells": seen.keys(),
+		"low": low,
+		"high": high,
+		"span": span,
+		"rectangle": seen.size() == span.x * span.y,
+		"top": top,
+	}
 
 ## The ground level the nearest house parts were built on, or INF if there are
 ## none close enough.
@@ -234,7 +391,14 @@ func remove(record: Dictionary) -> StringName:
 ## `paid` is false for a piece that arrived from the other phone: it was built
 ## out of the other child's bag, and taking it down must not hand this child
 ## materials they never spent.
-func place(kind: StringName, world_position: Vector3, spin: float, paid := true) -> void:
+##
+## `extent` is how many squares a whole roof covers, across and along its ridge;
+## every other piece is one square. Returns the record, so the undo button can
+## take back exactly the piece that was put up.
+func place(
+	kind: StringName, world_position: Vector3, spin: float, paid := true,
+	extent := Vector2i.ONE
+) -> Dictionary:
 	var record := {
 		"kind": kind,
 		"position": world_position,
@@ -246,6 +410,7 @@ func place(kind: StringName, world_position: Vector3, spin: float, paid := true)
 		# built here is shared if there is anyone to share it with.
 		"shared": sharing or not paid,
 		"paid": paid,
+		"extent": extent,
 	}
 	_records.append(record)
 	revision += 1
@@ -256,12 +421,13 @@ func place(kind: StringName, world_position: Vector3, spin: float, paid := true)
 	# raised once per piece placed — loud, but easy to lose in a busy log.
 	if not BuildKinds.INFO.has(kind) or not BuildKinds.grows(kind):
 		_recompute_groves()
+	return record
 
 func _spawn_node(record: Dictionary) -> void:
 	var node := MeshInstance3D.new()
 	var kind: StringName = record["kind"]
 	node.mesh = (
-		HouseParts.build_mesh(kind) if HouseParts.is_house_part(kind)
+		HouseParts.mesh_for(kind, record.get("extent", Vector2i.ONE)) if HouseParts.is_house_part(kind)
 		else BuildKinds.build_mesh(kind, record["stage"])
 	)
 	node.material_override = _material
@@ -384,14 +550,29 @@ func to_data() -> Array:
 	var data: Array = []
 	for record in _records:
 		var at: Vector3 = record["position"]
-		data.append({
+		var entry := {
 			"kind": String(record["kind"]),
 			"x": at.x, "y": at.y, "z": at.z,
 			"spin": record["spin"],
 			"age": record["age"],
 			"paid": bool(record.get("paid", true)),
-		})
+		}
+		# Only a whole roof covers more than one square, so only a whole roof
+		# carries its size. Every other record is saved exactly as before, and
+		# a save without these reads as one square.
+		var extent: Vector2i = record.get("extent", Vector2i.ONE)
+		if extent != Vector2i.ONE:
+			entry["across"] = extent.x
+			entry["along"] = extent.y
+		data.append(entry)
 	return data
+
+## A count of squares out of a saved field, which has been through JSON and
+## may have been through worse: anything that is not a number is one square.
+static func _squares(value: Variant) -> int:
+	if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+		return 1
+	return clampi(int(value), 1, HouseParts.ROOM_LONGEST)
 
 func from_data(data: Array) -> void:
 	for record in _records:
@@ -414,6 +595,7 @@ func from_data(data: Array) -> void:
 			"shared": false,
 			# Everything saved before this mark existed was built by this child.
 			"paid": bool(entry.get("paid", true)),
+			"extent": Vector2i(_squares(entry.get("across", 1)), _squares(entry.get("along", 1))),
 		}
 		if BuildKinds.INFO.has(kind) and BuildKinds.grows(kind):
 			record["stage"] = mini(

@@ -31,7 +31,52 @@ signal build_toggled(enabled: bool)
 signal build_selected(kind: StringName)
 signal build_place()
 signal build_remove()
-signal build_tab(house: bool)
+## Take back the last piece put up, wherever the child now stands.
+signal build_undo()
+## Which group of the palette is showing: one of the ids in BUILD_GROUPS.
+signal build_tab(group: StringName)
+## The storey buttons: +1 up, -1 down.
+signal storey_step(step: int)
+
+## The palette, in the groups a house is made of, then everything else.
+##
+## Thirteen pieces on two tabs, "things" and "house", gave a child the whole
+## house at once in no order: a bed first, then walls, floor, two roofs, stairs
+## and a post, with nothing to say which go together. Grouped the way a house
+## goes up — walls, then the floor, then the roof, then what goes inside — each
+## tab is a picture of its group and holds no more than four pieces.
+const BUILD_GROUPS := [
+	{"id": &"walls", "text": "ui_group_walls", "icon": HouseParts.WALL_DOOR,
+		"kinds": [HouseParts.WALL, HouseParts.WALL_DOOR, HouseParts.WALL_WINDOW, HouseParts.POST]},
+	{"id": &"floor", "text": "ui_group_floor", "icon": HouseParts.FLOOR,
+		"kinds": [HouseParts.FLOOR, HouseParts.STAIRS]},
+	{"id": &"roof", "text": "ui_group_roof", "icon": HouseParts.ROOF_PEAK,
+		"kinds": [HouseParts.ROOF_ROOM, HouseParts.ROOF_PEAK, HouseParts.ROOF]},
+	{"id": &"furniture", "text": "ui_group_furniture", "icon": HouseParts.BED,
+		"kinds": [HouseParts.BED]},
+	{"id": &"things", "text": "ui_things", "icon": BuildKinds.SAPLING,
+		"kinds": BuildKinds.ALL},
+]
+
+## The size of one piece in the palette: its picture, its name under it, and
+## what it costs under that.
+const PIECE_SIZE := Vector2(BUTTON * 1.12, BUTTON * 1.3)
+## A group's tab: a smaller picture with its name under it.
+const TAB_SIZE := Vector2(BUTTON * 1.05, BUTTON * 0.82)
+
+## The pieces in one group of the palette, or none for a group it has not got.
+static func group_kinds(group: StringName) -> Array:
+	for entry: Dictionary in BUILD_GROUPS:
+		if entry["id"] == group:
+			return entry["kinds"]
+	return []
+
+## The group a piece is in.
+static func group_of(kind: StringName) -> StringName:
+	for entry: Dictionary in BUILD_GROUPS:
+		if (entry["kinds"] as Array).has(kind):
+			return entry["id"]
+	return &"things"
 signal language_chosen(code: StringName)
 signal reset_requested()
 signal care_pressed()
@@ -80,7 +125,11 @@ var _palette_buttons: Dictionary = {}
 var _tabs: HBoxContainer
 var _place_button: Button
 var _remove_button: Button
-var _showing_house := false
+var _undo_button: Button
+## Opens on the things, as it always has: the first thing the game asks a child
+## to build is a path stone.
+var _group: StringName = &"things"
+var _storey_row: HBoxContainer
 var _menu: VBoxContainer
 var _danger: PanelContainer
 var _menu_button: Button
@@ -273,12 +322,34 @@ func _init() -> void:
 	_remove_button.visible = false
 	add_child(_remove_button)
 
-	# Which storey the ghost is on, shown only while building a house. The rule
-	# that you build where you stand is invisible otherwise, and a child cannot
-	# be expected to infer it from a wall appearing at his feet.
+	# Undo, beside the minus. The minus takes down whatever is nearest, which
+	# after a wall went on the wrong edge may well be the floor underfoot; this
+	# takes back the piece just put up, and refunds it the same way.
+	_undo_button = _button("", Color(0.96, 0.86, 0.56))
+	var undo_face := PartIcon.new(PartIcon.UNDO)
+	undo_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_undo_button.add_child(undo_face)
+	_undo_button.pressed.connect(func() -> void: build_undo.emit())
+	_undo_button.visible = false
+	add_child(_undo_button)
+
+	# Which storey the ghost is on, with a button either side to change it,
+	# shown only while a house piece is chosen. Walls stack and roofs find the
+	# top of the walls by themselves; this is for a floor laid upstairs.
+	_storey_row = HBoxContainer.new()
+	_storey_row.add_theme_constant_override("separation", 10)
+	_storey_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	# The row is as wide as the screen so its buttons can be centred; the row
+	# itself must not swallow a drag meant for turning the view.
+	_storey_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_storey_row.visible = false
+	add_child(_storey_row)
+	_storey_row.add_child(_storey_button(PartIcon.STOREY_DOWN, -1))
 	_storey_label = _label(22, Color(0.72, 0.90, 1.0))
-	_storey_label.visible = false
-	add_child(_storey_label)
+	_storey_label.custom_minimum_size = Vector2(170.0, 0.0)
+	_storey_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_storey_row.add_child(_storey_label)
+	_storey_row.add_child(_storey_button(PartIcon.STOREY_UP, 1))
 
 	# The current instruction, centred near the top where the eye lands first
 	# and nothing else lives. One line, always, or it stops being an
@@ -505,27 +576,65 @@ func _build_palette() -> HBoxContainer:
 	# the house parts: "T" for a sapling and "Y" for a bird feeder are as
 	# unreadable as "z" was for stairs, and an icon a child has to be taught
 	# is an icon that does not work.
-	for kind in BuildKinds.ALL:
-		row.add_child(_palette_button(kind, BuildKinds.label(kind), true))
-	for kind in HouseParts.ALL:
-		row.add_child(_palette_button(kind, HouseParts.label(kind), false))
+	for entry: Dictionary in BUILD_GROUPS:
+		for kind: StringName in entry["kinds"]:
+			var named := HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
+			row.add_child(_palette_button(kind, named, entry["id"] == _group))
 	return row
 
-## One button in the palette: a drawing of the piece, its name as a tooltip
-## for whoever can read, and the piece's own name emitted when it is pressed.
+## One button in the palette: a drawing of the piece, its name under it for
+## whoever can read, what it costs under that — so a child can see before
+## choosing that a window needs a reed — and the piece's own name emitted when
+## it is pressed.
 func _palette_button(kind: StringName, named: String, shown: bool) -> Button:
 	var button := _button("", Color(0.86, 0.86, 0.90))
+	button.custom_minimum_size = PIECE_SIZE
+	var picture := PIECE_SIZE.y * 0.62
 	var icon := PartIcon.new(kind)
-	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.position = Vector2((PIECE_SIZE.x - picture) * 0.5, 0.0)
+	icon.size = Vector2(picture, picture)
 	button.add_child(icon)
+
+	var name_label := _label(17, Color(1.0, 0.97, 0.90))
+	name_label.text = named
+	name_label.clip_text = true
+	name_label.position = Vector2(2.0, picture - 6.0)
+	name_label.size = Vector2(PIECE_SIZE.x - 4.0, 24.0)
+	button.add_child(name_label)
+
+	var cost := HBoxContainer.new()
+	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cost.alignment = BoxContainer.ALIGNMENT_CENTER
+	cost.add_theme_constant_override("separation", 2)
+	cost.position = Vector2(0.0, picture + 18.0)
+	cost.size = Vector2(PIECE_SIZE.x, 24.0)
+	var price := HouseParts.cost(kind) if HouseParts.is_house_part(kind) else BuildKinds.cost(kind)
+	for item: StringName in price:
+		var amount := _label(18, Color(1.0, 0.94, 0.72))
+		amount.text = str(int(price[item]))
+		cost.add_child(amount)
+		var chip := ItemChip.new(item)
+		chip.custom_minimum_size = Vector2(22.0, 22.0)
+		cost.add_child(chip)
+	button.add_child(cost)
+
 	button.tooltip_text = named
 	button.pressed.connect(func() -> void: build_selected.emit(kind))
 	button.visible = shown
 	_palette_buttons[kind] = button
 	return button
 
-## Two tabs, because eight house parts and five objects on one row is thirteen
-## buttons and a six-year-old cannot find anything in thirteen buttons.
+## One of the two storey buttons: an arrow, and a step up or down.
+func _storey_button(arrow: StringName, step: int) -> Button:
+	var button := _button("", Color(0.72, 0.90, 1.0))
+	button.custom_minimum_size = Vector2(BUTTON * 0.66, BUTTON * 0.66)
+	var face := PartIcon.new(arrow)
+	face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	button.add_child(face)
+	button.pressed.connect(func() -> void: storey_step.emit(step))
+	return button
+
+## The group tabs: a picture of each group, its name small underneath.
 ## The settings panel: a language for each child who reads a different one.
 ##
 ## Erasing the world is NOT here. It used to be, and that was wrong: children
@@ -1288,30 +1397,45 @@ func _build_tabs() -> HBoxContainer:
 	row.add_theme_constant_override("separation", 10)
 	row.visible = false
 
-	var things := _button(Text.of("ui_things"), Color(0.86, 0.90, 0.96))
-	things.custom_minimum_size = Vector2(BUTTON * 1.6, BUTTON * 0.7)
-	things.add_theme_font_size_override("font_size", 22)
-	things.pressed.connect(func() -> void: _show_house(false))
-	row.add_child(things)
-
-	var house := _button(Text.of("ui_house"), Color(0.86, 0.90, 0.96))
-	house.custom_minimum_size = Vector2(BUTTON * 1.6, BUTTON * 0.7)
-	house.add_theme_font_size_override("font_size", 22)
-	house.pressed.connect(func() -> void: _show_house(true))
-	row.add_child(house)
+	for entry: Dictionary in BUILD_GROUPS:
+		var group: StringName = entry["id"]
+		var tab := _button("", Color(0.86, 0.90, 0.96))
+		tab.custom_minimum_size = TAB_SIZE
+		var picture := TAB_SIZE.y * 0.72
+		var icon := PartIcon.new(entry["icon"])
+		icon.position = Vector2((TAB_SIZE.x - picture) * 0.5, -2.0)
+		icon.size = Vector2(picture, picture)
+		tab.add_child(icon)
+		var name_label := _label(15, Color(0.92, 0.95, 1.0))
+		name_label.text = Text.of(entry["text"])
+		name_label.clip_text = true
+		name_label.position = Vector2(2.0, TAB_SIZE.y - 24.0)
+		name_label.size = Vector2(TAB_SIZE.x - 4.0, 22.0)
+		tab.add_child(name_label)
+		tab.tooltip_text = name_label.text
+		tab.pressed.connect(func() -> void: _show_group(group))
+		row.add_child(tab)
 	return row
 
-func _show_house(house: bool) -> void:
-	_showing_house = house
+## Show one group of the palette, and say so, so the piece being built follows
+## the tab being looked at.
+func _show_group(group: StringName) -> void:
+	_group = group
+	var kinds := group_kinds(group)
 	for kind in _palette_buttons:
-		var is_house := HouseParts.is_house_part(kind)
-		(_palette_buttons[kind] as Button).visible = is_house == house
+		(_palette_buttons[kind] as Button).visible = kinds.has(kind)
 	for i in _tabs.get_child_count():
 		(_tabs.get_child(i) as Button).modulate = (
-			Color.WHITE if (i == 1) == house else Color(1.0, 1.0, 1.0, 0.5)
+			Color.WHITE if BUILD_GROUPS[i]["id"] == group else Color(1.0, 1.0, 1.0, 0.5)
 		)
-	build_tab.emit(house)
+	build_tab.emit(group)
 	_layout()
+
+## The house or the things, for callers that only know the two — the
+## screenshot tool, and the layout check. The house opens on its walls, which
+## is where a house starts.
+func _show_house(house: bool) -> void:
+	_show_group(&"walls" if house else &"things")
 
 func _button(text: String, color: Color) -> Button:
 	var button := Button.new()
@@ -1420,8 +1544,11 @@ func set_building(enabled: bool) -> void:
 	_tabs.visible = enabled
 	_place_button.visible = enabled
 	_remove_button.visible = enabled
+	_undo_button.visible = enabled
+	if not enabled:
+		_storey_row.visible = false
 	if enabled:
-		_show_house(_showing_house)
+		_show_group(_group)
 	var face := _face_of(_build_button)
 	if face != null:
 		face.show_kind(ActionIcon.Kind.CLOSE if enabled else ActionIcon.Kind.BUILD)
@@ -1444,7 +1571,9 @@ func set_build_state(kind: StringName, valid: bool, reason: String) -> void:
 		HouseParts.label(kind) if HouseParts.is_house_part(kind)
 		else BuildKinds.label(kind)
 	)
-	_status.text = name if valid else "%s — %s" % [name, reason]
+	# A reason is not always a refusal: a whole roof says what the room it is
+	# aimed at will cost, because that depends on the room.
+	_status.text = name if reason.is_empty() else "%s — %s" % [name, reason]
 	_layout()
 
 ## Show or hide the kick button, and give it the right face: a kick for a
@@ -1480,23 +1609,22 @@ func set_task(instruction: String) -> void:
 	_task_label.visible = not instruction.is_empty()
 	_layout()
 
-## Which storey the next piece will land on, or nothing if it is not a house
-## part. Includes the hint the first time a player is on the ground floor, since
-## that is when knowing you can go up is useful.
+## Which storey the next piece will land on, between the buttons that change
+## it, or nothing if it is not a house part.
 func set_storey(storey: int, showing: bool) -> void:
 	var text := ""
 	if showing:
 		if storey <= 0:
-			text = "%s  ·  %s" % [Text.of("ui_ground_floor"), Text.of("ui_go_up_hint")]
+			text = Text.of("ui_ground_floor")
 		else:
 			text = Text.format("ui_upper_floor", [storey + 1])
 	# Called every frame while building. Laying out the whole screen every
 	# frame to say the same floor again was what turned a layout fault into a
 	# palette that climbed off the screen in three frames, and it was a whole
 	# screen's layout spent on nothing besides.
-	if _storey_label.visible == showing and _storey_label.text == text:
+	if _storey_row.visible == showing and _storey_label.text == text:
 		return
-	_storey_label.visible = showing
+	_storey_row.visible = showing
 	_storey_label.text = text
 	_layout()
 
@@ -1769,6 +1897,9 @@ func _layout() -> void:
 		_build_button.position.y - BUTTON - 16.0
 	)
 	_remove_button.position = _place_button.position - Vector2(_remove_button.size.x + 16.0, 0.0)
+	# Undo above the minus: the two ways of taking something back, together,
+	# and clear of the palette's row.
+	_undo_button.position = _remove_button.position - Vector2(0.0, BUTTON + 16.0)
 
 	# Above the build button when build mode is closed, above the place button
 	# when it is open, so the two never overlap.
@@ -1785,8 +1916,6 @@ func _layout() -> void:
 	)
 	_aim_label.size.x = view.x
 	_aim_label.position = Vector2(0.0, _power_bar.position.y - 36.0)
-
-	_storey_label.size.x = view.x
 
 	_score.size.x = view.x
 	_score.position = Vector2(0.0, safe.position.y + MARGIN)
@@ -1897,8 +2026,8 @@ func _layout() -> void:
 		safe.position.y + safe.size.y * 0.5 - _shop.size.y * 0.5
 	)
 
-	var shown := HouseParts.ALL.size() if _showing_house else BuildKinds.ALL.size()
-	var palette_width := float(shown) * (BUTTON + 12.0)
+	var shown := group_kinds(_group).size()
+	var palette_width := float(shown) * (PIECE_SIZE.x + 12.0) - 12.0
 	# Centred, but never allowed to reach the buttons stacked on the right.
 	# Eight parts plus Russian words met "прыжок" in the middle otherwise.
 	var right_edge := minf(
@@ -1909,7 +2038,7 @@ func _layout() -> void:
 	left = minf(left, right_edge - palette_width)
 	var left_edge := _stick.position.x + _stick.size.x * 0.62
 	left = maxf(left, left_edge)
-	var bottom_row := safe.position.y + safe.size.y - BUTTON - MARGIN
+	var bottom_row := safe.position.y + safe.size.y - PIECE_SIZE.y - MARGIN
 	_palette.position = Vector2(left, bottom_row)
 
 	# If the row cannot fit between the stick and the buttons, it sits above
@@ -1923,16 +2052,25 @@ func _layout() -> void:
 	# every frame while a house part is chosen, on a sixteen-by-nine phone the
 	# house parts were off the top of the screen within three frames of
 	# opening that tab.
+	#
+	# Above the row of jump and build, and still clear of the place, minus and
+	# undo buttons stacked over them. It used to go up into the *same* row as
+	# place and minus and only be centred, so on a phone the house parts lay
+	# under those two buttons and the post could not be pressed at all.
 	if left + palette_width > right_edge:
+		var stack_edge := minf(_remove_button.position.x, _undo_button.position.x) - 20.0
 		_palette.position = Vector2(
-			maxf(left_edge, safe.position.x + safe.size.x * 0.5 - palette_width * 0.5),
-			bottom_row - BUTTON - 12.0
+			maxf(left_edge, minf(
+				safe.position.x + safe.size.x * 0.5 - palette_width * 0.5,
+				stack_edge - palette_width
+			)),
+			safe.position.y + safe.size.y - MARGIN - BUTTON - 12.0 - PIECE_SIZE.y
 		)
 
-	var tabs_width := BUTTON * 3.2 + 10.0
+	var tabs_width := float(BUILD_GROUPS.size()) * (TAB_SIZE.x + 10.0) - 10.0
 	_tabs.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - tabs_width * 0.5,
-		_palette.position.y - BUTTON * 0.7 - 12.0
+		_palette.position.y - TAB_SIZE.y - 12.0
 	)
 
 	_status.size.x = view.x
@@ -1940,7 +2078,8 @@ func _layout() -> void:
 	# Above the status line, once the status line is where it is going to be.
 	# It was placed from the status line's position before that was worked out
 	# for this layout, so it trailed one layout behind.
-	_storey_label.position = Vector2(0.0, _status.position.y - 36.0)
+	_storey_row.size = Vector2(view.x, BUTTON * 0.66)
+	_storey_row.position = Vector2(0.0, _status.position.y - BUTTON * 0.66 - 8.0)
 
 	# Wrapped inside the safe area, so a long line in Russian runs onto a
 	# second row instead of off both edges of a narrow phone. The height is

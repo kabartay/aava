@@ -15,7 +15,7 @@ extends RefCounted
 
 ## Every handler the interface can call. A missing one is reported by name.
 const HANDLERS := [
-	&"place", &"kick_start", &"kick_release", &"jump", &"dive", &"remove",
+	&"place", &"kick_start", &"kick_release", &"jump", &"dive", &"remove", &"undo",
 	&"language", &"reset", &"care", &"shop", &"buy", &"drink", &"whistle", &"chop", &"ride", &"shoot_start", &"shoot_release", &"visit", &"dam",
 	&"ticket", &"snack", &"lantern",
 ]
@@ -43,14 +43,17 @@ static func connect_hud(
 	# who turned to the house parts still had a sapling chosen, every house
 	# part greyed out as though none could be afforded, and a tap on the
 	# ground planted a tree while they were looking at walls.
-	hud.build_tab.connect(func(house: bool) -> void:
-		if HouseParts.is_house_part(build_mode.selected) == house:
+	hud.build_tab.connect(func(group: StringName) -> void:
+		var kinds := Hud.group_kinds(group)
+		if kinds.is_empty() or kinds.has(build_mode.selected):
 			return
-		build_mode.select(HouseParts.ALL[0] if house else BuildKinds.ALL[0]))
+		build_mode.select(kinds[0]))
 	build_mode.preview_changed.connect(hud.set_build_state)
+	hud.storey_step.connect(build_mode.change_lift)
 
 	hud.build_place.connect(handlers.get(&"place", Callable()))
 	hud.build_remove.connect(handlers.get(&"remove", Callable()))
+	hud.build_undo.connect(handlers.get(&"undo", Callable()))
 	hud.kick_started.connect(handlers.get(&"kick_start", Callable()))
 	hud.kick_released.connect(handlers.get(&"kick_release", Callable()))
 	hud.jump_pressed.connect(handlers.get(&"jump", Callable()))

@@ -36,6 +36,12 @@ extends Node3D
 ##   --nowater=1    leave the water sheet out, to see the ground under it
 ##   --unshaded=1   draw the terrain as flat vertex colour, no lighting at all,
 ##                  which separates "the colours are wrong" from "the light is"
+##   --testhouse=1  build the checks' house — two squares by two, door, window,
+##                  floors, whole roof, bed — through the build mode, on the
+##                  nearest buildable ground to the --look point (or to the
+##                  player), and print where it went
+##   --group=walls|floor|roof|furniture|things  with --build=1, open the
+##                  palette on that group
 
 const DEFAULT_OUT := "user://capture.png"
 
@@ -70,6 +76,8 @@ var _water := -1.0
 var _animals := false
 var _coins := 40
 var _house := false
+var _test_house := false
+var _palette_group := ""
 var _language := "en"
 var _structures: Structures
 var _birds: Birds
@@ -112,6 +120,22 @@ func _ready() -> void:
 	_world.follow(_camera_position)
 
 	await _wait_for_world()
+
+	if _test_house:
+		_raise_the_test_house()
+	if not _palette_group.is_empty() and _hud != null:
+		_hud._show_group(StringName(_palette_group))
+	if _test_house or not _palette_group.is_empty():
+		# A few frames for the new pieces to be drawn, and the ghost aimed
+		# again at what is now chosen.
+		for _i in 4:
+			if _build and _player != null:
+				_build_mode.aim(_player.global_position, _rig.yaw)
+				_hud.set_storey(
+					_build_mode.storey(),
+					_build_mode.active and HouseParts.is_house_part(_build_mode.selected)
+				)
+			await RenderingServer.frame_post_draw
 
 	# After streaming, not before: felling searches the forest and queues tile
 	# rebuilds, and doing that against a half-built world hangs the process.
@@ -196,6 +220,10 @@ func _spawn_player() -> void:
 			&"dive": func() -> void: _player.diving = not _player.diving,
 			&"remove": func() -> void:
 				var record := _structures.nearest(_player.global_position, 4.0)
+				if not record.is_empty():
+					_structures.remove(record),
+			&"undo": func() -> void:
+				var record := _build_mode.take_last()
 				if not record.is_empty():
 					_structures.remove(record),
 			&"language": func(code: StringName) -> void: Text.set_language(code),
@@ -336,6 +364,42 @@ func _stand_up_a_house(near: Vector3) -> void:
 		if _inventory.spend(HouseParts.cost(HouseParts.ROOF_PEAK)):
 			_structures.place(HouseParts.ROOF_PEAK, at, 0.0)
 
+## The checks' house, built through the build mode by the same steps the checks
+## take — so the picture is of the house the checks prove stands up.
+func _raise_the_test_house() -> void:
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	if _structures == null:
+		# A free camera has no game round it; the house needs somewhere to go.
+		_inventory = Inventory.new()
+		_structures = Structures.new(_world.field)
+		add_child(_structures)
+		_build_mode = BuildMode.new(_world.field, _structures, _inventory)
+		add_child(_build_mode)
+	for kind in ItemKinds.ALL:
+		_inventory.add(kind, 300)
+	# Ahead of the player rather than on top of them, so the player is not
+	# walled in.
+	var near := _look_at
+	if _player != null:
+		var yaw := deg_to_rad(_yaw)
+		near = _player.global_position + Vector3(-sin(yaw), 0.0, -cos(yaw)) * 9.0
+	var origin: Vector3 = TestHouse.find_site(_build_mode, _world.field, near)
+	if not origin.is_finite():
+		printerr("test house: no buildable ground near %s" % near)
+		return
+	var was_active := _build_mode.active
+	var built := 0
+	for step: Dictionary in TestHouse.build(_build_mode, _world.field, origin):
+		if bool(step["built"]):
+			built += 1
+	_build_mode.set_active(was_active)
+	print("test house: %d pieces; north-west square at (%.1f, %.1f, %.1f), middle at (%.1f, %.1f)" % [
+		built, origin.x, origin.y, origin.z, origin.x + 1.0, origin.z + 1.0
+	])
+	if _build and _hud != null:
+		_hud._show_house(true)
+		_build_mode.select(HouseParts.WALL)
+
 func _kick_nearest() -> void:
 	var ball := _world.football.ball_near(_player.global_position)
 	if ball == null:
@@ -390,6 +454,11 @@ func _wait_for_world() -> void:
 			_world.see_from(_camera.global_position, 1.0)
 		if _build and _player != null:
 			_build_mode.aim(_player.global_position, _rig.yaw)
+			# And the storey row, as the game shows it every frame.
+			_hud.set_storey(
+				_build_mode.storey(),
+				_build_mode.active and HouseParts.is_house_part(_build_mode.selected)
+			)
 		await RenderingServer.frame_post_draw
 	print("world ready after %d frames" % frames)
 
@@ -504,6 +573,10 @@ func _parse_arguments() -> void:
 				_kick_loft = value.to_float()
 			"house":
 				_house = value.to_int() != 0
+			"testhouse":
+				_test_house = value.to_int() != 0
+			"group":
+				_palette_group = value
 			"lang":
 				_language = value
 			"zoom":

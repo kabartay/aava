@@ -41,7 +41,8 @@ signal guest_renamed(id: int, who: String, shirt: int)
 
 ## The valley changed, on some other machine. The game applies these exactly as
 ## if the local child had done them.
-signal remote_built(kind: StringName, position: Vector3, spin: float)
+## `extent` is how many squares a whole roof covers; one for everything else.
+signal remote_built(kind: StringName, position: Vector3, spin: float, extent: Vector2i)
 signal remote_removed(position: Vector3)
 signal remote_felled(position: Vector3)
 signal remote_dam_stick(site: float)
@@ -270,9 +271,18 @@ func report_position(at: Vector3, facing: float) -> void:
 	_send_position.rpc(at, facing)
 
 ## The four things that change a valley. Each is sent as it happens.
-func report_built(kind: StringName, at: Vector3, spin: float) -> void:
-	if is_connected_to_anyone():
+##
+## A wall's edge and storey are already in its position and spin, so only a
+## whole roof, which covers a room, says how big it is. Everything else is sent
+## with the same three values as ever, so a phone that has not been updated
+## still builds what this one built.
+func report_built(kind: StringName, at: Vector3, spin: float, extent := Vector2i.ONE) -> void:
+	if not is_connected_to_anyone():
+		return
+	if extent == Vector2i.ONE:
 		_send_built.rpc(String(kind), at, spin)
+	else:
+		_send_built.rpc(String(kind), at, spin, extent)
 
 func report_removed(at: Vector3) -> void:
 	if is_connected_to_anyone():
@@ -347,10 +357,16 @@ func _send_position(at: Vector3, facing: float) -> void:
 	guest_moved.emit(from, at, facing)
 
 @rpc("any_peer", "call_remote", "reliable")
-func _send_built(kind: String, at: Vector3, spin: float) -> void:
+func _send_built(kind: String, at: Vector3, spin: float, extent := Vector2i.ONE) -> void:
 	if not believable(at) or not is_finite(spin):
 		return
-	remote_built.emit(StringName(kind), at, spin)
+	# A room no bigger than one tap of the roof could ever cover here.
+	if (
+		extent.x < 1 or extent.y < 1
+		or extent.x > HouseParts.ROOM_LONGEST or extent.y > HouseParts.ROOM_LONGEST
+	):
+		return
+	remote_built.emit(StringName(kind), at, spin, extent)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_removed(at: Vector3) -> void:
