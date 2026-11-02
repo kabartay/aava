@@ -46,6 +46,8 @@ const BUOYANCY := 9.0
 ## The most the water lets you sink or rise, so bobbing does not turn into
 ## bouncing.
 const SWIM_DAMP := 0.86
+## SWIM_DAMP as a rate per second, -ln(0.86) * 60, so sixty hertz is unchanged.
+const SWIM_DAMP_RATE := 9.05
 
 ## How far below the surface buoyancy keeps growing. Past this the water simply
 ## lifts at its strongest rather than harder still — see the note where it is
@@ -347,6 +349,11 @@ var carried_facing := Basis()
 ## the shoulder bars are down on the coaster. See the note in _physics_process.
 var strapped_in := false
 
+## How quickly a carried child (swing, slide, café chair) closes on the seat,
+## per second: the 0.35 of the gap a tick that it used to be at sixty hertz,
+## which is -ln(0.65) * 60.
+const CARRY_FOLLOW := 25.8
+
 func _process(delta: float) -> void:
 	if _charging:
 		kick_charge = minf(kick_charge + delta / Ball.CHARGE_TIME, 1.0)
@@ -383,8 +390,13 @@ func _physics_process(delta: float) -> void:
 	if is_carried:
 		# Eased rather than snapped, so a swing reads as an arc rather than as
 		# the child teleporting between two points.
+		#
+		# The share of the gap closed is 1 - exp(-k*delta), not a bare 0.35 a
+		# tick, which closed it twice as fast per second on a 120 Hz phone as on
+		# a 60 Hz one: a swing or a slide followed its seat far more tightly.
 		var to_seat := carried_to - global_position
-		velocity = to_seat / maxf(delta, 0.001) * 0.35
+		var closes := 1.0 - exp(-CARRY_FOLLOW * delta)
+		velocity = to_seat / maxf(delta, 0.001) * closes
 		move_and_slide()
 		return
 
@@ -498,7 +510,10 @@ func _physics_process(delta: float) -> void:
 		# you off it.
 		var to_surface := clampf(water_depth - SWIM_DEPTH, 0.0, MAX_LIFT_DEPTH)
 		velocity.y += BUOYANCY * to_surface * delta
-		velocity.y *= SWIM_DAMP
+		# Per second, not per tick: a bare 0.86 a tick damped four times as hard at
+		# 120 Hz as at 30, so how fast a child rose from deep water depended on the
+		# phone.
+		velocity.y *= exp(-SWIM_DAMP_RATE * delta)
 		# And a hard ceiling on how fast anyone can be moving upwards while in
 		# water, so no combination of depth and frame time can accumulate into
 		# a launch.

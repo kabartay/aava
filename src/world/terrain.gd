@@ -297,6 +297,13 @@ func _assemble_finished_now() -> void:
 			# thrown away rather than added to a world nobody is looking at.
 			continue
 		WorkerThreadPool.wait_for_task_completion(job["task"])
+		# Nothing removes a job from `_baking` when the player walks on, so
+		# "went out of range while baking" was never actually true of the test
+		# above: the finished chunk was assembled anyway, far behind the player,
+		# and stayed — mesh and all — until they next crossed a chunk boundary.
+		var gone := coord - _centre
+		if TerrainSpec.ring_for(maxi(absi(gone.x), absi(gone.y))) < 0:
+			continue
 		if int(baked["generation"]) != _generation:
 			# The ground changed under this bake. Ask for it again rather than
 			# showing the river where the pond now is.

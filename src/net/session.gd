@@ -31,6 +31,10 @@ signal closed()
 signal guest_arrived(id: int, who: String, shirt: int)
 signal guest_left(id: int, who: String)
 
+## A connection ended, whether or not it ever said who it was. For whatever
+## was keyed by peer id before anybody was announced — a voice, say.
+signal peer_gone(id: int)
+
 ## Somebody already here changed their name or their shirt in their own
 ## settings. Both travel together, because both answer "who is that".
 signal guest_renamed(id: int, who: String, shirt: int)
@@ -403,7 +407,12 @@ func _on_peer_connected(id: int) -> void:
 	_since_move = MOVE_INTERVAL
 
 func _on_peer_disconnected(id: int) -> void:
-	var name: String = guests.get(id, "?")
+	peer_gone.emit(id)
+	# Somebody who dropped before saying who they were was never announced, so
+	# there is nobody to say has left: "? left" came from a child nobody saw.
+	if not guests.has(id):
+		return
+	var name: String = guests[id]
 	guests.erase(id)
 	guest_left.emit(id, name)
 

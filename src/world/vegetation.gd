@@ -406,6 +406,12 @@ func _assemble_finished_now() -> void:
 		if job == null:
 			continue
 		WorkerThreadPool.wait_for_task_completion(job["task"])
+		# A tile the player has walked away from while it baked is not drawn: the
+		# job stays in `_baking` when the tile leaves the wanted set, so without
+		# this it was assembled out of range and sat there, trees and all, until
+		# the next tile boundary.
+		if (coord - _centre).length_squared() > TREE_RADIUS * TREE_RADIUS:
+			continue
 		if int(baked["generation"]) != _generation:
 			# A tree was felled while this baked. Ask again rather than draw a
 			# tree that has already been cut down.

@@ -60,10 +60,14 @@ static func write(data: Dictionary, path := PATH, version := VERSION) -> bool:
 	var folder_access := DirAccess.open(path.get_base_dir())
 	if folder_access == null:
 		push_warning("could not reach %s to save into" % path.get_base_dir())
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(scratch))
 		return false
 	var renamed := folder_access.rename(scratch.get_file(), path.get_file())
 	if renamed != OK:
 		push_warning("could not put %s in place: %s" % [path, error_string(renamed)])
+		# The scratch file is a whole copy of the save; left behind it is
+		# clutter, so it goes.
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(scratch))
 		return false
 	return true
 

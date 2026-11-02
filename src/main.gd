@@ -47,6 +47,10 @@ var _waiting_for_ground := false
 var _autosave := AUTOSAVE_SECONDS
 var _seen_first_grove := false
 
+## False in a `--seed=` run, which is a look at some other valley and must not
+## write over the child's own save with it.
+var _may_save := true
+
 ## The game's own frame runs after everything it reads.
 ##
 ## A rider in a coaster car is put where the car is, and that has to be where
@@ -105,7 +109,7 @@ func _ready() -> void:
 	# palette ever losing a colour — indexed off the end of SHIRTS during
 	# startup and the game never reached the valley at all.
 	_shirt = int(save.get("shirt", -1))
-	if _shirt >= Visitors.SHIRTS.size():
+	if _shirt < -1 or _shirt >= Visitors.SHIRTS.size():
 		_shirt = -1
 
 	# The world's map decides the seed, not the save: everyone in one copy of the
@@ -116,6 +120,9 @@ func _ready() -> void:
 	if override != 0:
 		seed_value = override
 		save = {}
+		# `save = {}` only hides the child's valley from this run; the autosave
+		# would still have written the seeded one over it.
+		_may_save = false
 
 	inventory = Inventory.new()
 	if save.has("inventory"):
@@ -222,11 +229,16 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 
 	session.guest_arrived.connect(_on_guest_arrived)
 	session.guest_left.connect(_on_guest_left)
+	session.peer_gone.connect(voice.forget)
 	session.guest_renamed.connect(_on_guest_renamed)
 	session.guest_moved.connect(visitors.move)
 	session.failed.connect(_on_session_failed)
 	session.closed.connect(visitors.clear)
 	session.closed.connect(voice.forget_everyone)
+	# The fallback shirt comes from this machine's network id, which is 1 until
+	# the connection completes and 1 again once it closes.
+	session.joined.connect(_refresh_own_shirt)
+	session.closed.connect(_refresh_own_shirt)
 
 	# Changes made on another machine are applied exactly as if a local child
 	# had made them, which is why each goes through the same call the local
@@ -483,7 +495,12 @@ func _physics_process(delta: float) -> void:
 		coaster.at_the_button(player.global_position)
 		or world.park.wheel.at_the_button(player.global_position)
 	)
-	if not at_a_button and aboard != &"coaster" and aboard != &"wheel":
+	# Nor while a child stands on a ride that asks its question as they step
+	# on — the tower, the ship, the carousel. Those were withdrawn here on the
+	# very next frame after being asked, so the question flashed up for a
+	# tenth of a second and was gone before anybody could answer it.
+	var asked_on_board := aboard != &"" and Park.charges_for(aboard)
+	if not at_a_button and aboard != &"coaster" and aboard != &"wheel" and not asked_on_board:
 		_coaster_told = false
 		if _asked == &"ride":
 			_asked = &""
@@ -499,6 +516,15 @@ func _physics_process(delta: float) -> void:
 	# ride: paying and then missing the train should not cost a coin.
 	if not ParkSpec.inside(player.global_position.x, player.global_position.z):
 		_coaster_paid = false
+	# The wheel's payment is the same: good while a gondola is coming or
+	# standing at the boards, and gone once the child leaves the park or the
+	# booking runs out. Left set, a child who paid and never got in rode the
+	# next time for nothing.
+	if _wheel_rider_paid and aboard != &"wheel" and (
+		not ParkSpec.inside(player.global_position.x, player.global_position.z)
+		or (not world.park.wheel.called() and world.park.wheel.waiting() <= 0.0)
+	):
+		_wheel_rider_paid = false
 	coaster.clear_to_board(_coaster_paid)
 	# And the bars come down the moment somebody sits in a car, which is what
 	# being strapped in means — they are certainly down by the time it leaves.
@@ -526,15 +552,18 @@ func _physics_process(delta: float) -> void:
 		if aboard == &"wheel":
 			_riding_without_a_ticket = not _wheel_rider_paid
 		elif aboard != &"" and aboard != &"coaster" and Park.charges_for(aboard):
-			if wallet.tickets > 0:
-				_asked = &"ride"
-				hud.ask(Text.of("ask_use_ticket"))
-				# Nothing carries them until they say yes.
-				_riding_without_a_ticket = true
-			else:
-				sounds.play(Sounds.Sound.REFUSE)
-				hud.announce(Text.of("say_park_needs_ticket"), 2.4)
-				_riding_without_a_ticket = true
+			# Nothing carries them until they say yes. Asked the same way the
+			# buttons ask — a ticket if there is one, coins if not — and about
+			# this ride, so the answer is not filed under whichever ride was
+			# asked about last.
+			_riding_without_a_ticket = true
+			# Stepping straight from one paid ride onto another: the first
+			# one's question is withdrawn, or _offer_a_ride would leave it up
+			# and a yes would be filed under the ride just left.
+			if _asked == &"ride" and _asked_ride != aboard:
+				_asked = &""
+				hud.stop_asking()
+			_offer_a_ride(aboard)
 		else:
 			_riding_without_a_ticket = false
 			if _asked == &"ride":
@@ -1272,6 +1301,11 @@ func _own_shirt_color() -> Color:
 		return Visitors.SHIRTS[_shirt]
 	return visitors.shirt_for(multiplayer.get_unique_id(), -1)
 
+## The network id changes when a visit begins and ends, and an unshirted
+## child's colour is worked out from it.
+func _refresh_own_shirt() -> void:
+	player.set_shirt(_own_shirt_color())
+
 ## A child picked a shirt in the settings.
 ##
 ## Their own body changes at once — "I am the blue one" has to be true on their
@@ -1421,12 +1455,21 @@ func _on_session_failed(reason: String) -> void:
 	sounds.play(Sounds.Sound.REFUSE)
 	hud.announce(reason, 4.0)
 
+func _footprint_of_kind(kind: StringName) -> float:
+	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
+
 func _on_remote_built(kind: StringName, at: Vector3, spin: float) -> void:
 	# Only things this version knows how to build. A brother on a newer copy of
 	# the game can build something this one has never heard of, and stored
 	# here it was asked about every frame by the build ghost — which then never
 	# went green again for the rest of the afternoon.
 	if not BuildKinds.INFO.has(kind) and not HouseParts.is_house_part(kind):
+		return
+	# Both children can build on one spot in the same moment, each ghost being
+	# green in its own valley. The ghost is the only check a local piece gets,
+	# so this is the arriving piece's: a second piece in the same place cannot
+	# be taken down by one tap.
+	if not structures.is_clear(at, _footprint_of_kind(kind)):
 		return
 	# Not paid for here: it came out of the other child's bag.
 	structures.place(kind, at, spin, false)
@@ -1512,10 +1555,15 @@ func _on_dam_stick() -> void:
 	var site := world.dams.site_near(player.global_position)
 	if is_nan(site) or inventory.count(&"stick") <= 0:
 		return
+	# A dam the other child has just finished takes no more sticks. Spending one
+	# anyway lost it for nothing when both children brought the last one at the
+	# same moment, and told the other phone about a stick nobody had used.
+	if world.dams.is_built(site):
+		return
 	if not inventory.spend({&"stick": 1}):
 		return
-	world.dams.deliver(site)
-	session.report_dam_stick(site)
+	if world.dams.deliver(site):
+		session.report_dam_stick(site)
 
 func _on_today_done(_kind: StringName, reward: int) -> void:
 	wallet.earn(reward)
@@ -2336,7 +2384,7 @@ func _notification(what: int) -> void:
 		_write_save()
 
 func _write_save() -> void:
-	if player == null or world == null:
+	if player == null or world == null or not _may_save:
 		return
 	# What was done this session becomes what the greeting reports next time.
 	journal.depart()

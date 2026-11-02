@@ -141,13 +141,15 @@ func to_data() -> Dictionary:
 	}
 
 func from_data(data: Dictionary) -> void:
-	var stored: Dictionary = data.get("lifetime", {})
-	var previous: Dictionary = data.get("last_visit", {})
+	# Checked rather than assigned: a hand-edited file may hold a list or a
+	# number where a table belongs, and a typed assignment of that errors.
+	var stored: Dictionary = data["lifetime"] if data.get("lifetime") is Dictionary else {}
+	var previous: Dictionary = data["last_visit"] if data.get("last_visit") is Dictionary else {}
 	for key in ALL:
 		# String keys, because JSON has no StringName and a save written by an
 		# earlier version must still load.
-		lifetime[key] = int(stored.get(String(key), 0))
-		last_visit[key] = int(previous.get(String(key), 0))
+		lifetime[key] = maxi(0, int(stored.get(String(key), 0)))
+		last_visit[key] = maxi(0, int(previous.get(String(key), 0)))
 		session[key] = 0
 	last_seen = int(data.get("last_seen", 0))
 	visits = int(data.get("visits", 0))

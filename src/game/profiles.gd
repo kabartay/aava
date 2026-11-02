@@ -88,29 +88,43 @@ func load_index() -> void:
 		SaveGame.set_aside(INDEX)
 		return
 
-	for name in data.get("players", []):
-		if is_valid_name(String(name)):
-			players.append(String(name))
-	var saved_maps: Dictionary = data.get("maps", {})
-	for key in saved_maps:
-		maps[String(key)] = int(saved_maps[key])
+	# Each container is checked for its type before it is walked: a hand-edited
+	# index with "players" as a string, or a world that is a number, keeps what
+	# is valid instead of erroring and losing the lot.
+	var saved_players = data.get("players", [])
+	if saved_players is Array:
+		for name in saved_players:
+			# One child once: "Amir" and "amir" are one file, so an index naming
+			# both must not list two children who then write over each other.
+			if name is String and is_valid_name(name) and player_named(name).is_empty():
+				players.append(name)
+	var saved_maps = data.get("maps", {})
+	if saved_maps is Dictionary:
+		for key in saved_maps:
+			if saved_maps[key] is float or saved_maps[key] is int:
+				maps[String(key)] = int(saved_maps[key])
 
-	var saved_worlds: Dictionary = data.get("worlds", {})
-	for id in saved_worlds:
-		var entry: Dictionary = saved_worlds[id]
-		var map_name := String(entry.get("map", HOME_MAP))
-		# A world whose map template is gone cannot be generated, so it is
-		# dropped rather than loaded into a valley that does not exist.
-		if not maps.has(map_name):
-			continue
-		var guests: Array[String] = []
-		for guest in entry.get("guests", []):
-			guests.append(String(guest))
-		worlds[String(id)] = {
-			"map": map_name,
-			"owner": String(entry.get("owner", "")),
-			"guests": guests,
-		}
+	var saved_worlds = data.get("worlds", {})
+	if saved_worlds is Dictionary:
+		for id in saved_worlds:
+			if saved_worlds[id] is not Dictionary:
+				continue
+			var entry: Dictionary = saved_worlds[id]
+			var map_name := String(entry.get("map", HOME_MAP))
+			# A world whose map template is gone cannot be generated, so it is
+			# dropped rather than loaded into a valley that does not exist.
+			if not maps.has(map_name):
+				continue
+			var guests: Array[String] = []
+			var saved_guests = entry.get("guests", [])
+			if saved_guests is Array:
+				for guest in saved_guests:
+					guests.append(String(guest))
+			worlds[String(id)] = {
+				"map": map_name,
+				"owner": String(entry.get("owner", "")),
+				"guests": guests,
+			}
 
 	# Restored only if it still exists: a profile deleted on another device, or
 	# by hand, must not leave the game pointing at nothing.

@@ -35,7 +35,13 @@ const AIM_HEIGHT := 1.15
 ## Vertical limits. Straight down is disallowed because it puts the camera
 ## inside the ground and disorients a small child instantly.
 const PITCH_MIN := deg_to_rad(-58.0)
-const PITCH_MAX := deg_to_rad(24.0)
+## Eighty degrees, not ninety: at ninety the arm points straight up, its own
+## "forward" and "up" vectors line up, and the basis built from them spins
+## without warning — the view a child dragged towards and found unusable
+## rather than merely steep. Eighty is close enough to overhead to watch the
+## top of the drop tower or the coaster's climb without ever reaching the
+## one angle that breaks.
+const PITCH_MAX := deg_to_rad(80.0)
 
 ## Radians per screen pixel of drag.
 const DRAG_SENSITIVITY := 0.0055
@@ -211,11 +217,24 @@ func set_indoors(on: bool) -> void:
 ## it would do without also asking for a physics frame that has not happened,
 ## which is what calling _process itself needs.
 func _arm_length() -> float:
+	var reach := _distance + _steep_pitch_bonus()
 	if _riding:
-		return maxf(_distance, RIDE_ARM)
+		return maxf(reach, RIDE_ARM)
 	if _indoors:
-		return minf(_distance, INDOOR_ARM)
-	return _distance
+		return minf(reach, INDOOR_ARM)
+	return reach
+
+## Extra length the arm is given as the pitch climbs towards PITCH_MAX.
+##
+## The arm orbits the child's own shoulder, so tipping it towards overhead
+## swings the camera round to behind and slightly below them at the same
+## distance it stood at looking ahead — close enough, from there, that their
+## own head filled the frame and the body below it was out of shot entirely.
+## Standing further back as the pitch climbs keeps the whole of them in view
+## the way looking up at a tower while standing well clear of its foot does.
+func _steep_pitch_bonus() -> float:
+	var steepness := clampf(inverse_lerp(deg_to_rad(40.0), PITCH_MAX, pitch), 0.0, 1.0)
+	return steepness * 5.0
 
 ## The cap in _arm_length() above is a backstop for the length itself, and
 ## does nothing about the direction: a room narrower than the cap still lets

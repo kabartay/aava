@@ -248,6 +248,12 @@ func _send_voice(packet: PackedByteArray) -> void:
 	if packet.size() != FRAMES_PER_PACKET * 2:
 		return
 	var from := multiplayer.get_remote_sender_id()
+	# Only somebody who is in the valley. A packet can still be in flight when
+	# its sender leaves, and forget() has already closed their player: hearing
+	# it opened a new one for a child who had gone, which then sat there for
+	# the rest of the game.
+	if _session == null or not _session.guests.has(from):
+		return
 	_play(from, packet)
 	someone_spoke.emit(from)
 

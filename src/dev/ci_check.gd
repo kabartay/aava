@@ -37,6 +37,7 @@ func _initialize() -> void:
 	_check_a_grove_forms()
 	_check_save_round_trip()
 	_check_an_unreadable_save_is_kept()
+	_check_old_and_odd_saves_load_sanely()
 	_check_nothing_is_missing()
 	_check_the_pitch_is_playable()
 	_check_a_shot_stays_in_the_goal()
@@ -163,13 +164,33 @@ func _initialize() -> void:
 	_check_the_bridge_carries_what_cannot_swim()
 	_check_the_bridge_is_walked_not_climbed()
 	_check_the_bridge_is_on_the_map()
+	_check_a_carried_child_closes_on_the_seat_at_any_frame_rate()
+	_check_rising_from_deep_water_is_the_same_at_any_frame_rate()
 	_check_the_roads_have_names()
 	_check_the_fairground()
 	await _check_the_rides_carry_a_child()
 	_check_the_coaster_stands_on_the_ground()
 	await _check_the_rides_are_solid()
+	_check_a_carousel_horse_seats_where_its_saddle_is()
+	_check_the_pirate_ship_swings()
+	_check_the_drop_tower_climbs_and_falls()
 	_check_the_wheel_stands_on_the_sand()
+	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_no_text_goes_unused()
+	await _check_the_name_the_words_and_the_shop_note_hold_up()
+	_check_the_network_keeps_its_promises()
+	_check_damaged_saves_load_what_is_valid()
+	await _check_the_trampoline_rim_is_closed_and_a_ride_is_sold_once()
+	_check_the_pirate_ship_carries_a_child_round_with_it()
+	_check_an_animal_does_not_wade_into_a_pond()
+	_check_a_pinch_is_not_a_tap()
+	await _check_the_shop_sells_back_only_what_is_chosen()
+	_check_the_network_does_not_invent_or_waste()
+	_check_animals_cannot_walk_through_the_shop_or_the_hedge()
+	_check_a_bake_finished_out_of_range_is_dropped()
+	await _check_an_animal_walks_round_a_fence()
+	await _check_the_feelers_are_cheap_and_steady()
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
 	_check_the_wheel_stops_when_the_button_is_pressed()
@@ -4966,6 +4987,10 @@ func _check_the_indoor_camera_cannot_reach_outside() -> void:
 	get_root().add_child(player)
 	var rig := CameraRig.new(player)
 	player.add_child(rig)
+	# One frame, or the arm reports it is not inside the tree yet even though
+	# it plainly is — the same lag this harness has elsewhere between a node
+	# joining the tree and the physics server treating it as having done so.
+	await process_frame
 
 	# _distance is set directly rather than reached by zooming and waiting out
 	# the lerp that eases towards it — what is being checked is the cap on the
@@ -5018,8 +5043,10 @@ func _check_the_indoor_camera_cannot_reach_outside() -> void:
 	# away, is indistinguishable from a wall that is not there at all, and for
 	# one created near the camera rig's own origin, is indistinguishable from
 	# a wall the ray starts inside of.
-	wall.global_position = origin + facing * 1.0
-	wall.look_at(origin, Vector3.UP)
+	# Transform built by hand rather than with look_at(), which refuses to run
+	# on a node that is not in the tree yet — and it is not, on purpose: see
+	# the note above.
+	wall.transform = Transform3D(Basis.looking_at(-facing, Vector3.UP), origin + facing * 1.0)
 	get_root().add_child(wall)
 	# One physics frame, or the wall is not in the space yet and the ray passes
 	# straight through it — the same wait _check_the_rides_are_solid needs for
@@ -8078,6 +8105,12 @@ func _check_talking_can_be_switched_off() -> void:
 	var voice := Voice.new()
 	get_root().add_child(voice)
 	_expect(voice.allowed, "talking is allowed to begin with")
+	# Outside a call the sender id is 0, so 0 is the guest who is speaking;
+	# a voice from somebody who is not a guest is ignored.
+	var session := Session.new()
+	get_root().add_child(session)
+	session.guests[0] = "Amir"
+	voice.attach(session)
 	# Something arriving from another phone, the size every phone sends.
 	var packet := PackedByteArray()
 	packet.resize(Voice.FRAMES_PER_PACKET * 2)
@@ -9966,9 +9999,15 @@ func _check_the_fairground() -> void:
 		park.coaster.highest() > 45.0 and park.coaster.highest() <= 50.0,
 		"the coaster climbs to %.1f m" % park.coaster.highest()
 	)
+	# The ground was lengthened on purpose to hold rides nobody has asked for
+	# yet, so the coaster filling most of it is no longer the right thing to
+	# check — what has to hold is that it still fits, inside the verge a child
+	# can walk round, with room left over for whatever comes next.
 	_expect(
-		RollerCoaster.HALF_LENGTH * 2.0 > ParkSpec.length() * 0.75,
-		"and runs %.0f m, most of the length of the ground" % (RollerCoaster.HALF_LENGTH * 2.0)
+		RollerCoaster.HALF_LENGTH * 2.0 < ParkSpec.length() - ParkSpec.VERGE * 2.0,
+		"the coaster runs %.0f m, inside the %.0f m the ground now holds" % [
+			RollerCoaster.HALF_LENGTH * 2.0, ParkSpec.length()
+		]
 	)
 	_expect(
 		Walkway.LENGTH > 20.0,
@@ -10478,6 +10517,248 @@ func _blocked(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3) -> b
 ## Nothing on the big wheel is underground, and its gondolas hang clear of the
 ## sand — the whole ride was half a metre into the ground when its hub was set
 ## to its own radius and the cars were forgotten about.
+## The drop tower: as tall as the wheel, runs its own cycle unattended, and
+## carries whoever is standing on the ring exactly as far as the ring moves —
+## the same thing FerrisWheel.carry() and Carousel.carry() are each checked
+## for, asked of a third ride that moves a third way.
+## The pirate ship: hangs still long enough to board, swings wider with every
+## pass rather than starting at full throw, holds there, and eases back —
+## checked the same way the drop tower's own cycle is, phase by phase, and
+## carried the same way FerrisWheel.carry() and DropTower.carry() each are.
+## A carousel horse's own collision used to stand 1.15 m tall regardless of
+## where the saddle actually sat drawn on its back — close enough most of the
+## time, but the same "a box the wrong height for what is drawn on it" fault
+## the sofa and the café's own chairs were each caught in. Climbing onto a
+## horse should land a child on the saddle, not a fraction above or below it.
+func _check_a_carousel_horse_seats_where_its_saddle_is() -> void:
+	print("a carousel horse seats where its saddle is")
+	var carousel := Carousel.new(Vector3.ZERO)
+	get_root().add_child(carousel)
+	var found := false
+	for shape in carousel._horses.get_children():
+		var collider := shape as CollisionShape3D
+		if collider == null or not (collider.shape is BoxShape3D):
+			continue
+		var box := collider.shape as BoxShape3D
+		var top: float = collider.transform.origin.y + box.size.y * 0.5
+		# The saddle sits 0.35 m above ride_at, which is FLOOR_HEIGHT + 1.15
+		# above the floor — the same arithmetic _init builds it with, asked of
+		# the finished horse rather than copied a second time to go stale
+		# against it.
+		var saddle_top := Carousel.FLOOR_HEIGHT + 1.15 + 0.35
+		_expect(
+			is_equal_approx(top, saddle_top),
+			"a horse's own collision tops out at %.2f m, exactly where its saddle (%.2f m) is" % [top, saddle_top]
+		)
+		found = true
+		break
+	_expect(found, "a horse's own collision box is found at all")
+	carousel.queue_free()
+
+func _check_the_pirate_ship_swings() -> void:
+	print("the pirate ship swings")
+	var ship := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(ship)
+	_expect(is_equal_approx(ship.angle(), 0.0), "hanging still at the start")
+	# A point on the hull's own floor at rest, worked out from the ride's own
+	# constants rather than a number that only matched them by chance on the
+	# day it was written.
+	var on_deck := Vector3(2.0, PirateShip.AXLE_HEIGHT - PirateShip.ARM_LENGTH + 0.3, 0.5)
+	_expect(
+		ship.aboard(on_deck),
+		"a child standing in the hull counts as aboard"
+	)
+	_expect(not ship.aboard(Vector3(80.0, 0.0, 80.0)), "one far off it does not")
+
+	# Nothing on the hull hangs below its own keel: the hangers were once
+	# drawn downwards from the deck, twenty metres of steel sticking out under
+	# the boat into the sand.
+	var hull_mesh := ship._hull.get_node("Deck") as MeshInstance3D
+	var lowest := hull_mesh.mesh.get_aabb().position.y
+	_expect(
+		lowest > -PirateShip.KEEL_DEPTH - 0.2,
+		"nothing hangs below the keel: lowest point %.2f m under the deck" % -lowest
+	)
+	# And the whole sweep lands inside the fence, the boat swinging across the
+	# park's width rather than along its length.
+	var centre_x := Park.PIRATE_SHIP_AT.x
+	_expect(
+		centre_x - PirateShip.REACH > ParkSpec.WEST + ParkSpec.VERGE
+			and centre_x + PirateShip.REACH < ParkSpec.EAST - ParkSpec.VERGE,
+		"the swing reaches %.1f m either way and stays inside the fence" % PirateShip.REACH
+	)
+	_expect(
+		PirateShip.FRAME_SPREAD + 0.5 < ParkSpec.EAST - ParkSpec.VERGE - centre_x
+			and PirateShip.FRAME_SPREAD + 0.5 < centre_x - ParkSpec.WEST - ParkSpec.VERGE,
+		"and so do the frames' feet"
+	)
+	_expect(
+		PirateShip.AXLE_HEIGHT - PirateShip.REACH >= PirateShip.GROUND_CLEARANCE - 0.001,
+		"the keel clears the sand at every angle"
+	)
+
+	ship._physics_process(PirateShip.STILL_HOLD + 0.1)
+	_expect(ship._phase == PirateShip.Phase.SWINGING, "waiting over, it starts to swing")
+	for _tick in 100:
+		ship._physics_process(PirateShip.SWING_TIME / 100.0)
+	_expect(ship._phase == PirateShip.Phase.STILL, "and comes to rest again after a full swing")
+	_expect(is_equal_approx(ship.angle(), 0.0), "hanging straight down, not stopped mid-swing")
+
+	# Partway through a swing, it should actually have thrown somewhere —
+	# checked at the middle of the cycle rather than only at the two ends,
+	# since a ride that silently failed to grow its own arc would still pass
+	# a check that only ever looked at where it starts and stops.
+	ship._phase = PirateShip.Phase.SWINGING
+	ship._phase_time = 0.0
+	ship._swing_time = PirateShip.SWING_TIME * 0.5
+	ship._physics_process(0.01)
+	_expect(
+		absf(ship.angle()) > deg_to_rad(10.0),
+		"partway through, it has actually thrown out to %.0f degrees" % rad_to_deg(ship.angle())
+	)
+	_expect(
+		absf(ship.angle()) <= PirateShip.MAX_ANGLE + 0.01,
+		"and never past the widest throw it is built for"
+	)
+	ship.queue_free()
+
+	# The harness: down while swinging, up again at rest — the same cue the
+	# coaster and the drop tower both give.
+	var checked := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(checked)
+	checked._phase = PirateShip.Phase.SWINGING
+	checked._phase_time = 0.0
+	for _tick in 15:
+		checked._physics_process(0.1)
+	_expect(checked._phase == PirateShip.Phase.SWINGING, "still swinging, well inside the hold")
+	_expect(is_equal_approx(checked._harness_closed, 1.0), "the bar is down while it swings")
+	checked._phase = PirateShip.Phase.STILL
+	checked._phase_time = 0.0
+	for _tick in 15:
+		checked._physics_process(0.1)
+	_expect(checked._phase == PirateShip.Phase.STILL, "still at rest, well inside the hold")
+	_expect(is_equal_approx(checked._harness_closed, 0.0), "and up again once it stops")
+	checked.queue_free()
+
+	# And the carry itself, on a ship of its own so the hull's own rest
+	# position is undisturbed by whatever phase the cycles above left the
+	# first two standing in.
+	var lift := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(lift)
+	lift._moved = Vector3(0.3, 0.1, 0.0)
+	# A hull that has shifted without turning moves every point by the shift.
+	lift._swept = Transform3D(Basis(), lift._moved)
+	var lift_on_deck := Vector3(2.0, PirateShip.AXLE_HEIGHT - PirateShip.ARM_LENGTH + 0.3, 0.5)
+	_expect(
+		lift.carry(lift_on_deck, 0.1).is_equal_approx(Vector3(0.3, 0.1, 0.0)),
+		"a child aboard is carried exactly as far as the hull just moved"
+	)
+	_expect(
+		lift.carry(Vector3(80.0, 0.0, 80.0), 0.1) == Vector3.ZERO,
+		"one far off it is carried nowhere"
+	)
+	lift.queue_free()
+
+func _check_the_drop_tower_climbs_and_falls() -> void:
+	print("the drop tower climbs and falls")
+	_expect(
+		is_equal_approx(DropTower.HEIGHT, (FerrisWheel.RADIUS * 2.0 + 2.9) * 3.0),
+		"the tower stands %.1f m, three times the big wheel's own height" % DropTower.HEIGHT
+	)
+	_expect(DropTower.SEATS <= 6, "no more than six seats: %d" % DropTower.SEATS)
+	_expect(DropTower.TRAVEL > 0.0 and DropTower.TRAVEL < DropTower.HEIGHT, "the ring travels inside the tower's own height")
+
+	var tower := DropTower.new(Vector3.ZERO)
+	get_root().add_child(tower)
+	_expect(is_equal_approx(tower.ring_height(), DropTower.GROUND_Y), "the ring starts at the ground")
+	_expect(
+		tower.aboard(Vector3(DropTower.RING_RADIUS - 0.3, DropTower.GROUND_Y + 0.6, 0.0)),
+		"a child standing on the ring counts as aboard"
+	)
+	_expect(not tower.aboard(Vector3(40.0, 0.0, 40.0)), "one far off it does not")
+
+	# A seat at rest stands a small step above the platform, and over it
+	# rather than over the sand past its edge: a seat 0.7 m up, out beyond a
+	# five-metre deck, was one nobody could climb into.
+	var seats := 0
+	for child in tower._ring.get_children():
+		var collider := child as CollisionShape3D
+		# The closed harnesses' own solids are switched off at the ground;
+		# what is left is the seats.
+		if collider == null or collider.disabled or not (collider.shape is BoxShape3D):
+			continue
+		seats += 1
+		var box := collider.shape as BoxShape3D
+		var top: float = DropTower.GROUND_Y + collider.position.y + box.size.y * 0.5
+		var step := top - DropTower.PLATFORM_HEIGHT
+		_expect(step > 0.05 and step < 0.2, "a seat stands a %.2f m step above the platform" % step)
+		var out := Vector2(collider.position.x, collider.position.z)
+		_expect(
+			absf(out.x) + 0.35 < DropTower.PLATFORM_SIZE * 0.5 and absf(out.y) + 0.35 < DropTower.PLATFORM_SIZE * 0.5,
+			"and over the platform, not the sand"
+		)
+	_expect(seats == DropTower.SEATS, "every seat has a footing: %d" % seats)
+
+	# A whole cycle, driven phase by phase the way the wheel's own check drives
+	# its turns — a check that only ever watched the ground phase would never
+	# notice a climb that stalled, a top that never held, or a fall that
+	# undershot the ground it is meant to land exactly on.
+	tower._physics_process(DropTower.GROUND_HOLD + 0.1)
+	_expect(tower._phase == DropTower.Phase.ASCEND, "waiting over, it starts to climb")
+	tower._physics_process(DropTower.ASCEND_TIME + 0.1)
+	_expect(tower._phase == DropTower.Phase.TOP, "and reaches the top")
+	_expect(
+		is_equal_approx(tower.ring_height(), DropTower.GROUND_Y + DropTower.TRAVEL),
+		"at the full height it travels, %.1f m up" % (DropTower.GROUND_Y + DropTower.TRAVEL)
+	)
+	tower._physics_process(DropTower.TOP_HOLD + 0.1)
+	_expect(tower._phase == DropTower.Phase.DROP, "then falls")
+	tower._physics_process(DropTower.DROP_TIME + 0.1)
+	_expect(tower._phase == DropTower.Phase.GROUND, "and is standing at the ground again")
+	_expect(is_equal_approx(tower.ring_height(), DropTower.GROUND_Y), "exactly where it started, not short of it or through it")
+
+	# The harness: down while the ring is away from the ground, up again once
+	# it is back — "bars down, we are going", the same cue the coaster gives.
+	# _phase_time is reset with the phase each time, or the ticks spent
+	# closing the harness also run the clock that moves it on to the next
+	# phase, and the harness is found open or shut by which phase the test
+	# happened to land in rather than by whether it closes at all.
+	tower._phase = DropTower.Phase.TOP
+	tower._phase_time = 0.0
+	for _tick in 15:
+		tower._physics_process(0.1)
+	_expect(tower._phase == DropTower.Phase.TOP, "still holding at the top, a second and a half in")
+	_expect(
+		is_equal_approx(tower._harness_closed, 1.0),
+		"the harness is down while the ring is away from the ground"
+	)
+	tower._phase = DropTower.Phase.GROUND
+	tower._phase_time = 0.0
+	for _tick in 15:
+		tower._physics_process(0.1)
+	_expect(tower._phase == DropTower.Phase.GROUND, "still at the ground, well inside the hold")
+	_expect(is_equal_approx(tower._harness_closed, 0.0), "and up again once it is back")
+	tower.queue_free()
+
+	# And the carry itself, on a tower of its own so the ring's own rest
+	# height is exactly where carry()'s own reach expects it, undisturbed by
+	# whatever phase the cycle above left the first tower standing in: the
+	# ring is moved by hand, not by the engine, so a passenger standing on it
+	# has to be moved by hand too, exactly as far.
+	var lift := DropTower.new(Vector3.ZERO)
+	get_root().add_child(lift)
+	lift._moved = Vector3(0.0, 1.4, 0.0)
+	var on_the_ring := Vector3(0.5, DropTower.GROUND_Y + 0.6, 0.0)
+	_expect(
+		lift.carry(on_the_ring, 0.1) == Vector3(0.0, 1.4, 0.0),
+		"a child aboard is carried exactly as far as the ring just moved"
+	)
+	_expect(
+		lift.carry(Vector3(40.0, 0.0, 40.0), 0.1) == Vector3.ZERO,
+		"one far off it is carried nowhere"
+	)
+	lift.queue_free()
+
 func _check_the_wheel_stands_on_the_sand() -> void:
 	print("the big wheel stands on the sand")
 	var wheel := FerrisWheel.new(Vector3.ZERO)
@@ -10588,6 +10869,45 @@ func _check_the_animals_keep_off_the_playing_places() -> void:
 		not animals.blocked_at(post.x + 6.0, post.z, 0.2),
 		"and the ground beside it is not"
 	)
+	animals.queue_free()
+
+## A dog sent straight at a fence nobody put on any list does not come out the
+## other side. The rides' rails, gates and platforms were walked through
+## because the animals only ever knew about the handful of things written into
+## their own lists.
+func _check_an_animal_walks_round_a_fence() -> void:
+	print("an animal walks round a fence")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+
+	# A plain wall, the way a fence's collider is built: a box on the ground
+	# layer, two metres east of the dog, across its whole way.
+	var wall := StaticBody3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.2, 1.2, 30.0)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	wall.add_child(collider)
+	wall.position = spot + Vector3(2.0, 0.6, 0.0)
+	get_root().add_child(wall)
+	await physics_frame
+	await physics_frame
+
+	var dog := animals.put_one_at(AnimalKinds.DOG, spot)
+	_expect(animals._solid_at(spot + Vector3(2.0, 0.0, 0.0)), "the wall is something solid to the dog")
+	_expect(not animals._solid_at(spot), "and the ground it stands on is not")
+	var node: Node3D = dog["node"]
+	var furthest := -INF
+	for _tick in 240:
+		dog["target"] = spot + Vector3(6.0, 0.0, 0.0)
+		dog["rest"] = 5.0
+		animals._step(dog, 1.0 / 30.0)
+		furthest = maxf(furthest, node.global_position.x - spot.x)
+	_expect(furthest < 1.9, "sent straight at it for eight seconds, it got %.2f m along, short of the wall" % furthest)
+	wall.queue_free()
 	animals.queue_free()
 
 ## The coaster runs a lap under its own weight, stops to be boarded, and the
@@ -12438,3 +12758,586 @@ func _check_the_animals_walk_at_their_own_pace() -> void:
 			Animals.SPEEDS.has(kind),
 			"%s has a walking pace of its own" % kind
 		)
+
+## The trampoline's rim has no way through it, and the coaster's button does not
+## sell the same train twice.
+##
+## The rim's posts were laid with their long side across the rim and their
+## short side along it, so a ring of twenty-eight of them left a gap between
+## every pair. And the coaster's button went on offering a ride after one was
+## booked, so a second press took a second ticket for the one train; the
+## wheel's own button had always stood down while a ride was on its way.
+func _check_the_trampoline_rim_is_closed_and_a_ride_is_sold_once() -> void:
+	print("the trampoline rim is closed and a ride is sold once")
+	var field := HeightField.new(20260903)
+	var park := Park.new(field)
+	get_root().add_child(park)
+	await physics_frame
+	var space := get_root().get_world_3d().direct_space_state
+	var mat := park.trampoline_mat()
+	var gaps_open := 0
+	for post in 28:
+		# Halfway between two posts, which is where a gap would be. The ray
+		# stops short of the legs, which stand just inside the rim.
+		var angle := TAU * (float(post) + 0.5) / 28.0
+		var out := Vector3(cos(angle), 0.0, sin(angle))
+		var level := Vector3(0.0, ParkSpec.LEVEL + 0.7 - mat.y, 0.0)
+		if not _blocked(
+			space,
+			mat + out * (Park.TRAMPOLINE_RADIUS + 1.5) + level,
+			mat + out * (Park.TRAMPOLINE_RADIUS - 0.05) + level
+		):
+			gaps_open += 1
+	_expect(gaps_open == 0, "no gap in the trampoline's rim: %d of 28 are open" % gaps_open)
+	park.queue_free()
+
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	var beside := coaster.button_at()
+	_expect(coaster.at_the_button(beside), "the coaster's button sells a ride to start with")
+	coaster.book()
+	_expect(
+		not coaster.at_the_button(beside),
+		"and not a second one while the first is booked"
+	)
+	coaster.queue_free()
+
+## A child standing out at one end of the pirate ship's well is carried with
+## the deck under them, not with the middle of the hull.
+##
+## The hull turns as it swings, so a point three and a half metres from its
+## middle moves a different way from the middle itself. Carrying everybody by
+## how far the middle moved left a child at the bulkhead behind a tipping deck.
+func _check_the_pirate_ship_carries_a_child_round_with_it() -> void:
+	print("the pirate ship carries a child round with it")
+	var ship := PirateShip.new(Vector3(3.0, 0.0, -2.0))
+	get_root().add_child(ship)
+	var child := Vector3.ZERO
+	ship._phase = PirateShip.Phase.SWINGING
+	ship._phase_time = 0.0
+	ship._swing_time = PirateShip.SWING_TIME * 0.5
+	# One step to bring the hull out to where the swing has got to, so the
+	# child is stood on the deck as it is rather than as it hung at rest.
+	ship._physics_process(0.05)
+	child = ship._hull.global_transform * Vector3(3.5, 0.3, 0.5)
+	var worst := 0.0
+	for _tick in 20:
+		var before := ship._hull.global_transform
+		var held := before.affine_inverse() * child
+		ship._physics_process(0.05)
+		child += ship.carry(child, 0.05)
+		var now := ship._hull.global_transform.affine_inverse() * child
+		worst = maxf(worst, now.distance_to(held))
+	_expect(worst < 0.01, "a child stays put on the deck: off by %.3f m at worst" % worst)
+	ship.queue_free()
+func _check_an_animal_does_not_wade_into_a_pond() -> void:
+	print("an animal called across a pond stops at the bank")
+	var field := HeightField.new(20260903)
+	var beasts := Animals.new(field, 20261102)
+	get_root().add_child(beasts)
+	var centre := Vector3(Lakes.at(1, Lakes.POND_X), 0.0, Lakes.at(1, Lakes.POND_Z))
+	var reach := Lakes.at(1, Lakes.POND_LONG) + 12.0
+	var start := centre + Vector3(reach, 0.0, 0.0)
+	var far := centre - Vector3(reach, 0.0, 0.0)
+	start.y = field.height_at(start.x, start.z)
+	far.y = field.height_at(far.x, far.z)
+	var cat := beasts.put_one_at(AnimalKinds.CAT, start)
+	var node: Node3D = cat["node"]
+	var waded := false
+	for _frame in 900:
+		# The child on the far shore, calling it over, every frame.
+		cat["target"] = far
+		cat["rest"] = 0.5
+		beasts._process(1.0 / 60.0)
+		if field.is_pond(node.position.x, node.position.z):
+			waded = true
+	_expect(not waded, "a cat called to the far side of a pond does not walk into it")
+	beasts.queue_free()
+func _check_a_carried_child_closes_on_the_seat_at_any_frame_rate() -> void:
+	print("a carried child closes on the seat at any frame rate")
+	var child := Player.new()
+	get_root().add_child(child)
+	child.is_carried = true
+	child.carried_to = Vector3(0.0, 0.0, 4.0)
+	# The fraction of the gap a tick closes, read back from the velocity it
+	# asks for, then compounded over one second at each rate.
+	var left := {}
+	for ticks: int in [30, 120]:
+		var delta := 1.0 / float(ticks)
+		child.global_position = Vector3.ZERO
+		child._physics_process(delta)
+		var closed := child.velocity.z * delta / 4.0
+		# Only a tenth of a second: a whole one leaves next to nothing at
+		# either rate, which would hide the bug.
+		left[ticks] = pow(1.0 - closed, float(ticks) * 0.1)
+		child.global_position = Vector3.ZERO
+	_expect(
+		absf(float(left[30]) - float(left[120])) < 0.01,
+		"a tenth of a second of carrying leaves %.3f of the gap at 30 Hz and %.3f at 120 Hz" % [left[30], left[120]]
+	)
+	child.queue_free()
+
+func _check_rising_from_deep_water_is_the_same_at_any_frame_rate() -> void:
+	print("rising from deep water is the same at any frame rate")
+	var rise := {}
+	for ticks: int in [30, 120]:
+		var child := Player.new()
+		get_root().add_child(child)
+		child.water_depth = 2.0
+		var delta := 1.0 / float(ticks)
+		for _step in ticks / 2:
+			child._physics_process(delta)
+			# Held where it is, so only the water's own push is being measured.
+			child.global_position = Vector3.ZERO
+		rise[ticks] = child.velocity.y
+		child.queue_free()
+	_expect(
+		absf(float(rise[30]) - float(rise[120])) < 0.2 * maxf(float(rise[120]), 0.01),
+		"half a second in deep water leaves %.3f m/s of rise at 30 Hz and %.3f at 120 Hz" % [rise[30], rise[120]]
+	)
+## What is read back from a save is clamped or tidied rather than trusted: an
+## index naming "Amir" and "amir" listed one child twice, a task step past the
+## end of the thread showed nothing and never finished, a bottle-less child kept
+## the water, and a negative shirt index went off the front of the palette.
+func _check_old_and_odd_saves_load_sanely() -> void:
+	print("old and odd saves load sanely")
+	var had_index := FileAccess.file_exists(Profiles.INDEX)
+	var index_was := (
+		FileAccess.get_file_as_string(Profiles.INDEX) if had_index else ""
+	)
+	SaveGame.write({"players": ["Amir", "amir", "Ana"], "maps": {}, "worlds": {}}, Profiles.INDEX, Profiles.VERSION)
+	var profiles := Profiles.new()
+	profiles.load_index()
+	_expect(profiles.players.size() == 2, "one child is listed once however the index spells them")
+	if had_index:
+		var restore := FileAccess.open(Profiles.INDEX, FileAccess.WRITE)
+		if restore != null:
+			restore.store_string(index_was)
+			restore.close()
+	else:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(Profiles.INDEX))
+
+	var tasks := Tasks.new()
+	tasks.from_data({"step": 99})
+	_expect(tasks.is_finished(), "a task step past the end is the end")
+	tasks.from_data({"step": -4})
+	_expect(tasks.step == Tasks.Step.GATHER, "and one before the start is the start")
+	tasks.free()
+
+	var vitals := Vitals.new()
+	vitals.from_data({"water": 3.0, "bottle": false})
+	_expect(vitals.water == 0.0, "water without a bottle is not carried")
+
+	var journal := Journal.new()
+	journal.from_data({"lifetime": {"built": -5}, "last_visit": {"built": -2}})
+	_expect(int(journal.lifetime[Journal.BUILT]) == 0 and not journal.has_last_visit(), "a tally is never negative")
+
+	var main_source := FileAccess.get_file_as_string("res://src/main.gd")
+	_expect(main_source.contains("_shirt < -1 or _shirt >="), "a shirt index below the palette is refused")
+## Lifting the fingers of a pinch one after the other is not a tap. The pad
+## forgot a pinch the moment either finger left, so the second finger up read
+## as a lone finger that had not moved, and every pinch made while building
+## ended by placing a piece where the ghost happened to be.
+func _check_a_pinch_is_not_a_tap() -> void:
+	print("a pinch is not a tap")
+	var pad := CameraPad.new()
+	var taps := [0]
+	pad.tapped.connect(func() -> void: taps[0] += 1)
+
+	var touch := func(index: int, down: bool, at: Vector2) -> void:
+		var event := InputEventScreenTouch.new()
+		event.index = index
+		event.pressed = down
+		event.position = at
+		pad._gui_input(event)
+	var drag := func(index: int, at: Vector2) -> void:
+		var event := InputEventScreenDrag.new()
+		event.index = index
+		event.position = at
+		pad._gui_input(event)
+
+	touch.call(0, true, Vector2(100, 100))
+	touch.call(1, true, Vector2(200, 100))
+	drag.call(1, Vector2(260, 100))
+	touch.call(1, false, Vector2(260, 100))
+	touch.call(0, false, Vector2(100, 100))
+	_expect(taps[0] == 0, "a pinch ended by lifting the second finger first is not a tap: %d" % taps[0])
+
+	touch.call(0, true, Vector2(100, 100))
+	touch.call(0, false, Vector2(100, 100))
+	_expect(taps[0] == 1, "a plain tap afterwards still is one: %d" % taps[0])
+	pad.free()
+
+## Tapping the thing the shop buys, after tapping something owned, must take the
+## sell-back button away. It stayed up, still naming the price of the bicycle,
+## under the name of the wool, and pressing it asked to sell the wool back.
+func _check_the_shop_sells_back_only_what_is_chosen() -> void:
+	print("the shop sells back only what is chosen")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud.set_shop_open(true, 500, {ShopStock.BICYCLE: 1})
+	hud._shop_tapped(ShopStock.BICYCLE)
+	_expect(hud._shop_sell_back.visible, "an owned bicycle can be sold back")
+	hud._shop_tapped(ItemKinds.WOOL)
+	_expect(not hud._shop_sell_back.visible, "but not once the wool is the thing chosen")
+	hud.queue_free()
+## Somebody who drops before saying who they are was never announced, so no
+## "? left" may come from them; and a dam that is already finished must not
+## swallow a stick, which is what happens when two children bring the last one
+## at once.
+func _check_the_network_does_not_invent_or_waste() -> void:
+	var session := Session.new()
+	get_root().add_child(session)
+	var left: Array = []
+	session.guest_left.connect(func(id: int, who: String) -> void: left.append([id, who]))
+	session._on_peer_disconnected(55)
+	_expect(left.is_empty(), "a peer who never gave a name leaves without being announced")
+	session.guests[56] = "Amir"
+	session._on_peer_disconnected(56)
+	_expect(left == [[56, "Amir"]], "a named guest leaving is announced by name")
+
+	var gone: Array = []
+	session.peer_gone.connect(func(id: int) -> void: gone.append(id))
+	session._on_peer_disconnected(77)
+	_expect(gone == [77], "an unnamed peer leaving is still reported, so its voice can be put away")
+	session.queue_free()
+
+	var main_source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var at := main_source.find("func _on_dam_stick()")
+	var body := main_source.substr(at, main_source.find("\nfunc ", at + 1) - at)
+	_expect(
+		body.find("is_built(site)") != -1 and body.find("is_built(site)") < body.find("inventory.spend"),
+		"a finished dam is refused before a stick is spent"
+	)
+## Animals are meshes moved by code, with no collider of their own, so the only
+## thing keeping one out of a wall is what Places says is obstructed. The shop's
+## circle stopped short of its corners, and the hedge's opening was wider on
+## paper than in the blocks that were actually laid.
+func _check_animals_cannot_walk_through_the_shop_or_the_hedge() -> void:
+	print("animals cannot walk through the shop walls or the hedge")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+
+	# All the way round the shop's own walls, a hand inside the face of them.
+	var shop: Vector3 = places._spots[Places.SHOP]
+	var half_x := Places.SHOP_WIDTH * 0.5 - 0.1
+	var half_z := Places.SHOP_DEPTH * 0.5 - 0.1
+	var open := 0
+	var samples := 0
+	for k in 49:
+		var t := float(k) / 48.0
+		for edge: Vector2 in [
+			Vector2(lerpf(-half_x, half_x, t), -half_z), Vector2(lerpf(-half_x, half_x, t), half_z),
+			Vector2(-half_x, lerpf(-half_z, half_z, t)), Vector2(half_x, lerpf(-half_z, half_z, t)),
+		]:
+			samples += 1
+			if not places.obstructed(shop.x + edge.x, shop.z + Places.SHOP_MID_Z + edge.y):
+				open += 1
+	_expect(open == 0, "%d of %d points along the shop's walls are not somewhere an animal is kept out" % [open, samples])
+
+	# The hedge: solid at every angle that has a block in it, open only where
+	# the blocks were left out.
+	var pad: Vector3 = places._spots[Places.PLAYGROUND]
+	var opening := Places.hedge_opening()
+	var through := 0
+	for step in 720:
+		var angle := TAU * (float(step) + 0.5) / 720.0
+		var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
+		if to_gap < opening + 0.005:
+			continue
+		var at := pad + Vector3(cos(angle), 0.0, sin(angle)) * Places.HEDGE_RADIUS
+		if not places.obstructed(at.x, at.z):
+			through += 1
+	_expect(through == 0, "the hedge is solid to an animal at every block of it (%d open angles)" % through)
+	_expect(
+		opening < Places.HEDGE_GAP,
+		"and the opening is the %.3f rad the blocks leave, not the %.3f asked for" % [opening, Places.HEDGE_GAP]
+	)
+	places.queue_free()
+## Ground and trees the player has walked away from while they were still being
+## baked are thrown away, not drawn. The job stayed in the baking list when its
+## tile left the wanted set, so the finished bake was assembled far behind the
+## player and kept — a mesh, a collision shape or a tile of trees nobody could
+## see — until the next boundary was crossed.
+func _check_a_bake_finished_out_of_range_is_dropped() -> void:
+	print("a bake finished out of range is dropped")
+	var field := HeightField.new(20260903)
+	var spot := field.find_spawn_point()
+	var far := spot + Vector3(float(TerrainSpec.CHUNK_SIZE) * 40.0, 0.0, 0.0)
+
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	terrain.follow(spot)
+	for _frame in Terrain.BAKES_IN_FLIGHT:
+		terrain._process(1.0 / 60.0)
+	terrain.follow(far)
+	var deadline := Time.get_ticks_msec() + 20000
+	while not terrain.is_idle() and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	var stranded := 0
+	for coord: Vector2i in terrain._chunks:
+		var gone: Vector2i = coord - terrain._centre
+		if TerrainSpec.ring_for(maxi(absi(gone.x), absi(gone.y))) < 0:
+			stranded += 1
+	_expect(stranded == 0, "%d chunks stand out of range after the player moved on" % stranded)
+	terrain.queue_free()
+
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+	forest.follow(spot)
+	for _frame in Vegetation.BAKES_IN_FLIGHT:
+		forest._process(1.0 / 60.0)
+	forest.follow(far)
+	deadline = Time.get_ticks_msec() + 20000
+	while not forest.is_idle() and Time.get_ticks_msec() < deadline:
+		forest._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	var lost := 0
+	for coord: Vector2i in forest._tiles:
+		if (coord - forest._centre).length_squared() > Vegetation.TREE_RADIUS * Vegetation.TREE_RADIUS:
+			lost += 1
+	_expect(lost == 0, "%d tiles of trees stand out of range after the player moved on" % lost)
+	forest.queue_free()
+
+## Feelers are for animals the player can see; patience starts afresh on
+## arrival; legs are found once; and a sidestep does not flip-flop the heading.
+func _check_the_feelers_are_cheap_and_steady() -> void:
+	print("the feelers are cheap and steady")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+
+	var wall := StaticBody3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.2, 1.2, 30.0)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	wall.add_child(collider)
+	wall.position = spot + Vector3(2.0, 0.6, 0.0)
+	get_root().add_child(wall)
+	await physics_frame
+	await physics_frame
+
+	# Near the player the wall is felt.
+	var dog := animals.put_one_at(AnimalKinds.DOG, spot)
+	var node: Node3D = dog["node"]
+	animals.follow(spot)
+	var near_run := -INF
+	for _tick in 240:
+		dog["target"] = spot + Vector3(6.0, 0.0, 0.0)
+		dog["rest"] = 5.0
+		animals._step(dog, 1.0 / 30.0)
+		near_run = maxf(near_run, node.global_position.x - spot.x)
+	_expect(near_run < 1.9, "near the player the wall stops the dog: %.2f m" % near_run)
+	var legs: Array = dog.get("legs", [])
+	_expect(legs.size() == 4, "the dog's four legs are kept in its dictionary: %d" % legs.size())
+
+	# A long way off it is not worth asking the physics world.
+	animals.follow(spot + Vector3(Animals.FEEL_RANGE + 40.0, 0.0, 0.0))
+	_expect(not animals._worth_feeling_for(node.position), "a dog beyond %.0f m is not felt for" % Animals.FEEL_RANGE)
+	animals.follow(spot)
+	_expect(animals._worth_feeling_for(node.position), "and one beside the player is")
+
+	# A stale count must not survive a rest.
+	var rester := animals.put_one_at(AnimalKinds.DOG, spot)
+	rester["stuck"] = 1.4
+	rester["target"] = (rester["node"] as Node3D).position
+	rester["rest"] = 5.0
+	animals._step(rester, 1.0 / 30.0)
+	_expect(float(rester["stuck"]) == 0.0, "arriving clears the stuck timer")
+
+	# Along the wall the heading turns smoothly, without a flip-flop.
+	var walker := animals.put_one_at(AnimalKinds.DOG, spot + Vector3(0.0, 0.0, -4.0))
+	var walker_node: Node3D = walker["node"]
+	var last := float(walker.get("heading", walker_node.rotation.y))
+	var reversals := 0
+	var last_turn := 0.0
+	for _tick in 240:
+		walker["target"] = spot + Vector3(6.0, 0.0, 2.0)
+		walker["rest"] = 5.0
+		animals._step(walker, 1.0 / 60.0)
+		var turn := angle_difference(last, float(walker["heading"]))
+		if absf(turn) > deg_to_rad(0.5):
+			if absf(last_turn) > 0.0 and signf(turn) != signf(last_turn):
+				reversals += 1
+			last_turn = turn
+		last = float(walker["heading"])
+	_expect(reversals < 40, "walking along a wall the heading reverses %d times" % reversals)
+	wall.queue_free()
+	animals.queue_free()
+## The wheel's hoops stay outside a gondola's roof, and the ticket flow lets go
+## of what it is no longer about.
+func _check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child() -> void:
+	print("the wheel's hoops clear a gondola's roof, and a ticket follows the ride")
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	var rim: MeshInstance3D = null
+	for child in wheel._rim.get_children():
+		if child is MeshInstance3D:
+			rim = child
+	_expect(rim != null, "the rim is drawn")
+	if rim != null:
+		# The roof reaches 1.25 car-lengths either side of the pin; nothing of
+		# the rim that is out beside the wheel may come in past that.
+		var roof := 1.25 * FerrisWheel.CAR_SCALE
+		var innermost := INF
+		for point in rim.mesh.get_faces():
+			if absf(point.x) > 1.0:
+				innermost = minf(innermost, absf(point.x))
+		_expect(
+			innermost >= roof,
+			"the hoops stop %.2f m out, the roof %.2f m: they clip" % [innermost, roof]
+		)
+	wheel.queue_free()
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("_wheel_rider_paid and aboard != &\"wheel\""),
+		"a wheel ticket paid for and never used is let go of"
+	)
+	_expect(
+		game.contains("_asked_ride != aboard"),
+		"a question about one ride is withdrawn when the child steps onto another"
+	)
+## A line of text nobody asks for is a line somebody still has to translate and
+## keep in step. A key counts as used when its name appears in quotes anywhere in
+## the code; the families built from a kind at run time (shop_, item_, mount_
+## and so on) are looked up by their prefix, so they are left to their own
+## callers.
+func _check_no_text_goes_unused() -> void:
+	print("no text goes unused")
+	var code := ""
+	for path in _find_scripts("res://src"):
+		if path.ends_with("ci_check.gd") or path.ends_with("text.gd"):
+			continue
+		code += _code_only(FileAccess.get_file_as_string(path))
+	var unused: Array[String] = []
+	for key: String in Text.STRINGS:
+		var built := false
+		for prefix: String in ["shop_", "animal_", "item_", "part_", "build_", "mount_", "back_", "today_", "place_"]:
+			if key.begins_with(prefix):
+				built = true
+		# Labels for buttons that are drawn as pictures now; older checks still
+		# read them in every language, so they stay until those are retired.
+		if ["ui_chop", "ui_talk", "ui_feed_fire", "ui_sleep"].has(key):
+			built = true
+		if not built and not code.contains("\"%s\"" % key):
+			unused.append(key)
+	_expect(unused.is_empty(), "every text key is used by the code")
+	for key in unused:
+		_fail("text key '%s' is never used" % key)
+
+## Rubbing the name out and tapping away must keep the old name without a word;
+## a long announcement or question must wrap inside a narrow screen; and the
+## shop's price must not be singular in French.
+func _check_the_name_the_words_and_the_shop_note_hold_up() -> void:
+	print("the name, the words and the shop note hold up")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud.set_player_name("Aava")
+	var sent: Array[String] = []
+	hud.name_chosen.connect(func(typed: String) -> void: sent.append(typed))
+	hud._name_field.text = "   "
+	hud._name_field.focus_exited.emit()
+	hud._name_field.text_submitted.emit("")
+	_expect(sent.is_empty(), "an empty name is never sent")
+	_expect(hud._name_field.text == "Aava", "the old name goes back into the field")
+
+	Text.set_language(Text.RU)
+	hud.announce("это очень длинная строка, которая не поместится в один ряд на узком телефоне", 3.0)
+	hud.ask("это очень длинный вопрос, который не поместится в один ряд на узком телефоне?")
+	var safe_width := hud._safe_area().size.x
+	_expect(hud._message.size.x <= safe_width + 0.5, "the announcement is no wider than the safe area")
+	_expect(hud._message.get_line_count() > 1 or hud._message.get_minimum_size().x <= safe_width,
+		"the announcement wraps rather than clips")
+	_expect(hud._asking.size.x <= safe_width + 0.5, "the question panel fits the safe area")
+	Text.set_language(Text.EN)
+	hud.queue_free()
+
+	Text.set_language(Text.FR)
+	var note := Text.format("shop_buys", [ShopStock.pays_for(ItemKinds.WOOL)])
+	Text.set_language(Text.EN)
+	_expect(note.contains("pièces"), "the French shop note says pièces for a price above one")
+## A voice packet that outlives its sender must not reopen a speaker for them;
+## an unshirted guest's colour is refreshed when the visit begins and ends; and
+## a piece arriving from the other child is checked for room like a local one.
+func _check_the_network_keeps_its_promises() -> void:
+	print("the network keeps its promises")
+	var session := Session.new()
+	get_root().add_child(session)
+	var voice := Voice.new()
+	get_root().add_child(voice)
+	voice.attach(session)
+	var packet := PackedByteArray()
+	packet.resize(Voice.FRAMES_PER_PACKET * 2)
+	voice._send_voice(packet)
+	_expect(voice._speakers.is_empty(), "a packet from nobody in the valley opens no speaker")
+	voice.queue_free()
+	session.queue_free()
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("session.joined.connect(_refresh_own_shirt)")
+		and game.contains("session.closed.connect(_refresh_own_shirt)"),
+		"the child's own shirt is worked out again when a visit begins and ends"
+	)
+	var built := game.substr(game.find("func _on_remote_built"))
+	built = built.substr(0, built.find("\nfunc ", 1))
+	_expect(
+		built.contains("structures.is_clear(") and built.find("is_clear(") < built.find("structures.place("),
+		"a piece from the other child is only placed where there is room"
+	)
+
+func _check_damaged_saves_load_what_is_valid() -> void:
+	# A journal whose tables are the wrong type loads as an empty one.
+	var journal := Journal.new()
+	journal.from_data({"lifetime": [1, 2], "last_visit": "x", "visits": 3})
+	_expect(journal.visits == 3 and journal.lifetime[Journal.ALL[0]] == 0, "a journal with lists for tables loads what it can")
+
+	# A player index with the wrong types keeps the valid parts.
+	var before := ""
+	if FileAccess.file_exists(Profiles.INDEX):
+		before = FileAccess.get_file_as_string(Profiles.INDEX)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(Profiles.FOLDER))
+	var file := FileAccess.open(Profiles.INDEX, FileAccess.WRITE)
+	file.store_string(JSON.stringify({
+		"version": Profiles.VERSION,
+		"players": ["Kai", 7, ["x"]],
+		"maps": {"home": 5, "bad": "x"},
+		"worlds": {"home-1": {"map": "home", "owner": "Kai", "guests": "Lu"}, "home-2": 4, "home-3": []},
+	}))
+	file.close()
+	var damaged := Profiles.new()
+	damaged.load_index()
+	_expect(damaged.players == ["Kai"], "an index with junk among the players keeps the real one")
+	_expect(damaged.worlds.has("home-1") and not damaged.worlds.has("home-2") and not damaged.worlds.has("home-3"), "worlds that are not objects are dropped, the others kept")
+	_expect((damaged.worlds["home-1"]["guests"] as Array).is_empty(), "guests that are not a list are ignored")
+	file = FileAccess.open(Profiles.INDEX, FileAccess.WRITE)
+	file.store_string(JSON.stringify({"version": Profiles.VERSION, "players": "Kai", "maps": [], "worlds": 3}))
+	file.close()
+	damaged.load_index()
+	_expect(damaged.players.is_empty() and damaged.maps.has(Profiles.HOME_MAP), "an index with the wrong container types loads empty without erroring")
+	if before.is_empty():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(Profiles.INDEX))
+	else:
+		file = FileAccess.open(Profiles.INDEX, FileAccess.WRITE)
+		file.store_string(before)
+		file.close()
+
+	# A rename that fails leaves no scratch file behind.
+	var blocked := Profiles.FOLDER + "/blocked-check.json"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(blocked))
+	var wrote := SaveGame.write({"a": 1}, blocked)
+	_expect(not wrote, "a save that cannot be put in place reports failure")
+	_expect(not FileAccess.file_exists(blocked + ".writing"), "and does not leave its scratch file behind")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(blocked))
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect("_may_save" in game and "or not _may_save" in game, "a --seed run does not write the child's save")

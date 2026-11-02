@@ -39,6 +39,12 @@ var _active_index := -1
 var _fingers: Dictionary = {}
 var _pinch_gap := -1.0
 
+## Whether a second finger has joined since the pad was last empty. The gap
+## alone cannot say so: it resets when either finger lifts, so lifting the
+## second finger first and the first one after looked like a plain tap, and
+## ended every pinch while building by placing a piece.
+var _was_pinching := false
+
 ## How far a finger may travel and still count as a tap rather than a drag.
 ## Generous, because a child's finger always moves a little.
 const TAP_SLOP := 26.0
@@ -57,6 +63,8 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_fingers[event.index] = event.position
+			if _fingers.size() >= 2:
+				_was_pinching = true
 			if _active_index < 0:
 				_active_index = event.index
 				_press_at = event.position
@@ -66,12 +74,14 @@ func _gui_input(event: InputEvent) -> void:
 			if event.index == _active_index:
 				# A single finger that went down and came up without going
 				# anywhere is a tap, not a look-around.
-				if _travelled <= TAP_SLOP and _pinch_gap < 0.0:
+				if _travelled <= TAP_SLOP and not _was_pinching:
 					tapped.emit()
 				_active_index = -1
 			# A pinch ends the moment either finger lifts, so the next one
 			# starts from a fresh gap instead of jumping.
 			_pinch_gap = -1.0
+			if _fingers.is_empty():
+				_was_pinching = false
 		accept_event()
 		return
 

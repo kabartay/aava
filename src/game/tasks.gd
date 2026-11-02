@@ -82,5 +82,7 @@ func to_data() -> Dictionary:
 	return {"step": int(step), "sticks_at_start": _sticks_at_start}
 
 func from_data(data: Dictionary) -> void:
-	step = int(data.get("step", 0)) as Step
+	# Clamped, because a step past FREE is neither a task nor finished: no
+	# instruction is shown and the thread never ends.
+	step = clampi(int(data.get("step", 0)), Step.GATHER, Step.FREE) as Step
 	_sticks_at_start = int(data.get("sticks_at_start", -1))

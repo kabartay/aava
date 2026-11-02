@@ -76,11 +76,6 @@ const STRINGS := {
 	# Things you can build.
 	"build_sapling": {EN: "sapling", FR: "jeune arbre", RU: "саженец"},
 	"build_pine": {EN: "fir", FR: "sapin", RU: "ёлка"},
-	"hint_pine": {
-		EN: "grows taller than the round ones, and slower",
-		FR: "pousse plus haut que les ronds, et plus lentement",
-		RU: "растёт выше круглых и медленнее",
-	},
 	"part_bed": {EN: "bed", FR: "lit", RU: "кровать"},
 	"ui_sleep": {
 		EN: "sleep", FR: "dormir", RU: "спать",
@@ -105,9 +100,6 @@ const STRINGS := {
 	},
 	"ui_feed_fire": {
 		EN: "add wood", FR: "mettre du bois", RU: "подбросить дров",
-	},
-	"say_fire_lit": {
-		EN: "the fire is lit", FR: "le feu est allumé", RU: "костёр разгорелся",
 	},
 	"say_fire_fed": {
 		EN: "burning for %d more minutes",
@@ -146,11 +138,6 @@ const STRINGS := {
 	"part_post": {EN: "post", FR: "poteau", RU: "столб"},
 
 	# Buttons.
-	"ui_bag": {EN: "bag", FR: "sac", RU: "рюкзак"},
-	"ui_build": {EN: "build", FR: "bâtir", RU: "строить"},
-	"ui_close": {EN: "x", FR: "x", RU: "x"},
-	"ui_jump": {EN: "jump", FR: "sauter", RU: "прыжок"},
-	"ui_kick": {EN: "kick", FR: "tirer", RU: "удар"},
 	"ui_things": {EN: "things", FR: "objets", RU: "вещи"},
 	"ui_house": {EN: "house", FR: "maison", RU: "дом"},
 	"ui_language": {EN: "language", FR: "langue", RU: "язык"},
@@ -165,18 +152,11 @@ const STRINGS := {
 		FR: "bonjour %s — c'est le nom qu'ils verront",
 		RU: "привет, %s — это имя они и увидят",
 	},
-	"say_name_taken": {
-		EN: "%s is already somebody here — pick another",
-		FR: "%s est déjà quelqu'un ici — choisis-en un autre",
-		RU: "%s здесь уже есть — выбери другое",
-	},
 	"say_name_no": {
 		EN: "letters, numbers and spaces, up to 16",
 		FR: "lettres, chiffres et espaces, 16 au plus",
 		RU: "буквы, цифры и пробелы, не больше 16",
 	},
-	"ui_reset": {EN: "start again", FR: "recommencer", RU: "начать заново"},
-	"ui_settings": {EN: "settings", FR: "réglages", RU: "настройки"},
 	"ui_back": {EN: "back", FR: "retour", RU: "назад"},
 	"ui_danger": {EN: "for a grown-up", FR: "pour un adulte", RU: "для взрослого"},
 	"ui_reset_warning": {
@@ -231,11 +211,6 @@ const STRINGS := {
 		EN: "wait, and the birds will come",
 		FR: "attends, les oiseaux viendront",
 		RU: "подожди — прилетят птицы",
-	},
-	"task_free": {
-		EN: "the valley is yours",
-		FR: "la vallée est à toi",
-		RU: "долина твоя",
 	},
 
 	# Animals, and what they are asking for.
@@ -400,9 +375,6 @@ const STRINGS := {
 	"say_left": {
 		EN: "%s went home", FR: "%s est rentré", RU: "%s ушёл домой",
 	},
-	"ui_give_stick": {
-		EN: "give a stick", FR: "donner un bâton", RU: "дать ветку",
-	},
 	"back_welcome": {
 		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
 	},
@@ -415,12 +387,7 @@ const STRINGS := {
 	"place_cafe": {
 		EN: "cafe", FR: "café", RU: "кафе",
 	},
-	"ui_swing": {
-		EN: "swing", FR: "balancer", RU: "качаться",
-	},
-	"ui_eat": {
-		EN: "eat", FR: "manger", RU: "поесть",
-	},
+	"place_shop": {EN: "the shop", FR: "la boutique", RU: "магазин"},
 	"say_lantern_on": {EN: "the lantern is lit", FR: "la lanterne est allumée", RU: "фонарь зажжён"},
 	"say_lantern_off": {EN: "the lantern is out", FR: "la lanterne est éteinte", RU: "фонарь погашен"},
 	"say_sheared": {
@@ -448,9 +415,6 @@ const STRINGS := {
 	},
 	"say_no_coins": {
 		EN: "you need %d coins", FR: "il te faut %d pièces", RU: "нужно монет: %d",
-	},
-	"ui_shoot": {
-		EN: "shoot", FR: "tirer", RU: "стрелять",
 	},
 	"say_gold": {
 		EN: "gold! +%d", FR: "dans l'or ! +%d", RU: "в золото! +%d",
@@ -485,12 +449,6 @@ const STRINGS := {
 	"mount_motorcycle_on": {EN: "motorcycle", FR: "moto", RU: "на мотоцикле"},
 	"mount_quad_on": {EN: "quad bike", FR: "quad", RU: "на квадроцикле"},
 	"mount_boat_on": {EN: "boat", FR: "barque", RU: "на лодке"},
-	"ui_ride": {
-		EN: "ride", FR: "monter", RU: "сесть",
-	},
-	"ui_getoff": {
-		EN: "get off", FR: "descendre", RU: "слезть",
-	},
 	"say_mounted": {
 		EN: "you are riding the %s", FR: "tu montes le %s", RU: "ты едешь %s",
 	},
@@ -500,14 +458,8 @@ const STRINGS := {
 	"say_felled": {
 		EN: "timber! +%d wood", FR: "et voilà ! +%d bois", RU: "готово! +%d дерева",
 	},
-	"ui_whistle": {
-		EN: "whistle", FR: "siffler", RU: "свистнуть",
-	},
 	"say_whistled": {
 		EN: "they heard you", FR: "ils t'ont entendu", RU: "тебя услышали",
-	},
-	"ui_drink": {
-		EN: "drink", FR: "boire", RU: "попить",
 	},
 	"say_filled": {
 		EN: "bottle full", FR: "gourde pleine", RU: "бутылка полная",
@@ -531,12 +483,12 @@ const STRINGS := {
 	"ui_sell": {EN: "sell", FR: "vendre", RU: "продать"},
 	"shop_buys": {
 		EN: "the shop buys it, %d a piece",
-		FR: "la boutique l'achète, %d pièce",
-		RU: "магазин берёт по %d монете",
+		# Plural in French for every price the shop pays (it pays four), and
+		# the count after the noun in Russian, as the other coin texts do:
+		# "по 4 монете" is wrong for anything but one.
+		FR: "la boutique l'achète, %d pièces l'unité",
+		RU: "магазин берёт, монет за штуку: %d",
 	},
-	"place_shop": {EN: "the shop", FR: "la boutique", RU: "магазин"},
-	"ui_coins": {EN: "coins", FR: "pièces", RU: "монеты"},
-	"ui_owned": {EN: "yours", FR: "à toi", RU: "твоё"},
 	"say_bought": {EN: "%s is yours", FR: "%s est à toi", RU: "%s теперь твой"},
 	# %d is how many of the thing a child may have at once.
 	"say_enough_of_those": {
@@ -637,7 +589,6 @@ const STRINGS := {
 	"why_reserved": {EN: "not here", FR: "pas ici", RU: "не здесь"},
 	# The pool's turnstile.
 	"say_ticket": {EN: "pool: %d coins to go in", FR: "piscine : %d pièces pour entrer", RU: "бассейн: вход %d монет"},
-	"ui_rides": {EN: "RIDES", FR: "MANÈGES", RU: "АТТРАКЦИОНЫ"},
 	"ask_buy_ride": {
 		EN: "buy a ride for %d coins?", FR: "acheter un tour pour %d pièces ?",
 		RU: "купить поездку за %d монет?"
@@ -653,10 +604,6 @@ const STRINGS := {
 	"say_park_bought": {
 		EN: "ticket bought — you have %d", FR: "billet acheté — tu en as %d",
 		RU: "билет куплен — у тебя их %d"
-	},
-	"say_park_needs_ticket": {
-		EN: "this ride wants a ticket", FR: "ce manège demande un billet",
-		RU: "на этот аттракцион нужен билет"
 	},
 	"say_wheel_called": {
 		EN: "a gondola is coming round to you",
@@ -688,7 +635,6 @@ const STRINGS := {
 		RU: "приятной поездки — билетов осталось: %d"
 	},
 	"say_welcome_pool": {EN: "in you go — have a swim!", FR: "entre — bonne baignade !", RU: "проходи — поплавай!"},
-	"ui_ticket": {EN: "ticket", FR: "billet", RU: "билет"},
 	# %s is the list of missing materials.
 	"why_need": {EN: "need %s", FR: "il faut %s", RU: "нужно %s"},
 

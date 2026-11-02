@@ -212,6 +212,7 @@ func _init() -> void:
 	_build_asking()
 
 	_message = _label(30, Color(1.0, 1.0, 1.0))
+	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_message.modulate.a = 0.0
 	add_child(_message)
 
@@ -590,7 +591,10 @@ func _build_menu() -> VBoxContainer:
 			_place_caret_at(event.position.x)
 	)
 	_name_field.text_submitted.connect(func(typed: String) -> void:
-		name_chosen.emit(typed)
+		# An empty field is a child who rubbed the name out and changed their
+		# mind, not a name: it keeps the old one, and says nothing.
+		if not typed.strip_edges().is_empty():
+			name_chosen.emit(typed)
 		_name_field.release_focus()
 		# Put back whatever was accepted. Dismissing the on-screen keyboard
 		# leaves the field empty, so a child who typed their name, pressed the
@@ -602,7 +606,12 @@ func _build_menu() -> VBoxContainer:
 	_name_field.focus_exited.connect(func() -> void:
 		if DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
 			DisplayServer.virtual_keyboard_hide()
-		if _name_field.text.strip_edges() != _player_name:
+		# Left empty it was once sent as a name, and the game answered a child
+		# who had typed nothing with "letters, numbers and spaces". The old
+		# name stays, and goes back into the field.
+		if _name_field.text.strip_edges().is_empty():
+			_name_field.text = _player_name
+		elif _name_field.text.strip_edges() != _player_name:
 			name_chosen.emit(_name_field.text))
 	column.add_child(_name_field)
 
@@ -908,6 +917,9 @@ func _shop_tapped(item: StringName) -> void:
 		_shop_name.text = ItemKinds.label(item)
 		_shop_note.text = Text.format("shop_buys", [ShopStock.pays_for(item)])
 		_refresh_shop_buy()
+		# Not left showing what the last thing tapped could be sold back for:
+		# its button would go on saying so under the name of something else.
+		_refresh_shop_sell_back()
 		_shop_mark_chosen()
 		return
 	_shop_name.text = ShopStock.label(item)
@@ -1337,6 +1349,7 @@ func _build_asking() -> void:
 	_question.add_theme_font_size_override("font_size", 26)
 	_question.add_theme_color_override("font_color", Color(1.0, 0.97, 0.90))
 	_question.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_question.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_question)
 
 	var answers := HBoxContainer.new()
@@ -1677,6 +1690,19 @@ func _layout() -> void:
 	# The question, in the middle of the screen and a little above centre:
 	# where a child is already looking, and clear of both thumbs.
 	if _asking.visible:
+		# A wrapping label has no width of its own, so it is given one: the
+		# line as it would be written out, or what the safe area leaves after
+		# the panel's margins, whichever is less. A normal phone therefore
+		# sees the same one-line panel as before.
+		var font := _question.get_theme_font("font")
+		var line := font.get_string_size(
+			_question.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			_question.get_theme_font_size("font_size")
+		).x
+		var room_for_text := maxf(safe.size.x - 40.0 - 24.0, 120.0)
+		_question.custom_minimum_size.x = minf(ceilf(line) + 2.0, room_for_text)
+		_question.size = Vector2(_question.custom_minimum_size.x, 0.0)
+		_asking.size = Vector2.ZERO
 		_asking.size = _asking.get_combined_minimum_size()
 		_asking.position = Vector2(
 			safe.position.x + (safe.size.x - _asking.size.x) * 0.5,
@@ -1894,8 +1920,12 @@ func _layout() -> void:
 	# for this layout, so it trailed one layout behind.
 	_storey_label.position = Vector2(0.0, _status.position.y - 36.0)
 
-	_message.size.x = view.x
-	_message.position = Vector2(0.0, safe.position.y + safe.size.y * 0.26)
+	# Wrapped inside the safe area, so a long line in Russian runs onto a
+	# second row instead of off both edges of a narrow phone. The height is
+	# let go first: a label keeps the tall size it was given for a long
+	# announcement, and would go on being tall for a short one.
+	_message.size = Vector2(safe.size.x, 0.0)
+	_message.position = Vector2(safe.position.x, safe.position.y + safe.size.y * 0.26)
 
 ## The safe area arrives in physical screen pixels, so it has to be pulled
 ## through the stretch transform to mean anything in the HUD's coordinates —
