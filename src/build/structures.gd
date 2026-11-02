@@ -74,6 +74,11 @@ func is_clear(
 	for record in _records:
 		var other: Vector3 = record["position"]
 		var other_kind: StringName = record["kind"]
+		# Stairs are climbed, so what is laid over them must leave the head
+		# room: a floor straight above the stairs is a ceiling a child walks
+		# into a third of the way up.
+		if layer == &"floor" and _under_stairs(kind, world_position, other_kind, other, keys, record):
+			return false
 		# Different storeys never conflict: a wall upstairs stands directly over
 		# the wall below it, and that is the whole point of building upwards.
 		if absf(other.y - world_position.y) > HouseParts.STOREY * 0.5:
@@ -94,6 +99,38 @@ func is_clear(
 		if Vector2(other.x - world_position.x, other.z - world_position.z).length() < minimum * 0.5:
 			return false
 	return true
+
+## Whether a floor or stairs at `at` and a record of the floor layer make a
+## staircase with something over it: the one is stairs, and the other is a
+## storey above it in the same square.
+func _under_stairs(
+	kind: StringName, at: Vector3, other_kind: StringName, other: Vector3,
+	keys: Array[Vector2i], record: Dictionary
+) -> bool:
+	if HouseParts.layer(other_kind) != &"floor":
+		return false
+	if kind != HouseParts.STAIRS and other_kind != HouseParts.STAIRS:
+		return false
+	# The stairs are the lower of the two.
+	var rise := -INF
+	if kind == HouseParts.STAIRS:
+		rise = other.y - at.y
+	if other_kind == HouseParts.STAIRS:
+		rise = maxf(rise, at.y - other.y)
+	if rise < HouseParts.STOREY * 0.5 or rise > HouseParts.STOREY * 1.5:
+		return false
+	return _keys_of(record).any(func(key: Vector2i) -> bool: return keys.has(key))
+
+## Whether something already built stands over these stairs, or a floor a
+## storey above them.
+func stairs_blocked_above(kind: StringName, at: Vector3, spin: float) -> bool:
+	if HouseParts.layer(kind) != &"floor":
+		return false
+	var keys := HouseParts.keys_of(kind, at, spin)
+	for record in _records:
+		if _under_stairs(kind, at, record["kind"], record["position"], keys, record):
+			return true
+	return false
 
 func _keys_of(record: Dictionary) -> Array[Vector2i]:
 	return HouseParts.keys_of(
@@ -117,6 +154,92 @@ func house_pieces_near(world_position: Vector3, reach: float) -> Array[Dictionar
 ## a piece that a tap may already have taken down.
 func has(record: Dictionary) -> bool:
 	return _records.has(record)
+
+## Everything that stands on a piece and would hang in the air without it, the
+## highest first, and without the piece itself:
+##
+## - the wall a storey up, on the wall (and the one above that);
+## - the roofs and the chimney on a wall's top, unless some other wall or post
+##   still holds them up — taking out one wall for a door does not take the
+##   roof off;
+## - what is on a floor: the bed, the table, the chair, the rug, the lamp.
+##
+## Found again through what is found, so a roof on a wall on a wall comes too.
+func standing_on(record: Dictionary) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	if not has(record):
+		return found
+	var gone: Array[Dictionary] = [record]
+	var next := 0
+	while next < gone.size():
+		var base := gone[next]
+		next += 1
+		for other in _records:
+			if gone.has(other) or not _rests_on(other, base, gone):
+				continue
+			gone.append(other)
+			found.append(other)
+	found.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return (a["position"] as Vector3).y > (b["position"] as Vector3).y)
+	return found
+
+## Whether `upper` stands on `base`, given that everything in `gone` is being
+## taken down with it.
+func _rests_on(upper: Dictionary, base: Dictionary, gone: Array[Dictionary]) -> bool:
+	var base_kind: StringName = base["kind"]
+	var upper_kind: StringName = upper["kind"]
+	var base_layer := HouseParts.layer(base_kind)
+	var upper_layer := HouseParts.layer(upper_kind)
+	if base_layer == &"" or upper_layer == &"":
+		return false
+	var low: Vector3 = base["position"]
+	var high: Vector3 = upper["position"]
+	var rise := high.y - low.y
+	if base_layer == &"wall" or base_layer == &"post":
+		if upper_layer == base_layer:
+			return (
+				absf(rise - HouseParts.STOREY) < HouseParts.STOREY * 0.25
+				and HouseParts.key_of(high) == HouseParts.key_of(low)
+			)
+		if HouseParts.is_roof(upper_kind) or upper_kind == HouseParts.CHIMNEY:
+			var top := low.y + HouseParts.height(base_kind)
+			return (
+				absf(high.y - top) < 0.1 and _covers(upper, HouseParts.key_of(low))
+				and not _held_up_otherwise(upper, gone)
+			)
+		return false
+	if base_layer == &"floor":
+		# On the boards: a hand's breadth above the floor, in its square.
+		var furnishing := upper_layer == &"furniture" or upper_layer == &"seat" or upper_layer == &"rug"
+		return (
+			furnishing and rise > 0.05 and rise < HouseParts.STOREY * 0.5
+			and HouseParts.key_of(high) == HouseParts.key_of(low)
+		)
+	return false
+
+## Whether a roof, or a chimney, is over the wall or post at this grid point:
+## in the square beside it or on the square it covers.
+func _covers(roof: Dictionary, wall_key: Vector2i) -> bool:
+	for key in _keys_of(roof):
+		var offset := key - wall_key
+		if absi(offset.x) <= 1 and absi(offset.y) <= 1:
+			return true
+	return false
+
+## Whether a wall or a post that is not going down holds a roof at its height.
+func _held_up_otherwise(roof: Dictionary, gone: Array[Dictionary]) -> bool:
+	var level := float((roof["position"] as Vector3).y)
+	for record in _records:
+		var layer := HouseParts.layer(record["kind"])
+		if (layer != &"wall" and layer != &"post") or gone.has(record):
+			continue
+		var at: Vector3 = record["position"]
+		if (
+			absf(at.y + HouseParts.height(record["kind"]) - level) < 0.1
+			and _covers(roof, HouseParts.key_of(at))
+		):
+			return true
+	return false
 
 ## What a standing piece cost, so it can be given back exactly: a whole roof
 ## cost every square it covers.
@@ -473,11 +596,17 @@ var _nearest_record := {}
 
 ## The nearest piece that also stands in the other child's valley, or an empty
 ## record. The only kind of piece a removal from the other phone may touch.
-func nearest_shared(world_position: Vector3, reach: float) -> Dictionary:
+##
+## Told what was taken down, only a piece of that kind is a match, and one on
+## the same level: a chair and its table, or a bed and its floor, share a spot.
+## An empty kind is a removal from a phone that does not say, matched by place.
+func nearest_shared(world_position: Vector3, reach: float, kind := &"") -> Dictionary:
 	var best := {}
 	var best_distance := reach
 	for record in _records:
 		if not bool(record.get("shared", false)):
+			continue
+		if kind != &"" and record["kind"] != kind:
 			continue
 		var offset: Vector3 = record["position"] - world_position
 		offset.y *= 0.6
@@ -573,6 +702,21 @@ func place(
 		_recompute_groves()
 	return record
 
+## Whether a child can stand on this piece rather than walk through it: any
+## stairs, and a floor laid a storey or more above the ground. A floor on the
+## ground stays a drawing on the grass — a lip to catch a foot on at every
+## doorway, and nothing is under it to hold up — and a floor upstairs is where
+## the stairs lead. The ground under a floor is the terrain's, so on a hillside
+## a floor uphill of the first is still judged by its own height above it.
+func _carries(record: Dictionary) -> bool:
+	var kind: StringName = record["kind"]
+	if kind == HouseParts.STAIRS:
+		return true
+	if kind != HouseParts.FLOOR:
+		return false
+	var at: Vector3 = record["position"]
+	return at.y - field.height_at(at.x, at.z) > HouseParts.STOREY * 0.625
+
 func _spawn_node(record: Dictionary) -> void:
 	var node := MeshInstance3D.new()
 	var kind: StringName = record["kind"]
@@ -585,7 +729,7 @@ func _spawn_node(record: Dictionary) -> void:
 	)
 	node.material_override = _material
 	node.transform = Transform3D(Basis(Vector3.UP, record["spin"]), record["position"])
-	if HouseParts.is_house_part(kind) and HouseParts.is_solid(kind):
+	if HouseParts.is_house_part(kind) and (HouseParts.is_solid(kind) or _carries(record)):
 		HouseParts.add_collision(node, kind)
 	if kind == HouseParts.LAMP:
 		_add_lamp_light(record, node)

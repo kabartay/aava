@@ -302,6 +302,15 @@ func _initialize() -> void:
 	_check_a_roof_needs_walls_of_one_height_and_trees_stop_a_house()
 	await _check_a_wall_corner_has_no_notch_and_a_moved_roof_keeps_its_height()
 	_check_a_lamp_lights_at_night()
+	_check_a_piece_taken_down_takes_what_stands_on_it()
+	_check_a_removal_names_the_piece_it_takes_down()
+	_check_a_plan_shows_which_of_its_pieces_are_blocked()
+	_check_the_cafe_and_the_shop_have_roofs_and_the_cafe_a_lamp()
+	_check_a_free_meal_at_home_comes_once_in_a_while()
+	_check_the_wall_buttons_show_the_material_chosen()
+	await _check_the_build_hud_keeps_clear_of_the_map()
+	await _check_a_child_walks_up_the_stairs_onto_the_upper_floor()
+	_check_the_chair_does_not_snag()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -15989,9 +15998,15 @@ func _check_a_plan_the_bag_cannot_afford_is_refused() -> void:
 		_free_the_yard(yard)
 		return
 	var bill := Plans.cost(Plans.CAFE)
-	# Short of exactly two things: every stick, but no reed and one stone fewer.
-	_expect(bill.size() == 2 and int(bill[&"reed"]) >= 4, "a cafe is sticks and reeds: %s" % [bill])
+	# Short of exactly one thing: every stick and stone, but three reeds fewer.
+	# The cafe's lamp is one stone and one stick, so the bill is three things
+	# now, and the stone has to be in the bag for the shortage to be the reeds'.
+	_expect(
+		bill.size() == 3 and int(bill[&"reed"]) >= 4 and int(bill.get(&"stone", 0)) >= 1,
+		"a cafe is sticks, reeds and the lamp's stone: %s" % [bill]
+	)
 	inventory.add(&"stick", int(bill[&"stick"]))
+	inventory.add(&"stone", int(bill[&"stone"]))
 	inventory.add(&"reed", int(bill[&"reed"]) - 3)
 	var short := Plans.missing(bill, inventory)
 	_expect(
@@ -16901,5 +16916,411 @@ func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
 	over_flight.append_array(over_path)
 	_expect(Pitch.goal_ahead(over_flight, Ball.RADIUS, flat) < 0, "a full-power chip over the bar is not marked on target")
 	ball.free()
+
+## Taking down a piece takes down what stands on it, and says so to the game:
+## a wall with a wall a storey up, walls with a roof over them, a floor with a
+## bed or a table on it. They were left hanging in the air, the upper wall a
+## storey above nothing.
+func _check_a_piece_taken_down_takes_what_stands_on_it() -> void:
+	print("a piece taken down takes what stands on it")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var level := 5.0
+	var storey := HouseParts.STOREY
+	# A tower of three walls: the lowest brings down the two above it, the top
+	# one brings down nothing, and the highest comes first.
+	var ground_wall := structures.place(HouseParts.WALL, Vector3(40.0, level, 41.0), 0.0)
+	var second := structures.place(HouseParts.WALL_WINDOW, Vector3(40.0, level + storey, 41.0), 0.0)
+	var third := structures.place(HouseParts.WALL, Vector3(40.0, level + storey * 2.0, 41.0), 0.0)
+	var beside := structures.place(HouseParts.WALL, Vector3(42.0, level, 41.0), 0.0)
+	var over := structures.standing_on(ground_wall)
+	_expect(over.size() == 2 and over[0] == third and over[1] == second, "the wall under two walls holds both, the highest first (%d)" % over.size())
+	_expect(structures.standing_on(third).is_empty() and structures.standing_on(beside).is_empty(), "the top wall, and a wall beside, hold nothing")
+
+	# A room of four walls and its roof. One wall taken out for a door leaves
+	# the roof; the last wall to go takes it.
+	var middle := Vector3(60.0, level, 60.0)
+	var north := structures.place(HouseParts.WALL, middle + Vector3(0.0, 0.0, -1.0), 0.0)
+	var south := structures.place(HouseParts.WALL_DOOR, middle + Vector3(0.0, 0.0, 1.0), 0.0)
+	var west := structures.place(HouseParts.WALL, middle + Vector3(-1.0, 0.0, 0.0), PI * 0.5)
+	var east := structures.place(HouseParts.WALL_WINDOW, middle + Vector3(1.0, 0.0, 0.0), PI * 0.5)
+	var roof := structures.place(
+		HouseParts.ROOF_ROOM, middle + Vector3(0.0, storey, 0.0), 0.0, true, Vector2i.ONE
+	)
+	_expect(structures.standing_on(north).is_empty(), "a wall under a roof that other walls hold takes no roof with it")
+	structures.remove(north)
+	structures.remove(south)
+	structures.remove(west)
+	var last := structures.standing_on(east)
+	_expect(last.size() == 1 and last[0] == roof, "the last wall under a roof brings it down")
+
+	# A floor with a table, a chair and a rug on it, and a lamp and a sign that
+	# were set down at the floor's own level, not on its boards.
+	var boards := Vector3(80.0, level, 80.0)
+	var floor_piece := structures.place(HouseParts.FLOOR, boards, 0.0)
+	var on_it := Vector3(boards.x, level + HouseParts.FLOOR_TOP, boards.z)
+	structures.place(HouseParts.TABLE, on_it, 0.0)
+	structures.place(HouseParts.CHAIR, on_it, 0.0)
+	structures.place(HouseParts.RUG, on_it, 0.0)
+	structures.place(HouseParts.LAMP, Vector3(boards.x + 2.0, level + HouseParts.FLOOR_TOP, boards.z), 0.0)
+	structures.place(HouseParts.SIGN, boards, 0.0)
+	var furnished := structures.standing_on(floor_piece)
+	var kinds := {}
+	for record in furnished:
+		kinds[record["kind"]] = true
+	_expect(
+		furnished.size() == 3 and kinds.has(HouseParts.TABLE) and kinds.has(HouseParts.CHAIR) and kinds.has(HouseParts.RUG),
+		"a floor holds the table, the chair and the rug on it, and not the sign or the lamp beside (%s)" % [kinds.keys()]
+	)
+	_expect(structures.standing_on({"kind": HouseParts.WALL, "position": Vector3.ZERO}).is_empty(), "and a piece already gone holds nothing")
+
+	# What the game does with it: the upper pieces first, each told to the
+	# other phone, and the undo taking the last piece first.
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var take := loop.substr(loop.find("func _take_down("))
+	take = take.substr(0, take.find("\nfunc ", 1))
+	_expect(take.contains("standing_on(") and take.contains("_take_down_piece("), "the game takes down what stood on a piece, one piece at a time")
+	var undo := loop.substr(loop.find("func _on_undo("))
+	undo = undo.substr(0, undo.find("\nfunc ", 1))
+	_expect(undo.contains("group.reverse()"), "and an undo takes the last piece of a plan first")
+	structures.free()
+
+## A removal from the other phone says what was taken down as well as where,
+## because a chair and its table, or a bed and its floor, stand on one spot. A
+## phone that has not been updated says only the place, and is still obeyed.
+func _check_a_removal_names_the_piece_it_takes_down() -> void:
+	print("a removal names the piece it takes down")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	structures.sharing = true
+	var at := Vector3(30.0, 4.0, 30.0)
+	structures.place(HouseParts.TABLE, at, 0.0)
+	structures.place(HouseParts.CHAIR, at, 0.0)
+	var chair := structures.nearest_shared(at, 0.6, HouseParts.CHAIR)
+	var table := structures.nearest_shared(at, 0.6, HouseParts.TABLE)
+	_expect(not chair.is_empty() and chair["kind"] == HouseParts.CHAIR, "asked for the chair at the table's spot, the chair is found")
+	_expect(not table.is_empty() and table["kind"] == HouseParts.TABLE, "and asked for the table, the table")
+	_expect(structures.nearest_shared(at, 0.6, HouseParts.BED).is_empty(), "a bed was not there, and nothing else is taken for it")
+	_expect(not structures.nearest_shared(at, 0.6).is_empty(), "a removal that names nothing is matched by place, as it always was")
+	structures.free()
+
+	var session := Session.new()
+	var heard: Array = []
+	session.remote_removed.connect(func(place: Vector3, named: StringName) -> void: heard.append([place, named]))
+	session._send_removed(at, "chair")
+	session._send_removed(at)
+	_expect(heard.size() == 2 and heard[0][1] == &"chair" and heard[1][1] == &"", "the kind arrives with the place, and an old message arrives with none")
+	session.free()
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var piece := loop.substr(loop.find("func _take_down_piece("))
+	piece = piece.substr(0, piece.find("\nfunc ", 1))
+	_expect(piece.contains("report_removed(at, kind)"), "and the game says what it took down")
+
+## A plan on ground it does not fit shows which of its pieces are blocked, red,
+## in the green ghost of the rest, and the status says why; nothing is put up.
+func _check_a_plan_shows_which_of_its_pieces_are_blocked() -> void:
+	print("a plan shows which of its pieces are blocked")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	var yard := _a_yard(300)
+	var origin: Vector3 = yard["origin"]
+	var build: BuildMode = yard["build"]
+	var structures: Structures = yard["structures"]
+	var field: HeightField = yard["field"]
+	if not origin.is_finite():
+		_fail("no ground near the spawn to build on")
+		_free_the_yard(yard)
+		return
+	build.select(Plans.CAFE)
+	var z := origin.z + TestHouse.REACH
+	var stand := Vector3(origin.x, field.height_at(origin.x, z), z)
+	build.aim(stand, 0.0)
+	_expect(build._valid and build._plan_blocked.is_empty(), "on free flat ground nothing in the plan is blocked: %s" % build._reason)
+	_expect(not build._blocked_ghost.visible, "and there is no red in the ghost")
+	var whole: int = (build._ghost.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size()
+
+	# Something already standing where the first wall goes.
+	var first: Dictionary = build._plan_pieces[0]
+	structures.place(first["kind"], first["position"], float(first["spin"]))
+	var stands := structures.positions().size()
+	build.aim(stand, 0.0)
+	_expect(
+		not build._valid and build._plan_blocked.size() == 1 and build._plan_blocked[0] == 0,
+		"the one piece that meets what stands is blocked, and no other: %s" % [build._plan_blocked]
+	)
+	_expect(build._reason == Text.of("why_no_room"), "the status says why: '%s'" % build._reason)
+	_expect(build._blocked_ghost.visible and build._blocked_ghost.mesh != null, "that piece is drawn red")
+	var rest: int = (build._ghost.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size()
+	_expect(rest > 0 and rest < whole, "and the green ghost is the rest of the plan (%d of %d vertices)" % [rest, whole])
+	_expect(not build.place() and structures.positions().size() == stands, "a tap puts up none of it")
+
+	# The other reasons, asked of a piece: uneven ground and a tree.
+	var piece: Dictionary = build._plan_pieces[1]
+	var at: Vector3 = piece["position"]
+	var level := build._floor_level
+	build._floor_level = level + BuildMode.PLAN_LEEWAY + 1.0
+	_expect(build._piece_problem(piece, []) == 1, "ground far from the level the plan is built at is too uneven")
+	build._floor_level = level
+	_expect(build._piece_problem(piece, [Vector3(at.x, at.y, at.z)]) == 3, "a trunk where a wall goes blocks it")
+	_expect(build._piece_problem(piece, []) in [-1, 4], "and with nothing there the piece is only as blocked as what stands")
+	_free_the_yard(yard)
+
+## The cafe and the shop are under a roof like the house, the cafe has a lamp,
+## and none of the plans costs more than a child can gather in a morning.
+func _check_the_cafe_and_the_shop_have_roofs_and_the_cafe_a_lamp() -> void:
+	print("the cafe and the shop have roofs, and the cafe a lamp")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	for plan: StringName in [Plans.HOUSE, Plans.CAFE, Plans.SHOP, Plans.ROOM]:
+		var roofs: Array[Dictionary] = []
+		var lamps := 0
+		for piece in Plans.pieces(plan):
+			if piece["kind"] == HouseParts.ROOF_ROOM:
+				roofs.append(piece)
+			if piece["kind"] == HouseParts.LAMP:
+				lamps += 1
+		var size := Plans.size_of(plan)
+		if plan == Plans.ROOM:
+			_expect(roofs.is_empty(), "a room is left open")
+			continue
+		var extent := Vector2i.ZERO
+		if roofs.size() == 1:
+			extent = roofs[0]["extent"]
+		_expect(
+			roofs.size() == 1 and extent.x * extent.y == size.x * size.y,
+			"%s has one roof over all %d squares: %s" % [plan, size.x * size.y, extent]
+		)
+		_expect(lamps == (1 if plan == Plans.CAFE else 0), "%s has %d lamps" % [plan, lamps])
+		# The roof is reeds, two for each square it covers, and the rest of the
+		# bill is what the plan cost before it had one: nothing here is dear.
+		var bill := Plans.cost(plan)
+		var bare := 0
+		for piece in Plans.pieces(plan):
+			if piece["kind"] != HouseParts.ROOF_ROOM:
+				bare += int(HouseParts.cost(piece["kind"]).get(&"reed", 0))
+		_expect(
+			int(bill.get(&"reed", 0)) - bare == 2 * size.x * size.y,
+			"%s's roof adds two reeds a square and nothing else: %s" % [plan, bill]
+		)
+		var biggest := 0
+		for item in bill:
+			biggest = maxi(biggest, int(bill[item]))
+		_expect(biggest <= 60, "%s costs no more than 60 of anything: %s" % [plan, bill])
+
+	# Built, the roof is over a room the game itself calls a closed, level box
+	# of the plan's own size.
+	for plan: StringName in [Plans.CAFE, Plans.SHOP]:
+		var yard := _a_yard(300)
+		var origin: Vector3 = yard["origin"]
+		var structures: Structures = yard["structures"]
+		if not origin.is_finite():
+			_fail("no ground near the spawn to build on")
+			_free_the_yard(yard)
+			continue
+		var tapped := TestHouse.build_plan(yard["build"], yard["field"], origin, plan)
+		_expect(tapped, "%s goes up with its roof: %s" % [plan, (yard["build"] as BuildMode)._reason])
+		var square := Vector2i.ZERO
+		for record in structures._records:
+			if record["kind"] == HouseParts.FLOOR:
+				square = HouseParts.key_of(record["position"])
+		var room := structures.enclosed_room(square)
+		var size := Plans.size_of(plan)
+		_expect(
+			not room.is_empty() and bool(room["rectangle"]) and bool(room["level"])
+			and (room["span"] == size or room["span"] == Vector2i(size.y, size.x)),
+			"%s: the walls close a level box of %s squares under it" % [plan, size]
+		)
+		_free_the_yard(yard)
+
+## A free meal at a child's own cafe comes once in a while, a coin's worth at
+## any time. A half meal whenever it was wanted was endless energy.
+func _check_a_free_meal_at_home_comes_once_in_a_while() -> void:
+	print("a free meal at home comes once in a while")
+	var vitals := Vitals.new()
+	var wallet := Wallet.new()
+	vitals.energy = 20.0
+	_expect(Venues.eat(vitals, wallet, false, false) == Venues.WAIT, "a free meal asked for too soon is not served")
+	_expect(vitals.energy == 20.0 and wallet.coins == 0, "and nothing is eaten or charged")
+	wallet.earn(2)
+	_expect(Venues.eat(vitals, wallet, true, false) == Venues.ATE and wallet.coins == 2 - Venues.MEAL_PRICE, "a coin buys a whole meal at once, wait or no wait")
+	vitals.energy = Vitals.MAX_ENERGY
+	_expect(Venues.eat(vitals, wallet, false, false) == Venues.FULL, "a full child is told so, not told to wait")
+	_expect(Venues.FREE_WAIT > 60.0 and Venues.FREE_WAIT < Atmosphere.DAY_LENGTH, "the wait is a few minutes, less than a day: %.0f s" % Venues.FREE_WAIT)
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var home := loop.substr(loop.find("func _eat_at_home("))
+	home = home.substr(0, home.find("\nfunc ", 1))
+	_expect(
+		home.contains("_free_meal_after = ") and home.contains("Venues.WAIT") and home.contains("say_free_wait"),
+		"the game keeps the clock, and tells the child when the next one is"
+	)
+
+## The material button says which material is chosen, and the wall buttons are
+## drawn in it: the one button changed every later wall, and said so in no
+## picture.
+func _check_the_wall_buttons_show_the_material_chosen() -> void:
+	print("the wall buttons show the material chosen")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	var walls := 0
+	for kind in HouseParts.ALL:
+		if HouseParts.is_wall(kind):
+			walls += 1
+	_expect(hud._wall_icons.size() == walls, "every kind of wall has its picture tracked (%d of %d)" % [hud._wall_icons.size(), walls])
+	hud.set_material(HouseParts.STONE_WALL)
+	var all_stone := true
+	for icon in hud._wall_icons:
+		all_stone = all_stone and icon.wall_material == HouseParts.STONE_WALL
+	_expect(all_stone, "after the choice every wall button is drawn in stone")
+	_expect(hud._material_swatch.wall_material == HouseParts.STONE_WALL, "so is the picture on the material button")
+	_expect(hud._material_name.text == HouseParts.material_label(HouseParts.STONE_WALL), "which also says its name")
+	var table := hud._palette_buttons[HouseParts.TABLE] as Button
+	var table_icon: PartIcon = null
+	for child in table.get_children():
+		if child is PartIcon:
+			table_icon = child
+	_expect(table_icon != null and table_icon.wall_material == HouseParts.DEFAULT_MATERIAL, "while a table is not a wall and stays as it was")
+	hud.queue_free()
+
+## With two rows of pieces in the palette the storey buttons and the line saying
+## what the piece is must not sit on the map, on the pieces or on one another,
+## on a phone of either shape. The small map was counted as opened up because
+## its panel margins made it wider than its picture, and sat in the middle.
+func _check_the_build_hud_keeps_clear_of_the_map() -> void:
+	print("the build HUD keeps clear of the map, in Russian, at both shapes")
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	Text.set_language(Text.RU)
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	var map := Minimap.new(HeightField.new(20260903))
+	hud.attach_minimap(map)
+	map.show_map()
+	for wide: int in [1280, 1600]:
+		window.size = Vector2i(wide, 720)
+		window.content_scale_size = Vector2i(wide, 720)
+		await process_frame
+		hud.set_building(true)
+		hud._show_group(&"walls")
+		hud.set_storey(0, true)
+		hud.set_build_state(HouseParts.WALL, false, Text.of("why_no_room"))
+		await process_frame
+		hud._layout()
+		await process_frame
+		var view := hud.get_viewport().get_visible_rect().size
+		var named := {}
+		named["map"] = Rect2(map.position, map.size)
+		var row := hud._storey_row
+		for i in row.get_child_count():
+			var part := row.get_child(i) as Control
+			named["storey %d" % i] = Rect2(row.position + part.position, part.size)
+		var font := hud._status.get_theme_font("font")
+		var wide_of := font.get_string_size(hud._status.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+		named["status"] = Rect2(Vector2((view.x - wide_of) * 0.5, hud._status.position.y), Vector2(wide_of, 30.0))
+		named["tabs"] = Rect2(hud._tabs.position, hud._tabs.get_combined_minimum_size())
+		named["palette"] = Rect2(hud._palette.position, hud._palette.size)
+		for button: String in ["_place_button", "_remove_button", "_undo_button", "_jump_button", "_build_button"]:
+			var control: Control = hud.get(button)
+			named[button] = Rect2(control.position, control.size)
+		var touching: Array[String] = []
+		var keys := named.keys()
+		for i in keys.size():
+			for j in range(i + 1, keys.size()):
+				if (named[keys[i]] as Rect2).intersects(named[keys[j]] as Rect2):
+					touching.append("%s/%s" % [keys[i], keys[j]])
+		_expect(touching.is_empty(), "at %d wide nothing in the build HUD overlaps: %s" % [wide, ", ".join(touching)])
+		_expect(Rect2(Vector2.ZERO, view).encloses(named["palette"]) and (named["storey 0"] as Rect2).position.y > 0.0, "and it is all on the screen")
+		hud.set_building(false)
+	Text.set_language(Text.EN)
+	window.size = was_size
+	window.content_scale_size = was_content
+	await process_frame
+	hud.queue_free()
+
+## A staircase carries a child up, and the floor at the top of it holds them:
+## floors a storey up and stairs were walked through, so no child could ever
+## stand on an upper floor. And a floor laid straight over the stairs, which
+## would be a ceiling to walk into, is refused.
+func _check_a_child_walks_up_the_stairs_onto_the_upper_floor() -> void:
+	print("a child walks up the stairs onto the upper floor")
+	var yard := _a_yard(300)
+	var origin: Vector3 = yard["origin"]
+	var structures: Structures = yard["structures"]
+	if not origin.is_finite():
+		_fail("no ground near the spawn to build on")
+		_free_the_yard(yard)
+		return
+	var x0 := origin.x
+	var z0 := origin.z
+	var level := origin.y
+	var storey := HouseParts.STOREY
+	var stairs := structures.place(HouseParts.STAIRS, Vector3(x0, level, z0), 0.0)
+	var landing := structures.place(HouseParts.FLOOR, Vector3(x0, level + storey, z0 - 2.0), 0.0)
+	var downstairs := structures.place(HouseParts.FLOOR, Vector3(x0 + 4.0, level, z0), 0.0)
+	_expect(_node_has_body(stairs["node"]), "stairs stop a body")
+	_expect(_node_has_body(landing["node"]), "and so does a floor a storey up")
+	_expect(not _node_has_body(downstairs["node"]), "while a floor on the ground is still walked over")
+	_expect(
+		structures.stairs_blocked_above(HouseParts.FLOOR, Vector3(x0, level + storey, z0), 0.0)
+		and not structures.is_clear(Vector3(x0, level + storey, z0), HouseParts.MODULE, HouseParts.FLOOR),
+		"a floor laid straight over the stairs is refused"
+	)
+	_expect(not structures.stairs_blocked_above(HouseParts.FLOOR, Vector3(x0 + 2.0, level + storey, z0 - 2.0), 0.0), "one beside the top of them is not")
+
+	var ground := StaticBody3D.new()
+	var slab_shape := CollisionShape3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(30.0, 1.0, 30.0)
+	slab_shape.shape = slab
+	ground.add_child(slab_shape)
+	get_root().add_child(ground)
+	ground.global_position = Vector3(x0, level - 0.5, z0)
+	var child := Player.new()
+	get_root().add_child(child)
+	child.global_position = Vector3(x0, level + 0.05, z0 + 3.4)
+	child.camera_yaw = 0.0
+	for _frame in 20:
+		await physics_frame
+	Input.action_press(InputActions.MOVE_FORWARD)
+	var frames := 0
+	while frames < 300 and not (
+		child.global_position.y > level + storey - 0.2 and child.global_position.z < z0 - 1.6
+	):
+		await physics_frame
+		frames += 1
+	Input.action_release(InputActions.MOVE_FORWARD)
+	for _frame in 40:
+		await physics_frame
+	var up := child.global_position
+	_expect(
+		up.y > level + storey and up.y < level + storey + 0.6 and up.z < z0 - 1.0 and up.z > z0 - 3.0,
+		"a child walks up and stands on the upper floor: %.2f m up, %.2f m from the foot of the stairs" % [up.y - level, z0 + 3.4 - up.z]
+	)
+	_expect(child.is_on_floor(), "and stays there")
+	child.free()
+	ground.free()
+	_free_the_yard(yard)
+
+func _node_has_body(node: Node) -> bool:
+	for child in node.get_children():
+		if child is StaticBody3D:
+			return true
+	return false
+
+## A chair stands in its table's square, on the side a child walks up from, so
+## a chair that stops a body stops the child on the way to the table.
+func _check_the_chair_does_not_snag() -> void:
+	print("the chair does not snag")
+	_expect(not HouseParts.is_solid(HouseParts.CHAIR), "a chair is walked through")
+	_expect(HouseParts.furniture_boxes(HouseParts.CHAIR).is_empty(), "it has no box to catch on")
+	_expect(HouseParts.is_solid(HouseParts.TABLE), "and the table is still a table")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	structures.place(HouseParts.TABLE, Vector3(10.0, 4.0, 10.0), 0.0)
+	var chair := structures.place(HouseParts.CHAIR, Vector3(10.0, 4.0, 10.0), 0.0)
+	_expect(not _node_has_body(chair["node"]), "a placed chair has no body")
+	_expect(not structures.seat_near(Vector3(10.0, 4.0, 11.5)).is_empty(), "and a child at the table is still seated at it")
+	structures.free()
 
 

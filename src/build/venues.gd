@@ -14,16 +14,26 @@ const MEAL_PRICE := 1
 ## all of it for a coin, half of it for nothing. The choice is a real one.
 const FREE_SHARE := 0.5
 
+## How long a child waits between two free meals, in seconds of play: a fifth
+## of a day. Kind but bounded — a free half meal whenever it was wanted was an
+## endless supply of energy, which left the valley's cafe, and the coins it
+## asks, with nothing to be for. A coin buys a whole meal at any time.
+const FREE_WAIT := 240.0
+
 const ATE := &"ate"
 const FULL := &"full"
 const POOR := &"poor"
+const WAIT := &"wait"
 
 ## Sit down to a meal at a table of one's own. Returns ATE, FULL (the bar was
-## already full, and nothing was charged) or POOR (a coin was asked for and
-## there was not one).
-static func eat(vitals: Vitals, wallet: Wallet, paying: bool) -> StringName:
+## already full, and nothing was charged), POOR (a coin was asked for and
+## there was not one) or WAIT (a free meal was asked for before `free_ready`
+## said there was one: the caller keeps the clock, and nothing is eaten).
+static func eat(vitals: Vitals, wallet: Wallet, paying: bool, free_ready := true) -> StringName:
 	if vitals.energy >= Vitals.MAX_ENERGY - 0.01:
 		return FULL
+	if not paying and not free_ready:
+		return WAIT
 	if paying and not wallet.spend(MEAL_PRICE):
 		return POOR
 	var share := 1.0 if paying else FREE_SHARE

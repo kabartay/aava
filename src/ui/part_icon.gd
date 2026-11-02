@@ -38,9 +38,19 @@ const STOREY_DOWN := &"storey_down"
 
 var kind: StringName
 
+## What a wall in this picture is made of, so that the buttons of the walls
+## group show what the next wall will be and not always plaster.
+var wall_material: StringName = HouseParts.DEFAULT_MATERIAL
+
 func _init(part_kind: StringName) -> void:
 	kind = part_kind
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+func set_wall_material(wanted: StringName) -> void:
+	if wanted == wall_material:
+		return
+	wall_material = wanted
+	queue_redraw()
 
 func _draw() -> void:
 	# Everything is drawn inside a square with a small margin, so pieces of
@@ -352,17 +362,22 @@ func _bed(box: Rect2) -> void:
 		draw_rect(leg, DARK)
 
 func _wall(box: Rect2) -> void:
-	draw_rect(box, WALL_COLOR)
+	# In the colours the wall will be built in, the ones its mesh uses.
+	var look := HouseParts.wall_look(wall_material)
+	var panel: Color = look["panel"]
+	draw_rect(box, panel)
 	# Planking, so the face is boards rather than a blank panel.
 	for i in 3:
 		var y := box.position.y + box.size.y * (0.25 + 0.25 * float(i))
-		draw_line(Vector2(box.position.x, y), Vector2(box.end.x, y), WALL_COLOR.darkened(0.12), 1.5)
-	# Corner timbers, which is what makes a plain rectangle read as a wall.
+		draw_line(Vector2(box.position.x, y), Vector2(box.end.x, y), panel.darkened(0.12), 1.5)
+	# Corner timbers, which is what makes a plain rectangle read as a wall. The
+	# plaster look keeps its brown ones; the others take their frame's colour.
+	var timber := TIMBER if wall_material == HouseParts.DEFAULT_MATERIAL else look["frame"] as Color
 	var post := box.size.x * 0.16
-	draw_rect(Rect2(box.position, Vector2(post, box.size.y)), TIMBER)
-	draw_rect(Rect2(Vector2(box.end.x - post, box.position.y), Vector2(post, box.size.y)), TIMBER)
+	draw_rect(Rect2(box.position, Vector2(post, box.size.y)), timber)
+	draw_rect(Rect2(Vector2(box.end.x - post, box.position.y), Vector2(post, box.size.y)), timber)
 	draw_rect(Rect2(Vector2(box.position.x, box.get_center().y - post * 0.3),
-		Vector2(box.size.x, post * 0.6)), TIMBER)
+		Vector2(box.size.x, post * 0.6)), timber)
 
 ## A hole in a wall: door if it reaches the floor, window if it does not.
 func _opening(box: Rect2, width: float, top: float, bottom: float, colour: Color) -> void:

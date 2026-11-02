@@ -756,6 +756,25 @@ const STRINGS := {
 		RU: "тут нечего разбирать",
 	},
 	"say_nothing_to_undo": {EN: "nothing to undo", FR: "rien à annuler", RU: "нечего отменять"},
+	# A piece taken down with what stood on it: the wall under a wall, the walls
+	# under a roof, the floor under a bed.
+	"say_took_stack": {
+		EN: "took it down with what stood on it",
+		FR: "démonté avec ce qui était dessus",
+		RU: "разобрано вместе с тем, что стояло сверху",
+	},
+	# Stairs and a floor over them, which a child would walk into.
+	"why_headroom": {
+		EN: "stairs need room above", FR: "l'escalier a besoin de place au-dessus",
+		RU: "над лестницей нужно место",
+	},
+	# The free meal at a child's own cafe comes once in a while; %d is how many
+	# minutes until the next, and a coin buys one now.
+	"say_free_wait": {
+		EN: "next free meal in %d min — or pay a coin",
+		FR: "prochain repas gratuit dans %d min — ou paie une pièce",
+		RU: "бесплатный обед через %d мин — или за монетку",
+	},
 	# %s is the name of the piece.
 	"say_took_back": {EN: "took the %s back", FR: "%s récupéré", RU: "разобрано: %s"},
 }

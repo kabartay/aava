@@ -100,6 +100,18 @@ const ROOF_THICKNESS := 0.12
 ## How far a bed stands up off a floor laid under it, so its legs stand on the
 ## boards rather than in them.
 const FLOOR_TOP := 0.17
+## How thick a floor slab is, and how high the first step of a flight of stairs
+## stands off the ground: low enough for a foot to clear.
+const FLOOR_THICKNESS := 0.16
+## How thick the floor is to a body: a little less than it is drawn. The top of
+## the stairs' ramp passes over the near edge of a floor laid beside it, and a
+## sphere rolling over an edge that lies exactly on its path is stopped by it as
+## if it were a wall; an edge eight centimetres under the path is not touched.
+## The feet sink that far into the boards, which no one can see.
+const FLOOR_STANDS := 0.08
+const STAIRS_FOOT := 0.12
+## How far the top of the stairs' ramp carries on, level, past the top step.
+const STAIRS_LANDING := 0.4
 
 ## Wall geometry, shared between the mesh in _wall() and the collision built
 ## for it below — one set of numbers, so a door cut into the mesh is a door
@@ -426,7 +438,10 @@ static func furniture_boxes(kind: StringName) -> Array:
 		TABLE:
 			return [[Vector3(0.0, 0.38, 0.0), Vector3(1.0, 0.76, 0.7)]]
 		CHAIR:
-			return [[Vector3(0.0, 0.45, 0.68), Vector3(0.42, 0.9, 0.44)]]
+			# Not solid: a chair stands in the square of its table, on the side a
+			# child walks up to it, and a body that catches on it never reaches
+			# the table. Sitting down is the cafe's doing, not the chair's.
+			return []
 		COUNTER:
 			return [[Vector3(0.0, 0.5, 0.0), Vector3(1.9, 1.0, 0.7)]]
 		SHELF:
@@ -492,6 +507,29 @@ static func add_collision(node: Node3D, kind: StringName) -> void:
 			_collision_box(body, Vector3(0.0, STOREY * 0.5, 0.0), Vector3(0.2, STOREY, 0.2))
 		CHIMNEY:
 			_collision_box(body, Vector3(CHIMNEY_AT, 1.35, 0.0), Vector3(0.5, 2.7, 0.5))
+		FLOOR:
+			_collision_box(
+				body, Vector3(0.0, FLOOR_STANDS * 0.5, 0.0), Vector3(MODULE, FLOOR_STANDS, MODULE)
+			)
+		STAIRS:
+			# One ramp, not six treads: a body is carried up a slope and cannot
+			# be asked to step. It starts a hand's breadth up, which a foot
+			# clears, and ends level with the top of the floor of the next
+			# storey, so that the child walks off it with no lip to climb. It
+			# runs under the treads by at most a step, and is gentle enough to
+			# walk (see the check that does).
+			var ramp := PackedVector3Array()
+			var width := MODULE * 0.4
+			for sx in PackedFloat32Array([-1.0, 1.0]):
+				ramp.append(Vector3(sx * width, 0.0, MODULE * 0.5))
+				ramp.append(Vector3(sx * width, STAIRS_FOOT, MODULE * 0.5))
+				ramp.append(Vector3(sx * width, STOREY + FLOOR_THICKNESS, -MODULE * 0.5))
+				# A little flat past the top, lying over the edge of the floor
+				# there: the crest is one shape's, not a seam between two, which
+				# a body stuck on.
+				ramp.append(Vector3(sx * width, STOREY + FLOOR_THICKNESS, -MODULE * 0.5 - STAIRS_LANDING))
+				ramp.append(Vector3(sx * width, 0.0, -MODULE * 0.5 - STAIRS_LANDING))
+			_collision_hull(body, ramp)
 		ROOF_FLAT:
 			_collision_box(body, Vector3(0.0, 0.11, 0.0), Vector3(2.3, 0.22, 2.3))
 		ROOF, ROOF_PEAK, ROOF_ROOM:
@@ -506,6 +544,13 @@ static func add_collision(node: Node3D, kind: StringName) -> void:
 				var shape := CollisionShape3D.new()
 				shape.shape = faces
 				body.add_child(shape)
+
+static func _collision_hull(body: StaticBody3D, points: PackedVector3Array) -> void:
+	var shape := CollisionShape3D.new()
+	var hull := ConvexPolygonShape3D.new()
+	hull.points = points
+	shape.shape = hull
+	body.add_child(shape)
 
 static func _collision_box(body: StaticBody3D, at: Vector3, size: Vector3) -> void:
 	var shape := CollisionShape3D.new()

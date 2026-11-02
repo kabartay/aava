@@ -1544,8 +1544,11 @@ func _on_remote_built(
 ## Only something both valleys have — see Structures.sharing. And if it was
 ## this child's own, built from their own bag, they get their materials back:
 ## a wall a brother takes down is still a wall somebody paid for.
-func _on_remote_removed(at: Vector3) -> void:
-	var record := structures.nearest_shared(at, 0.6)
+##
+## Just the piece named, never what stood on it: the other phone sends each
+## piece that came down, the upper ones first, so every phone ends up agreeing.
+func _on_remote_removed(at: Vector3, named := &"") -> void:
+	var record := structures.nearest_shared(at, 0.6, named)
 	if record.is_empty():
 		return
 	var paid := bool(record.get("paid", true))
@@ -1739,14 +1742,24 @@ func _eat_at_home() -> void:
 	# One meal at a time, as at the valley's cafe.
 	if _dining > 0.0:
 		return
-	match Venues.eat(vitals, wallet, hud.cafe_is_paid()):
+	var paying := hud.cafe_is_paid()
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	match Venues.eat(vitals, wallet, paying, now >= _free_meal_after):
 		Venues.FULL:
 			sounds.play(Sounds.Sound.REFUSE)
 			hud.announce(Text.of("say_not_hungry"), 2.0)
 		Venues.POOR:
 			sounds.play(Sounds.Sound.REFUSE)
 			hud.announce(Text.format("say_no_coins", [Venues.MEAL_PRICE]), 2.2)
+		Venues.WAIT:
+			# Said kindly, with the way round it: a coin buys a meal now.
+			sounds.play(Sounds.Sound.REFUSE)
+			hud.announce(
+				Text.format("say_free_wait", [ceili((_free_meal_after - now) / 60.0)]), 3.0
+			)
 		_:
+			if not paying:
+				_free_meal_after = now + Venues.FREE_WAIT
 			_finish_eating(structures.seat_near(player.global_position))
 
 ## Sell what the shop buys, at a shop the child built: the same price as the
@@ -1764,6 +1777,10 @@ func _sell_at_home() -> void:
 ## The cafe and the shop this child has built, so that each is announced once,
 ## when it first counts, and again only if it was taken down and built anew.
 var _known_cafe := false
+
+## When the next free meal at the child's own cafe is ready, in seconds since
+## the game began. Not saved: a new session starts hungry, which is no harm.
+var _free_meal_after := 0.0
 var _known_shop := false
 
 func _note_new_venues() -> void:
@@ -1952,7 +1969,7 @@ func _fell_a_planted_tree(record: Dictionary) -> void:
 	# tree that was never over there felled whatever forest tree grew nearest
 	# the spot instead.
 	if shared:
-		session.report_removed(at)
+		session.report_removed(at, kind)
 		session.report_felled(at)
 	world.vegetation.rebuild_around(at)
 	sounds.play(Sounds.Sound.REMOVE, 0.7)
@@ -2246,12 +2263,32 @@ func _on_undo() -> void:
 	if group.is_empty():
 		hud.announce(Text.of("say_nothing_to_undo"))
 		return
+	# Last piece first, so a roof comes down before the walls under it and a
+	# bed before its floor — what stood on a piece is never left in the air.
+	group.reverse()
 	for record in group:
 		_take_down(record)
 
+## Take a piece down, and with it whatever stands on it: the wall a storey up,
+## the roof the walls held, the bed and the table on a floor. Every one is
+## refunded in full and told to the other phone as a piece of its own, the
+## upper ones first, so both valleys end up with the same standing.
+##
+## Taken down together rather than refused. A child who taps minus on the wall
+## under a roof wants that wall gone, and being told to take the roof down first
+## is a chore they cannot be asked to do; with a full refund, nothing is lost
+## that building again does not give back.
+func _take_down(record: Dictionary) -> void:
+	var above := structures.standing_on(record)
+	for upper in above:
+		_take_down_piece(upper)
+	_take_down_piece(record)
+	if not above.is_empty():
+		hud.announce(Text.of("say_took_stack"), 2.6)
+
 ## Take one piece down: off the other phone too if it is there, and back into
 ## the bag of whoever paid for it.
-func _take_down(record: Dictionary) -> void:
+func _take_down_piece(record: Dictionary) -> void:
 	var at: Vector3 = record["position"]
 	var shared := bool(record.get("shared", false))
 	var paid := bool(record.get("paid", true))
@@ -2272,7 +2309,7 @@ func _take_down(record: Dictionary) -> void:
 	# phone is how a wall over there that merely stood in the same spot used to
 	# be taken down instead.
 	if shared:
-		session.report_removed(at)
+		session.report_removed(at, kind)
 	sounds.play(Sounds.Sound.REMOVE)
 	# Back to whoever paid for it. A piece the brother built came out of his
 	# bag; taking it down here hands nothing to this child, or every wall built

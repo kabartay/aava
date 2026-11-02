@@ -143,7 +143,10 @@ var _build_button: Button
 var _palette: HFlowContainer
 var _palette_buttons: Dictionary = {}
 var _material_button: Button
-var _material_swatch: ColorRect
+var _material_swatch: PartIcon
+## The pictures on the wall buttons, which take on the material chosen.
+var _wall_icons: Array[PartIcon] = []
+var _wall_material: StringName = HouseParts.DEFAULT_MATERIAL
 var _material_name: Label
 ## The button that sets what a child's own cafe asks, shown at one.
 var _price_button: Button
@@ -662,13 +665,14 @@ func _build_material_button() -> Button:
 	var button := _button("", Color(0.86, 0.86, 0.90))
 	_material_button = button
 	button.custom_minimum_size = Vector2(PIECE_SIZE.x * 0.9, PIECE_SIZE.y)
-	_material_swatch = ColorRect.new()
-	_material_swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# A wall in the material, not a bare colour: the button says "walls will be
+	# like this", in the picture the wall buttons beside it are drawn in.
+	_material_swatch = PartIcon.new(HouseParts.WALL)
 	var picture := PIECE_SIZE.y * 0.5
 	_material_swatch.position = Vector2((button.custom_minimum_size.x - picture) * 0.5, 8.0)
 	_material_swatch.size = Vector2(picture, picture)
 	button.add_child(_material_swatch)
-	_material_name = _label(17, Color(1.0, 0.97, 0.90))
+	_material_name = _label(15, Color(1.0, 0.97, 0.90))
 	_material_name.clip_text = true
 	_material_name.position = Vector2(2.0, picture + 8.0)
 	_material_name.size = Vector2(button.custom_minimum_size.x - 4.0, 24.0)
@@ -679,9 +683,12 @@ func _build_material_button() -> Button:
 
 ## Show what walls are made of now, on the material button.
 func set_material(material: StringName) -> void:
+	_wall_material = material
 	if _material_swatch == null:
 		return
-	_material_swatch.color = HouseParts.wall_look(material)["panel"]
+	_material_swatch.set_wall_material(material)
+	for icon in _wall_icons:
+		icon.set_wall_material(material)
 	_material_name.text = HouseParts.material_label(material)
 	_material_button.tooltip_text = _material_name.text
 
@@ -697,12 +704,24 @@ func _palette_button(kind: StringName, named: String, shown: bool) -> Button:
 	icon.position = Vector2((PIECE_SIZE.x - picture) * 0.5, 0.0)
 	icon.size = Vector2(picture, picture)
 	button.add_child(icon)
+	if HouseParts.is_wall(kind):
+		icon.set_wall_material(_wall_material)
+		_wall_icons.append(icon)
 
 	var name_label := _label(17, Color(1.0, 0.97, 0.90))
 	name_label.text = named
 	name_label.clip_text = true
 	name_label.position = Vector2(2.0, picture - 6.0)
 	name_label.size = Vector2(PIECE_SIZE.x - 4.0, 24.0)
+	# A name wider than the button gets smaller type rather than losing both
+	# ends of itself: "низкая стена" was read as "изкая стена".
+	var font := name_label.get_theme_font("font")
+	var type_size := 17
+	while type_size > 12 and font.get_string_size(
+		named, HORIZONTAL_ALIGNMENT_LEFT, -1, type_size
+	).x > PIECE_SIZE.x - 8.0:
+		type_size -= 1
+	name_label.add_theme_font_size_override("font_size", type_size)
 	button.add_child(name_label)
 
 	var cost := HBoxContainer.new()
@@ -1936,7 +1955,11 @@ func _layout() -> void:
 	# buttons, where it covers neither thumb.
 	if _minimap != null:
 		var map_top := safe.position.y + MARGIN + BUTTON * 0.7 + 10.0
-		var opened_up := _minimap.size.x > Minimap.SMALL_PIXELS + 1.0
+		# The small map is its picture plus the panel's margins all round, so it
+		# is wider than SMALL_PIXELS by those: compared with the picture alone,
+		# every map counted as opened up and the small one sat in the middle of
+		# the screen, over the storey buttons and the line saying why not.
+		var opened_up := _minimap.size.x > Minimap.SMALL_PIXELS + Minimap.PANEL_MARGINS + 1.0
 		_minimap.position = Vector2(
 			(
 				safe.position.x + safe.size.x * 0.5 - _minimap.size.x * 0.5

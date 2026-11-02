@@ -96,6 +96,12 @@ var _plan_pieces: Array[Dictionary] = []
 ## asked of every piece, so only asked again when something has changed.
 var _plan_check_key := ""
 var _plan_check_reason := ""
+## Which of the plan's pieces (by place in Plans.pieces) cannot be built where
+## it is aimed, and the ghost of those, drawn red.
+var _plan_blocked: Array[int] = []
+var _plan_ghost_key := ""
+var _blocked_ghost: MeshInstance3D
+var _blocked_material: StandardMaterial3D
 
 ## Everything is built here rather than in _ready, because add_child() defers
 ## _ready until the tree next processes — so a caller that adds this node and
@@ -121,6 +127,16 @@ func _init(height_field: HeightField, structure_store: Structures, player_invent
 	_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_ghost.visible = false
 	add_child(_ghost)
+
+	# The pieces of a plan that cannot go where it is aimed, drawn red in the
+	# same place as the rest of the ghost, which stays green.
+	_blocked_material = _material.duplicate() as StandardMaterial3D
+	_blocked_material.albedo_color = Color(1.0, 0.42, 0.38, 0.6)
+	_blocked_ghost = MeshInstance3D.new()
+	_blocked_ghost.material_override = _blocked_material
+	_blocked_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_blocked_ghost.visible = false
+	add_child(_blocked_ghost)
 
 	# The ground tile answers "where exactly does this land?". It is a flat
 	# square one module across, so the scale applied when previewing is simply
@@ -224,6 +240,7 @@ func preview_cost() -> Dictionary:
 func set_active(enabled: bool) -> void:
 	active = enabled
 	_ghost.visible = enabled
+	_blocked_ghost.visible = enabled and _blocked_ghost.mesh != null and Plans.is_plan(selected)
 	_tile.visible = enabled
 	if not enabled:
 		for marker in _neighbour_markers:
@@ -254,6 +271,9 @@ func set_material(wanted: StringName) -> void:
 
 func _refresh_mesh() -> void:
 	_ghost_extent = _extent
+	_blocked_ghost.mesh = null
+	_blocked_ghost.visible = false
+	_plan_ghost_key = ""
 	if Plans.is_plan(selected):
 		_ghost.mesh = Plans.mesh(selected, material)
 		return
@@ -301,6 +321,7 @@ func aim(player_position: Vector3, yaw: float) -> void:
 	if _ghost_extent != _extent:
 		_refresh_mesh()
 	_ghost.transform = Transform3D(Basis(Vector3.UP, _spin), _target)
+	_blocked_ghost.transform = _ghost.transform
 
 	# Lifted clear of the ground, or it fights the terrain for the same pixels
 	# and shimmers. Turned with the piece and shaped like what it stands on: a
@@ -489,16 +510,20 @@ func _evaluate() -> void:
 	var cost := preview_cost()
 	_valid = true
 	_reason = ""
+	var affordable := inventory.can_afford(cost)
+	var is_plan := Plans.is_plan(selected)
+	# Asked whether the bag pays or not, so the ghost can always show which of
+	# its pieces are blocked (answered once for each aim, not once a frame).
+	var refusal := _plan_refusal() if is_plan else ""
 
-	if not inventory.can_afford(cost):
+	if not affordable:
 		_valid = false
-		if Plans.is_plan(selected):
+		if is_plan:
 			# A whole building is a lot to read as a bill: say what is short.
 			_reason = Text.format("why_missing", [_cost_text(Plans.missing(cost, inventory))])
 		else:
 			_reason = Text.format("why_need", [_cost_text(cost)])
-	elif Plans.is_plan(selected):
-		var refusal := _plan_refusal()
+	elif is_plan:
 		if refusal.is_empty():
 			_reason = _cost_text(cost)
 		else:
@@ -530,6 +555,10 @@ func _evaluate() -> void:
 	elif not _problem.is_empty():
 		_valid = false
 		_reason = _problem
+	elif _is_house() and structures.stairs_blocked_above(selected, _target, _spin):
+		# Stairs with a floor over them, or a floor over where stairs go.
+		_valid = false
+		_reason = Text.of("why_headroom")
 	elif not structures.is_clear(_target, _footprint_of(selected), selected, _spin, _extent):
 		_valid = false
 		_reason = Text.of("why_no_room")
@@ -538,8 +567,13 @@ func _evaluate() -> void:
 		# depends on the room and so cannot be printed on its button.
 		_reason = _cost_text(cost)
 
+	# A plan with some pieces blocked is green where it can go and red where it
+	# cannot; one the bag cannot pay for is red all over.
+	var split := is_plan and affordable and not _plan_blocked.is_empty()
+	if is_plan:
+		_show_plan_ghost(split)
 	_material.albedo_color = (
-		Color(0.45, 1.0, 0.55, 0.5) if _valid
+		Color(0.45, 1.0, 0.55, 0.5) if _valid or split
 		else Color(1.0, 0.42, 0.38, 0.45)
 	)
 	_tile_material.albedo_color = (
@@ -558,34 +592,85 @@ func _evaluate() -> void:
 ## nothing. The same questions a single piece is asked, of every piece in it:
 ## the first one that fails is the one said.
 func _plan_refusal() -> String:
-	var key := "%s|%s|%s|%s|%d" % [selected, _target, _spin, material, structures.revision]
+	var centre := _target + Basis(Vector3.UP, _spin) * Plans.centre_of(selected)
+	var size := Plans.size_of(selected)
+	var trees := _trees_round(centre, float(maxi(size.x, size.y)) * HouseParts.MODULE + 2.0)
+	var key := "%s|%s|%s|%s|%d|%d" % [
+		selected, _target, _spin, material, structures.revision, trees.size()
+	]
 	if key == _plan_check_key:
 		return _plan_check_reason
 	_plan_check_key = key
-	_plan_check_reason = _find_plan_refusal()
+	_plan_check_reason = _find_plan_refusal(trees)
 	return _plan_check_reason
 
-func _find_plan_refusal() -> String:
-	for piece in _plan_pieces:
-		var at: Vector3 = piece["position"]
-		if field.is_pond(at.x, at.z) or at.y < field.water_level_at(at.x, at.z) + 0.15:
-			return Text.of("why_wet")
-		if field.steepness_at(at.x, at.z) > MAX_SLOPE:
-			return Text.of("why_steep")
-		if _kept_ground(at.x, at.z):
-			return Text.of("why_reserved")
-	var centre := _target + Basis(Vector3.UP, _spin) * Plans.centre_of(selected)
-	var size := Plans.size_of(selected)
-	for tree in _trees_round(centre, float(maxi(size.x, size.y)) * HouseParts.MODULE + 2.0):
-		for piece in _plan_pieces:
-			if _blocks(piece["kind"], piece["position"], float(piece["spin"]), piece["extent"], tree):
-				return Text.of("why_tree")
-	for piece in _plan_pieces:
-		if not structures.is_clear(
-			piece["position"], HouseParts.MODULE, piece["kind"], float(piece["spin"]), piece["extent"]
-		):
-			return Text.of("why_no_room")
-	return ""
+## How far the ground under a plan may lie from the level the plan is built at:
+## past it the walls hang over a hollow or the boards are buried, and no piece
+## of the ground is steep enough to say so on its own.
+const PLAN_LEEWAY := 0.7
+
+## The words for what can be wrong with one piece of a plan, most serious first:
+## the line said is the most serious of all the pieces'.
+const PLAN_WHY := ["why_wet", "why_steep", "why_reserved", "why_tree", "why_no_room"]
+
+## Find which pieces cannot go up where the plan is aimed (kept in
+## _plan_blocked, for the ghost) and say why in the most serious one's words.
+func _find_plan_refusal(trees: Array[Vector3]) -> String:
+	_plan_blocked = []
+	var worst := PLAN_WHY.size()
+	for index in _plan_pieces.size():
+		var piece := _plan_pieces[index]
+		var problem := _piece_problem(piece, trees)
+		if problem < 0:
+			continue
+		_plan_blocked.append(index)
+		worst = mini(worst, problem)
+	return "" if worst >= PLAN_WHY.size() else Text.of(PLAN_WHY[worst])
+
+## What stops one piece of a plan, as a place in PLAN_WHY, or -1 for nothing.
+## The questions a single piece is asked, in the order they are said.
+func _piece_problem(piece: Dictionary, trees: Array[Vector3]) -> int:
+	var at: Vector3 = piece["position"]
+	if field.is_pond(at.x, at.z) or at.y < field.water_level_at(at.x, at.z) + 0.15:
+		return 0
+	var ground := field.height_at(at.x, at.z)
+	if field.steepness_at(at.x, at.z) > MAX_SLOPE or absf(ground - _floor_level) > PLAN_LEEWAY:
+		return 1
+	if _kept_ground(at.x, at.z):
+		return 2
+	for tree in trees:
+		if _blocks(piece["kind"], at, float(piece["spin"]), piece["extent"], tree):
+			return 3
+	if not structures.is_clear(
+		at, HouseParts.MODULE, piece["kind"], float(piece["spin"]), piece["extent"]
+	):
+		return 4
+	return -1
+
+## Draw the plan's ghost: whole when it can all go up, or when the bag cannot
+## pay for it (red all over, in the colour of the material), and in two when
+## only some of it is blocked — the pieces that can go in green, the ones that
+## cannot in red, in the places they would stand.
+func _show_plan_ghost(split: bool) -> void:
+	var blocked: Array[int] = []
+	if split:
+		blocked = _plan_blocked
+	var key := "%s|%s|%s" % [selected, material, blocked]
+	if key == _plan_ghost_key:
+		return
+	_plan_ghost_key = key
+	if blocked.is_empty():
+		_ghost.mesh = Plans.mesh(selected, material)
+		_blocked_ghost.mesh = null
+		_blocked_ghost.visible = false
+		return
+	var kept: Array[int] = []
+	for index in _plan_pieces.size():
+		if not blocked.has(index):
+			kept.append(index)
+	_ghost.mesh = Plans.mesh(selected, material, kept, false) if not kept.is_empty() else null
+	_blocked_ghost.mesh = Plans.mesh(selected, material, blocked, false)
+	_blocked_ghost.visible = active
 
 ## The trees standing within reach of a point, or none when the game has not
 ## said where its trees are.

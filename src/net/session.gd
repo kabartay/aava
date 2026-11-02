@@ -44,7 +44,8 @@ signal guest_renamed(id: int, who: String, shirt: int)
 ## `extent` is how many squares a whole roof covers; one for everything else.
 ## `material` is what a wall is made of; the plaster look for anything else.
 signal remote_built(kind: StringName, position: Vector3, spin: float, extent: Vector2i, material: StringName)
-signal remote_removed(position: Vector3)
+## `kind` is what was taken down, or empty from a phone that does not say.
+signal remote_removed(position: Vector3, kind: StringName)
 signal remote_felled(position: Vector3)
 signal remote_dam_stick(site: float)
 signal remote_time_of_day(fraction: float)
@@ -292,9 +293,17 @@ func report_built(
 	else:
 		_send_built.rpc(String(kind), at, spin, extent)
 
-func report_removed(at: Vector3) -> void:
-	if is_connected_to_anyone():
+## A removal says what it took down as well as where: a table and the chair
+## pulled up to it stand on one spot, and a bed on the floor beneath it, so the
+## place alone could take down the wrong one of the two. A phone that has not
+## been updated sends and reads only the place, as it always did.
+func report_removed(at: Vector3, kind := &"") -> void:
+	if not is_connected_to_anyone():
+		return
+	if kind == &"":
 		_send_removed.rpc(at)
+	else:
+		_send_removed.rpc(at, String(kind))
 
 func report_felled(at: Vector3) -> void:
 	if is_connected_to_anyone():
@@ -380,10 +389,10 @@ func _send_built(
 	remote_built.emit(StringName(kind), at, spin, extent, HouseParts.material_from(material))
 
 @rpc("any_peer", "call_remote", "reliable")
-func _send_removed(at: Vector3) -> void:
+func _send_removed(at: Vector3, kind := "") -> void:
 	if not believable(at):
 		return
-	remote_removed.emit(at)
+	remote_removed.emit(at, StringName(kind))
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_felled(at: Vector3) -> void:

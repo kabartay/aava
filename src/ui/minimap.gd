@@ -33,6 +33,8 @@ extends PanelContainer
 enum Size {HIDDEN, SMALL, LARGE, FULL}
 
 const SMALL_PIXELS := 190.0
+## What the panel adds round the picture: eight pixels on each side.
+const PANEL_MARGINS := 16.0
 const LARGE_PIXELS := 340.0
 ## Big enough to pick a direction from, and still not the whole screen — a child
 ## should be able to see where they are going while the map is open.

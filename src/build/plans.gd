@@ -94,13 +94,17 @@ static func pieces(plan: StringName, material := HouseParts.DEFAULT_MATERIAL) ->
 				out.append(_piece(HouseParts.CHAIR, _cell(plan, column, 0), 0.0, material, true))
 			# Outside, beside the door, where it can be read from the path.
 			out.append(_piece(HouseParts.SIGN, _cell(plan, 0, -1), 0.0, material))
+			# A lamp in the back corner, so the cafe is lit at night.
+			out.append(_piece(HouseParts.LAMP, _cell(plan, 2, 1), 0.0, material, true))
 		SHOP:
 			out.append(_piece(HouseParts.COUNTER, _cell(plan, 1, 0), 0.0, material, true))
 			out.append(_piece(HouseParts.SHELF, _cell(plan, 0, 1), 0.0, material, true))
 			# A shop says it is one from the path, like the cafe.
 			out.append(_piece(HouseParts.SIGN, _cell(plan, 0, -1), 0.0, material))
-	if plan == HOUSE:
-		# The ridge runs the long way, as a whole roof laid by hand does.
+	if plan != ROOM:
+		# A house, a cafe and a shop are finished buildings, under a roof; a
+		# room is left open for the child to roof as they like. The ridge runs
+		# the long way, as a whole roof laid by hand does.
 		var long_way := size.y >= size.x
 		var roof := _piece(
 			HouseParts.ROOF_ROOM, centre_of(plan) + Vector3(0.0, HouseParts.STOREY, 0.0),
@@ -140,11 +144,20 @@ static func missing(wanted: Dictionary, inventory: Inventory) -> Dictionary:
 			short[item] = lacking
 	return short
 
-## One mesh of the whole plan, for the ghost.
-static func mesh(plan: StringName, material := HouseParts.DEFAULT_MATERIAL) -> Mesh:
+## One mesh of the whole plan, for the ghost — or of only some of its pieces,
+## counted in the order of pieces(), when `all` is false: the ghost is drawn in
+## two, the pieces that can go up and the ones that cannot.
+static func mesh(
+	plan: StringName, material := HouseParts.DEFAULT_MATERIAL,
+	which: Array[int] = [], all := true
+) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for piece in pieces(plan, material):
+	var all_pieces := pieces(plan, material)
+	for index in all_pieces.size():
+		if not all and not which.has(index):
+			continue
+		var piece := all_pieces[index]
 		var part := HouseParts.mesh_for(piece["kind"], piece["extent"], piece["material"])
 		var arrays := part.surface_get_arrays(0)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]

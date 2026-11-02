@@ -45,6 +45,8 @@ extends Node3D
 ##                  player), and print where it went
 ##   --plan=room|house|cafe|shop  put up that ready-made plan with one tap, on
 ##                  the nearest buildable ground to the --look point
+##   --material=plaster|stone|blue|red  what new walls are made of
+##   --storeys=2    with --plan=house, stack a second storey and move the roof up
 ##   --group=plans|walls|floor|roof|furniture|things  with --build=1, open the
 ##                  palette on that group
 
@@ -85,6 +87,8 @@ var _coins := 40
 var _house := false
 var _test_house := false
 var _palette_group := ""
+var _wall_material := ""
+var _two_storeys := false
 var _plan := ""
 var _language := "en"
 var _structures: Structures
@@ -131,6 +135,8 @@ func _ready() -> void:
 
 	if _test_house:
 		_raise_the_test_house()
+	if not _wall_material.is_empty() and _build_mode != null:
+		_build_mode.set_material(StringName(_wall_material))
 	if not _palette_group.is_empty() and _hud != null:
 		_hud._show_group(StringName(_palette_group))
 	if _test_house or not _palette_group.is_empty():
@@ -433,6 +439,23 @@ func _raise_a_plan() -> void:
 	var built: bool = TestHouse.build_plan(_build_mode, _world.field, origin, StringName("plan_" + _plan))
 	_build_mode.set_active(was_active)
 	print("plan %s: built %s; first square at (%.1f, %.1f, %.1f)" % [_plan, built, origin.x, origin.y, origin.z])
+	if _two_storeys and built:
+		# A second storey on the plan, as a child would stack it: every wall
+		# and floor again a storey up, and a whole roof over the lot.
+		var storey := Vector3(0.0, HouseParts.STOREY, 0.0)
+		for record in _build_mode.just_placed().duplicate():
+			var kind: StringName = record["kind"]
+			if HouseParts.is_wall(kind) or kind == HouseParts.FLOOR:
+				_structures.place(
+					kind, (record["position"] as Vector3) + storey, float(record["spin"]),
+					true, Vector2i.ONE, record["material"]
+				)
+			elif kind == HouseParts.ROOF_ROOM:
+				_structures.place(
+					kind, (record["position"] as Vector3) + storey, float(record["spin"]),
+					true, record["extent"]
+				)
+				_structures.remove(record)
 
 func _kick_nearest() -> void:
 	var ball := _world.football.ball_near(_player.global_position)
@@ -651,6 +674,10 @@ func _parse_arguments() -> void:
 				_test_house = value.to_int() != 0
 			"group":
 				_palette_group = value
+			"material":
+				_wall_material = value
+			"storeys":
+				_two_storeys = value.to_int() > 1
 			"plan":
 				# room, house, cafe or shop: built in one tap, like testhouse.
 				_plan = value
