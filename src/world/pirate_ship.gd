@@ -69,7 +69,8 @@ const RAMP_TIME := 10.0
 ## clear of the hull's width and of the hangers on each side of it.
 const FRAME_Z := HULL_HALF_WIDTH + 1.1
 const FRAME_SPREAD := 13.0
-const FRAME_TOP_GAP := 2.2
+## How far above the axle the legs meet, on top of the bearing housing.
+const BEARING_RISE := 0.9
 ## Where the hangers run, just outside the hull's own sides.
 const HANGER_Z := HULL_HALF_WIDTH + 0.2
 
@@ -111,6 +112,9 @@ var _harnesses: Array[Node3D] = []
 ## the stern's, so a bar closes towards the middle on both.
 var _harness_ends: Array[float] = []
 var _harness_closed := 0.0
+## What a lowered bar holds: a solid across the front of each seat, switched
+## on only once the bars are down.
+var _bar_shapes: Array[CollisionShape3D] = []
 
 func _init(at: Vector3) -> void:
 	name = "PirateShip"
@@ -142,38 +146,60 @@ func _build_frames(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		var at_z := side * FRAME_Z
 		var foot_a := Vector3(-FRAME_SPREAD, 0.0, at_z)
 		var foot_b := Vector3(FRAME_SPREAD, 0.0, at_z)
-		var head_a := Vector3(-FRAME_TOP_GAP, AXLE_HEIGHT - 1.0, at_z)
-		var head_b := Vector3(FRAME_TOP_GAP, AXLE_HEIGHT - 1.0, at_z)
-		var apex := Vector3(0.0, AXLE_HEIGHT, at_z)
-		_strut(tool, solid, foot_a, head_a, 0.4, STEEL)
-		_strut(tool, solid, foot_b, head_b, 0.4, STEEL)
-		_beam(tool, head_a, apex, 0.4, STEEL)
-		_beam(tool, head_b, apex, 0.4, STEEL)
-		_beam(tool, head_a, head_b, 0.3, STEEL)
+		# Every leg on this side meets at one point, the top of the housing
+		# the axle turns in. The legs used to stop at two shoulders either
+		# side of the axle, joined by short bars, and the side stays met the
+		# frame lower down again: from the ground nothing came together, and
+		# the frame read as three structures leaning on one another.
+		var apex := Vector3(0.0, AXLE_HEIGHT + BEARING_RISE, at_z)
+		_strut(tool, solid, foot_a, apex, 0.4, STEEL)
+		_strut(tool, solid, foot_b, apex, 0.4, STEEL)
 		# Two braces across each frame, both well above a child on the
 		# platform, and an X between them: what stops an A-frame racking
 		# under a load that changes direction twice every swing.
-		var low_a := foot_a.lerp(head_a, 0.4)
-		var low_b := foot_b.lerp(head_b, 0.4)
-		var high_a := foot_a.lerp(head_a, 0.7)
-		var high_b := foot_b.lerp(head_b, 0.7)
+		var low_a := foot_a.lerp(apex, 0.35)
+		var low_b := foot_b.lerp(apex, 0.35)
+		var high_a := foot_a.lerp(apex, 0.65)
+		var high_b := foot_b.lerp(apex, 0.65)
 		_beam(tool, low_a, low_b, 0.22, STEEL_DARK)
 		_beam(tool, high_a, high_b, 0.22, STEEL_DARK)
 		_beam(tool, low_a, high_b, 0.16, STEEL_DARK)
 		_beam(tool, low_b, high_a, 0.16, STEEL_DARK)
-		# The side stays: out past the frame and down to the ground, either
-		# side of the ramp rather than onto it.
+		# The side stays: from the same apex out past the frame and down to
+		# the ground, either side of the ramp rather than onto it, so each
+		# side stands as one tripod-like trestle.
 		for along: float in [-1.0, 1.0]:
-			var stay_top := Vector3(along * 1.0, AXLE_HEIGHT - 2.0, at_z)
 			var stay_foot := Vector3(along * 3.0, 0.0, at_z + side * 6.0)
-			_strut(tool, solid, stay_top, stay_foot, 0.24, STEEL_DARK)
+			_strut(tool, solid, apex + Vector3(0.0, -0.2, side * 0.1), stay_foot, 0.26, STEEL_DARK)
 			_footing(tool, stay_foot)
+			# A tie from the stay's foot back to the frame's own leg, low
+			# down, so the stays are part of the frame rather than props.
+			var tie_to := (foot_a if along < 0.0 else foot_b).lerp(apex, 0.12)
+			_beam(tool, stay_foot + Vector3(0.0, 0.25, 0.0), tie_to, 0.14, STEEL_DARK)
 		_footing(tool, foot_a)
 		_footing(tool, foot_b)
-		# The bearing the axle turns in.
-		var bearing := BoxMesh.new()
-		bearing.size = Vector3(0.9, 0.9, 0.6)
-		Park._add(tool, bearing, Transform3D(Basis(), apex), STEEL_DARK)
+		# The housing the axle turns in, rising from the axle to where the
+		# legs meet, with a cap over the top.
+		var housing := BoxMesh.new()
+		housing.size = Vector3(1.1, BEARING_RISE + 0.7, 0.7)
+		Park._add(
+			tool, housing,
+			Transform3D(Basis(), Vector3(0.0, AXLE_HEIGHT + (BEARING_RISE - 0.7) * 0.5 + 0.35, at_z)),
+			STEEL_DARK
+		)
+		var cap := BoxMesh.new()
+		cap.size = Vector3(1.4, 0.2, 0.9)
+		Park._add(tool, cap, Transform3D(Basis(), apex + Vector3(0.0, 0.45, 0.0)), STEEL)
+		var hub_cap := CylinderMesh.new()
+		hub_cap.top_radius = 0.5
+		hub_cap.bottom_radius = 0.5
+		hub_cap.height = 0.2
+		hub_cap.radial_segments = 14
+		Park._add(
+			tool, hub_cap,
+			Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.0, AXLE_HEIGHT, at_z + side * 0.42)),
+			STEEL
+		)
 
 	# Ground ties between the two frames' feet, far outside anything the hull
 	# can reach.
@@ -195,8 +221,13 @@ func _build_frames(tool: SurfaceTool, solid: StaticBody3D) -> void:
 
 static func _footing(tool: SurfaceTool, at: Vector3) -> void:
 	var block := BoxMesh.new()
-	block.size = Vector3(1.0, 0.4, 1.0)
+	block.size = Vector3(1.3, 0.4, 1.3)
 	Park._add(tool, block, Transform3D(Basis(), Vector3(at.x, 0.2, at.z)), CONCRETE)
+	# A steel plate the leg is bolted to, so it stands on the footing rather
+	# than disappearing into it.
+	var plate := BoxMesh.new()
+	plate.size = Vector3(0.8, 0.08, 0.8)
+	Park._add(tool, plate, Transform3D(Basis(), Vector3(at.x, 0.44, at.z)), STEEL_DARK)
 
 ## A deck at the height the hull's own deck rests at, beside its gate, with a
 ## ramp down to the sand and rails round the drop. The hull swings past its
@@ -523,6 +554,7 @@ func _build_hull(body: AnimatableBody3D) -> void:
 	# through one, the way they could walk through the benches.
 	_harnesses.clear()
 	_harness_ends.clear()
+	_bar_shapes.clear()
 	for end: float in [-1.0, 1.0]:
 		for row: float in ROWS:
 			var x := end * row
@@ -570,6 +602,20 @@ func _build_hull(body: AnimatableBody3D) -> void:
 				bar.size = Vector3(0.12, 0.12, SEAT_WIDTH - 0.06)
 				Park._add(bar_tool, bar, Transform3D(Basis(), Vector3(0.0, 0.7, 0.0)), RollerCoaster.HARNESS)
 				Park.commit(bar_tool, hinge, "Bar")
+
+				# And a lowered bar holds. It used to be only a drawing: it came
+				# down in front of the rider and they could walk straight out
+				# through it at the top of a swing. A solid across the front of
+				# the seat, clear of the cushion by more than a child is deep so
+				# it never squeezes one, switched on once the bars are down.
+				var hold := BoxShape3D.new()
+				hold.size = Vector3(0.12, 1.0, SEAT_WIDTH)
+				var held := CollisionShape3D.new()
+				held.shape = hold
+				held.position = Vector3(x - end * (SEAT_DEPTH * 0.5 + 0.18), SEAT_TOP + 0.5, across)
+				held.disabled = true
+				body.add_child(held)
+				_bar_shapes.append(held)
 
 	# The hangers: on each side, a V of steel from two points on a stringer
 	# bolted along the hull up to a hub that turns on the axle, with ties
@@ -706,6 +752,8 @@ func _physics_process(delta: float) -> void:
 	_harness_closed = move_toward(_harness_closed, wanted, delta / RollerCoaster.HARNESS_TIME)
 	for index in _harnesses.size():
 		_harnesses[index].rotation.z = _harness_ends[index] * deg_to_rad(105.0) * _harness_closed
+	for held in _bar_shapes:
+		held.disabled = _harness_closed < 0.99
 
 ## How far the hull moved whoever is standing in it, this frame. Mirrors
 ## FerrisWheel.carry() and DropTower.carry() — the hull is moved by hand, not

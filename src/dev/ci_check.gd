@@ -202,6 +202,7 @@ func _initialize() -> void:
 	_check_damaged_saves_load_what_is_valid()
 	await _check_the_trampoline_rim_is_closed_and_a_ride_is_sold_once()
 	_check_the_pirate_ship_carries_a_child_round_with_it()
+	_check_the_pirate_ship_bars_hold()
 	_check_an_animal_does_not_wade_into_a_pond()
 	_check_a_pinch_is_not_a_tap()
 	await _check_the_shop_sells_back_only_what_is_chosen()
@@ -335,20 +336,25 @@ func _find_scripts(directory: String) -> PackedStringArray:
 func _check_the_great_mountain_stands() -> void:
 	print("the great mountain stands")
 	var field := HeightField.new(20260903)
-	var axis := HeightField.ELBRUS_AXIS
+	var west_at := HeightField.elbrus_west_summit()
+	var east_at := HeightField.elbrus_east_summit()
+	_expect(
+		(east_at - west_at).normalized().dot(HeightField.ELBRUS_AXIS) > 0.98,
+		"the summits lie along the mountain's axis, west to east"
+	)
 
-	# Walked along the line through both summits: the highest point either side
-	# of the middle, and the lowest point between them.
+	# Walked along the line through both summits: the highest point near each,
+	# and the lowest point between them.
 	var west_top := 0.0
 	var east_top := 0.0
 	var saddle := 1e9
-	for i in range(-40, 41):
-		var along := float(i) * 8.0
-		var at := HeightField.ELBRUS_AT + axis * along
+	for i in range(-10, 51):
+		var t := float(i) / 40.0
+		var at := west_at.lerp(east_at, t)
 		var here := field.height_at(at.x, at.y)
-		if along < -60.0:
+		if t < 0.2:
 			west_top = maxf(west_top, here)
-		elif along > 60.0:
+		elif t > 0.8:
 			east_top = maxf(east_top, here)
 		else:
 			saddle = minf(saddle, here)
@@ -14134,3 +14140,32 @@ func _check_the_platform_meets_the_car_and_the_gondola_clears_the_legs() -> void
 		"a gondola reaches %.2f m out and the frame's legs start at %.2f m" % [widest, legs_from]
 	)
 	wheel.queue_free()
+
+## A lowered bar on the boat holds its rider. It was once only drawn, and a
+## child could walk out through it at the top of a swing.
+func _check_the_pirate_ship_bars_hold() -> void:
+	print("the pirate ship's bars hold")
+	var ship := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(ship)
+	var seats := PirateShip.ROWS.size() * PirateShip.SEAT_ACROSS.size() * 2
+	_expect(ship._bar_shapes.size() == seats, "every seat has a bar that holds (%d)" % ship._bar_shapes.size())
+	var all_open := true
+	for held in ship._bar_shapes:
+		all_open = all_open and held.disabled
+	_expect(all_open, "at rest the bars let a child in and out")
+	ship._phase = PirateShip.Phase.SWINGING
+	for frame in 120:
+		ship._physics_process(1.0 / 60.0)
+	var all_shut := true
+	for held in ship._bar_shapes:
+		all_shut = all_shut and not held.disabled
+	_expect(all_shut, "swinging, every bar holds")
+	# Clear of the seat by more than a child is deep, so it never squeezes one.
+	var held: CollisionShape3D = ship._bar_shapes[0]
+	var gap := absf(absf(held.position.x) - PirateShip.ROWS[0]) - (held.shape as BoxShape3D).size.x * 0.5
+	_expect(
+		gap + PirateShip.SEAT_DEPTH * 0.5 > Player.RADIUS * 2.0,
+		"with %.2f m between the bar and the back for a rider" % (gap + PirateShip.SEAT_DEPTH * 0.5)
+	)
+	ship.queue_free()
+

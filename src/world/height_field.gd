@@ -86,24 +86,16 @@ const TERRACE_BITE := 0.62
 ## push its lower slopes into ground a child is meant to be able to walk on.
 const ELBRUS_AT := Vector2(-330.0, -1000.0)
 
-## The shield: very wide and very gentle, which is why the snow stays on it.
+## How far its skirts reach from the centre.
 const ELBRUS_REACH := 620.0
 
-## The summit plateau: the shield is level inside this, and the two domes stand
-## on that level. Without it the shield is highest at its own centre, which is
-## exactly where the saddle is meant to be — the mountain came out as one cone
-## with a bump on its shoulder instead of two summits with a dip between them.
-const ELBRUS_PLATEAU := 150.0
-const ELBRUS_SHIELD := 405.0
+## How high the western summit stands over the plain at its foot.
+const ELBRUS_HEIGHT := 545.0
 
-## The two summits, along a roughly east-west line, the western the higher —
-## as on the real one, where the difference is about twenty metres in
-## five and a half thousand.
+## The line through the two summits, west to east, the western the higher — as
+## on the real one, where the difference is about twenty metres in five and a
+## half thousand. The relief is turned to lie along it.
 const ELBRUS_AXIS := Vector2(0.94, -0.34)
-const ELBRUS_SADDLE := 242.0
-const ELBRUS_DOME := 186.0
-const ELBRUS_WEST := 138.0
-const ELBRUS_EAST := 128.0
 
 ## Nothing grows above this. A bare treeline is what makes a mountain read as
 ## high rather than as a big green lump.
@@ -709,34 +701,26 @@ func _terraced(height: float, amount: float) -> float:
 
 ## How much the twin-domed mountain lifts the ground here.
 ##
-## A broad shield with two domes standing on it, and the domes taken as the
-## higher of the two rather than added together — added, the saddle between
-## them fills in and the whole thing becomes one lump, which is precisely the
-## shape it is meant not to be. The saddle is the mountain.
+## Taken from the real mountain rather than drawn by formula. Built by hand it
+## was a shield with two domes on it, and however the numbers went it was
+## either one lump or two sharp peaks, and the edge of its summit plateau stood
+## out in front of them like a hump. A terrain model of the real massif gives
+## the shape the eye knows: a broad volcano, concave on every side, with two
+## rounded summits close together on top and a shallow saddle between them.
+## See ElbrusRelief.
 func _twin_domed_mountain(x: float, z: float) -> float:
 	var dx := x - ELBRUS_AT.x
 	var dz := z - ELBRUS_AT.y
-	var from_middle := sqrt(dx * dx + dz * dz)
-	if from_middle > ELBRUS_REACH:
+	if dx * dx + dz * dz > ELBRUS_REACH * ELBRUS_REACH:
 		return 0.0
+	return ELBRUS_HEIGHT * ElbrusRelief.height(dx, dz, ELBRUS_REACH)
 
-	# The shield: level across the summit plateau, then falling away to nothing
-	# at the rim. Raised to a power so it meets the plain at a shallow angle
-	# rather than at a hard edge.
-	var shield := ELBRUS_SHIELD * pow(
-		1.0 - smoothstep(ELBRUS_PLATEAU, ELBRUS_REACH, from_middle), 1.2
-	)
+## Where the two summits stand in the world.
+static func elbrus_west_summit() -> Vector2:
+	return ELBRUS_AT + ElbrusRelief.WEST_SUMMIT
 
-	var half := ELBRUS_AXIS * (ELBRUS_SADDLE * 0.5)
-	var to_west := Vector2(dx + half.x, dz + half.y).length()
-	var to_east := Vector2(dx - half.x, dz - half.y).length()
-	# A gentle exponent, so each summit is a rounded dome rather than a cone.
-	# The two are within a few metres of each other, as the real pair are —
-	# twenty-one metres apart in five and a half thousand — which is what makes
-	# them read as twin summits instead of a peak with a shoulder.
-	var west := ELBRUS_WEST * pow(1.0 - smoothstep(0.0, ELBRUS_DOME, to_west), 1.35)
-	var east := ELBRUS_EAST * pow(1.0 - smoothstep(0.0, ELBRUS_DOME, to_east), 1.35)
-	return shield + maxf(west, east)
+static func elbrus_east_summit() -> Vector2:
+	return ELBRUS_AT + ElbrusRelief.EAST_SUMMIT
 
 ## Surface normal from the analytic gradient of the height function.
 ## Cheaper and smoother than averaging face normals, and it stays correct at

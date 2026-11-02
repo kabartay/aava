@@ -27,3 +27,11 @@ store will act on a name and an icon long before it will read a licence.
 
 The game is made for children and given away. If you want to do something with
 it that this does not cover, the sensible thing is to ask.
+
+## Third-party data
+
+The shape of the great mountain (`src/world/elbrus_relief.gd`) is derived from
+a 3D terrain model of Mount Elbrus made with TerraPrinter (terraprinter.com),
+whose map data is © OpenStreetMap contributors. It was reduced to a coarse
+128 × 128 height grid by `dev/elbrus/make_relief.py`; the model itself is not
+included.

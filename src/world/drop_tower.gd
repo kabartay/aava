@@ -281,16 +281,43 @@ func _build_ring(body: AnimatableBody3D) -> void:
 				SEAT_COLOUR.darkened(0.2)
 			)
 
-		# The arm: from the rim out to the top of the seat's back, which is
-		# where a seat like this is carried from.
-		_beam(
-			tool, rim_at + Vector3(0.0, -0.04, 0.0),
-			spot + facing * Vector3(-0.3, cushion_top + back_height - 0.1, 0.0), 0.12, STEEL_DARK
+		# What carries the seat: a stout upright behind its back, from the
+		# ring down to under the cushion, bolted to the rim by a deep bracket
+		# at the top and a gusset below. Two thin rods from the rim used to
+		# hold it, and the seats read as hung off the ring on wires rather
+		# than fixed to it.
+		var post_x := -0.44
+		var post_top := -spot.y + 0.12
+		var post_bottom := cushion_top - 0.12
+		var post := BoxMesh.new()
+		post.size = Vector3(0.24, post_top - post_bottom, 0.34)
+		Park._add(
+			tool, post,
+			Transform3D(facing, spot + facing * Vector3(post_x, (post_top + post_bottom) * 0.5, 0.0)),
+			STEEL_DARK
+		)
+		var bracket_from := RING_RADIUS - 0.15
+		var bracket_to := RING_RADIUS + 0.9 + post_x
+		var bracket := BoxMesh.new()
+		bracket.size = Vector3(bracket_to - bracket_from, 0.26, 0.3)
+		Park._add(
+			tool, bracket,
+			Transform3D(facing, out * ((bracket_from + bracket_to) * 0.5) + Vector3(0.0, -0.02, 0.0)),
+			STEEL_DARK
 		)
 		_beam(
-			tool, rim_at + Vector3(0.0, -0.04, 0.0),
-			spot + facing * Vector3(-0.3, cushion_top + 0.2, 0.0), 0.08, STEEL_DARK
+			tool, rim_at + Vector3(0.0, -0.1, 0.0),
+			spot + facing * Vector3(post_x, cushion_top + 0.35, 0.0), 0.16, STEEL_DARK
 		)
+		# Bolted to the back, top and bottom, so the seat is part of the post.
+		for clamp_y: float in [cushion_top + 0.3, cushion_top + back_height - 0.25]:
+			var clamp := BoxMesh.new()
+			clamp.size = Vector3(0.14, 0.12, 0.42)
+			Park._add(
+				tool, clamp,
+				Transform3D(facing, spot + facing * Vector3(-0.33, clamp_y, 0.0)),
+				STEEL
+			)
 
 		var seat_base := BoxMesh.new()
 		seat_base.size = Vector3(0.46, 0.1, 0.5)
