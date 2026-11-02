@@ -72,6 +72,9 @@ const COLOR_PATH := Color(0.62, 0.52, 0.36)
 const COLOR_TRODDEN := Color(0.68, 0.58, 0.38)
 const COLOR_MEADOW := Color(0.52, 0.68, 0.30)
 const COLOR_ROCK := Color(0.44, 0.43, 0.44)
+## Mountain rock, a darker grey-brown than the stones in the meadow: against
+## snow and haze a neutral mid-grey washed out to pale blue from the valley.
+const COLOR_CRAG := Color(0.36, 0.32, 0.29)
 ## Forest seen from far off, where no single tree can be made out: a
 ## hillside under trees is darker and bluer than the grass beside it, and
 ## that darkening is the whole of what a distant wood looks like.

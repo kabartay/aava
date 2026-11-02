@@ -601,6 +601,11 @@ const GRAZE_PITCH := {
 const LOOK_YAW := 0.95
 const WATCH_RANGE := 5.0
 
+## Beyond this the head and the tail are left as they were. A head a few
+## pixels across, forty-odd metres off, is not seen to turn, and the animals
+## of all the tiles round the player were each paying for it every frame.
+const DETAIL_RANGE := 45.0
+
 ## The head and the tail, which are nodes of their own.
 ##
 ## Standing, an animal used to be a statue that breathed: the head was part of
@@ -616,6 +621,12 @@ const WATCH_RANGE := 5.0
 func _head_and_tail(
 	animal: Dictionary, node: Node3D, kind: StringName, bob: float, moving: float, trot: float, delta: float
 ) -> void:
+	# Far from the child, nobody sees it. Before the player is known,
+	# everywhere is near, as for `_worth_feeling_for`.
+	if _has_player:
+		var gap := node.position - _player
+		if gap.x * gap.x + gap.z * gap.z > DETAIL_RANGE * DETAIL_RANGE:
+			return
 	if not animal.has("head"):
 		animal["head"] = node.get_node_or_null("Head")
 		animal["tail"] = node.get_node_or_null("Tail")

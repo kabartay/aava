@@ -153,7 +153,7 @@ func _ready() -> void:
 	# is a place to work rather than a place to be.
 	ducks = Ducks.new()
 	add_child(ducks)
-	ducks.settle(world_seed)
+	ducks.settle(world_seed, field)
 
 	var spawn := field.find_spawn_point()
 	# Five horses turned out across the valley. One waits near the spawn —

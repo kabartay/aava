@@ -456,6 +456,7 @@ const STRIDE_METRES := 2.6
 const LEG_SWING := deg_to_rad(32.0)
 
 func _process(delta: float) -> void:
+	_drift_the_boats(delta)
 	# Every horse nobody is riding grazes, whether or not one of them is being
 	# ridden: four horses frozen mid-mouthful while you ride the fifth is worse
 	# than none of them grazing at all.
@@ -516,6 +517,27 @@ func _process(delta: float) -> void:
 		tail.rotation.y = lerp_angle(tail.rotation.y, sway, 1.0 - exp(-8.0 * delta))
 		tail.rotation.x = lerp_angle(tail.rotation.x, -0.15 * effort, 1.0 - exp(-4.0 * delta))
 	_idle += delta
+
+## A boat nobody is in goes with the river, as anything left on water would.
+## Only where the river runs: the ponds have no current, so a boat left on one
+## stays where it was left. It stops where the water gets too shallow to float
+## it, rather than sliding up the bank.
+func _drift_the_boats(delta: float) -> void:
+	for id in _nodes:
+		if id == riding or not MountKinds.floats(id):
+			continue
+		var node: Node3D = _nodes[id]
+		if not is_instance_valid(node):
+			continue
+		var current := field.river_current_at(node.position.x, node.position.z)
+		if current == Vector2.ZERO:
+			continue
+		var moved := node.position + Vector3(current.x, 0.0, current.y) * delta
+		if not can_ride_over(id, moved):
+			continue
+		moved.y = _rest_height(id, moved)
+		node.position = moved
+		_positions[id] = moved
 
 ## Where the ridden horse's legs are, for the checks: the swing of each, in
 ## radians.

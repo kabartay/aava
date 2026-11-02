@@ -75,6 +75,7 @@ static func bake(
 		# from the seed directly — and must keep doing so, or every tuft moves.
 		var rng := RandomNumberGenerator.new()
 		rng.seed = hash(Vector3i(world_seed, coord.x, coord.y))
+		var bridge_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
 		for _i in GRASS_CANDIDATES:
 			var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
 			var world_x := origin_x + local.x
@@ -100,6 +101,15 @@ static func bake(
 			if ParkSpec.inside(world_x, world_z):
 				continue
 			if Pitch.is_levelled(world_x, world_z):
+				continue
+			# Nor through the deck. It rises from the bank at each end by
+			# less than a tuft is tall, so grass there came up between the
+			# planks. A hand's breadth beyond the deck as well, for a
+			# blade's own width.
+			if (
+				absf(world_z - BridgeSpec.CENTRE_Z) <= BridgeSpec.HALF_WIDTH + 0.6
+				and absf(world_x - bridge_x) <= BridgeSpec.HALF_SPAN + 0.6
+			):
 				continue
 			if field.path_at(world_x, world_z, height) > 0.35:
 				continue
@@ -205,11 +215,20 @@ static func generate_trees(
 		# and a wood grew in the lake.
 		if field.is_pond(world_x, world_z):
 			continue
-		# Not in another trunk's lap. Only within the tile, so a pair either side
-		# of a tile edge can still stand close; the draws above were already
-		# taken, so this moves no other tree.
+		# Not in another trunk's lap. Within the tile by the list below, across
+		# its edge by the margin; the draws above were already taken, so this
+		# moves no other tree.
 		var here := Vector2(world_x, world_z)
 		var crowded := false
+		# The tile cannot see its neighbour's trees, so instead nobody stands
+		# within half a gap of the seam: two trees either side of it are then at
+		# least a whole gap apart, and no pair is a wall across the join.
+		var edge := MIN_TREE_GAP * 0.5
+		if (
+			local.x < edge or local.x > float(tile_size) - edge
+			or local.z < edge or local.z > float(tile_size) - edge
+		):
+			continue
 		for other in spots:
 			if other.distance_squared_to(here) < MIN_TREE_GAP * MIN_TREE_GAP:
 				crowded = true

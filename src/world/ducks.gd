@@ -33,7 +33,20 @@ const GIRTH := 0.22
 const BOB := 0.035
 const BOB_SPEED := 1.4
 
+## A few ducks on the river as well, upstream of the bridge. The river carries
+## them gently downstream; when one has drifted too far from where it started
+## it turns and paddles back, harder than it paddles about, because it has the
+## current to beat. Stuck at the same walking pace they would never get home.
+const ON_THE_RIVER := 3
+const RIVER_DUCKS_AT_Z := -34.0
+## How far downstream of its home a river duck drifts before it paddles back,
+## how far across the river it may stray, and how near home counts as home.
+const LEASH := 9.0
+const RIVER_ABREAST := 5.0
+const HOME_ENOUGH := 2.0
+
 var _ducks: Array[Dictionary] = []
+var _field: HeightField
 var _material: StandardMaterial3D
 var _drake: Mesh
 var _hen: Mesh
@@ -58,7 +71,8 @@ func _init() -> void:
 
 ## Put ducks on every pond. Called once, with the seed, so the same world has
 ## the same ducks in the same places on both children's phones.
-func settle(world_seed: int) -> void:
+func settle(world_seed: int, height_field: HeightField = null) -> void:
+	_field = height_field
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(Vector3i(world_seed, 7717, 41))
 	for pond in Lakes.count():
@@ -101,6 +115,36 @@ func settle(world_seed: int) -> void:
 				"heading": node.rotation.y,
 				"phase": rng.randf() * TAU,
 			})
+	if _field != null:
+		for i in ON_THE_RIVER:
+			var z := RIVER_DUCKS_AT_Z - float(i) * 6.0
+			var home := Vector2(
+				_field.river_centre_x(z) + (rng.randf() - 0.5) * 2.0 * RIVER_ABREAST * 0.5, z
+			)
+			var node := MeshInstance3D.new()
+			node.mesh = _drake if i % 2 == 0 else _hen
+			node.position = Vector3(home.x, _field.water_level_at(home.x, z), home.y)
+			node.rotation.y = rng.randf() * TAU
+			var body := StaticBody3D.new()
+			body.collision_layer = TerrainSpec.LAYER_PROPS
+			body.set_meta(TerrainSpec.ANIMALS_IGNORE, true)
+			var shape := CapsuleShape3D.new()
+			shape.radius = GIRTH
+			shape.height = GIRTH * 2.6
+			var collider := CollisionShape3D.new()
+			collider.shape = shape
+			collider.position = Vector3(0.0, GIRTH * 0.6, 0.0)
+			body.add_child(collider)
+			node.add_child(body)
+			add_child(node)
+			_ducks.append({
+				"node": node,
+				"pond": -1,
+				"home": home,
+				"returning": false,
+				"heading": node.rotation.y,
+				"phase": rng.randf() * TAU,
+			})
 
 func _process(delta: float) -> void:
 	var stamp := PerfLog.stamp()
@@ -115,6 +159,9 @@ func _paddle(duck: Dictionary, delta: float) -> void:
 	if not is_instance_valid(node):
 		return
 	var pond: int = duck["pond"]
+	if pond < 0:
+		_paddle_on_the_river(duck, delta)
+		return
 	var centre := Vector2(
 		Lakes.at(pond, Lakes.POND_X), Lakes.at(pond, Lakes.POND_Z)
 	)
@@ -144,6 +191,42 @@ func _paddle(duck: Dictionary, delta: float) -> void:
 	node.position += forward * SPEED * delta
 	node.position.y = (
 		Lakes.at(pond, Lakes.POND_LEVEL)
+		+ sin(float(duck["phase"]) * BOB_SPEED + node.position.x) * BOB
+	)
+
+## A duck on the river: carried with the water, wandering about while it is near
+## home, and paddling back upstream once it has gone too far downstream or too
+## far across. The water carries it by the same current that carries a swimmer.
+func _paddle_on_the_river(duck: Dictionary, delta: float) -> void:
+	var node: Node3D = duck["node"]
+	var home: Vector2 = duck["home"]
+	var heading: float = duck["heading"]
+	var here := Vector2(node.position.x, node.position.z)
+	var current := _field.river_current_at(here.x, here.y)
+	var downstream := Vector2(_field.river_slope(here.y), 1.0).normalized()
+	var away := here - home
+	var returning: bool = duck["returning"]
+	if away.dot(downstream) > LEASH or absf(here.x - _field.river_centre_x(here.y)) > RIVER_ABREAST:
+		returning = true
+	elif away.length() < HOME_ENOUGH:
+		returning = false
+	duck["returning"] = returning
+
+	var effort := SPEED
+	if returning:
+		# Headings are the node's rotation about Y, where zero faces -Z.
+		var wanted := atan2(away.x, away.y)
+		heading = lerp_angle(heading, wanted, 1.0 - exp(-TURN * 2.5 * delta))
+		effort += current.length() * 1.5
+	else:
+		duck["phase"] = float(duck["phase"]) + delta * 0.6
+		heading += sin(float(duck["phase"])) * TURN * delta
+	duck["heading"] = heading
+	node.rotation.y = heading
+	var forward := Vector3(-sin(heading), 0.0, -cos(heading))
+	node.position += (forward * effort + Vector3(current.x, 0.0, current.y)) * delta
+	node.position.y = (
+		_field.water_level_at(node.position.x, node.position.z)
 		+ sin(float(duck["phase"]) * BOB_SPEED + node.position.x) * BOB
 	)
 

@@ -41,6 +41,10 @@ const CAFE_WIDTH: float = PlaceSpec.BUILDINGS[&"cafe"][0]
 const CAFE_DEPTH: float = PlaceSpec.BUILDINGS[&"cafe"][1]
 const CAFE_HEIGHT := 3.5
 const CAFE_MID_Z := 1.6
+## The café's chimney stack, measured up from the top of its walls: its foot is
+## well inside the roof, its top a little over the ridge.
+const CAFE_CHIMNEY_FOOT := 0.6
+const CAFE_CHIMNEY_TOP := 2.55
 const CAFE_DOOR_HALF := 0.9
 ## Where the tables stand inside, and out on the terrace under umbrellas, and
 ## the two lamps that light the terrace at dusk like the playground's.
@@ -1005,11 +1009,8 @@ func _build_shop(at: Vector3) -> void:
 	mast.height = 0.9
 	mast.radial_segments = 6
 	_add(lid, mast, Transform3D(Basis(), Vector3(0.0, ridge_height + 0.55, mid - d * 0.3)), Color(0.28, 0.26, 0.24))
-	var flag := BoxMesh.new()
-	flag.size = Vector3(0.5, 0.26, 0.04)
-	_add(lid, flag, Transform3D(
-		Basis(Vector3.UP, deg_to_rad(24.0)), Vector3(0.22, ridge_height + 0.85, mid - d * 0.3)
-	), Color(0.86, 0.36, 0.30))
+	# The flag itself is a node, added with the roof below, so it flies the wind.
+	var vane_at := Vector3(0.0, ridge_height + 0.85, mid - d * 0.3)
 
 	# A deep porch across the front: posts, a floor and a shallow roof. This is
 	# what makes it read as a shop you walk up to rather than a shed with a
@@ -1296,6 +1297,11 @@ func _build_shop(at: Vector3) -> void:
 	_shop_solid = solid
 	_shop_walls = walls
 	_shop_roof = _roof_mesh(lid, at)
+	var vane := Flag.new()
+	vane.name = "Vane"
+	vane.position = vane_at
+	vane.add_cloth(Vector3(0.5, 0.26, 0.04), Color(0.86, 0.36, 0.30))
+	_shop_roof.add_child(vane)
 
 ## A painting hung flush on the wall this shop's motor vehicles stand along.
 ##
@@ -2564,11 +2570,18 @@ func _build_pool(at: Vector3) -> void:
 		# The back, tipped up at the end nearer the fence.
 		var back := BoxMesh.new()
 		back.size = Vector3(POOL_LOUNGER_SIZE.x * 0.34, 0.08, POOL_LOUNGER_SIZE.z)
+		# Hinged on the seat's end: the foot of the back is on the seat's top
+		# edge and it rises away from it. It was set down a hand's breadth off
+		# the seat and lower than it, with a leg stood under nothing.
+		var hinge := Vector3(POOL_LOUNGER_SIZE.x * (0.17 - 0.33), 0.42, 0.0)
+		var half_back := POOL_LOUNGER_SIZE.x * 0.17
 		_add(tool, back, Transform3D(
 			Basis(Vector3.FORWARD, deg_to_rad(34.0)),
-			local + Vector3(-POOL_LOUNGER_SIZE.x * 0.36, 0.52, 0.0)
+			local + hinge + Vector3(
+				-half_back * cos(deg_to_rad(34.0)), half_back * sin(deg_to_rad(34.0)), 0.0
+			)
 		), Color(0.30, 0.52, 0.86))
-		for dx in PackedFloat32Array([-0.55, 0.75]):
+		for dx in PackedFloat32Array([-0.28, 0.75]):
 			var leg := BoxMesh.new()
 			leg.size = Vector3(0.06, 0.36, POOL_LOUNGER_SIZE.z)
 			_add(tool, leg, Transform3D(Basis(), local + Vector3(dx, 0.18, 0.0)), iron)
@@ -2837,6 +2850,9 @@ func _build_cafe(at: Vector3) -> void:
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		_wall(tool, walls, Vector3(thick, h, d), Vector3(side * (w * 0.5 - thick * 0.5), h * 0.5, mid), wall)
 		for wz in PackedFloat32Array([mid - 1.9, mid + 1.5]):
+			# (Its middle is 0.03 m out, so its back face is on the wall and its
+			# front 0.06 proud; at 0.08 the whole pane hung a finger's width
+			# clear of the wall, with daylight behind it.)
 			# Stood 0.08 m proud of the wall rather than 0.02 — close enough to
 			# the wall's own outer face that the two sat almost exactly on top
 			# of each other, which two surfaces this close can flicker between
@@ -2845,7 +2861,7 @@ func _build_cafe(at: Vector3) -> void:
 			# sill is there but the glass isn't".
 			var pane := BoxMesh.new()
 			pane.size = Vector3(0.06, 1.2, 1.6)
-			_add(tool, pane, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.08), 1.9, wz)), glass)
+			_add(tool, pane, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.03), 1.9, wz)), glass)
 			var sill := BoxMesh.new()
 			sill.size = Vector3(0.18, 0.06, 1.8)
 			_add(tool, sill, Transform3D(Basis(), Vector3(side * (w * 0.5 + 0.08), 1.28, wz)), timber)
@@ -2857,7 +2873,7 @@ func _build_cafe(at: Vector3) -> void:
 		# as the side panes above.
 		var shop_window := BoxMesh.new()
 		shop_window.size = Vector3(2.2, 1.4, 0.06)
-		_add(tool, shop_window, Transform3D(Basis(), Vector3(side * 3.0, 1.85, front - 0.08)), glass)
+		_add(tool, shop_window, Transform3D(Basis(), Vector3(side * 3.0, 1.85, front - 0.03)), glass)
 		var frame := BoxMesh.new()
 		frame.size = Vector3(2.4, 0.08, 0.12)
 		_add(tool, frame, Transform3D(Basis(), Vector3(side * 3.0, 1.11, front - 0.08)), timber)
@@ -2915,8 +2931,14 @@ func _build_cafe(at: Vector3) -> void:
 	ridge.size = Vector3(w + 1.0, 0.14, 0.24)
 	_add(lid_tool, ridge, Transform3D(Basis(), Vector3(0.0, h + 2.0, mid)), tiles.darkened(0.25))
 	var chimney := BoxMesh.new()
-	chimney.size = Vector3(0.5, 1.1, 0.5)
-	_add(lid_tool, chimney, Transform3D(Basis(), Vector3(3.4, h + 2.0, mid + 1.6)), Color(0.55, 0.42, 0.36))
+	# Standing in the roof, not on the idea of it: the slope has fallen away
+	# by the time it is a metre and a half off the ridge, and a stack whose foot
+	# was level with the ridge's base hung in the air over the tiles. Its foot
+	# is well down inside the roof's solid now, and it comes out of the top.
+	chimney.size = Vector3(0.5, CAFE_CHIMNEY_TOP - CAFE_CHIMNEY_FOOT, 0.5)
+	_add(lid_tool, chimney, Transform3D(Basis(), Vector3(
+		3.4, h + (CAFE_CHIMNEY_TOP + CAFE_CHIMNEY_FOOT) * 0.5, mid + 1.6
+	)), Color(0.55, 0.42, 0.36))
 
 	# The awning over the door, and the sign above it.
 	for i in 7:
@@ -3867,7 +3889,9 @@ func _build_fountain(at: Vector3, solid: StaticBody3D) -> void:
 	pool.height = 0.03
 	pool.radial_segments = 18
 	pool.rings = 1
-	_add(tool, pool, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.53, 0.0)), water)
+	# Over the basin's own top face, which is at 0.56: at 0.53 the water was
+	# under the stone and the basin read as an empty bowl with a jet in it.
+	_add(tool, pool, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.58, 0.0)), water)
 
 	# The upper tier: a column out of the water and a bowl on it.
 	var column := CylinderMesh.new()

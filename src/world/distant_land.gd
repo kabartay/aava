@@ -35,6 +35,16 @@ const STEP := 40.0
 ## step is imperceptible at this distance and keeps the rebuilds rare.
 const REBUILD_AFTER := 120.0
 
+## How far the ring is sunk where it overlaps the streamed ground, and how far
+## out that reaches. The ring starts inside the chunks' reach on purpose, so no
+## sky shows between them, but there both meshes draw the same hillside: one
+## sampled every sixteen metres and one every forty, so their triangles cross
+## and the two surfaces fight for the pixel, shimmering as the camera moves. A
+## few metres lower, the chunks always win; the ring only has to be seen where
+## they have stopped, and by then the sink has faded away.
+const SINK := 4.0
+const SINK_ENDS := 600.0
+
 var field: HeightField
 
 var _mesh: MeshInstance3D
@@ -114,7 +124,7 @@ func _bake(centre: Vector3) -> void:
 				continue
 			var height := field.height_at(x, z)
 			index_of[Vector2i(gx, gz)] = vertices.size()
-			vertices.append(Vector3(x - centre.x, height, z - centre.z))
+			vertices.append(Vector3(x - centre.x, height - sink_at(out), z - centre.z))
 			colours.append(_colour(height, x, z))
 
 	for gz in across - 1:
@@ -132,6 +142,11 @@ func _bake(centre: Vector3) -> void:
 	_mutex.lock()
 	_baked = {"vertices": vertices, "colours": colours, "indices": indices, "centre": centre}
 	_mutex.unlock()
+
+## How far below the true ground the ring is drawn at this distance from its
+## centre: all of SINK under the streamed chunks, none beyond them.
+static func sink_at(out: float) -> float:
+	return SINK * (1.0 - smoothstep(INNER + 100.0, SINK_ENDS, out))
 
 ## The colour of far ground: the same story the terrain tells — water, sand,
 ## grass, rock, snow — without the paths, pitches and places, none of which
@@ -152,11 +167,7 @@ func _colour(height: float, x: float, z: float) -> Color:
 		TerrainSpec.COLOR_PASTURE,
 		smoothstep(HeightField.CONIFER_TOP, HeightField.TREELINE + 6.0, height)
 	)
-	var bare := maxf(
-		smoothstep(0.35, 0.75, steep),
-		smoothstep(HeightField.PASTURE_TOP - 26.0, HeightField.PASTURE_TOP, height)
-	)
-	colour = colour.lerp(TerrainSpec.COLOR_ROCK, clampf(bare, 0.0, 1.0))
+	colour = colour.lerp(TerrainSpec.COLOR_CRAG, HeightField.rock_at(height, steep))
 	# The same rule the streamed ground uses, from the height field, so the
 	# mountains do not change colour across the line where one ends and the
 	# other begins.

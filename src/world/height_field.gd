@@ -145,6 +145,20 @@ static func snow_at(height: float, steep: float) -> float:
 		0.0, 1.0
 	)
 
+## How bare the ground is, from 0 to 1, for rock to be laid over grass.
+##
+## Both the streamed ground and the far ring ask this, so the join between
+## them does not change colour. Below the treeline rock is only for what is
+## steep. Above it the ground goes grey-brown at a much gentler tilt, which is
+## scree and stony slope, so that when snow lets go of the steep faces (see
+## snow_at) there is a band of rock under it rather than white all the way
+## down. And in the crag band rock shows whether it is steep or not.
+static func rock_at(height: float, steep: float) -> float:
+	var bare := smoothstep(0.35, 0.75, steep)
+	var stony := smoothstep(0.18, 0.45, steep) * smoothstep(TREELINE, TREELINE + 24.0, height)
+	var crag := smoothstep(PASTURE_TOP - 26.0, PASTURE_TOP, height)
+	return clampf(maxf(maxf(bare, stony), crag), 0.0, 1.0)
+
 ## Glacier ice: it gathers where it can lie, so this wants height *and*
 ## gentleness — unlike the snow above it, which only asks not to be a cliff.
 ## Painted over the snow rather than instead of it, so a summit reads as white
@@ -168,10 +182,15 @@ static func ice_at(height: float, steep: float) -> float:
 ## (about sixty and seventy-two degrees), because at the true fifty the
 ## shoulders came out half bare. Ice, which wants it gentler, lets go by
 ## about sixty degrees.
-const SNOW_HOLDS_TO := 0.75
-const SNOW_SLIDES_AT := 1.25
-const ICE_GATHERS_TO := 0.3
-const ICE_SLIDES_AT := 0.9
+## Brought in from 0.75 and 1.25 because from the valley the range read as
+## white with hardly any rock: snow now lets go of anything past about forty-five
+## degrees, so the steep faces and buttresses show.
+const SNOW_HOLDS_TO := 0.5
+const SNOW_SLIDES_AT := 1.0
+## Ice is painted over snow and rock alike, so letting it reach 0.9 washed the
+## grey of every moderate face back to pale blue: it lets go sooner now.
+const ICE_GATHERS_TO := 0.2
+const ICE_SLIDES_AT := 0.6
 
 ## Left where it is. Lowering it to deepen the white band put snow below the
 ## treeline, and the bands have an order — wood, spruce, pasture, crag, snow —

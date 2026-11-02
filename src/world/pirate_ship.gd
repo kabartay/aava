@@ -424,18 +424,14 @@ func _build_hull(body: AnimatableBody3D) -> void:
 		var stripe := BoxMesh.new()
 		stripe.size = Vector3(0.06, 0.4, HULL_HALF_WIDTH * 1.7)
 		Park._add(tool, stripe, Transform3D(Basis(), Vector3(mast_x - end * 0.14, mast_foot + 2.85, 0.0)), HULL)
-		# A swallow-tailed flag at the masthead, its two tails splayed.
+		# A swallow-tailed flag at the masthead, its two tails splayed. It is a
+		# node of its own, not part of the baked hull, so it can fly the wind.
+		var pennant := Flag.new()
+		pennant.name = "Pennant%d" % int(end)
+		pennant.position = Vector3(mast_x, mast_foot + 4.42, 0.0)
 		for tail: float in [-1.0, 1.0]:
-			var pennant := BoxMesh.new()
-			pennant.size = Vector3(0.8, 0.16, 0.04)
-			Park._add(
-				tool, pennant,
-				Transform3D(
-					Basis(Vector3.BACK, end * tail * deg_to_rad(10.0)),
-					Vector3(mast_x - end * 0.42, mast_foot + 4.42 + tail * 0.08, 0.0)
-				),
-				HULL if tail > 0.0 else TRIM
-			)
+			pennant.add_cloth(Vector3(0.8, 0.16, 0.04), HULL if tail > 0.0 else TRIM, tail * deg_to_rad(10.0), tail * 0.08)
+		body.add_child(pennant)
 		# Shrouds: two ropes each side from the masthead down to the rail,
 		# which is what makes a pole with a sheet on it read as a mast.
 		var mast_head := Vector3(mast_x, mast_foot + 3.9, 0.0)

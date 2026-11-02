@@ -146,11 +146,18 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 
 ## Hands the shared wind to both materials, so every plant reads the same air.
 func _blow() -> void:
+	# Worked out once and handed to both: it used to be a fresh array and the
+	# same trigonometry twice, every frame.
 	var now := Wind.clock()
-	for material: ShaderMaterial in [_tree_material, _grass_material]:
-		material.set_shader_parameter("wind_direction", Wind.direction(now))
-		material.set_shader_parameter("wind_strength", Wind.strength(now))
-		material.set_shader_parameter("wind_clock", now)
+	var direction := Wind.direction(now)
+	var strength := Wind.strength(now)
+	_set_wind(_tree_material, direction, strength, now)
+	_set_wind(_grass_material, direction, strength, now)
+
+func _set_wind(material: ShaderMaterial, direction: Vector2, strength: float, now: float) -> void:
+	material.set_shader_parameter("wind_direction", direction)
+	material.set_shader_parameter("wind_strength", strength)
+	material.set_shader_parameter("wind_clock", now)
 
 func follow(world_position: Vector3) -> void:
 	var tile := Vector2i(

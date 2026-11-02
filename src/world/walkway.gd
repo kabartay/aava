@@ -231,21 +231,12 @@ func tread_at(side: int, index: int) -> float:
 		return 0.0
 	return _tread_offset(float(_belts[side]["along"]), float(_belts[side]["heading"]), index)
 
-## How far a belt moves whoever is standing on it, this frame.
-##
-## The static body's constant velocity does half the job — Godot pushes a
-## character that is standing on it, but only while they are pressed into it,
-## so a child who merely stands still creeps along at a third of the speed.
-## The belt says plainly how far it has moved them instead.
-func carry(at: Vector3, delta: float) -> Vector3:
-	var local := at - global_position
-	if absf(local.z) > LENGTH * 0.5 or local.y < TOP - 0.3 or local.y > TOP + 2.4:
-		return Vector3.ZERO
-	for side in 2:
-		var offset := (WIDTH + GAP) * (float(side) - 0.5)
-		if absf(local.x - offset) > WIDTH * 0.5:
-			continue
-		return carries(side) * delta
+## How far the park itself moves whoever is standing on a belt, this frame.
+func carry(_at: Vector3, _delta: float) -> Vector3:
+	# Nothing, on purpose: the belt's constant velocity already carries a body
+	# standing on it at the belt's pace, still or walking, and adding the
+	# distance here as well sent a child along at twice the speed the treads
+	# were drawn at. The method stays so the park asks every ride alike.
 	return Vector3.ZERO
 
 ## How fast a belt carries a child, and which way. For the checks. Found by

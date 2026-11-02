@@ -301,9 +301,7 @@ static func _tint(
 	# Rock where nothing could root — and, above the pasture, rock whether it
 	# is steep or not: that is what makes the band above the grass read as
 	# crag rather than as more hillside.
-	var bare := smoothstep(0.35, 0.75, steep)
-	bare = maxf(bare, smoothstep(HeightField.PASTURE_TOP - 26.0, HeightField.PASTURE_TOP, height))
-	color = color.lerp(TerrainSpec.COLOR_ROCK, clampf(bare, 0.0, 1.0))
+	color = color.lerp(TerrainSpec.COLOR_CRAG, HeightField.rock_at(height, steep))
 
 	# The playground and the café are worn to earth by feet — a yellow-brown
 	# more like a path than a meadow, fading back into grass at the edge of the

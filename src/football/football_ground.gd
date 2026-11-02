@@ -71,6 +71,8 @@ func _physics_process(delta: float) -> void:
 			continue
 		if _check_goal(ball):
 			return
+		if _float_in_the_river(ball, delta):
+			continue
 		_recover_stray(ball)
 
 ## Where a ball actually is, whether or not this node has entered the tree.
@@ -102,6 +104,42 @@ func _check_goal(ball: Ball) -> bool:
 		)
 		return true
 	return false
+
+## How long a ball may ride the river before it is fetched home. Long enough
+## to watch it go; short enough that three balls never become none.
+const AFLOAT_FOR := 20.0
+
+## How long each ball has been afloat in the river, in seconds.
+var _afloat: Dictionary = {}
+
+## A ball that lands in the river floats on it and goes downstream with the
+## water, rather than sinking to the bed and being whisked home the moment it
+## stops. Returns whether the ball is afloat in a current, in which case it is
+## not a stray yet. Ponds and the pool have no current, so a ball in them is
+## still sunk and fetched, as before.
+func _float_in_the_river(ball: Ball, delta: float) -> bool:
+	var at := ball.position
+	var current := _field.river_current_at(at.x, at.z)
+	var level := _field.water_level_at(at.x, at.z)
+	if current == Vector2.ZERO or at.y > level + Ball.RADIUS:
+		_afloat.erase(ball)
+		return false
+	var time: float = float(_afloat.get(ball, 0.0)) + delta
+	_afloat[ball] = time
+	if time > AFLOAT_FOR:
+		_afloat.erase(ball)
+		return false
+	# A spring to the surface that exactly cancels weight there, with some
+	# damping so it bobs once and settles; and the water's own pace pulling the
+	# ball's sideways speed round to the current's.
+	ball.apply_central_force(Vector3(
+		0.0,
+		ball.mass * (ball.gravity_strength() + 14.0 * (level - at.y) - 3.0 * ball.linear_velocity.y),
+		0.0
+	))
+	var pull := Vector3(current.x - ball.linear_velocity.x, 0.0, current.y - ball.linear_velocity.z)
+	ball.apply_central_force(pull * ball.mass * 2.0)
+	return true
 
 ## A ball in the river, down a hill, or halfway to the mountains comes back.
 ## Without this, three balls become zero balls within ten minutes and the pitch
