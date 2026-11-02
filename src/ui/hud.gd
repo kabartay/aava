@@ -1840,6 +1840,14 @@ func _layout() -> void:
 		button.position = Vector2(context_x, _jump_button.position.y)
 
 	# Centred low, where the kick button sits, since the two never both apply.
+	#
+	# Sized by hand first. The button is made with no text and grows to fit the
+	# animal's wish, but a control only takes its new minimum size at the end
+	# of the frame — so centring on its old, ninety-six-pixel width put the
+	# left edge where a narrow button's would be, and a wish like "wants a
+	# stroke" then hung out to the right over the jump button. Nothing laid
+	# the screen out again once it had grown.
+	_care_button.size = _care_button.get_combined_minimum_size()
 	_care_button.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _care_button.size.x * 0.5,
 		safe.position.y + safe.size.y - BUTTON - MARGIN

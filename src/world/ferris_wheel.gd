@@ -706,7 +706,11 @@ func _physics_process(delta: float) -> void:
 			_turned = fposmod(_turned - (step - now), TAU)
 			_called = false
 			_holding = HOLD
-	_rim.rotation.x = -_turned
+	# The way the gondolas go round: _place_cars() puts a car at an angle that
+	# grows with _turned, and a turn about x by a positive angle carries a rim
+	# point the same way. Turned by -_turned, the spokes and lamps went round
+	# the opposite way to the gondolas hung from them.
+	_rim.rotation.x = _turned
 	_place_cars()
 
 	# The bar over the doorway of whichever gondola is standing at the boards

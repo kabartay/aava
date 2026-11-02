@@ -86,11 +86,15 @@ func set_animals(near: Array[Dictionary]) -> void:
 	_solid = 0
 	for i in _bodies.size():
 		if i >= near.size():
-			_bodies[i].position = PARKED
+			# Only if it is not parked already: moving a body is a message to
+			# the physics server, and most of the six are idle most of the time.
+			if _bodies[i].position != PARKED:
+				_bodies[i].position = PARKED
 			continue
 		var animal: Dictionary = near[i]
 		var size := AnimalKinds.body_size(animal["kind"]) * GIRTH
-		_shapes[i].size = size
+		if _shapes[i].size != size:
+			_shapes[i].size = size
 		var at := _where(animal)
 		# Laid along the animal, so a cow is solid from her nose to her tail
 		# and not only where her middle is.

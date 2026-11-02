@@ -214,6 +214,21 @@ func stop_talking() -> void:
 	_hush_the_others(false)
 	talking_changed.emit(false)
 
+## The microphone does not stay live behind the child's back.
+##
+## Holding the talk button is the only thing that keeps it open, and the button
+## is released by a touch event. Pressing Home, a phone call, or the app
+## switcher takes the app away mid-press and the release is never delivered, so
+## the microphone stayed open and sending to the others' phones until the
+## child came back and pressed again.
+func _notification(what: int) -> void:
+	if (
+		what == NOTIFICATION_APPLICATION_PAUSED
+		or what == NOTIFICATION_APPLICATION_FOCUS_OUT
+		or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT
+	):
+		stop_talking()
+
 func _process(_delta: float) -> void:
 	if not _talking or _capture == null or _session == null:
 		return

@@ -77,7 +77,9 @@ func _ready() -> void:
 	# There must always be somewhere to play. On a first run that means one copy
 	# of the home valley, made before anyone has chosen a name — a child should
 	# reach the game, not a form.
-	if profiles.current_world.is_empty():
+	# Also when the world remembered is not one this child may enter, which is
+	# what a different child chosen on the command line finds.
+	if profiles.current_world.is_empty() or not profiles.current_world_is_enterable():
 		var existing := profiles.worlds_for(profiles.current_player)
 		if existing.is_empty():
 			profiles.choose_world(
@@ -691,7 +693,12 @@ func _process(delta: float) -> void:
 	# Whether what is built from now on is also being built in somebody else's
 	# valley. Followed every frame rather than on the session's signals, so a
 	# connection that drops without saying goodbye still ends the sharing.
-	var together := session.is_connected_to_anyone()
+	#
+	# Company, not just a connection: a host whose door is open and whom nobody
+	# has come through marked everything it built as standing in a valley that
+	# did not exist yet. When a brother did arrive, taking one of those down
+	# named a place over there where nothing of the sort had ever stood.
+	var together := session.has_company()
 	if together and not structures.sharing:
 		structures.sharing = true
 	elif not together and structures.sharing:
@@ -919,7 +926,7 @@ func _process(delta: float) -> void:
 
 	# A fire takes a log from a child standing at it with wood.
 	hud.set_fire_offer(
-		inventory.count(ItemKinds.WOOD) > 0 and world.hearths.has_fire_near(at)
+		inventory.count(ItemKinds.WOOD) > 0 and world.hearths.can_feed(at)
 	)
 
 	# The beavers take a stick at a dam site, from a child carrying one.
@@ -1543,7 +1550,9 @@ func _on_sleep() -> void:
 ## A log on the fire. This is what the axe was for: wood was a number in a bag
 ## until something burned it.
 func _on_feed_fire() -> void:
-	if inventory.count(ItemKinds.WOOD) <= 0 or not world.hearths.has_fire_near(player.global_position):
+	# A full fire takes no more. The log was spent before the fire was asked, so
+	# a fire that refused it used to keep the wood.
+	if inventory.count(ItemKinds.WOOD) <= 0 or not world.hearths.can_feed(player.global_position):
 		return
 	if not inventory.spend({ItemKinds.WOOD: 1}):
 		return

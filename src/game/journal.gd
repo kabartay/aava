@@ -127,6 +127,12 @@ func arrive(now: int) -> void:
 ## Called when the game closes. What was done this session becomes what is
 ## reported next time.
 func depart() -> void:
+	# The time is stamped here as well as on arrival. `last_seen` was only ever
+	# the moment the game opened, so a child who played for two hours and shut
+	# the game was reported, on the next opening a minute later, as having been
+	# away for two hours — and the saplings were aged for time spent watching
+	# them.
+	last_seen = maxi(last_seen, int(Time.get_unix_time_from_system()))
 	if not did_anything_this_session():
 		return
 	for key in ALL:

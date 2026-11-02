@@ -88,6 +88,8 @@ var _bodies: Array[StaticBody3D] = []
 ## The one cylinder every trunk body wears, kept so its girth can be changed.
 var _shape: CylinderShape3D
 var _last_refresh := Vector3(1e9, 1e9, 1e9)
+## Which version of the forest the solid trunks were last chosen from.
+var _forest_seen := -1
 
 func _init(forest: Vegetation) -> void:
 	name = "TreeCollision"
@@ -122,8 +124,13 @@ func follow(world_position: Vector3) -> void:
 	# go stale for a pace and a half — which together is how a machine came to
 	# arrive at a tree before its collider did.
 	var step := REFRESH_STEP if _girth <= 0.0 else REFRESH_STEP * 0.4
-	if world_position.distance_to(_last_refresh) < step:
+	# A felled tree or a finished dam changes which trees there are without the
+	# player moving at all, and a child standing at the stump they have just cut
+	# was still held by a trunk that was no longer there until they took two paces.
+	var changed := vegetation.forest_generation() != _forest_seen
+	if not changed and world_position.distance_to(_last_refresh) < step:
 		return
+	_forest_seen = vegetation.forest_generation()
 	_last_refresh = world_position
 	set_trunks(vegetation.trees_near(world_position, REACH if _girth <= 0.0 else RIDDEN_REACH))
 

@@ -66,6 +66,8 @@ const MAX_RISE := 3.4
 ## and a dive that is over before it has begun shows them none of it.
 const DIVE_SPEED := 1.9
 const DIVE_SETTLE := 4.5
+## How long a diver stays on the bottom before the water lifts them again.
+const BED_LINGER := 1.0
 
 ## How far the body tips over while diving, against the gentler lean of a
 ## swimmer at the surface. Head down and feet up, which is what going under
@@ -172,6 +174,8 @@ var is_swimming := false
 ## drowning: see the note on SWIM_DEPTH. Going under is a place to visit, not a
 ## clock to beat.
 var diving := false
+## How long a diver has been standing on the bottom.
+var _on_the_bed := 0.0
 
 ## Multiplies the next jump. 1.0 everywhere but on the trampoline, where the
 ## game sets it higher while the child stands on the mat.
@@ -498,6 +502,18 @@ func _physics_process(delta: float) -> void:
 			diving = false
 			velocity.y = maxf(velocity.y, JUMP_VELOCITY * 0.42)
 			_buffered_jump = 0.0
+		# And the bed sends a diver back up. A dive used to stay switched on
+		# at the bottom, pressing the child into the mud until they found the
+		# up button, and a child who did not know it was there was stuck on
+		# the bottom of the river for good. A moment to look round, then the
+		# water lifts them as it does any swimmer.
+		if is_on_floor():
+			_on_the_bed += delta
+			if _on_the_bed > BED_LINGER:
+				diving = false
+				_on_the_bed = 0.0
+		else:
+			_on_the_bed = 0.0
 	elif afloat:
 		# Pushed towards the surface rather than pulled to the bed, and damped
 		# so the child settles at the waterline instead of bobbing forever.

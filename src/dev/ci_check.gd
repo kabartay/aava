@@ -32,6 +32,7 @@ func _initialize() -> void:
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
+	await _check_loading_reaches_what_is_already_built()
 	_check_inventory_arithmetic()
 	_check_build_costs_are_real()
 	_check_a_grove_forms()
@@ -133,6 +134,7 @@ func _initialize() -> void:
 	_check_playing_together()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
+	_check_the_microphone_closes_when_the_app_is_taken_away()
 	_check_a_voice_keeps_its_pitch()
 	_check_every_sound_reaches_a_phone()
 	_check_the_mix_holds_together()
@@ -174,10 +176,19 @@ func _initialize() -> void:
 	_check_a_carousel_horse_seats_where_its_saddle_is()
 	_check_the_pirate_ship_swings()
 	_check_the_drop_tower_climbs_and_falls()
+	_check_the_wheel_turns_with_its_gondolas_and_the_platform_is_not_the_ring()
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_saving_remembers_when_the_child_left()
+	_check_a_guest_is_placed_where_they_stand_and_sharing_needs_company()
+	_check_roofs_face_outwards()
+	_check_the_map_does_not_copy_the_buildings_every_frame()
+	_check_a_chunk_walked_towards_while_baking_gets_its_collision()
+	_check_a_felled_tree_stops_being_solid_where_you_stand()
+	_check_a_goal_is_counted_once_and_only_inside()
 	_check_no_text_goes_unused()
+	await _check_the_care_button_is_centred_and_a_cancelled_touch_is_no_tap()
 	await _check_the_name_the_words_and_the_shop_note_hold_up()
 	_check_the_network_keeps_its_promises()
 	_check_damaged_saves_load_what_is_valid()
@@ -191,6 +202,7 @@ func _initialize() -> void:
 	_check_a_bake_finished_out_of_range_is_dropped()
 	await _check_an_animal_walks_round_a_fence()
 	await _check_the_feelers_are_cheap_and_steady()
+	_check_a_sidestep_does_not_outlast_the_errand()
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
 	_check_the_wheel_stops_when_the_button_is_pressed()
@@ -4747,6 +4759,26 @@ func _check_a_child_can_swim_down() -> void:
 		not swimmer.diving,
 		"a child who swims into the shallows is not still diving when they walk out"
 	)
+
+	# The bottom does not keep them: a diver who reaches the bed is lifted
+	# again on their own, without having to find the up button.
+	var bed := StaticBody3D.new()
+	var bed_shape := CollisionShape3D.new()
+	var bed_box := BoxShape3D.new()
+	bed_box.size = Vector3(20.0, 1.0, 20.0)
+	bed_shape.shape = bed_box
+	bed.add_child(bed_shape)
+	get_root().add_child(bed)
+	bed.global_position = Vector3(400.0, -20.5, 400.0)
+	swimmer.global_position = Vector3(400.0, -19.6, 400.0)
+	swimmer.velocity = Vector3.ZERO
+	swimmer.diving = true
+	for frame in 120:
+		swimmer.water_depth = 3.0
+		await physics_frame
+	_expect(not swimmer.diving, "a diver on the bed is not held there by the dive")
+	_expect(swimmer.velocity.y > 0.0, "and the water lifts them off it (%.2f m/s)" % swimmer.velocity.y)
+	bed.queue_free()
 	swimmer.queue_free()
 
 	# What it looks like down there: the valley goes, and a few metres of green
@@ -5028,7 +5060,11 @@ func _check_the_indoor_camera_cannot_reach_outside() -> void:
 	rig.rotation.y = 0.0
 	rig._arm.rotation.x = 0.0
 	var origin := rig._arm.global_position
-	var facing := -rig._arm.global_transform.basis.z
+	# Behind the child, which is where the arm reaches: a SpringArm3D extends
+	# along its own +Z, and the camera looks back down -Z at the child. This
+	# used to be -Z, the side the child is facing, and the ray cast in the rig
+	# was pointed the same wrong way, so the two agreed and neither was right.
+	var facing := rig._arm.global_transform.basis.z
 	var wall := StaticBody3D.new()
 	wall.collision_layer = TerrainSpec.LAYER_WALLS
 	var collider := CollisionShape3D.new()
@@ -5056,7 +5092,14 @@ func _check_the_indoor_camera_cannot_reach_outside() -> void:
 	var shortened := rig._ray_shortened_length(5.0)
 	_expect(
 		shortened < 1.2,
-		"a wall 1 m ahead shortens a 5 m reach to %.2f m rather than letting it through" % shortened
+		"a wall 1 m behind shortens a 5 m reach to %.2f m rather than letting it through" % shortened
+	)
+	# And the wall the child is facing is none of the camera's business.
+	wall.position = origin - facing * 1.0
+	await physics_frame
+	_expect(
+		rig._ray_shortened_length(5.0) > 4.9,
+		"a wall in front of the child leaves the camera's reach alone"
 	)
 	wall.queue_free()
 	player.queue_free()
@@ -13341,3 +13384,382 @@ func _check_damaged_saves_load_what_is_valid() -> void:
 
 	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
 	_expect("_may_save" in game and "or not _may_save" in game, "a --seed run does not write the child's save")
+
+## The wheel's spokes go round the way its gondolas do, and a child standing on
+## the drop tower's platform is not counted as aboard the ring above them.
+func _check_the_wheel_turns_with_its_gondolas_and_the_platform_is_not_the_ring() -> void:
+	print("the wheel turns with its gondolas, and the tower's platform is not its ring")
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	# The rim point that started under gondola 0 is still under it, a while on.
+	# Hung from a rim that turned the other way, the cars drifted off the
+	# spokes they were drawn pinned to.
+	wheel._physics_process(10.0)
+	for index in FerrisWheel.GONDOLAS:
+		var pin := wheel.rim_point(TAU * float(index) / float(FerrisWheel.GONDOLAS))
+		var car := (wheel.gondola(index) as Node3D).position
+		_expect(
+			absf(pin.y - (car.y + FerrisWheel.HANGS_BELOW)) < 0.01 and absf(pin.z - car.z) < 0.01,
+			"gondola %d still hangs from its own point on the rim: pin at %.2f, %.2f, car at %.2f, %.2f" % [
+				index, pin.y, pin.z, car.y + FerrisWheel.HANGS_BELOW, car.z
+			]
+		)
+	wheel.queue_free()
+
+	var tower := DropTower.new(Vector3.ZERO)
+	get_root().add_child(tower)
+	var on_the_deck := Vector3(1.0, DropTower.PLATFORM_HEIGHT, 1.0)
+	_expect(not tower.aboard(on_the_deck), "a child on the platform under the ring is not aboard it")
+	# The ring has only just begun to climb: a few centimetres a frame.
+	tower._moved = Vector3(0.0, 0.05, 0.0)
+	_expect(tower.carry(on_the_deck, 0.1) == Vector3.ZERO, "and the ring does not lift them")
+	tower._moved = Vector3.ZERO
+	var in_a_seat := Vector3(DropTower.RING_RADIUS + 0.9, DropTower.PLATFORM_HEIGHT + DropTower.SEAT_STEP, 0.0)
+	_expect(tower.aboard(in_a_seat), "while one standing in a seat is")
+	tower._moved = Vector3(0.0, 0.1, 0.0)
+	_expect(
+		tower.carry(in_a_seat - Vector3(0.0, 0.1, 0.0), 0.1) == Vector3(0.0, 0.1, 0.0),
+		"and a rider the ring has just climbed away from is still carried"
+	)
+	tower.queue_free()
+## A sidestep is held for a moment, but only while the animal is walking: the
+## hold must not sit frozen through a rest and steer the next errand.
+func _check_a_sidestep_does_not_outlast_the_errand() -> void:
+	print("a sidestep does not outlast the errand")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+	var dog := animals.put_one_at(AnimalKinds.DOG, spot)
+	dog["hold"] = 0.5
+	dog["way"] = Vector3.RIGHT
+	dog["rest"] = 5.0
+	animals._step(dog, 1.0 / 30.0)
+	_expect(float(dog.get("hold", 0.0)) == 0.0, "arriving drops the sidestep: hold %.2f" % float(dog.get("hold", 0.0)))
+	# Walking, it runs down by the time that has passed, even when not felt for.
+	dog["hold"] = 0.5
+	dog["target"] = spot + Vector3(0.0, 0.0, 6.0)
+	animals._step(dog, 0.1)
+	_expect(absf(float(dog["hold"]) - 0.4) < 0.001, "the hold runs down while walking: %.2f" % float(dog["hold"]))
+	animals.free()
+
+func _check_saving_remembers_when_the_child_left() -> void:
+	# A child who played for two hours is not "away" for them: closing the game
+	# stamps the time it was left, not the time it was opened.
+	var journal := Journal.new()
+	journal.arrive(1_000_000)
+	journal.record(Journal.BUILT)
+	journal.depart()
+	var now := int(Time.get_unix_time_from_system())
+	_expect(journal.last_seen >= now - 5, "closing the game stamps when the child left, not when they arrived")
+	var again := Journal.new()
+	again.from_data(journal.to_data())
+	again.arrive(now + 60)
+	_expect(again.seconds_away < 120.0, "a minute after closing is a minute away, not the whole session")
+
+	# A world remembered in the index is not entered by a child with no right to it.
+	var profiles := Profiles.new()
+	profiles.maps = {Profiles.HOME_MAP: Profiles.HOME_SEED}
+	profiles.players = ["Amir", "Bo"]
+	profiles.worlds = {"home-1": {"map": Profiles.HOME_MAP, "owner": "Amir", "guests": []}}
+	profiles.current_world = "home-1"
+	profiles.current_player = "Amir"
+	_expect(profiles.current_world_is_enterable(), "the owner may stay in their own valley")
+	profiles.current_player = "Bo"
+	_expect(not profiles.current_world_is_enterable(), "another child chosen is not left in it")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect("current_world_is_enterable()" in game, "and the start-up looks for them a valley of their own")
+## The care button grows to fit what the animal wants, and a control only takes
+## its new minimum size at the end of the frame. Centred on the old width, a
+## long wish hung out to the right over the jump button and nothing laid the
+## screen out again. A finger the system cancels is not a tap, either: it
+## arrives as a short release and put a piece down while building.
+func _check_the_care_button_is_centred_and_a_cancelled_touch_is_no_tap() -> void:
+	print("the care button is centred and a cancelled touch is no tap")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var view := hud.get_viewport().get_visible_rect().size
+	hud.set_animal_in_reach("wants a stroke, if you please, kind sir")
+	var care := hud._care_button
+	var wide := care.get_combined_minimum_size().x
+	_expect(wide > Hud.BUTTON * 2.0, "a long wish makes a wide button (%.0f)" % wide)
+	_expect(
+		absf(care.position.x + wide * 0.5 - view.x * 0.5) < 2.0,
+		"and it is centred at once, not on the width it had before the wish (%.0f)" % care.position.x
+	)
+	_expect(
+		care.position.x + wide < hud._jump_button.position.x,
+		"so it stays clear of the jump button"
+	)
+	hud.queue_free()
+
+	var pad := CameraPad.new()
+	var taps := [0]
+	pad.tapped.connect(func() -> void: taps[0] += 1)
+	var down := InputEventScreenTouch.new()
+	down.pressed = true
+	down.position = Vector2(100, 100)
+	pad._gui_input(down)
+	var lifted := InputEventScreenTouch.new()
+	lifted.pressed = false
+	lifted.canceled = true
+	lifted.position = Vector2(100, 100)
+	pad._gui_input(lifted)
+	_expect(taps[0] == 0, "a finger the system cancelled is not a tap: %d" % taps[0])
+	pad.free()
+## A position can overtake the name that introduces it, and a host with nobody
+## through the door has nobody to share with.
+##
+## Positions travel unreliably and names reliably, so the host's one position
+## (sent once, because a child reading out the number stands still) could land
+## before the name and be thrown away: the host was then drawn at the world's
+## origin until they moved. And a host with an open door counted as "together"
+## from the first frame, so every piece built alone was marked as standing in
+## a valley nobody was in yet.
+func _check_a_guest_is_placed_where_they_stand_and_sharing_needs_company() -> void:
+	print("a guest is placed where they stand, and sharing needs company")
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	visitors.move(7, Vector3(30.0, 2.0, -40.0), 1.0)
+	visitors.add(7, "Amir")
+	var body := visitors._visitors[7]["node"] as Node3D
+	_expect(
+		body.position.is_equal_approx(Vector3(30.0, 2.0, -40.0)),
+		"a position that arrived before the name is applied when the name does"
+	)
+	for stranger in 40:
+		visitors.move(100 + stranger, Vector3.ONE, 0.0)
+	_expect(visitors._early.size() <= Visitors.MAX_EARLY, "positions from strangers are not kept without limit")
+	visitors.clear()
+	_expect(visitors._early.is_empty(), "and clearing the valley forgets them")
+	visitors.queue_free()
+
+	var session := Session.new()
+	get_root().add_child(session)
+	if session.host("Amir"):
+		_expect(session.is_connected_to_anyone(), "a host is connected")
+		_expect(not session.has_company(), "but with nobody through the door there is no company")
+		session.guests[5] = "Bo"
+		_expect(session.has_company(), "and with somebody announced there is")
+		session.close()
+	session.queue_free()
+	var main_source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect("session.has_company()" in main_source, "building is shared only with company")
+## Every face of a roof looks out of the roof. Godot calls a face's front the
+## side it is wound clockwise from, so the way to say "outward" is that the
+## right-handed cross product points inwards; a peaked roof was wound the other
+## way and could not be seen from outside.
+func _check_roofs_face_outwards() -> void:
+	print("roofs face outwards")
+	for kind: StringName in [HouseParts.ROOF, HouseParts.ROOF_PEAK]:
+		var mesh := HouseParts.build_mesh(kind)
+		var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var inside := Vector3(0.0, 0.2, 0.0)
+		var wrong := 0
+		for i in range(0, vertices.size(), 3):
+			var a := vertices[i]
+			var front := -(vertices[i + 1] - a).cross(vertices[i + 2] - a)
+			var centre := (a + vertices[i + 1] + vertices[i + 2]) / 3.0
+			if front.dot(centre - inside) <= 0.0:
+				wrong += 1
+		_expect(wrong == 0, "%s: %d faces look into the roof" % [kind, wrong])
+## The map copied every piece a child had built, twice, every frame.
+##
+## `_process` asked the structures for a fresh list of all their positions and a
+## second of the planted ones sixty times a second — a house is hundreds of
+## pieces — whether or not the map was showing, and whether or not anything had
+## been built since the last frame. The copy is now taken when the structures'
+## revision moves, and not at all while the map is hidden.
+func _check_the_map_does_not_copy_the_buildings_every_frame() -> void:
+	print("the map does not copy the buildings every frame")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var player := Node3D.new()
+	get_root().add_child(player)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	map.follow(player, null, structures)
+	map.show_map()
+
+	map._process(0.016)
+	var first := map._built_copy
+	map._process(0.016)
+	_expect(is_same(first, map._built_copy), "a second frame with nothing built reuses the list")
+
+	var camp := field.camp_centre()
+	structures.place(BuildKinds.FENCE, Vector3(camp.x + 30.0, 0.0, camp.z + 30.0), 0.0)
+	map._process(0.016)
+	_expect(not is_same(first, map._built_copy), "and building something takes a new one")
+	_expect(map._built_copy.size() == 1, "which has the new piece in it")
+
+	map.hide_map()
+	var shown := map._built_copy
+	structures.place(BuildKinds.FENCE, Vector3(camp.x + 33.0, 0.0, camp.z + 30.0), 0.0)
+	map._process(0.016)
+	_expect(is_same(shown, map._built_copy), "a hidden map copies nothing")
+	map.show_map()
+	map._process(0.016)
+	_expect(map._built_copy.size() == 2, "and catches up when it is shown again")
+
+	map.queue_free()
+	player.queue_free()
+	structures.queue_free()
+## A chunk the player walks towards while it is still baking must end up solid.
+##
+## The request to make it finer is dropped when a bake of the same coordinate is
+## already in flight, and the coarse, collision-free result then stood until the
+## next chunk boundary: ground drawn under the child and not solid.
+func _check_a_chunk_walked_towards_while_baking_gets_its_collision() -> void:
+	print("a chunk walked towards while baking gets its collision")
+	var field := HeightField.new(20260903)
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	var size := float(TerrainSpec.CHUNK_SIZE)
+	var from := Vector3(size * 0.5, 0.0, size * 0.5)
+	var target := Vector2i(5, 0)
+	var there := Vector3((float(target.x) + 0.5) * size, 0.0, size * 0.5)
+	terrain.follow(from)
+	var deadline := Time.get_ticks_msec() + 30000
+	while not terrain._baking.has(target) and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+	terrain.follow(there)
+	# What _submit_chunk does with the request while that bake is in flight.
+	terrain._queue.erase(target)
+	deadline = Time.get_ticks_msec() + 60000
+	while not terrain.is_idle() and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	_expect(terrain.has_ground_at(there), "the chunk the player walked up to carries collision")
+	terrain.queue_free()
+
+## Cutting a tree down frees its trunk at once, with the child still standing.
+##
+## The solid trunks were only chosen again after two paces of walking, so a
+## child at the stump they had just made was held by a tree that was gone.
+func _check_a_felled_tree_stops_being_solid_where_you_stand() -> void:
+	print("a felled tree stops being solid where you stand")
+	var field := HeightField.new(20260903)
+	var forest := Vegetation.new(field, 20260903)
+	forest.felled = Felled.new()
+	get_root().add_child(forest)
+	var trunks := TreeCollision.new(forest)
+	get_root().add_child(trunks)
+	var wooded := Vector3.ZERO
+	var best := 0.0
+	for z in range(-300, 301, 20):
+		for x in range(-300, 301, 20):
+			var density := field.forest_density_at(float(x), float(z))
+			if density > best:
+				best = density
+				wooded = Vector3(float(x), 0.0, float(z))
+	trunks.follow(wooded)
+	var before := trunks.solid_count()
+	var victim := forest.trees_near(wooded, TreeCollision.REACH)[0]
+	forest.felled.fell(victim)
+	forest.rebuild_around(victim)
+	trunks.follow(wooded)
+	_expect(
+		trunks.solid_count() == before - 1,
+		"one trunk fewer is solid at once: %d of %d" % [trunks.solid_count(), before]
+	)
+	trunks.queue_free()
+	forest.queue_free()
+## The pitch is levelled well above y = 0, so a goal has to be judged against
+## the grass, not the world's zero. A ball over the bar dropping onto the
+## outside of the net's sloping back is not in the goal; and a ball lying in
+## the net is not given twice if the celebration clock runs out before the
+## restart timer puts it back.
+func _check_a_goal_is_counted_once_and_only_inside() -> void:
+	print("a goal is counted once, and only inside the net")
+	var field := HeightField.new(20260903)
+	for index in 2:
+		var mouth := Pitch.goal_centre(index)
+		var grass := field.height_at(mouth.x, mouth.z)
+		var outward := -1.0 if index == 0 else 1.0
+		var on_the_roof := mouth + Vector3(outward * 0.8, grass + 1.6, 0.0)
+		_expect(
+			not Pitch.is_goal(index, on_the_roof, Ball.RADIUS, grass),
+			"goal %d: a ball resting on top of the net is not a goal" % index
+		)
+		var inside := mouth + Vector3(outward * 0.5, grass + 0.8, 0.0)
+		_expect(
+			Pitch.is_goal(index, inside, Ball.RADIUS, grass),
+			"goal %d: a ball in the net, on grass at %.1f m, is a goal" % [index, grass]
+		)
+
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var mouth := Pitch.goal_centre(1)
+	var ball: Ball = ground._balls[0]
+	ball.position = Vector3(mouth.x + 0.8, field.height_at(mouth.x, mouth.z) + 0.3, mouth.z)
+	ground._physics_process(0.016)
+	_expect(ground.score == 1, "a ball kicked into the net scores (score %d)" % ground.score)
+	# The celebration clock runs out, but the restart has not yet happened.
+	ground._physics_process(FootballGround.CELEBRATION + 0.5)
+	ground._physics_process(0.016)
+	_expect(ground.score == 1, "a ball left in the net scored once, not %d times" % ground.score)
+	ground.queue_free()
+## A load or a reset has to reach the pickups already standing in the world, and
+## a full fire has to say no before it is handed a log.
+func _check_loading_reaches_what_is_already_built() -> void:
+	print("loading reaches pickups and fires already in the world")
+	var field := HeightField.new(20260903)
+	var pickups := Pickups.new(field, 20260903)
+	get_root().add_child(pickups)
+	var start := field.find_spawn_point()
+	pickups.follow(start)
+	for _i in 200:
+		pickups._process(0.016)
+		if pickups.is_idle():
+			break
+	var before := pickups.count_active()
+	var gone: Array = []
+	for record in pickups._active:
+		gone.append(record["id"])
+	# A save that says everything here was taken: nothing may still be lying about.
+	pickups.from_data(gone)
+	pickups.follow(start)
+	for _i in 200:
+		pickups._process(0.016)
+		if pickups.is_idle():
+			break
+	_expect(before > 0 and pickups.count_active() == 0, "pickups the save says were taken are not rebuilt (%d left of %d)" % [pickups.count_active(), before])
+	# And a reset puts them back, in tiles that are already built.
+	pickups.from_data([])
+	pickups.follow(start)
+	for _i in 200:
+		pickups._process(0.016)
+		if pickups.is_idle():
+			break
+	_expect(pickups.count_active() == before, "a reset brings every pickup back (%d of %d)" % [pickups.count_active(), before])
+	pickups.queue_free()
+
+	var hearths := Hearths.new(field)
+	get_root().add_child(hearths)
+	await process_frame
+	var at := field.camp_centre()
+	at.y = field.height_at(at.x, at.z)
+	hearths.set_fires([at])
+	_expect(hearths.can_feed(at), "an unlit fire takes a log")
+	for _log in Hearths.MAX_LOGS:
+		hearths.feed(at)
+	_expect(not hearths.can_feed(at), "a full fire takes no more, so the log is not spent")
+	hearths.from_data([])
+	_expect(not hearths.is_burning(at), "loading a world with no fire lit puts the old one out")
+	hearths.from_data([[roundi(at.x * 10.0), roundi(at.y * 10.0), roundi(at.z * 10.0), 0.0]])
+	_expect(not hearths.is_burning(at), "a saved fire with nothing left is not lit")
+	hearths.queue_free()
+func _check_the_microphone_closes_when_the_app_is_taken_away() -> void:
+	print("the microphone closes when the app is paused mid-press")
+	var voice := Voice.new()
+	get_root().add_child(voice)
+	# As if the button were held: the release that would end it never comes.
+	voice._talking = true
+	voice.notification(Node.NOTIFICATION_APPLICATION_PAUSED)
+	_expect(not voice.is_talking(), "a paused app is no longer talking")
+	voice._talking = true
+	voice.notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	_expect(not voice.is_talking(), "nor is one that lost focus")
+	voice.queue_free()

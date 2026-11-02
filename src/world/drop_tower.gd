@@ -319,37 +319,46 @@ func _build_ring(body: AnimatableBody3D) -> void:
 		body.add_child(hinge)
 		_harnesses.append(hinge)
 
+		# Drawn as slim tubes, not the coaster's chunky pads: the rider looks
+		# out through this harness for the whole ride, and the solid slabs it
+		# used to be filled the view in front of the camera. What holds is the
+		# collision box below, not the thickness of the drawing.
 		var harness := SurfaceTool.new()
 		harness.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var tip := RollerCoaster.HARNESS_REACH + RollerCoaster.HARNESS_PAD * 0.5
 		for shoulder: float in [-1.0, 1.0]:
-			var harness_pad := BoxMesh.new()
-			harness_pad.size = Vector3(RollerCoaster.HARNESS_PAD, 0.22, 0.30)
+			var shoulder_bar := BoxMesh.new()
+			shoulder_bar.size = Vector3(RollerCoaster.HARNESS_PAD, 0.07, 0.07)
 			Park._add(
-				harness, harness_pad,
+				harness, shoulder_bar,
 				Transform3D(Basis(), Vector3(RollerCoaster.HARNESS_REACH, -0.06, shoulder * 0.26)),
 				RollerCoaster.HARNESS
 			)
+			# A short soft sleeve where the bar meets the shoulder.
+			var sleeve := BoxMesh.new()
+			sleeve.size = Vector3(0.26, 0.1, 0.1)
+			Park._add(
+				harness, sleeve,
+				Transform3D(Basis(), Vector3(RollerCoaster.HARNESS_REACH - 0.1, -0.08, shoulder * 0.26)),
+				RollerCoaster.HARNESS.darkened(0.2)
+			)
+			var drop_rod := BoxMesh.new()
+			drop_rod.size = Vector3(0.06, 0.5, 0.06)
+			Park._add(
+				harness, drop_rod,
+				Transform3D(Basis(Vector3.BACK, deg_to_rad(18.0)), Vector3(tip + 0.04, -0.30, shoulder * 0.26)),
+				RollerCoaster.HARNESS
+			)
 		var yoke := BoxMesh.new()
-		yoke.size = Vector3(0.20, 0.18, 0.72)
-		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.10, -0.06, 0.0)), RollerCoaster.HARNESS)
+		yoke.size = Vector3(0.08, 0.07, 0.6)
+		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.14, -0.06, 0.0)), RollerCoaster.HARNESS)
 		var lap_bar := BoxMesh.new()
-		lap_bar.size = Vector3(0.18, 0.62, 0.66)
-		Park._add(
-			harness, lap_bar,
-			Transform3D(
-				Basis(Vector3.BACK, deg_to_rad(18.0)),
-				Vector3(RollerCoaster.HARNESS_REACH + RollerCoaster.HARNESS_PAD * 0.5 + 0.06, -0.30, 0.0)
-			),
-			RollerCoaster.HARNESS
-		)
+		lap_bar.size = Vector3(0.07, 0.07, 0.6)
+		Park._add(harness, lap_bar, Transform3D(Basis(), Vector3(tip + 0.12, -0.54, 0.0)), RollerCoaster.HARNESS)
 		var clasp := BoxMesh.new()
-		clasp.size = Vector3(0.26, 0.26, 0.30)
+		clasp.size = Vector3(0.1, 0.12, 0.12)
 		Park._add(
-			harness, clasp,
-			Transform3D(
-				Basis(),
-				Vector3(RollerCoaster.HARNESS_REACH + RollerCoaster.HARNESS_PAD * 0.5 + 0.12, -0.56, 0.0)
-			),
+			harness, clasp, Transform3D(Basis(), Vector3(tip + 0.13, -0.6, 0.0)),
 			RollerCoaster.HARNESS.darkened(0.45)
 		)
 		Park.commit(harness, hinge, "Pads")
@@ -439,8 +448,7 @@ const SEAT_DROP := 1.9
 ## FerrisWheel.carry() — the ring is moved by hand, not by the engine, so a
 ## passenger has to be moved with it by hand too.
 func carry(at: Vector3, _delta: float) -> Vector3:
-	var local := at - _ring.global_position
-	if absf(local.x) < SEAT_REACH and absf(local.z) < SEAT_REACH and local.y > -SEAT_DROP and local.y < 2.2:
+	if _on_the_ring(at):
 		return _moved
 	return Vector3.ZERO
 
@@ -448,8 +456,27 @@ func carry(at: Vector3, _delta: float) -> Vector3:
 ## fairground's own ride_under(), which asks this and not carry() because a
 ## ring waiting at the ground between climbs is still a ride somebody is on.
 func aboard(at: Vector3) -> bool:
+	return _on_the_ring(at)
+
+## Whether a point is on the ring or in one of its seats, rather than on the
+## platform under it.
+##
+## The reach alone could not tell them apart: at rest the ring hangs only
+## 1.6 m over the deck, so a child walking about on the platform within four
+## metres of the shaft — under the ring, or beside a seat — stood inside the
+## box SEAT_DROP below it, was asked for a ticket and, once they had paid,
+## was lifted off the deck with the seats. A rider's feet are on the cushion,
+## SEAT_BELOW_RING under the ring; a child on the platform is a step lower
+## again. The ring is moved after the child is, so a rider is up to one
+## frame's climb below where they are about to be put, and that much is
+## allowed for.
+func _on_the_ring(at: Vector3) -> bool:
 	var local := at - _ring.global_position
-	return absf(local.x) < SEAT_REACH and absf(local.z) < SEAT_REACH and local.y > -SEAT_DROP and local.y < 2.2
+	var lowest := -SEAT_BELOW_RING - SEAT_STEP * 0.5 - absf(_moved.y)
+	return (
+		absf(local.x) < SEAT_REACH and absf(local.z) < SEAT_REACH
+		and local.y > maxf(lowest, -SEAT_DROP) and local.y < 2.2
+	)
 
 ## How high the ring has climbed right now. For the checks.
 func ring_height() -> float:

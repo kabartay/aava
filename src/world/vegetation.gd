@@ -179,6 +179,11 @@ func nearest_tree_found(world_position: Vector3, reach: float) -> Array:
 	_tree_query_found = answer[1]
 	return answer
 
+## Counts every change to which trees stand. Read by the trunk pool, which has to
+## choose again when it moves even though nobody has walked anywhere.
+func forest_generation() -> int:
+	return _generation
+
 ## Invalidate the cache. Called when the forest changes under it.
 func forget_tree_query() -> void:
 	_tree_query_at = Vector3(1e9, 1e9, 1e9)

@@ -74,7 +74,12 @@ func _gui_input(event: InputEvent) -> void:
 			if event.index == _active_index:
 				# A single finger that went down and came up without going
 				# anywhere is a tap, not a look-around.
-				if _travelled <= TAP_SLOP and not _was_pinching:
+				#
+				# Not one the system took away. Android cancels a finger when
+				# a gesture such as the swipe up from the bottom edge claims
+				# it, and that arrives as a release too — which, being short,
+				# counted as a tap and put a piece down while building.
+				if _travelled <= TAP_SLOP and not _was_pinching and not event.canceled:
 					tapped.emit()
 				_active_index = -1
 			# A pinch ends the moment either finger lifts, so the next one

@@ -260,7 +260,10 @@ func _ray_shortened_length(wanted: float) -> float:
 	if space == null:
 		return wanted
 	var from := _arm.global_position
-	var to := from - _arm.global_transform.basis.z * wanted
+	# Along +Z: that is the way a SpringArm3D reaches, and the camera hangs at
+	# the end of it looking back down -Z at the child. Cast along -Z it was
+	# asking about the wall in front of the child, never the one behind.
+	var to := from + _arm.global_transform.basis.z * wanted
 	var query := PhysicsRayQueryParameters3D.create(from, to, _arm.collision_mask)
 	query.exclude = [_player.get_rid()]
 	var hit := space.intersect_ray(query)

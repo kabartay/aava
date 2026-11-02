@@ -33,6 +33,10 @@ var field: HeightField
 var sharing := false
 
 var _records: Array[Dictionary] = []
+
+## Counts every change to what is standing, so a reader that copies the list —
+## the map — can tell that its copy is still true without asking for another.
+var revision := 0
 var _material: StandardMaterial3D
 var _grove_centres: Array = []
 
@@ -198,6 +202,7 @@ func remove(record: Dictionary) -> StringName:
 	if is_instance_valid(node):
 		node.queue_free()
 	_records.remove_at(index)
+	revision += 1
 	removed.emit(kind, at)
 	_recompute_groves()
 	return kind
@@ -219,6 +224,7 @@ func place(kind: StringName, world_position: Vector3, spin: float, paid := true)
 		"paid": paid,
 	}
 	_records.append(record)
+	revision += 1
 	_spawn_node(record)
 	placed.emit(kind, world_position)
 	# Only the generated pieces grow. Asking BuildKinds about a house part is
@@ -381,6 +387,7 @@ func from_data(data: Array) -> void:
 			)
 		_records.append(record)
 	_move_out_of_places()
+	revision += 1
 	for record in _records:
 		_spawn_node(record)
 	_recompute_groves()

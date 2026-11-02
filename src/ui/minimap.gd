@@ -80,6 +80,10 @@ var _player_dot: Control
 var _compass: Label
 var _built: Array[Vector3] = []
 var _planted: Array[Vector3] = []
+## The structures' revision when `_planted` and `_built_copy` were taken. Starts
+## at -1 so the first showing always copies.
+var _copied_revision := -1
+var _built_copy: Array[Vector3] = []
 
 ## Where each destination is in the world, and the glyph that stands for it.
 var _destinations: Array[Dictionary] = []
@@ -278,14 +282,25 @@ func _notification(what: int) -> void:
 func _process(_delta: float) -> void:
 	if _follow_player == null or not is_instance_valid(_follow_player):
 		return
-	_planted = (
-		_follow_structures.planted() if _follow_structures != null
-		else ([] as Array[Vector3])
-	)
+	# Nothing to copy for a map that is not showing, and nothing to copy again
+	# until something is built or taken down. Both lists used to be made afresh
+	# every frame, one entry for every piece a child had ever placed — a house
+	# is hundreds — and thrown away a sixtieth of a second later.
+	var revision := _follow_structures.revision if _follow_structures != null else 0
+	if _size != Size.HIDDEN and revision != _copied_revision:
+		_planted = (
+			_follow_structures.planted() if _follow_structures != null
+			else ([] as Array[Vector3])
+		)
+		_built_copy = (
+			_follow_structures.positions() if _follow_structures != null
+			else ([] as Array[Vector3])
+		)
+		_copied_revision = revision
 	track(
 		_follow_player.global_position,
 		_follow_camera.yaw if _follow_camera != null else 0.0,
-		_follow_structures.positions() if _follow_structures != null else ([] as Array[Vector3])
+		_built_copy
 	)
 
 ## Called with where the player is and which way the camera looks.

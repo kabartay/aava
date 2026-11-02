@@ -317,3 +317,15 @@ func _assemble_finished_now() -> void:
 		var chunk := TerrainChunk.new(baked, job["ring"], _material, job["collide"])
 		add_child(chunk)
 		_chunks[coord] = chunk
+
+		# The player may have walked towards this chunk while it baked, and a
+		# request to make it better is dropped by _submit_chunk when a bake of the
+		# same coordinate is in flight. Without asking again here, a chunk baked
+		# coarse and without collision stays that way — under a child's feet —
+		# until they next cross a chunk boundary.
+		var now := TerrainSpec.ring_for(maxi(absi(gone.x), absi(gone.y)))
+		var wants_step: int = TerrainSpec.RINGS[now]["step"]
+		var wants_collision: bool = TerrainSpec.RINGS[now]["collide"]
+		if (wants_step < chunk.step or (wants_collision and not chunk.has_collision)) \
+				and not _queue.has(coord):
+			_queue.push_front(coord)

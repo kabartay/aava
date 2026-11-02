@@ -92,6 +92,8 @@ const STEEL := RollerCoaster.RAIL
 const STEEL_DARK := Color(0.40, 0.16, 0.14)
 const CONCRETE := Color(0.70, 0.69, 0.66)
 const SAIL := Color(0.95, 0.92, 0.84)
+const ROPE := Color(0.78, 0.68, 0.48)
+const LAMP := Color(1.0, 0.82, 0.42)
 
 enum Phase { STILL, SWINGING }
 
@@ -360,9 +362,73 @@ func _build_hull(body: AnimatableBody3D) -> void:
 		var stripe := BoxMesh.new()
 		stripe.size = Vector3(0.06, 0.4, HULL_HALF_WIDTH * 1.7)
 		Park._add(tool, stripe, Transform3D(Basis(), Vector3(mast_x - end * 0.14, mast_foot + 2.85, 0.0)), HULL)
-		var pennant := BoxMesh.new()
-		pennant.size = Vector3(0.7, 0.3, 0.04)
-		Park._add(tool, pennant, Transform3D(Basis(), Vector3(mast_x - end * 0.35, mast_foot + 4.5, 0.0)), HULL)
+		# A swallow-tailed flag at the masthead, its two tails splayed.
+		for tail: float in [-1.0, 1.0]:
+			var pennant := BoxMesh.new()
+			pennant.size = Vector3(0.8, 0.16, 0.04)
+			Park._add(
+				tool, pennant,
+				Transform3D(
+					Basis(Vector3.BACK, end * tail * deg_to_rad(10.0)),
+					Vector3(mast_x - end * 0.42, mast_foot + 4.42 + tail * 0.08, 0.0)
+				),
+				HULL if tail > 0.0 else TRIM
+			)
+		# Shrouds: two ropes each side from the masthead down to the rail,
+		# which is what makes a pole with a sheet on it read as a mast.
+		var mast_head := Vector3(mast_x, mast_foot + 3.9, 0.0)
+		for side: float in [-1.0, 1.0]:
+			for lean: float in [-0.7, 0.7]:
+				var rail_x := mast_x + lean
+				_beam(
+					tool, mast_head,
+					Vector3(rail_x, _gunwale(clampf(rail_x, -half, half)), side * (HULL_HALF_WIDTH - 0.1)), 0.035, ROPE
+				)
+		# A lookout's barrel on the bow mast, above the sail.
+		if end > 0.0:
+			var nest := CylinderMesh.new()
+			nest.top_radius = 0.42
+			nest.bottom_radius = 0.34
+			nest.height = 0.4
+			nest.radial_segments = 10
+			Park._add(tool, nest, Transform3D(Basis(), Vector3(mast_x, mast_foot + 4.15, 0.0)), TIMBER)
+		# A lantern on a short post at each end of the deck.
+		var lantern_x := end * (half - 0.5)
+		var lantern_y := _gunwale(lantern_x)
+		var post := BoxMesh.new()
+		post.size = Vector3(0.06, 0.4, 0.06)
+		Park._add(tool, post, Transform3D(Basis(), Vector3(lantern_x, lantern_y + 0.2, 0.0)), STEEL_DARK)
+		var lamp := BoxMesh.new()
+		lamp.size = Vector3(0.22, 0.28, 0.22)
+		Park._add(tool, lamp, Transform3D(Basis(), Vector3(lantern_x, lantern_y + 0.52, 0.0)), LAMP)
+		var lamp_cap := BoxMesh.new()
+		lamp_cap.size = Vector3(0.28, 0.06, 0.28)
+		Park._add(tool, lamp_cap, Transform3D(Basis(), Vector3(lantern_x, lantern_y + 0.69, 0.0)), STEEL_DARK)
+
+		# Portholes along the raised ends, past the shields, with a gold rim.
+		for hole in 2:
+			var hole_x := end * (DECK_HALF + 0.9 + 1.0 * float(hole))
+			var hole_y := (_keel(hole_x) + _gunwale(hole_x)) * 0.5 + 0.2
+			for side: float in [-1.0, 1.0]:
+				var rim := CylinderMesh.new()
+				rim.top_radius = 0.24
+				rim.bottom_radius = 0.24
+				rim.height = 0.04
+				rim.radial_segments = 12
+				Park._add(
+					tool, rim, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(hole_x, hole_y, side * (HULL_HALF_WIDTH + 0.08))),
+					TRIM
+				)
+				var glass := CylinderMesh.new()
+				glass.top_radius = 0.17
+				glass.bottom_radius = 0.17
+				glass.height = 0.04
+				glass.radial_segments = 12
+				Park._add(
+					tool, glass,
+					Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(hole_x, hole_y, side * (HULL_HALF_WIDTH + 0.11))),
+					SHIELD.darkened(0.45)
+				)
 
 	# The dragon at the bow: a neck curling up and out, and a head with eyes.
 	var bow_top := _gunwale(half)

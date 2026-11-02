@@ -287,11 +287,15 @@ static func _roof(peak: bool) -> Mesh:
 		var right_front := Vector3(eaves, 0.0, -eaves)
 		var right_back := Vector3(eaves, 0.0, eaves)
 
-		_quad(tool, left_front, left_back, ridge_back, ridge_front, TILE)
-		_quad(tool, ridge_front, ridge_back, right_back, right_front, TILE)
+		# Wound clockwise seen from outside, which is what Godot calls the
+		# front of a face. The other way round the slopes faced into the roof,
+		# and a peaked roof was invisible from the street and showed only from
+		# underneath.
+		_quad(tool, left_front, ridge_front, ridge_back, left_back, TILE)
+		_quad(tool, ridge_front, right_front, right_back, ridge_back, TILE)
 		# Gable ends, so the roof is solid rather than an open tent.
-		_tri(tool, left_front, ridge_front, right_front, PLASTER)
-		_tri(tool, right_back, ridge_back, left_back, PLASTER)
+		_tri(tool, left_front, right_front, ridge_front, PLASTER)
+		_tri(tool, right_back, left_back, ridge_back, PLASTER)
 		return _finish(tool)
 
 	# A lean-to: one slope, high at the back.

@@ -95,6 +95,13 @@ func is_connected_to_anyone() -> bool:
 		return false
 	return _peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
+## Is there somebody actually in the valley with this child? A host with an open
+## door and nobody through it is connected, and has no one to share anything
+## with. Somebody counts once they have said who they are, which is also when
+## the game draws them.
+func has_company() -> bool:
+	return is_connected_to_anyone() and not guests.is_empty()
+
 func is_host() -> bool:
 	return role == Role.HOSTING
 

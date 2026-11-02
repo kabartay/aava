@@ -403,6 +403,11 @@ func _step(animal: Dictionary, delta: float) -> void:
 		# Arrived: whatever it was stuck on is behind it, so the patience
 		# starts afresh rather than carrying a stale count through the rest.
 		animal["stuck"] = 0.0
+		# Nor does a sidestep carry over to the next errand: its hold only ran
+		# down while walking, so one taken on the last step before arriving
+		# was still in force, frozen, when the animal set off again, and it
+		# turned away from its new target towards the old detour.
+		animal["hold"] = 0.0
 		animal["rest"] = float(animal["rest"]) - delta
 		if float(animal["rest"]) <= 0.0:
 			_pick_wander(animal)
@@ -427,6 +432,9 @@ func _step(animal: Dictionary, delta: float) -> void:
 		moving = move_toward(moving, wanted_speed, ACCEL * delta)
 		var next := node.position + forward * moving * delta
 		var blocked := blocked_at(next.x, next.z, 0.15)
+		# Run down whether or not it is felt for this frame: standing against
+		# something, or being out of range, must not freeze a sidestep.
+		animal["hold"] = maxf(0.0, float(animal.get("hold", 0.0)) - delta)
 		if not blocked and moving > 0.01 and _worth_feeling_for(node.position):
 			# And whatever solid the world has put in the way that no list
 			# knows about: fences, gates, the rides' platforms and frames,
@@ -435,7 +443,7 @@ func _step(animal: Dictionary, delta: float) -> void:
 			# A sidestep, once taken, is kept for a moment. Without that the
 			# heading swung back at the target the frame after, the feeler
 			# found the fence again, and the animal flickered along it.
-			var hold := maxf(0.0, float(animal.get("hold", 0.0)) - delta)
+			var hold := float(animal.get("hold", 0.0))
 			var base: Vector3 = animal.get("way", forward) if hold > 0.0 else forward
 			var way := _clear_way(animal, node, base, direction)
 			if way != Vector3.ZERO and (way != forward) and (hold <= 0.0 or way != base):

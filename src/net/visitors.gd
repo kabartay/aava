@@ -56,6 +56,14 @@ const SHIRT_NAMES: Array[StringName] = [
 
 var _visitors: Dictionary = {}
 
+## Where somebody was said to be before they had been announced. Positions are
+## unreliable and names are reliable, so the first position can overtake the
+## name that introduces it; dropped, a visitor who stands still (a host reading
+## out the number) is drawn at the world's origin until they next move. Kept
+## to a handful so a peer that never introduces itself cannot make it grow.
+const MAX_EARLY := 8
+var _early: Dictionary = {}
+
 ## `chose` is the shirt that child picked for themselves, or -1 if they are
 ## playing on a version that never asked them.
 func add(id: int, who: String, chose := -1) -> void:
@@ -84,6 +92,10 @@ func add(id: int, who: String, chose := -1) -> void:
 		"node": body, "wanted": Vector3.ZERO, "facing": 0.0, "seen": false,
 		"shirt": shirt,
 	}
+	if _early.has(id):
+		var told: Array = _early[id]
+		_early.erase(id)
+		move(id, told[0], told[1])
 
 ## Which shirt to draw somebody in.
 ##
@@ -144,6 +156,7 @@ func rename(id: int, who: String) -> void:
 			return
 
 func remove(id: int) -> void:
+	_early.erase(id)
 	if not _visitors.has(id):
 		return
 	var node: Node3D = _visitors[id]["node"]
@@ -152,6 +165,7 @@ func remove(id: int) -> void:
 	_visitors.erase(id)
 
 func clear() -> void:
+	_early.clear()
 	for id in _visitors.keys():
 		remove(id)
 
@@ -161,6 +175,8 @@ func count() -> int:
 ## A position arrived from another machine.
 func move(id: int, at: Vector3, facing: float) -> void:
 	if not _visitors.has(id):
+		if _early.has(id) or _early.size() < MAX_EARLY:
+			_early[id] = [at, facing]
 		return
 	var record: Dictionary = _visitors[id]
 	record["wanted"] = at

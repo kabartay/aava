@@ -89,6 +89,14 @@ func has_fire_near(at: Vector3) -> bool:
 			return true
 	return false
 
+## Is there a campfire in reach that has room for another log? A fire already
+## holding its most takes none, and a log handed over anyway is lost.
+func can_feed(at: Vector3) -> bool:
+	if not has_fire_near(at):
+		return false
+	var burning := float(_burning.get(_key_for(nearest(at)), 0.0))
+	return burning < SECONDS_PER_LOG * float(MAX_LOGS)
+
 ## Put a log on. Returns the seconds the fire has left, or zero if there was no
 ## fire to feed.
 func feed(at: Vector3) -> float:
@@ -208,10 +216,20 @@ func to_data() -> Array:
 	return out
 
 func from_data(data: Array) -> void:
+	# What was burning before is not part of the world being loaded: its flame
+	# would stay alight over a fire the save says is out.
+	for key in _burning.keys():
+		_extinguish(key)
 	for entry in data:
 		if entry is Array and entry.size() >= 4:
 			var key := Vector3i(int(entry[0]), int(entry[1]), int(entry[2]))
-			_burning[key] = float(entry[3])
+			# A fire with nothing left would be lit only to go out at once, and
+			# announce it; one with more than it can hold is not a fire that
+			# could have been made.
+			var left := minf(float(entry[3]), SECONDS_PER_LOG * float(MAX_LOGS))
+			if not left > 0.0:
+				continue
+			_burning[key] = left
 			_light(
 				Vector3(float(key.x) * 0.1, float(key.y) * 0.1, float(key.z) * 0.1), key
 			)

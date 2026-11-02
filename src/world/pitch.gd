@@ -91,7 +91,10 @@ static func goal_centre(index: int) -> Vector3:
 	return CENTRE + Vector3(sign * (HALF_LENGTH - GOAL_INSET), 0.0, 0.0)
 
 ## Has the ball crossed this goal line, between the posts and under the bar?
-static func is_goal(index: int, ball: Vector3, ball_radius: float) -> bool:
+## `surface` is the height of the grass at the goal: goal_centre sits at y = 0
+## but the pitch is levelled well above that, so without it every ball on the
+## pitch was taller than the bar and no goal could ever be given.
+static func is_goal(index: int, ball: Vector3, ball_radius: float, surface := 0.0) -> bool:
 	var mouth := goal_centre(index)
 	var beyond := (mouth.x - ball.x) if index == 0 else (ball.x - mouth.x)
 	# The whole ball must be over the line, which is the actual rule and also
@@ -102,4 +105,9 @@ static func is_goal(index: int, ball: Vector3, ball_radius: float) -> bool:
 		return false
 	if absf(ball.z - mouth.z) > GOAL_WIDTH * 0.5 - ball_radius:
 		return false
-	return ball.y - mouth.y < GOAL_HEIGHT
+	# Under the net, not merely under the bar's height: the back of the net
+	# slopes from the crossbar down to the ground, and a ball chipped over the
+	# bar and dropping onto the outside of that slope is still under 2.1 m and
+	# past the line, and was given as a goal.
+	var roof := lerpf(GOAL_HEIGHT, 0.06, clampf(beyond / GOAL_DEPTH, 0.0, 1.0))
+	return ball.y - surface < roof

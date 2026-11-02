@@ -172,14 +172,16 @@ func _build_tile(coord: Vector2i) -> void:
 		var local_x := rng.randf() * TILE_SIZE
 		var local_z := rng.randf() * TILE_SIZE
 		var spin := rng.randf() * TAU
-		# The random draws happen before the "already taken" test so that
-		# collecting one stick never shifts where the others are.
-		if taken.has(id):
-			continue
-
+		# The random draws, the choice of kind included, happen before the
+		# "already taken" test so that collecting one stick never shifts what
+		# the others are. Deciding the kind after it let a taken candidate skip
+		# its draws, so after a reload the rest of the tile were different
+		# things in different places.
 		var world_x := origin_x + local_x
 		var world_z := origin_z + local_z
 		var kind := _kind_at(world_x, world_z, rng)
+		if taken.has(id):
+			continue
 		if kind == &"":
 			continue
 
@@ -256,5 +258,11 @@ func from_data(ids: Array) -> void:
 	taken.clear()
 	for id in ids:
 		taken[String(id)] = true
-	# Force a rebuild so already-collected pickups do not reappear.
+	# Force a rebuild so already-collected pickups do not reappear. Tiles that are
+	# already built are thrown away too: follow() only builds the ones that are
+	# missing, so a tile built under the old record would keep its old sticks —
+	# collectable a second time after a load, and still gone after a reset.
+	for coord in _tiles.keys():
+		_drop_tile(coord)
+	_queue.clear()
 	_centre = Vector2i(9999, 9999)

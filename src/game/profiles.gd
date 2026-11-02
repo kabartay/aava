@@ -350,6 +350,13 @@ func save_path_for(player: String, world_id: String) -> String:
 		return "%s/%s.json" % [FOLDER, _slug(world_id)]
 	return "%s/%s--%s.json" % [FOLDER, _slug(player), _slug(world_id)]
 
+## Is the world the game is pointing at one the current player may be in? The
+## index remembers the world last played, and a different child chosen since —
+## on the command line, or by hand — has no right to it: they would be walking
+## about in somebody else's valley, saving their bag into its files.
+func current_world_is_enterable() -> bool:
+	return may_enter(current_world, current_player)
+
 func current_save_path() -> String:
 	return save_path_for(current_player, current_world)
 

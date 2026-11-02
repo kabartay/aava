@@ -25,6 +25,11 @@ var score := 0
 
 var _balls: Array[Ball] = []
 var _cooldown := 0.0
+## Balls that have scored and are still lying in the net waiting to be put back.
+## The celebration clock is counted in physics ticks and the restart in the
+## scene tree's timer; they can disagree by a frame, and a ball still over the
+## line in that gap was given a second goal.
+var _in_the_net: Dictionary = {}
 var _field: HeightField
 
 func _init(field: HeightField) -> void:
@@ -62,6 +67,8 @@ func _physics_process(delta: float) -> void:
 		return
 
 	for ball in _balls:
+		if _in_the_net.has(ball):
+			continue
 		if _check_goal(ball):
 			return
 		_recover_stray(ball)
@@ -75,7 +82,9 @@ func ball_positions() -> Array[Vector3]:
 
 func _check_goal(ball: Ball) -> bool:
 	for index in 2:
-		if not Pitch.is_goal(index, ball.position, Ball.RADIUS):
+		var mouth := Pitch.goal_centre(index)
+		var grass := _field.height_at(mouth.x, mouth.z)
+		if not Pitch.is_goal(index, ball.position, Ball.RADIUS, grass):
 			continue
 		score += 1
 		_cooldown = CELEBRATION
@@ -85,8 +94,12 @@ func _check_goal(ball: Ball) -> bool:
 		# vanishing at the moment of triumph.
 		var restart := Pitch.centre()
 		restart.y = _field.height_at(restart.x, restart.z)
+		_in_the_net[ball] = true
 		var timer := get_tree().create_timer(CELEBRATION)
-		timer.timeout.connect(func() -> void: ball.reset_to(restart))
+		timer.timeout.connect(func() -> void:
+			_in_the_net.erase(ball)
+			ball.reset_to(restart)
+		)
 		return true
 	return false
 
