@@ -25,6 +25,12 @@ const LAYER_PROPS := 4
 ## Furniture stays off this layer, for the rattling reason above.
 const LAYER_WALLS := 8
 
+## Set on a body an animal's feelers should not stop for: the ground itself,
+## which an animal already walks over by its height, and things that are
+## walked round some other way or not at all — the animals' own bodies, the
+## ducks, the mounts. Everything else solid is something an animal walks round.
+const ANIMALS_IGNORE := &"animals_ignore"
+
 ## Sampling step per detail ring and how far out each ring reaches, in chunks.
 ## Ring zero is where the player stands, so it is the only detail that has to
 ## survive a camera two metres off the ground.

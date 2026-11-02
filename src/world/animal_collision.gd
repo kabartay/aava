@@ -60,6 +60,7 @@ func _init(living: Animals) -> void:
 		body.add_child(collider)
 		body.position = PARKED
 		body.collision_layer = TerrainSpec.LAYER_PROPS
+		body.set_meta(TerrainSpec.ANIMALS_IGNORE, true)
 		add_child(body)
 		_bodies.append(body)
 		_shapes.append(shape)

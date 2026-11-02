@@ -237,6 +237,7 @@ func _attach_collision(size: int, data: PackedFloat32Array) -> void:
 	collider.position = Vector3(float(size) * 0.5, 0.0, float(size) * 0.5)
 
 	var body := StaticBody3D.new()
+	body.set_meta(TerrainSpec.ANIMALS_IGNORE, true)
 	body.add_child(collider)
 	add_child(body)
 

@@ -160,6 +160,12 @@ var _tiles: Dictionary = {}
 var _queue: Array[Vector2i] = []
 var _centre := Vector2i(9999, 9999)
 var _living: Array[Dictionary] = []
+## Where the player was last said to be. Animals far from here are not felt
+## for with physics: nobody sees them, and no collider is built out there.
+var _player := Vector3.ZERO
+var _has_player := false
+## One ray query for every feeler, refilled each time, not one made per ray.
+var _feeler := PhysicsRayQueryParameters3D.new()
 
 func _init(height_field: HeightField, seed_value: int) -> void:
 	# Animated in _process, so the engine's physics interpolation must not
@@ -175,6 +181,8 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 	_material = AnimalKinds.fur_material()
 
 func follow(world_position: Vector3) -> void:
+	_player = world_position
+	_has_player = true
 	var tile := Vector2i(
 		floori(world_position.x / float(TILE_SIZE)),
 		floori(world_position.z / float(TILE_SIZE))
@@ -378,7 +386,8 @@ func _step(animal: Dictionary, delta: float) -> void:
 	# One that is already standing in a pond walks out of it. They are placed
 	# on dry ground and never choose a pond to walk to, but a pond can appear
 	# under one: the eastern lake was dug where a cat was already living.
-	if field.is_pond(node.position.x, node.position.z):
+	var afloat := field.is_pond(node.position.x, node.position.z)
+	if afloat:
 		_head_for_the_bank(animal)
 	animal["cooldown"] = maxf(0.0, float(animal["cooldown"]) - delta)
 
@@ -391,6 +400,9 @@ func _step(animal: Dictionary, delta: float) -> void:
 
 	if distance < 0.4:
 		moving = move_toward(moving, 0.0, ACCEL * delta)
+		# Arrived: whatever it was stuck on is behind it, so the patience
+		# starts afresh rather than carrying a stale count through the rest.
+		animal["stuck"] = 0.0
 		animal["rest"] = float(animal["rest"]) - delta
 		if float(animal["rest"]) <= 0.0:
 			_pick_wander(animal)
@@ -405,6 +417,7 @@ func _step(animal: Dictionary, delta: float) -> void:
 				direction = (direction + push).normalized()
 		var wanted := atan2(-direction.x, -direction.z)
 		var turn_rate := float(TURN_RATES.get(animal["kind"], TURN_RATE))
+		var heading_before := heading
 		heading = lerp_angle(heading, wanted, 1.0 - exp(-turn_rate * delta))
 		forward = Vector3(-sin(heading), 0.0, -cos(heading))
 		# Speed follows how squarely the body faces where it is going, and
@@ -413,7 +426,42 @@ func _step(animal: Dictionary, delta: float) -> void:
 		var wanted_speed := speed * (0.25 + 0.75 * aim) * clampf(distance / 1.5, 0.3, 1.0)
 		moving = move_toward(moving, wanted_speed, ACCEL * delta)
 		var next := node.position + forward * moving * delta
-		if blocked_at(next.x, next.z, 0.15):
+		var blocked := blocked_at(next.x, next.z, 0.15)
+		if not blocked and moving > 0.01 and _worth_feeling_for(node.position):
+			# And whatever solid the world has put in the way that no list
+			# knows about: fences, gates, the rides' platforms and frames,
+			# houses a child has built. Felt for ahead, and walked along
+			# rather than stopped at.
+			# A sidestep, once taken, is kept for a moment. Without that the
+			# heading swung back at the target the frame after, the feeler
+			# found the fence again, and the animal flickered along it.
+			var hold := maxf(0.0, float(animal.get("hold", 0.0)) - delta)
+			var base: Vector3 = animal.get("way", forward) if hold > 0.0 else forward
+			var way := _clear_way(animal, node, base, direction)
+			if way != Vector3.ZERO and (way != forward) and (hold <= 0.0 or way != base):
+				animal["way"] = way
+				hold = SIDESTEP_HOLD
+			animal["hold"] = hold
+			if way == Vector3.ZERO:
+				blocked = true
+			elif way != forward:
+				# One turn this frame, from where it started, towards the
+				# sidestep instead of the target: turning towards the target
+				# and then again towards the sidestep wobbled along a fence.
+				heading = lerp_angle(
+					heading_before, atan2(-way.x, -way.z), 1.0 - exp(-turn_rate * delta)
+				)
+				next = node.position + way * moving * delta
+				blocked = blocked_at(next.x, next.z, 0.15)
+		# And not into a pond. Only the wander picks a spot that is dry; a
+		# child at the water's edge, a flight from a motorcycle or a straight
+		# line across a bend all name targets over the water, and the animal
+		# waded in, was turned out by the check at the top of this function,
+		# and was sent back in by the next call to `watch`. One already afloat
+		# is let walk, or it could never get out.
+		if not blocked and not afloat and field.is_pond(next.x, next.z):
+			blocked = true
+		if blocked:
 			# Up against something despite the steering: stand and keep
 			# turning — the heading is already swinging along its side — and
 			# only after a while of that want somewhere else instead.
@@ -459,23 +507,29 @@ func _step(animal: Dictionary, delta: float) -> void:
 		+ sin(bob) * 0.02 * (1.0 - trot)
 		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * (0.05 if hops else 0.02)) * trot
 	)
-	_stride(node, kind, bob, trot, delta)
+	_stride(animal, node, kind, bob, trot, delta)
 
 ## The legs and the body as the animal walks: legs swing in diagonal pairs
 ## — front-left with hind-right — as far as the kind's stride, or, for the
 ## squirrel, front and hind together in a hop; standing, they hang straight
 ## and the body breathes. What made them read as toys on strings was legs
 ## that never moved.
-func _stride(node: Node3D, kind: StringName, bob: float, trot: float, delta: float) -> void:
+func _stride(animal: Dictionary, node: Node3D, kind: StringName, bob: float, trot: float, delta: float) -> void:
 	var body := node.get_node_or_null("Body") as Node3D
 	if body == null:
 		return
+	# Found once and kept: four name lookups an animal a frame add up.
+	var legs: Array = animal.get("legs", [])
+	if legs.is_empty():
+		for i in 4:
+			var found := body.get_node_or_null("Leg%d" % i) as Node3D
+			if found != null:
+				legs.append(found)
+		animal["legs"] = legs
 	var swing_amount := float(LEG_SWINGS.get(kind, 0.45))
 	var hops := kind == AnimalKinds.SQUIRREL
-	for i in 4:
-		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
-		if leg == null:
-			continue
+	for i in legs.size():
+		var leg: Node3D = legs[i]
 		var pair := 1.0 if (i == 0 or i == 3) else -1.0
 		if hops:
 			pair = 1.0 if i < 2 else -1.0
@@ -530,6 +584,107 @@ func _lean_with_the_ground(animal: Dictionary, node: Node3D, delta: float) -> vo
 ## How far an animal will tip to the ground under it.
 const LEANS_TO := deg_to_rad(22.0)
 
+## What an animal's feelers stop for: the ground layer, where the fairground,
+## the bridge and the houses stand, and the props layer, where fences, posts
+## and furniture are.
+const FEEL_MASK := TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+## How far either side of straight ahead an animal looks for a way past
+## something solid, nearest first.
+## Beyond this many metres from the player, animals do not feel for solids.
+const FEEL_RANGE := 60.0
+## How long, in seconds, a sidestep is kept to before looking at the target again.
+const SIDESTEP_HOLD := 0.6
+const SIDESTEPS: Array[float] = [0.6, 1.2, 1.8]
+
+## Which way to walk this step: straight on if nothing solid is there, else
+## the first clear bearing to one side or the other, trying the side towards
+## where it wants to go first, and keeping to that side once it has picked
+## one so it follows a fence along rather than dithering at it. Nothing clear
+## at all comes back as zero.
+##
+## Every solid thing the world builds has a collider, and almost none of them
+## were on the animals' own lists: a cat walked through the fairground's gate,
+## sheep stood inside the rides' platforms. Asking the physics world means a
+## thing built tomorrow is walked round without anybody remembering to say so.
+func _clear_way(animal: Dictionary, node: Node3D, forward: Vector3, toward: Vector3) -> Vector3:
+	if not node.is_inside_tree():
+		return forward
+	var at := node.global_position
+	if not _solid_ahead(animal, at, forward):
+		animal.erase("side")
+		return forward
+	var side := float(animal.get("side", 0.0))
+	if side == 0.0:
+		side = 1.0 if forward.cross(toward).y >= 0.0 else -1.0
+	for turn in SIDESTEPS:
+		for sign: float in [side, -side]:
+			var way := forward.rotated(Vector3.UP, turn * sign)
+			if not _solid_ahead(animal, at, way):
+				animal["side"] = sign
+				return way
+	return Vector3.ZERO
+
+## Is this close enough to the player to be worth asking the physics world
+## about? Before the player is known, everywhere is.
+func _worth_feeling_for(at: Vector3) -> bool:
+	if not _has_player:
+		return true
+	var gap := at - _player
+	return gap.x * gap.x + gap.z * gap.z <= FEEL_RANGE * FEEL_RANGE
+
+## Is there something solid within a stride ahead of this animal? Felt at two
+## heights, a low one for platforms and kerbs and one at the body, for rails.
+func _solid_ahead(animal: Dictionary, at: Vector3, way: Vector3) -> bool:
+	var space := _space()
+	if space == null:
+		return false
+	var kind: StringName = animal["kind"]
+	var size := AnimalKinds.body_size(kind)
+	var reach := size.z * 0.5 + 0.25
+	for height: float in [0.15, AnimalKinds.size_of(kind) * 0.45 + size.y * 0.5]:
+		var from := at + Vector3(0.0, height, 0.0)
+		var query := _feeler
+		query.from = from
+		query.to = from + way * reach
+		query.collision_mask = FEEL_MASK
+		query.exclude = []
+		# A hit on something an animal walks through anyway is looked past,
+		# a few times, in case a fence stands just behind it.
+		for _look in 3:
+			var hit := space.intersect_ray(query)
+			if hit.is_empty():
+				break
+			var thing := hit["collider"] as Object
+			if thing != null and thing.has_meta(TerrainSpec.ANIMALS_IGNORE):
+				var skip := query.exclude
+				skip.append(hit["rid"])
+				query.exclude = skip
+				continue
+			return true
+	return false
+
+## Is this spot inside something solid — somewhere not to wander to?
+func _solid_at(spot: Vector3) -> bool:
+	var space := _space()
+	if space == null:
+		return false
+	var query := PhysicsPointQueryParameters3D.new()
+	query.position = spot + Vector3(0.0, 0.35, 0.0)
+	query.collision_mask = FEEL_MASK
+	for found in space.intersect_point(query, 6):
+		var thing := found["collider"] as Object
+		if thing != null and not thing.has_meta(TerrainSpec.ANIMALS_IGNORE):
+			return true
+	return false
+
+func _space() -> PhysicsDirectSpaceState3D:
+	if not is_inside_tree():
+		return null
+	var viewport := get_viewport()
+	if viewport == null or viewport.world_3d == null:
+		return null
+	return viewport.world_3d.direct_space_state
+
 ## Somewhere else nearby to wander to, and a while to settle when it arrives.
 ## Constant motion reads as a machine; pauses read as an animal deciding. A
 ## spot inside the slide or the hedge is not somewhere to wander to, so a few
@@ -541,6 +696,8 @@ func _pick_wander(animal: Dictionary) -> void:
 		var distance := randf() * ROAM
 		var spot := home + Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
 		if blocked_at(spot.x, spot.z, 0.4):
+			continue
+		if _solid_at(Vector3(spot.x, _footing(spot.x, spot.z), spot.z)):
 			continue
 		# And not onto ground kept for people, unless it is a cat or a dog.
 		if not Animals.belongs_at(animal["kind"], kept_for_people(spot.x, spot.z)):

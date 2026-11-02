@@ -85,6 +85,7 @@ func settle(world_seed: int) -> void:
 			# straight through is a picture of a duck.
 			var body := StaticBody3D.new()
 			body.collision_layer = TerrainSpec.LAYER_PROPS
+			body.set_meta(TerrainSpec.ANIMALS_IGNORE, true)
 			var shape := CapsuleShape3D.new()
 			shape.radius = GIRTH
 			shape.height = GIRTH * 2.6

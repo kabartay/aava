@@ -625,9 +625,18 @@ func _note_playground_obstacles(at: Vector3) -> void:
 	var group := _obstacle_group(at, circles)
 	group["ring"] = HEDGE_RADIUS
 	group["ring_half"] = HEDGE_THICKNESS * 0.5 + 0.25
-	group["gap"] = HEDGE_GAP + 0.03
+	group["gap"] = hedge_opening()
 	group["reach"] = maxf(float(group["reach"]), HEDGE_RADIUS + 3.0)
 	_obstacles.append(group)
+
+## How far either side of the ring's axis the hedge really stops, in radians.
+## The blocks are laid by the position of their middle, so the opening is not
+## HEDGE_GAP but the edge of the first block that is kept: 0.143 against a
+## HEDGE_GAP of 0.21. Animals were told the wider figure and walked through the
+## hedge for the stretch in between, on all four sides of both openings.
+static func hedge_opening() -> float:
+	var block := TAU / float(HEDGE_SEGMENTS)
+	return float(ceili(HEDGE_GAP / block - 0.5)) * block
 
 static func _obstacle_group(centre: Vector3, circles: Array[Vector3]) -> Dictionary:
 	var reach := 0.0
@@ -806,8 +815,11 @@ func _place(place: StringName, at: Vector3) -> void:
 			_note_cafe_obstacles(spot)
 		SHOP:
 			_build_shop(spot)
+			# Round the whole footprint, corners included: nine metres was the
+			# half-width and a margin, but the corners stand ten and a half out,
+			# so animals walked through the side walls either side of the door.
 			_obstacles.append(_obstacle_group(spot, [
-				Vector3(0.0, SHOP_WIDTH * 0.5 + 0.6, SHOP_MID_Z),
+				Vector3(0.0, Vector2(SHOP_WIDTH, SHOP_DEPTH).length() * 0.5 + 0.5, SHOP_MID_Z),
 				Vector3(SHOP_RAIL_X, 0.4, SHOP_RAIL_Z),
 			]))
 

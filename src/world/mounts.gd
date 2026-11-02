@@ -85,6 +85,8 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 	var body := StaticBody3D.new()
 	body.name = "Solid"
 	body.collision_layer = TerrainSpec.LAYER_PROPS
+	# Animals already walk round a standing mount through Mounts.blocks().
+	body.set_meta(TerrainSpec.ANIMALS_IGNORE, true)
 	var box: Array = MountKinds.body_box(kind)
 	var shape := BoxShape3D.new()
 	shape.size = box[0]
