@@ -23,6 +23,7 @@ func _initialize() -> void:
 	_check_every_script_loads()
 	_check_world_has_relief()
 	_check_the_great_mountain_stands()
+	_check_the_range_rises_gently_and_drains()
 	_check_chunks_have_geometry()
 	_check_ground_rejects_what_it_cannot_touch()
 	_check_baking_on_threads_changes_nothing()
@@ -186,12 +187,19 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_an_arrow_that_hits_stops_in_the_face()
+	_check_a_machine_in_reverse_points_where_it_is_steered_and_rolls_back()
+	_check_a_duck_turning_from_the_bank_keeps_its_clock()
+	_check_the_far_country_paints_a_raised_pond_bed_as_silt()
 	_check_no_grass_comes_up_through_the_bridge_deck()
 	_check_the_flags_fly_the_valley_wind()
+	_check_the_ship_sails_belly_with_the_wind()
 	_check_the_ride_trim_stays_in_its_place()
 	_check_the_small_fittings_meet_their_parts()
+	_check_the_small_details_rest_where_they_are_drawn()
 	_check_the_fountain_water_shows_and_the_chimney_stands_in_the_roof()
 	_check_trees_are_joined_up_and_have_room_between_them()
+	_check_solid_trunks_and_stumps_match_what_is_drawn()
 	_check_trees_keep_their_distance_across_tile_edges()
 	_check_one_wind_blows_over_the_valley()
 	_check_the_ride_dressing_stays_out_of_the_sweep()
@@ -208,6 +216,7 @@ func _initialize() -> void:
 	_check_a_bicycle_is_not_left_in_the_river()
 	_check_what_a_child_builds_that_is_solid_has_a_collider()
 	_check_the_carousel_canopy_is_striped_once()
+	_check_the_carousel_is_drawn_once_with_its_poles_and_bulbs_on_the_canopy()
 	_check_the_squirrel_hops_with_all_four_legs_together()
 	await _check_a_tile_baked_bare_gets_its_grass_once_near()
 	_check_sounds_have_distance_surfaces_and_a_night()
@@ -260,6 +269,7 @@ func _initialize() -> void:
 	await _check_a_jump_from_the_saddle_is_a_jump()
 	await _check_a_child_can_swim_down()
 	await _check_the_river_has_a_gentle_current()
+	_check_the_river_surface_shows_its_flow_and_its_piers()
 	await _check_the_things_afloat_drift_in_the_river_only()
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
 	_check_a_rider_stays_on_a_bank()
@@ -15182,4 +15192,370 @@ func _check_far_animals_leave_their_heads_and_tails_alone() -> void:
 		animals._step(far_dog, 1.0 / 60.0)
 	_expect(far_dog.has("wag"), "and wags again once the player is near")
 	animals.queue_free()
+
+## The range rises out of the foothills and its water runs down to the valley.
+##
+## Walls standing straight out of flat ground, shelves cut into the meadow at
+## the foot, and hollows that held water on a mountainside all come from the
+## same place: the shape of the range between MOUNTAIN_START and the crest.
+## Measured away from the great mountain, which has its own shape.
+func _check_the_range_rises_gently_and_drains() -> void:
+	print("the range rises gently and drains")
+	var field := HeightField.new(20260903)
+	var steepest := 0.0
+	var stalled := 0
+	var walks := 0
+	for i in 48:
+		var angle := TAU * float(i) / 48.0
+		var dir := Vector2(cos(angle), sin(angle))
+		if (dir * 1000.0).distance_to(HeightField.ELBRUS_AT) < 800.0:
+			continue
+		# The hills of the valley are as steep as they are; the foot of the range
+		# may add to that, but not turn it into a wall.
+		var hills := 0.0
+		for r in range(int(HeightField.MOUNTAIN_START) - 120, int(HeightField.MOUNTAIN_START), 6):
+			var p := dir * float(r)
+			var q := dir * float(r + 6)
+			hills = maxf(hills, absf(field.height_at(q.x, q.y) - field.height_at(p.x, p.y)) / 6.0)
+		for r in range(int(HeightField.MOUNTAIN_START), int(HeightField.MOUNTAIN_START) + 120, 6):
+			var p := dir * float(r)
+			var q := dir * float(r + 6)
+			var rise := absf(field.height_at(q.x, q.y) - field.height_at(p.x, p.y))
+			steepest = maxf(steepest, rise / 6.0 - hills)
+		# A hollow with no way out is a point lower than all eight of its
+		# neighbours: water that reaches it stays, and a lake with no water
+		# in it is what a child sees. Count them across the range's faces.
+		for r in range(int(HeightField.MOUNTAIN_START) + 60, 1000, 40):
+			var at := dir * float(r)
+			var here := field.height_at(at.x, at.y)
+			var lowest := true
+			for k in 8:
+				var around := at + Vector2.from_angle(TAU * float(k) / 8.0) * 40.0
+				# A metre of margin, so the grain of the ground is not a hollow.
+				if field.height_at(around.x, around.y) <= here + 1.0:
+					lowest = false
+					break
+			walks += 1
+			if lowest:
+				stalled += 1
+	print("  steepest foot %.2f over the hills, pits %d of %d" % [steepest, stalled, walks])
+	_expect(steepest < 0.45,"the foot of the range is not a wall (%.2f steeper than the hills)" % steepest)
+	_expect(stalled * 50 <= walks, "the range's hollows drain (%d of %d points are pits)" % [stalled, walks])
+
+## The ship's sails are nodes that fill with the wind: out downwind, a little
+## more in a blow, and never a step from one moment to the next.
+func _check_the_ship_sails_belly_with_the_wind() -> void:
+	print("the ship's sails belly with the wind")
+	var sail := Sail.new()
+	sail.build(3.0, 2.1, Color.WHITE, Color.RED)
+	var calm := 0.0
+	var blow := 0.0
+	var worst_jump := 0.0
+	var wrong_way := 0
+	for i in 800:
+		var t := 30.0 + float(i) * 5.3
+		var turn := sail.belly(t)
+		var across := Wind.direction(t).x
+		if absf(across) > 0.5 and signf(turn) != signf(across):
+			wrong_way += 1
+		if Wind.strength(t) < 0.3:
+			calm = maxf(calm, absf(turn))
+		if Wind.strength(t) > 0.8:
+			blow = maxf(blow, absf(turn))
+		worst_jump = maxf(worst_jump, absf(sail.belly(t + 0.05) - turn))
+	_expect(wrong_way == 0, "a sail bellies downwind (%d times the wrong way)" % wrong_way)
+	_expect(blow > calm * 1.5, "a sail fills more in a blow (%.2f against %.2f in a calm)" % [blow, calm])
+	_expect(worst_jump < 0.01, "a sail fills smoothly (%.3f rad in a twentieth of a second)" % worst_jump)
+	sail.free()
+	var ship := FileAccess.get_file_as_string("res://src/world/pirate_ship.gd")
+	_expect(ship.contains("Sail.new()") and not ship.contains("sail := BoxMesh"), "the ship's sails are nodes, not baked boxes")
+
+## The foam round the bridge's legs has to be told where the legs are, and the
+## streaks on the river must run at the pace a swimmer is carried at.
+func _check_the_river_surface_shows_its_flow_and_its_piers() -> void:
+	print("the river surface shows its flow and its piers")
+	var sheet := Water.new()
+	var material := sheet.material_override as ShaderMaterial
+	_expect(
+		is_equal_approx(float(material.get_shader_parameter("river_current")), HeightField.RIVER_CURRENT),
+		"the surface streaks run at the river's own current"
+	)
+	_expect(
+		int(material.get_shader_parameter("pier_count")) == Bridge.TRESTLES * 2,
+		"the shader is told of every trestle leg"
+	)
+	var offsets: Array = material.get_shader_parameter("pier_offset")
+	_expect(offsets.size() <= 10, "and has room in its array for all of them")
+	for offset: Vector2 in offsets:
+		_expect(
+			absf(offset.x) <= BridgeSpec.HALF_SPAN and absf(offset.y) < BridgeSpec.HALF_WIDTH,
+			"each leg stands on the deck's own footprint"
+		)
+	_expect(
+		is_equal_approx(float(material.get_shader_parameter("bridge_z")), BridgeSpec.CENTRE_Z),
+		"at the bridge's own latitude"
+	)
+	sheet.free()
+
+## A solid trunk is as thick as the tree drawn there, and a stump reaches below its
+## root.
+##
+## Every trunk was one third of a metre whatever the tree: a big conifer is drawn
+## nearly forty centimetres through at the waist, so a child walked into its bark,
+## and a stump sat on its edge on a slope.
+func _check_solid_trunks_and_stumps_match_what_is_drawn() -> void:
+	print("solid trunks and stumps match what is drawn")
+	var big_conifer := VegetationTile.trunk_radius(true, 1.35)
+	var small_conifer := VegetationTile.trunk_radius(true, 0.5)
+	_expect(big_conifer > TreeCollision.TRUNK_RADIUS, "a big conifer is solid to %.2f m, past the flat %.2f" % [big_conifer, TreeCollision.TRUNK_RADIUS])
+	_expect(small_conifer < big_conifer, "and a stunted one is thinner (%.2f m)" % small_conifer)
+	# The bark a metre up, measured in the mesh, lies inside the solid trunk.
+	var spruce := PlantMeshes.conifer(VegetationTile.CONIFER_HEIGHT, 0)
+	var drawn := 0.0
+	for v in spruce.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array:
+		if absf(v.y - 1.0) < 0.5 and Vector2(v.x, v.z).length() < 0.6:
+			drawn = maxf(drawn, Vector2(v.x, v.z).length())
+	_expect(drawn > 0.0 and VegetationTile.trunk_radius(true, 1.0) >= drawn * 0.9, "the solid trunk covers the bark (%.2f drawn)" % drawn)
+
+	var trunks := TreeCollision.new(null)
+	var at: Array[Vector3] = [Vector3(0, 0, 0), Vector3(5, 0, 0)]
+	trunks.set_trunks(at, PackedFloat32Array([0.5, 0.25]))
+	_expect(is_equal_approx(trunks.radius_of(0), 0.5) and is_equal_approx(trunks.radius_of(1), 0.25), "each body wears its own tree's girth")
+	trunks.set_girth(0.9)
+	_expect(trunks.radius_of(0) <= TreeCollision.TRUNK_RADIUS + TreeCollision.WIDEST_RIDER + 0.001, "a rider's widening stays capped")
+	trunks.free()
+
+	var stump := PlantMeshes.stump(0.24)
+	_expect(stump.get_aabb().position.y < 0.0, "a stump reaches below its root, so a slope cannot lift one side")
+
+## The far country measured every bed against the sea, so a pond standing high
+## on a hillside was painted as meadow in the distance and as silt up close.
+func _check_the_far_country_paints_a_raised_pond_bed_as_silt() -> void:
+	var field := HeightField.new(20260903)
+	var land := DistantLand.new(field)
+	var raised := 0
+	var wrong := 0
+	for index in Lakes.count():
+		if not Lakes.is_raised(index, HeightField.WATER_LEVEL):
+			continue
+		raised += 1
+		var x := Lakes.at(index, Lakes.POND_X)
+		var z := Lakes.at(index, Lakes.POND_Z)
+		var height := field.height_at(x, z)
+		if height < field.water_level_at(x, z) and land._colour(height, x, z) != TerrainSpec.COLOR_SILT:
+			wrong += 1
+	_expect(raised > 0, "the valley has a raised pond to check")
+	_expect(wrong == 0, "far ground under a raised pond is painted as silt (%d wrong)" % wrong)
+	land.free()
+
+## Vertices of a mesh that carry one colour, in the mesh's own frame.
+func _vertices_of_colour(mesh: Mesh, colour: Color) -> PackedVector3Array:
+	var found := PackedVector3Array()
+	for surface in mesh.get_surface_count():
+		var arrays := mesh.surface_get_arrays(surface)
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		for index in points.size():
+			# Vertex colours are stored as eight bits a channel, so exact
+			# equality would never match.
+			if absf(colours[index].r - colour.r) + absf(colours[index].g - colour.g) \
+					+ absf(colours[index].b - colour.b) < 0.02:
+				found.append(points[index])
+	return found
+func _check_the_small_details_rest_where_they_are_drawn() -> void:
+	print("the small details rest where they are drawn")
+
+	# The chalk on the café's easel is in front of the board, not inside it. The
+	# lines were turned about the easel's foot, which threw them a hand's breadth
+	# behind the board's back face.
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var cafe: Vector3 = places.position_of(Places.CAFE)
+	var board_at := Vector3(2.6, 0.0, Places.CAFE_FRONT_Z - 1.6)
+	var lean := deg_to_rad(12.0)
+	var chalk := 0
+	var buried := 0
+	var cushions := 0
+	var cushion_low := 9.0
+	var lean_top := 0.0
+	var lean_foot := 0.0
+	var tops := 0
+	var feet := 0
+	for child in places.get_children():
+		var shown := child as MeshInstance3D
+		if shown == null or shown.mesh == null or shown.position.distance_to(cafe) > 0.01:
+			continue
+		for point in _vertices_of_colour(shown.mesh, Color(0.94, 0.94, 0.90)):
+			var rel := point - board_at
+			if absf(rel.x) > 0.4 or rel.y < 0.1 or rel.y > 1.3 or absf(rel.z) > 0.5:
+				continue
+			chalk += 1
+			# Where the board's front face is at this height: its middle is
+			# 0.7 up, it is tipped back by `lean`, and it is 0.05 thick.
+			var face := (rel.y - 0.7) * tan(lean) - 0.025 / cos(lean)
+			if rel.z > face + 0.002:
+				buried += 1
+		for colour: Color in [Color(0.92, 0.72, 0.30), Color(0.86, 0.40, 0.36)]:
+			for point in _vertices_of_colour(shown.mesh, colour):
+				# The sofa stands at (4, 0, 2.9) and its cushions are the only
+				# things of these two colours in that corner.
+				if absf(point.x - 4.0) > 0.6 or absf(point.z - 2.9) > 1.7 or point.y > 1.2:
+					continue
+				cushions += 1
+				cushion_low = minf(cushion_low, point.y)
+				if point.y > 0.75:
+					lean_top += point.x
+					tops += 1
+				elif point.y < 0.55:
+					lean_foot += point.x
+					feet += 1
+	_expect(chalk > 0, "the menu easel has chalk on it (%d vertices found)" % chalk)
+	_expect(buried == 0, "%d of %d vertices of chalk are behind the face of the easel's board" % [buried, chalk])
+	_expect(cushions > 0, "the sofa has cushions (%d vertices found)" % cushions)
+	_expect(cushion_low < 0.44, "the lowest cushion is %.2f m up, on a seat 0.42 m high" % cushion_low)
+	_expect(
+		tops > 0 and feet > 0 and lean_top / float(maxi(tops, 1)) > lean_foot / float(maxi(feet, 1)),
+		"the cushions lean back against the sofa's back, not away from it"
+	)
+	places.queue_free()
+
+	# The arrowheads on the walkway lie on the belt: the arrow is longer than
+	# the slat it is drawn on, so its underside must be down at the belt's own
+	# surface (0.02 under a tread's middle), not a hand's breadth over it.
+	var walkway := Walkway.new(Vector3.ZERO)
+	var arrow := _vertices_of_colour(walkway._tread_mesh(1.0), Walkway.ARROW)
+	var arrow_low := 9.0
+	for point in arrow:
+		arrow_low = minf(arrow_low, point.y)
+	_expect(arrow.size() > 0, "a tread carries an arrow")
+	_expect(
+		arrow_low < -0.015,
+		"an arrow's underside is %.3f m from the tread's middle, the belt is at -0.020" % arrow_low
+	)
+	walkway.free()
+
+## A duck turning back from the bank keeps bobbing and rocking: its clock used
+## to stop while it was outside KEEP_WITHIN, freezing it mid-bob.
+func _check_a_duck_turning_from_the_bank_keeps_its_clock() -> void:
+	print("a duck turning from the bank keeps its clock")
+	var ducks := Ducks.new()
+	get_root().add_child(ducks)
+	ducks.settle(20260903)
+	var duck: Dictionary = ducks._ducks[0]
+	var node: Node3D = duck["node"]
+	var pond: int = duck["pond"]
+	var centre := Vector2(Lakes.at(pond, Lakes.POND_X), Lakes.at(pond, Lakes.POND_Z))
+	var edge := Vector2(Lakes.at(pond, Lakes.POND_LONG), 0.0).rotated(Lakes.at(pond, Lakes.POND_ANGLE)) * 0.95
+	node.position = Vector3(centre.x + edge.x, node.position.y, centre.y + edge.y)
+	var before: float = duck["phase"]
+	ducks._paddle(duck, 1.0 / 60.0)
+	_expect(not is_equal_approx(float(duck["phase"]), before), "the clock ticks at the bank")
+	ducks.queue_free()
+
+## A machine backing up keeps its nose where the bars put it, and its wheels
+## turn the way it is going. Both were wrong in reverse: the body was eased
+## towards the direction of travel as well as towards the heading, so a quad
+## backing out of a wood settled askew; and the wheels were spun by the pace,
+## which is a length and has no sign, so they went forwards.
+func _check_a_machine_in_reverse_points_where_it_is_steered_and_rolls_back() -> void:
+	print("a machine in reverse points where it is steered and rolls back")
+	var rider := Player.new()
+	get_root().add_child(rider)
+	rider.riding = MountKinds.QUAD
+	rider.take_the_handlebars(0.0)
+	Input.action_press(InputActions.MOVE_BACK)
+	for _frame in 180:
+		rider._physics_process(1.0 / 60.0)
+	Input.action_release(InputActions.MOVE_BACK)
+	var askew := absf(angle_difference(rider.facing_angle(), rider._ride_heading))
+	_expect(
+		askew < deg_to_rad(2.0),
+		"a quad backing up sits %.1f° off the way it is pointed" % rad_to_deg(askew)
+	)
+	_expect(rider.velocity.z > 0.5, "and it is going backwards (%.1f m/s)" % rider.velocity.z)
+	rider.queue_free()
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var spot := field.find_spawn_point()
+	mounts.place(MountKinds.QUAD, spot)
+	var wheel := mounts.node_of(MountKinds.QUAD).get_node("Wheel0") as Node3D
+	mounts.mount(MountKinds.QUAD)
+	var at := spot
+	var was := wheel.rotation.x
+	var turned := 0.0
+	for _step in 30:
+		# Facing 0 is -Z, so +Z is backwards.
+		at += Vector3(0.0, 0.0, 0.1)
+		mounts.carry(at, 0.0)
+		mounts._process(1.0 / 60.0)
+		turned += angle_difference(was, wheel.rotation.x)
+		was = wheel.rotation.x
+	# Forward is a decreasing angle, so backwards must be an increasing one.
+	_expect(turned > 0.05, "a quad going backwards turns its wheels backwards (%.2f rad)" % turned)
+	mounts.queue_free()
+
+## The carousel was committed to two bodies at once, so everything it draws sat
+## twice over; its bulbs hung 0.28 m above the eave they were strung on, and its
+## poles stopped three-quarters of a metre under a canopy that slopes up to
+## meet them.
+func _check_the_carousel_is_drawn_once_with_its_poles_and_bulbs_on_the_canopy() -> void:
+	print("the carousel is drawn once, its bulbs on the eave and its poles up to the canopy")
+	var carousel := Carousel.new(Vector3.ZERO)
+	get_root().add_child(carousel)
+	var drawn: Array[MeshInstance3D] = []
+	var stack: Array[Node] = [carousel]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node is MeshInstance3D:
+			drawn.append(node)
+		stack.append_array(node.get_children())
+	_expect(drawn.size() == 1, "one mesh holds the carousel, not %d" % drawn.size())
+	if drawn.is_empty():
+		return
+	var arrays := drawn[0].mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var eave := Carousel.FLOOR_HEIGHT + Carousel.CANOPY_HEIGHT + 0.55 - 0.75
+	var rim := Carousel.RADIUS + 0.4
+	var bulb_top := -INF
+	var pole_top := -INF
+	for i in vertices.size():
+		var flat := Vector2(vertices[i].x, vertices[i].z).length()
+		if _colour_near(colours[i], Color(1.0, 0.92, 0.55)) and flat > rim - 0.2:
+			bulb_top = maxf(bulb_top, vertices[i].y)
+		if _colour_near(colours[i], Carousel.POLE) and flat > 1.0 and flat < Carousel.RADIUS:
+			pole_top = maxf(pole_top, vertices[i].y)
+	_expect(bulb_top > -INF and bulb_top < eave + 0.1, "the bulbs sit on the eave, not above it (top %.2f, eave %.2f)" % [bulb_top, eave])
+	var under := eave + 1.5 * (1.0 - Carousel.RADIUS * 0.66 / rim)
+	_expect(pole_top >= under - 0.01, "the poles reach the canopy (%.2f of %.2f)" % [pole_top, under])
+	carousel.queue_free()
+
+## An arrow that hits a butt stops in its face. It used to be left wherever the
+## physics step ended, which at full draw is most of a metre behind the straw:
+## the arrow hung in the air past the target it had just hit.
+func _check_an_arrow_that_hits_stops_in_the_face() -> void:
+	print("an arrow stops in the face of the butt it hits")
+	var field := HeightField.new(20260904)
+	var range_ := Archery.new(field)
+	get_root().add_child(range_)
+	var line := Pitch.centre() + Vector3(0.0, 0.0, 60.0)
+	range_.stand_up(line, Vector3.FORWARD)
+	var gold := range_.target_centre(0)
+	var from := range_.shooting_line() + Vector3.UP * 1.2
+	range_.loose(from, gold - from, 1.0, 0.0)
+	var arrow: Dictionary = range_._arrows[0]
+	for _i in 240:
+		range_._physics_process(1.0 / 60.0)
+		if arrow["landed"]:
+			break
+	_expect(arrow["landed"], "the arrow lands")
+	var node: Node3D = arrow["node"]
+	var heading := -node.global_transform.basis.z
+	var head := node.position + heading * 0.37
+	var past := (head - gold).dot(Vector3.FORWARD)
+	_expect(absf(past) < 0.15, "and its head is in the face, not %.2f m from it" % past)
+	range_.queue_free()
 

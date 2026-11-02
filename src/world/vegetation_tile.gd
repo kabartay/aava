@@ -19,6 +19,14 @@ const GRASS_CANDIDATES := 620
 ## closer than this and a pair of trees is a wall the child cannot slip between.
 const MIN_TREE_GAP := 1.8
 
+## The heights the two tree meshes are built at (see Vegetation._init), kept
+## here because the trunk a tree is solid to depends on them.
+const CONIFER_HEIGHT := 6.4
+const BROADLEAF_HEIGHT := 5.2
+
+## The thinnest a trunk is ever made solid, however stunted the tree.
+const MIN_TRUNK_RADIUS := 0.2
+
 ## Whether this tile was planted with grass. Read by the manager to decide if a
 ## tile that has come closer needs replanting.
 var has_grass := false
@@ -59,8 +67,11 @@ static func bake(
 			# — the forest would otherwise stand it back up on the next
 			# rebuild — and the ground is clear.
 			if felled.shows_stump(at.x, at.z):
+				# As wide as the trunk that was cut, so a great tree leaves a
+				# great stump and a stunted one a small one.
+				var girth := clampf(float(grown["scale"]), 0.6, 1.6)
 				stumps.append(Transform3D(
-					Basis(Vector3.UP, float(stumps.size()) * 1.1),
+					Basis(Vector3.UP, float(stumps.size()) * 1.1).scaled(Vector3(girth, 1.0, girth)),
 					Vector3(at.x - origin_x, at.y, at.z - origin_z)
 				))
 		elif grown["conifer"]:
@@ -254,8 +265,21 @@ static func generate_trees(
 				local
 			),
 			"conifer": species < conifer_bias,
+			"scale": scale * vigour,
+			"radius": trunk_radius(species < conifer_bias, scale * vigour),
 		})
 	return out
+
+## How wide a trunk is where a child's body meets it, a metre above the ground,
+## for a tree of the given horizontal scale: the mesh's own taper, scaled, and a
+## hand's breadth over so that being stopped short reads as solid.
+static func trunk_radius(conifer: bool, horizontal_scale: float) -> float:
+	var height := CONIFER_HEIGHT if conifer else BROADLEAF_HEIGHT
+	var base := 0.05 if conifer else 0.07
+	var top := 0.012 if conifer else 0.035
+	var long := 0.92 if conifer else 0.52
+	var drawn := lerpf(base, top, clampf(1.0 / (long * height), 0.0, 1.0)) * height
+	return maxf(drawn * horizontal_scale + 0.06, MIN_TRUNK_RADIUS)
 
 func _add_layer(
 	mesh: Mesh,

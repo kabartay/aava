@@ -685,7 +685,7 @@ func _raw_height(x: float, z: float) -> float:
 	# place, a clear rise through what can be seen, and the snow line somewhere
 	# a child has to walk towards.
 	var mountain_mask := pow(
-		smoothstep(MOUNTAIN_START, MOUNTAIN_START + 450.0, from_origin), 1.8
+		smoothstep(MOUNTAIN_START, MOUNTAIN_START + 450.0, from_origin), 2.0
 	)
 	# Gated on the distance already worked out above. The great mountain's
 	# skirts reach 620 m from a centre that is itself 1,053 m from the origin,
@@ -706,23 +706,58 @@ func _raw_height(x: float, z: float) -> float:
 	# what put bare rock in patches all over a dome that should be white.
 	var smoothed := 1.0 - clampf(dome / 120.0, 0.0, 1.0)
 	if mountain_mask > 0.0:
-		var ridge := (_mountains.get_noise_2d(x, z) + 1.0) * 0.5
+		# The crest is not one level along its whole length, and the ridges are
+		# not drawn on a straight grid. A slow swell shifts the crest up and
+		# down by tens of metres, and a slow warp bends the place the ridged
+		# noise is read from, so neighbouring summits differ in height and in
+		# spacing instead of repeating: a row of tents is a row of the same
+		# tent. Both are scaled by `smoothed`, so the great mountain is untouched.
+		var swell := _hills.get_noise_2d(x + 3100.0, z - 2300.0)
+		var warp := Vector2(
+			_hills.get_noise_2d(x - 900.0, z + 400.0),
+			_hills.get_noise_2d(x + 700.0, z - 1300.0)
+		) * 140.0 * smoothed
+		# The noise is also read at half the distance from the foot, which
+		# draws its ridges out along the line from the valley to the crest.
+		# Ridged noise alone leaves a hollow between every pair of summits that
+		# water could only leave by climbing a pass; stretched this way the
+		# hollows become gullies that run down to the valley and the ridges
+		# between them become spurs.
+		var drawn_out := Vector2(x, z)
+		if from_origin > MOUNTAIN_START:
+			drawn_out *= (MOUNTAIN_START + (from_origin - MOUNTAIN_START) * 0.5) / from_origin
+		var ridge := (_mountains.get_noise_2d(drawn_out.x + warp.x, drawn_out.y + warp.y) + 1.0) * 0.5
+		# The summits grow out of the hills later than the foot itself does.
+		# The foot (RANGE_WALL) starts at MOUNTAIN_START, but the full ridged
+		# relief waits until the ground has risen a little, so the range leans
+		# up out of the foothills rather than standing from flat ground.
+		var relief_mask := smoothstep(MOUNTAIN_START, MOUNTAIN_START + 500.0, from_origin)
+		var crest := RANGE_CREST + swell * 60.0 * smoothed
 		# Taller as well, so the highest carry snow and the lowest stay green:
 		# the range wants a mix, not one uniform altitude.
 		floor_height += (
-			RANGE_WALL + (1.0 - RANGE_WALL) * pow(ridge, 1.12)
+			RANGE_WALL + (1.0 - RANGE_WALL) * pow(ridge, 1.12) * relief_mask
 		) * 430.0 * mountain_mask * smoothed
 
 		# Drawn back towards the crest, so the range is a wall rather than a
 		# row of tents, and then cut into shelves. Both are scaled by
 		# `smoothed`, which is zero across the great mountain: a snow dome with
 		# terraces cut into it would be a wedding cake.
-		var above := floor_height - RANGE_CREST
+		var above := floor_height - crest
 		if above > 0.0:
-			floor_height = RANGE_CREST + above * (
+			floor_height = crest + above * (
 				1.0 - RANGE_PULL * mountain_mask * smoothed
 			)
-		floor_height = _terraced(floor_height, mountain_mask * smoothed)
+		# Shelves only on the real faces: none in the foothills, where a step
+		# is a lip in a meadow, and patchy above, because a bed outcrops here
+		# and not there. The height is nudged by a slow noise first, so a shelf
+		# climbs and falls along the slope as tilted beds do, instead of lying
+		# on a level contour like the rings of a cake.
+		var faces := smoothstep(RANGE_CREST * 0.45, RANGE_CREST * 1.1, floor_height)
+		var beds := smoothstep(-0.25, 0.3, _hills.get_noise_2d(x * 1.6 + 5000.0, z * 1.6))
+		var shelf := mountain_mask * smoothed * faces * beds
+		var tilt := _hills.get_noise_2d(x * 2.2 - 4000.0, z * 2.2 + 1500.0) * 38.0
+		floor_height = _terraced(floor_height + tilt, shelf) - tilt
 	floor_height += dome
 
 	floor_height += _detail.get_noise_2d(x, z) * 0.5 * smoothed

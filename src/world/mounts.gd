@@ -324,6 +324,7 @@ func mount(kind: StringName) -> bool:
 	# Its pace starts at nothing rather than at whatever it was last ridden
 	# at, or a horse got on again breaks straight into a gallop on the spot.
 	_pace = 0.0
+	_rolling = 0.0
 	_carried_to = _positions[kind]
 	_paced_from = _positions[kind]
 	# And the last good ground is forgotten with it. It was remembered across
@@ -434,7 +435,7 @@ func _turn_the_wheels(delta: float) -> void:
 	var radius := MountKinds.wheel_radius(riding)
 	if radius <= 0.0:
 		return
-	var spin := _pace / radius * delta
+	var spin := _rolling / radius * delta
 	for child in (_nodes[riding] as Node3D).get_children():
 		var wheel := child as Node3D
 		if wheel == null or not wheel.name.begins_with("Wheel"):
@@ -443,6 +444,8 @@ func _turn_the_wheels(delta: float) -> void:
 
 ## How fast the ridden mount is going, smoothed, and where in its stride it is.
 var _pace := 0.0
+## The same, signed: negative while the machine is going backwards.
+var _rolling := 0.0
 var _stride := 0.0
 var _idle := 0.0
 ## Where `carry` last put the ridden mount, and where it was the frame
@@ -472,6 +475,15 @@ func _process(delta: float) -> void:
 			_carried_to.x - _paced_from.x, _carried_to.z - _paced_from.z
 		).length() / delta
 		_pace = lerpf(_pace, minf(went, 20.0), 1.0 - exp(-8.0 * delta))
+		# Which way along its own nose it went. A machine backing out of a wood
+		# rolls its wheels backwards, and the pace alone cannot say so: it is a
+		# length, and every machine reversed with its tyres turning forward.
+		var nose := Vector2(-sin(facing_of(riding)), -cos(facing_of(riding)))
+		var along := Vector2(
+			_carried_to.x - _paced_from.x, _carried_to.z - _paced_from.z
+		).dot(nose)
+		var rolled := signf(along) * minf(absf(along) / delta, 20.0)
+		_rolling = lerpf(_rolling, rolled, 1.0 - exp(-8.0 * delta))
 		_paced_from = _carried_to
 	_turn_the_wheels(delta)
 	if not exists(riding) or MountKinds.kind_of(riding) != MountKinds.HORSE:

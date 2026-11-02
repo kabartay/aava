@@ -143,8 +143,8 @@ func _init(at: Vector3) -> void:
 			turning, bulb_mesh,
 			Transform3D(
 				Basis(),
-				Vector3(cos(bulb_angle), 0.0, sin(bulb_angle)) * (RADIUS + 0.4)
-					+ Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT + 0.08, 0.0)
+				Vector3(cos(bulb_angle), 0.0, sin(bulb_angle)) * rim
+					+ Vector3(0.0, roof_base.y - 0.04, 0.0)
 			),
 			Color(1.0, 0.92, 0.55) if bulb % 2 == 0 else Color(0.98, 0.70, 0.30)
 		)
@@ -156,12 +156,18 @@ func _init(at: Vector3) -> void:
 		var pole := CylinderMesh.new()
 		pole.top_radius = 0.06
 		pole.bottom_radius = 0.06
-		pole.height = CANOPY_HEIGHT * 0.92
+		# Up into the underside of the canopy, which slopes: the cone is
+		# 1.5 m deep over its whole radius, so at the poles' ring it is
+		# roof_base + 1.5 * (1 - r / rim). The poles used to stop at a fixed
+		# 0.92 of the column and hung three-quarters of a metre short of it.
+		var roof_under := roof_base.y + 1.5 * (1.0 - spot.length() / rim)
+		var pole_top := roof_under + 0.05
+		pole.height = pole_top - FLOOR_HEIGHT
 		pole.radial_segments = 8
 		pole.rings = 1
 		Park._add(
 			turning, pole,
-			Transform3D(Basis(), spot + Vector3(0.0, FLOOR_HEIGHT + CANOPY_HEIGHT * 0.46, 0.0)),
+			Transform3D(Basis(), spot + Vector3(0.0, FLOOR_HEIGHT + pole.height * 0.5, 0.0)),
 			POLE
 		)
 		# Facing the way it is going, not out at the trees.
@@ -218,6 +224,34 @@ func _init(at: Vector3) -> void:
 		)
 		_horses.add_child(barrel)
 
+		# Legs, a mane and a tail: a horse that is one slab on a stick reads as
+		# a bench. They are drawn inside the barrel's own box (1.6 by 0.5, down
+		# to 0.775 under ride_at), so the collider still describes the horse.
+		var coat: Color = MountKinds.HORSE_COATS[horse % MountKinds.HORSE_COATS.size()]
+		for along: float in [-0.55, 0.55]:
+			for side: float in [-0.12, 0.12]:
+				var leg := BoxMesh.new()
+				leg.size = Vector3(0.14, 0.46, 0.14)
+				Park._add(
+					turning, leg,
+					Transform3D(facing, ride_at + facing * Vector3(along, -0.31 - 0.23 + 0.02, side)),
+					coat.darkened(0.15)
+				)
+		var mane := BoxMesh.new()
+		mane.size = Vector3(0.1, 0.62, 0.1)
+		Park._add(
+			turning, mane,
+			Transform3D(facing, ride_at + facing * Vector3(0.38, 0.52, 0.0)),
+			coat.darkened(0.45)
+		)
+		var tail := BoxMesh.new()
+		tail.size = Vector3(0.1, 0.5, 0.12)
+		Park._add(
+			turning, tail,
+			Transform3D(facing, ride_at + facing * Vector3(-0.78, -0.05, 0.0)),
+			coat.darkened(0.45)
+		)
+
 		var head := BoxMesh.new()
 		head.size = Vector3(0.52, 0.30, 0.30)
 		Park._add(
@@ -226,7 +260,9 @@ func _init(at: Vector3) -> void:
 			MountKinds.HORSE_COATS[horse % MountKinds.HORSE_COATS.size()]
 		)
 
-	Park.commit(turning, _horses, "Horses")
+	# Drawn once, on the turntable. It was committed to the horses' body as
+	# well, so every vertex of the ride went to the card twice, one copy on
+	# top of the other, turning in step.
 	Park.commit(turning, _turntable, "Turning")
 	Park.commit(still, self, "Still")
 

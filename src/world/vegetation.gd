@@ -118,8 +118,8 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 	world_seed = seed_value
 	# Built here, not in _ready: a node used before the tree starts processing
 	# never receives _ready, and the failure is silent.
-	_conifer = PlantMeshes.conifer(6.4)
-	_broadleaf = PlantMeshes.broadleaf(5.2)
+	_conifer = PlantMeshes.conifer(VegetationTile.CONIFER_HEIGHT)
+	_broadleaf = PlantMeshes.broadleaf(VegetationTile.BROADLEAF_HEIGHT)
 	_grass = PlantMeshes.grass_tuft(0.34, 5)
 	_stump = PlantMeshes.stump(0.24)
 
@@ -221,20 +221,31 @@ func nearest_tree(world_position: Vector3, reach: float) -> Vector3:
 ## The same 3x3 tile scan the axe uses, kept here rather than in the collision
 ## pool so that the generator stays the one place that knows where trees are.
 func trees_near(world_position: Vector3, reach: float) -> Array[Vector3]:
-	var found: Array[Vector3] = []
+	var places: Array[Vector3] = []
+	for trunk in trunks_near(world_position, reach):
+		places.append(Vector3(trunk.x, trunk.y, trunk.z))
+	return places
+
+## The same trees with their trunk radius in `w`, nearest first.
+func trunks_near(world_position: Vector3, reach: float) -> Array[Vector4]:
+	var found: Array[Vector4] = []
 	var base := Vector2i(
 		int(floor(world_position.x / float(TILE_SIZE))),
 		int(floor(world_position.z / float(TILE_SIZE)))
 	)
 	for dx: int in [-1, 0, 1]:
 		for dz: int in [-1, 0, 1]:
-			for candidate in _trees_in(Vector2i(base.x + dx, base.y + dz)):
+			var coord := Vector2i(base.x + dx, base.y + dz)
+			var trees := _trees_in(coord)
+			var radii: PackedFloat32Array = _radius_cache[coord]
+			for i in trees.size():
+				var candidate := trees[i]
 				var flat := Vector2(
 					candidate.x - world_position.x, candidate.z - world_position.z
 				)
 				if flat.length() <= reach:
-					found.append(candidate)
-	found.sort_custom(func(a: Vector3, b: Vector3) -> bool:
+					found.append(Vector4(candidate.x, candidate.y, candidate.z, radii[i]))
+	found.sort_custom(func(a: Vector4, b: Vector4) -> bool:
 		return (
 			Vector2(a.x - world_position.x, a.z - world_position.z).length_squared()
 			< Vector2(b.x - world_position.x, b.z - world_position.z).length_squared()
@@ -281,19 +292,28 @@ var _tree_cache_generation := -1
 func _trees_in(coord: Vector2i) -> Array[Vector3]:
 	if _tree_cache_generation != _generation:
 		_tree_cache.clear()
+		_radius_cache.clear()
 		_tree_cache_generation = _generation
 	var remembered = _tree_cache.get(coord)
 	if remembered != null:
 		return remembered
 	var out: Array[Vector3] = []
+	var radii := PackedFloat32Array()
 	for tree in VegetationTile.generate_trees(field, coord, TILE_SIZE, world_seed, felled):
 		out.append(tree["position"])
+		radii.append(tree["radius"])
 	# A cap, so walking the whole valley does not remember all of it: the pool
 	# only ever looks at nine tiles, and a few dozen is already generous.
 	if _tree_cache.size() > TREE_CACHE_TILES:
 		_tree_cache.clear()
+		_radius_cache.clear()
 	_tree_cache[coord] = out
+	_radius_cache[coord] = radii
 	return out
+
+## How thick each tree in `_tree_cache` is, in the same order, so the solid trunk
+## standing in for a tree can be as wide as the one drawn.
+var _radius_cache: Dictionary = {}
 
 ## How many tiles' worth of tree positions to keep. Nine are in use at any
 ## moment; this is room for a good walk around before it is thrown away.

@@ -64,6 +64,10 @@ func _init(height_field: HeightField) -> void:
 	_material.vertex_color_use_as_albedo = true
 	_material.vertex_color_is_srgb = true
 	_material.roughness = 0.95
+	# The terrain turns its highlights off and so does this: a sheen on a
+	# hillside two kilometres off is a glint that costs a specular term in
+	# every pixel of the widest mesh in the scene and shows as noise.
+	_material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	# No shadows either way: this is scenery, and a mesh two kilometres across
 	# in the shadow pass costs more than everything it is standing behind.
 	_mesh = MeshInstance3D.new()
@@ -152,7 +156,10 @@ static func sink_at(out: float) -> float:
 ## grass, rock, snow — without the paths, pitches and places, none of which
 ## can be told apart at this distance.
 func _colour(height: float, x: float, z: float) -> Color:
-	if height < HeightField.WATER_LEVEL:
+	# The water line of this spot, not the sea's: a pond up the hillside holds
+	# its water well above zero, and measured against zero its bed was far
+	# meadow, green under a lake that is blue the moment the chunks reach it.
+	if height < field.water_level_at(x, z):
 		return TerrainSpec.COLOR_SILT
 	var steep := field.steepness_at(x, z)
 	var colour := TerrainSpec.COLOR_GRASS.lerp(

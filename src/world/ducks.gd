@@ -32,6 +32,8 @@ const GIRTH := 0.22
 ## How far they bob, and how fast.
 const BOB := 0.035
 const BOB_SPEED := 1.4
+## How far a duck rocks from side to side as it paddles, in radians.
+const SWAY := 0.05
 
 ## A few ducks on the river as well, upstream of the bridge. The river carries
 ## them gently downstream; when one has drifted too far from where it started
@@ -50,6 +52,9 @@ var _field: HeightField
 var _material: StandardMaterial3D
 var _drake: Mesh
 var _hen: Mesh
+## A paler drake and a darker hen, so a pond of five is not five copies.
+var _drake_pale: Mesh
+var _hen_dark: Mesh
 
 func _init() -> void:
 	# Animated in _process, so the engine's physics interpolation must not
@@ -68,6 +73,8 @@ func _init() -> void:
 	_material.roughness = 0.7
 	_drake = _build(true)
 	_hen = _build(false)
+	_drake_pale = _build(true, 0.1)
+	_hen_dark = _build(false, -0.1)
 
 ## Put ducks on every pond. Called once, with the seed, so the same world has
 ## the same ducks in the same places on both children's phones.
@@ -92,7 +99,7 @@ func settle(world_seed: int, height_field: HeightField = null) -> void:
 				cos(bearing) * out * long_axis, sin(bearing) * out * short_axis
 			).rotated(angle)
 			var node := MeshInstance3D.new()
-			node.mesh = _drake if i % 2 == 0 else _hen
+			node.mesh = _mesh_for(i)
 			node.position = Vector3(centre.x + local.x, level, centre.y + local.y)
 			node.rotation.y = rng.randf() * TAU
 			# Solid, like everything else that is really there. A duck you swim
@@ -122,7 +129,7 @@ func settle(world_seed: int, height_field: HeightField = null) -> void:
 				_field.river_centre_x(z) + (rng.randf() - 0.5) * 2.0 * RIVER_ABREAST * 0.5, z
 			)
 			var node := MeshInstance3D.new()
-			node.mesh = _drake if i % 2 == 0 else _hen
+			node.mesh = _mesh_for(i)
 			node.position = Vector3(home.x, _field.water_level_at(home.x, z), home.y)
 			node.rotation.y = rng.randf() * TAU
 			var body := StaticBody3D.new()
@@ -145,6 +152,14 @@ func settle(world_seed: int, height_field: HeightField = null) -> void:
 				"heading": node.rotation.y,
 				"phase": rng.randf() * TAU,
 			})
+
+## Which mesh the i-th duck wears: drakes and hens alternate, and every second
+## of each is cast a little differently.
+func _mesh_for(i: int) -> Mesh:
+	var second := (i / 2) % 2 == 1
+	if i % 2 == 0:
+		return _drake_pale if second else _drake
+	return _hen_dark if second else _hen
 
 func _process(delta: float) -> void:
 	var stamp := PerfLog.stamp()
@@ -170,6 +185,10 @@ func _paddle(duck: Dictionary, delta: float) -> void:
 
 	# How far out it is, in the pond's own frame: 1.0 is the water's edge.
 	var reach := _reach_of(here - centre, pond)
+	# The bob and the sway run on this clock, so it ticks whether or not the
+	# duck is turning back: it used to stop at the bank, and the duck froze
+	# mid-bob until it was clear again.
+	duck["phase"] = float(duck["phase"]) + delta * 0.6
 	if reach > KEEP_WITHIN:
 		# Turn towards the middle rather than snapping round: a duck that
 		# reverses on the spot reads as a duck hitting a wall.
@@ -182,11 +201,11 @@ func _paddle(duck: Dictionary, delta: float) -> void:
 		heading = lerp_angle(heading, wanted, 1.0 - exp(-TURN * 2.5 * delta))
 	else:
 		# A slow wander, each duck on its own clock.
-		duck["phase"] = float(duck["phase"]) + delta * 0.6
 		heading += sin(float(duck["phase"])) * TURN * delta
 
 	duck["heading"] = heading
 	node.rotation.y = heading
+	node.rotation.z = sin(float(duck["phase"]) * BOB_SPEED * 1.3) * SWAY
 	var forward := Vector3(-sin(heading), 0.0, -cos(heading))
 	node.position += forward * SPEED * delta
 	node.position.y = (
@@ -212,6 +231,7 @@ func _paddle_on_the_river(duck: Dictionary, delta: float) -> void:
 		returning = false
 	duck["returning"] = returning
 
+	duck["phase"] = float(duck["phase"]) + delta * 0.6
 	var effort := SPEED
 	if returning:
 		# Headings are the node's rotation about Y, where zero faces -Z.
@@ -219,10 +239,10 @@ func _paddle_on_the_river(duck: Dictionary, delta: float) -> void:
 		heading = lerp_angle(heading, wanted, 1.0 - exp(-TURN * 2.5 * delta))
 		effort += current.length() * 1.5
 	else:
-		duck["phase"] = float(duck["phase"]) + delta * 0.6
 		heading += sin(float(duck["phase"])) * TURN * delta
 	duck["heading"] = heading
 	node.rotation.y = heading
+	node.rotation.z = sin(float(duck["phase"]) * BOB_SPEED * 1.3) * SWAY
 	var forward := Vector3(-sin(heading), 0.0, -cos(heading))
 	node.position += (forward * effort + Vector3(current.x, 0.0, current.y)) * delta
 	node.position.y = (
@@ -240,11 +260,13 @@ func _reach_of(offset: Vector2, pond: int) -> float:
 ## A duck: a body sitting low in the water, a raised tail, a neck and a head
 ## with a bill. The drake has the green head and the white collar; the hen is
 ## brown all over, which is what tells the two apart at any distance.
-func _build(drake: bool) -> Mesh:
+func _build(drake: bool, cast := 0.0) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# `cast` lightens (positive) or darkens (negative) the plumage.
 	var brown := Color(0.52, 0.40, 0.28)
-	var body_colour := Color(0.62, 0.56, 0.48) if drake else brown
+	brown = brown.lightened(cast) if cast >= 0.0 else brown.darkened(-cast)
+	var body_colour := Color(0.62, 0.56, 0.48).lightened(maxf(cast, 0.0)) if drake else brown
 	var head_colour := Color(0.16, 0.44, 0.24) if drake else brown.darkened(0.12)
 	var bill := Color(0.92, 0.78, 0.30)
 
@@ -264,14 +286,15 @@ func _build(drake: bool) -> Mesh:
 	_add(tool, tail, Transform3D(
 		Basis(Vector3.RIGHT, deg_to_rad(-24.0)), Vector3(0.0, 0.1, 0.26)
 	), body_colour.darkened(0.2))
-	# The neck and head, forward and up.
+	# The neck and head, forward and up. Tipped about X by a negative angle so
+	# that its top leans forwards, under the head; it leaned back before.
 	var neck := CylinderMesh.new()
 	neck.top_radius = 0.052
 	neck.bottom_radius = 0.07
 	neck.height = 0.17
 	neck.radial_segments = 8
 	_add(tool, neck, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(12.0)), Vector3(0.0, 0.16, -0.16)
+		Basis(Vector3.RIGHT, deg_to_rad(-12.0)), Vector3(0.0, 0.16, -0.16)
 	), head_colour)
 	var head := SphereMesh.new()
 	head.radius = 0.075

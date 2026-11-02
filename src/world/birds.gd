@@ -18,8 +18,16 @@ const FLAP_SPEED := 9.0
 var _birds: Array[Dictionary] = []
 var _points: Array = []
 var _material: StandardMaterial3D
-var _body: Mesh
-var _wing: Mesh
+## Three plumages — slate, sparrow-brown and a pale grey — each with its own
+## wing, so a flock is not fourteen copies of one bird.
+const PLUMAGES: Array[Color] = [
+	Color(0.24, 0.26, 0.32), Color(0.45, 0.34, 0.24), Color(0.58, 0.60, 0.64),
+]
+## How far a circling bird leans into the turn, in radians.
+const BANK := 0.3
+
+var _bodies: Array[Mesh] = []
+var _wings: Array[Mesh] = []
 
 func _init() -> void:
 	# Animated in _process, so the engine's physics interpolation must not
@@ -36,10 +44,11 @@ func _init() -> void:
 	_material.vertex_color_use_as_albedo = true
 	_material.vertex_color_is_srgb = true
 	_material.roughness = 0.85
-	_body = _build_body()
-	_wing = _build_wing()
+	for plumage in PLUMAGES:
+		_bodies.append(_build_body(plumage))
+		_wings.append(_build_wing(plumage))
 
-func _build_body() -> Mesh:
+func _build_body(plumage: Color) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var body := SphereMesh.new()
@@ -47,13 +56,13 @@ func _build_body() -> Mesh:
 	body.height = 0.22
 	body.radial_segments = 6
 	body.rings = 4
-	_add(tool, body, Transform3D(Basis().scaled(Vector3(1.0, 0.8, 1.6)), Vector3.ZERO), Color(0.24, 0.26, 0.32))
+	_add(tool, body, Transform3D(Basis().scaled(Vector3(1.0, 0.8, 1.6)), Vector3.ZERO), plumage)
 	var head := SphereMesh.new()
 	head.radius = 0.06
 	head.height = 0.12
 	head.radial_segments = 6
 	head.rings = 3
-	_add(tool, head, Transform3D(Basis(), Vector3(0.0, 0.05, -0.15)), Color(0.30, 0.32, 0.38))
+	_add(tool, head, Transform3D(Basis(), Vector3(0.0, 0.05, -0.15)), plumage.lightened(0.12))
 	var beak := CylinderMesh.new()
 	beak.top_radius = 0.0
 	beak.bottom_radius = 0.025
@@ -61,15 +70,19 @@ func _build_body() -> Mesh:
 	beak.radial_segments = 4
 	beak.rings = 1
 	_add(tool, beak, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-90.0)), Vector3(0.0, 0.04, -0.23)), Color(0.85, 0.66, 0.24))
+	# A tail, flat behind: without one the bird is an egg with a beak.
+	var tail := BoxMesh.new()
+	tail.size = Vector3(0.09, 0.015, 0.13)
+	_add(tool, tail, Transform3D(Basis(), Vector3(0.0, 0.0, 0.2)), plumage.darkened(0.15))
 	tool.generate_normals()
 	return tool.commit()
 
-func _build_wing() -> Mesh:
+func _build_wing(plumage: Color) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var wing := BoxMesh.new()
 	wing.size = Vector3(0.34, 0.02, 0.14)
-	_add(tool, wing, Transform3D(Basis(), Vector3(0.17, 0.0, 0.0)), Color(0.28, 0.30, 0.36))
+	_add(tool, wing, Transform3D(Basis(), Vector3(0.17, 0.0, 0.0)), plumage.darkened(0.1))
 	tool.generate_normals()
 	return tool.commit()
 
@@ -93,7 +106,7 @@ func set_points(points: Array) -> void:
 func _spawn_bird(index: int) -> Dictionary:
 	var node := Node3D.new()
 	var body := MeshInstance3D.new()
-	body.mesh = _body
+	body.mesh = _bodies[index % _bodies.size()]
 	body.material_override = _material
 	node.add_child(body)
 
@@ -101,7 +114,7 @@ func _spawn_bird(index: int) -> Dictionary:
 	var sides := PackedFloat32Array([-1.0, 1.0])
 	for side in sides:
 		var wing := MeshInstance3D.new()
-		wing.mesh = _wing
+		wing.mesh = _wings[index % _wings.size()]
 		wing.material_override = _material
 		wing.scale.x = side
 		node.add_child(wing)
@@ -137,6 +150,9 @@ func _process(delta: float) -> void:
 		node.position = position
 		if heading.length_squared() > 0.001:
 			node.look_at(position + heading, Vector3.UP)
+			# The centre of the circle is on the bird's right, so the right
+			# wing dips; a positive turn about Z would lift it.
+			node.rotate_object_local(Vector3.BACK, -BANK)
 
 		var flap := sin(time * FLAP_SPEED + float(bird["phase"])) * deg_to_rad(38.0)
 		var wings: Array = bird["wings"]

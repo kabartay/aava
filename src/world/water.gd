@@ -77,6 +77,18 @@ uniform vec2 pond_turn[4];
 uniform float pond_shelf = 0.34;
 uniform float pond_wobble = 0.19;
 
+// How fast the river carries things, in metres a second, handed in from
+// HeightField so the streaks on the surface keep the pace a swimmer is
+// actually carried at rather than a number of their own.
+uniform float river_current = 0.5;
+
+// The bridge's trestle legs: each is how far along the deck from the river's
+// centre line, and where across it, so the foam can gather round the ones that
+// stand in the water. The deck crosses at bridge_z.
+uniform int pier_count = 0;
+uniform vec2 pier_offset[10];
+uniform float bridge_z = 0.0;
+
 // The 1.1 radian phase of the second wobble, resolved to constants so no
 // trigonometry runs per vertex at all.
 const float COS_SHIFT = 0.453596;
@@ -84,6 +96,7 @@ const float SIN_SHIFT = 0.891207;
 
 varying vec3 world_vertex;
 varying float bank_blend;
+varying float river_weight;
 
 // Mirrors HeightField.river_centre_x. Keep the two in step: this is what makes
 // the water fade out exactly where the bank rises.
@@ -141,6 +154,7 @@ void vertex() {
 	float river = 1.0 - smoothstep(river_half_width, river_half_width + bank_fade, to_river);
 	float pond = pond_blend(world_vertex);
 	bank_blend = max(river, pond);
+	river_weight = river * (1.0 - pond);
 
 	// Two crossed waves at different periods read as a pulse in a pond, which
 	// is the right thing for still water, and cost two sines.
@@ -176,6 +190,52 @@ void fragment() {
 	float fresnel = pow(1.0 - clamp(abs(dot(NORMAL, VIEW)), 0.0, 1.0), 3.0);
 	float shore = smoothstep(0.06, 0.30, bank_blend);
 
+	// Where the water is, in the river's own terms: how far from its line and
+	// how far down it. Streaks and foam are laid out in these, not in x and z,
+	// so they follow every bend instead of cutting across it.
+	float across_line = world_vertex.x - river_centre_x(world_vertex.z);
+	float from_line = abs(across_line);
+	// Deep in the middle, shallow towards the edges. The bed is not known to
+	// a shader that cannot read the depth buffer, but it shelves with the
+	// distance from the line, and that is the shape a child reads as depth.
+	float depth_tone = 1.0 - smoothstep(river_half_width * 0.8, river_half_width + 14.0, from_line);
+	depth_tone = mix(1.0, depth_tone, river_weight);
+
+	// Flow, made visible: long thin streaks running along the stream that slide
+	// downstream at the current's own pace, and are still at the bank where
+	// the current is. Each streak is the product of two slow ripples across the
+	// river, cut to a thin crest, broken into dashes by a third running with it.
+	float pace = river_current * (1.0 - smoothstep(river_half_width * 0.5, river_half_width + 2.0, from_line));
+	float carried = world_vertex.z - TIME * pace * 2.0;
+	float lanes = sin(across_line * 1.7 + sin(carried * 0.045) * 2.0) * sin(across_line * 0.53 + 1.0);
+	float dashes = sin(carried * 0.55 + across_line * 0.2) * 0.5 + 0.5;
+	float streak = smoothstep(0.4, 0.9, lanes) * smoothstep(0.2, 0.9, dashes);
+	// Fine detail is only worth drawing near: far off it is shimmer.
+	streak *= river_weight * smoothstep(0.0, 0.3, pace) * (1.0 - smoothstep(60.0, 140.0, length(VERTEX)));
+
+	// Foam where the water laps the bank: a ragged band along the shallow rim,
+	// where the sheet fades out against the shore, broken up so it reads as
+	// froth and not a painted line.
+	float rim = smoothstep(river_half_width - 2.5, river_half_width - 0.5, from_line) * (1.0 - smoothstep(river_half_width + 0.5, river_half_width + 3.0, from_line)) * river_weight;
+	float froth = sin(world_vertex.z * 0.45 - TIME * 0.6 + sin(across_line * 1.9) * 1.5) * 0.5 + 0.5;
+	float bank_foam = rim * (0.35 + 0.65 * froth);
+
+	// And a collar of broken water round each trestle leg standing in the
+	// river, trailing away downstream (towards +z) in a short wake.
+	float pier_foam = 0.0;
+	// Only near the crossing: the loop is per pixel, and most of the river is
+	// nowhere near a leg.
+	int piers_here = abs(world_vertex.z - bridge_z) < 12.0 ? pier_count : 0;
+	for (int i = 0; i < piers_here; i++) {
+		vec2 leg = vec2(river_centre_x(bridge_z) + pier_offset[i].x, bridge_z + pier_offset[i].y);
+		vec2 gap = world_vertex.xz - leg;
+		float ring = length(vec2(gap.x, gap.y * (gap.y > 0.0 ? 0.35 : 1.0)));
+		float collar = 1.0 - smoothstep(0.35, 1.3, ring);
+		float ripple = 0.6 + 0.4 * sin(ring * 9.0 - TIME * 3.0);
+		pier_foam = max(pier_foam, collar * ripple);
+	}
+	float foam = clamp(max(max(bank_foam * 0.45, pier_foam), streak * 0.2), 0.0, 1.0);
+
 	if (below) {
 		// Looking up at it. Brighter the more square-on you look, because what
 		// is overhead is the sky coming through; towards the edges of view the
@@ -195,12 +255,13 @@ void fragment() {
 		ROUGHNESS = 0.22;
 		SPECULAR = 0.3;
 	} else {
-		ALBEDO = mix(shallow_color, deep_color, clamp(bank_blend, 0.0, 1.0));
+		ALBEDO = mix(shallow_color, deep_color, clamp(min(bank_blend, depth_tone), 0.0, 1.0));
+		ALBEDO = mix(ALBEDO, vec3(0.93, 0.97, 0.97), foam);
 		// A definite edge rather than a long fade into nothing: water that
 		// fades out over twenty metres of bank leaves a sandy-blue smear where
 		// a child cannot tell which is water and which is beach.
-		ALPHA = mix(0.62, 0.92, fresnel) * shore;
-		ROUGHNESS = 0.08;
+		ALPHA = max(mix(0.62, 0.92, fresnel), foam * 0.85) * shore;
+		ROUGHNESS = mix(0.08, 0.6, foam);
 		SPECULAR = 0.75;
 	}
 }
@@ -246,11 +307,26 @@ func _init() -> void:
 	material.set_shader_parameter("pond_turn", turns)
 	material.set_shader_parameter("river_half_width", HeightField.RIVER_HALF_WIDTH)
 	material.set_shader_parameter("bank_fade", HeightField.RIVER_BANK_FADE)
+	_stand_the_piers_in_the_river(material)
+	material.set_shader_parameter("river_current", HeightField.RIVER_CURRENT)
 	material.set_shader_parameter("pond_shelf", Lakes.SHELF)
 	material.set_shader_parameter("pond_wobble", Lakes.WOBBLE)
 
 	position.y = HeightField.WATER_LEVEL
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+## Tell the shader where the bridge's trestle legs stand, so foam can gather
+## round them. The same positions Bridge builds them at: along the deck from
+## the river's line, and to either side of its middle.
+func _stand_the_piers_in_the_river(material: ShaderMaterial) -> void:
+	var offsets: Array[Vector2] = []
+	for leg in Bridge.TRESTLES:
+		var along := lerpf(-0.78, 0.78, float(leg) / float(Bridge.TRESTLES - 1)) * BridgeSpec.HALF_SPAN
+		for side: float in [-1.0, 1.0]:
+			offsets.append(Vector2(along, side * (BridgeSpec.HALF_WIDTH - 0.75)))
+	material.set_shader_parameter("pier_count", offsets.size())
+	material.set_shader_parameter("pier_offset", offsets)
+	material.set_shader_parameter("bridge_z", BridgeSpec.CENTRE_Z)
 
 ## A surface for every pond that stands above the world's waterline.
 ##

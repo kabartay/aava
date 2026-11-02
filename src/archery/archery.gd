@@ -43,6 +43,11 @@ var _origin := Vector3.ZERO
 var _facing := Vector3.FORWARD
 var _targets: Array[Dictionary] = []
 var _arrows: Array[Dictionary] = []
+## Where the last arrow to score crossed the face, for the flight to stop it
+## there; and how far the middle of an arrow is behind its head, less the little
+## of the head that is buried in the butt.
+var _strike_at := Vector3.ZERO
+const ARROW_TO_HEAD := 0.32
 
 func _init(height_field: HeightField) -> void:
 	field = height_field
@@ -198,6 +203,13 @@ func _physics_process(delta: float) -> void:
 		var struck := _check_hit(was, now)
 		if struck >= 0:
 			arrow["landed"] = true
+			# Stopped in the face, not carried on to the end of the step: at
+			# 44 m/s that is most of a metre, so the arrow was left hanging in
+			# the air behind the butt, well clear of the straw it had hit.
+			if velocity.length_squared() > 0.01:
+				now = _strike_at - velocity.normalized() * ARROW_TO_HEAD
+				arrow["at"] = now
+				node.position = now
 		elif now.y <= field.height_at(now.x, now.z):
 			arrow["landed"] = true
 			# At 44 m/s the step ends most of a metre under the grass, and the
@@ -221,6 +233,7 @@ func _physics_process(delta: float) -> void:
 ## behind. This is the same class of bug as a fast football tunnelling through a
 ## goalpost, which is why the balls use continuous collision detection.
 func _check_hit(was: Vector3, now: Vector3) -> int:
+	_strike_at = now
 	for target in _targets:
 		var centre: Vector3 = target["centre"]
 		var normal := -_facing
@@ -240,6 +253,7 @@ func _check_hit(was: Vector3, now: Vector3) -> int:
 		var offset := (crossing - centre).length()
 		if offset > RINGS[RINGS.size() - 1]:
 			continue
+		_strike_at = crossing
 
 		for ring in RINGS.size():
 			if offset <= RINGS[ring]:

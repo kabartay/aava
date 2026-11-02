@@ -3280,7 +3280,10 @@ func _build_sofa(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void
 	for i in 3:
 		var cushion := BoxMesh.new()
 		cushion.size = Vector3(0.24, 0.42, 0.7)
-		_add(tool, cushion, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(-8.0)), local + Vector3(0.2, 0.68, -1.0 + float(i) * 1.0)), cushion_a if i % 2 == 0 else cushion_b)
+		# Resting on the seat (its top is at 0.42, and the cushion is 0.42 tall) and
+		# leaning back against the sofa's back, which is on the +X side: rotating
+		# about FORWARD by a negative angle tips the top towards -X, away from it.
+		_add(tool, cushion, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(8.0)), local + Vector3(0.2, 0.63, -1.0 + float(i) * 1.0)), cushion_a if i % 2 == 0 else cushion_b)
 	# The seat, the back and the two arms, each its own box at the height it is
 	# actually drawn at — not one box as tall as the back standing the whole
 	# length of the sofa, which put a wall the back's own height over the low
@@ -3417,7 +3420,7 @@ func _build_menu_board(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -
 	for i in 3:
 		var line := BoxMesh.new()
 		line.size = Vector3(0.44 - float(i) * 0.08, 0.04, 0.01)
-		_add(tool, line, Transform3D(lean, lean * Vector3(-0.06 + float(i) * 0.03, 0.9 - float(i) * 0.2, -0.03) + local), Color(0.94, 0.94, 0.90))
+		_add(tool, line, Transform3D(lean, local + Vector3(0.0, 0.7, 0.0) + lean * _menu_line_offset(i)), Color(0.94, 0.94, 0.90))
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		var leg := BoxMesh.new()
 		leg.size = Vector3(0.04, 1.2, 0.04)
@@ -3425,6 +3428,16 @@ func _build_menu_board(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(0.8, 1.2, 0.4)
 	_collide(solid, shape, Transform3D(Basis(), local + Vector3(0.0, 0.6, 0.0)))
+
+## Where one line of chalk lies on the easel's board, measured in the board's
+## own frame from its middle: a little up or down the face, and just in front of
+## it. It is turned by the same lean as the board before it is used.
+##
+## The lines were once turned about the foot of the easel instead of the middle
+## of the board, so the lean threw them a hand's breadth behind the board's back
+## face — the writing was inside the easel, and the board looked blank.
+static func _menu_line_offset(line: int) -> Vector3:
+	return Vector3(-0.06 + float(line) * 0.03, 0.2 - float(line) * 0.2, -0.03)
 
 ## The menu on the wall behind the bar: a board with lines of writing and a
 ## little picture beside each — a cup, a cake, a bun, a glass — because the

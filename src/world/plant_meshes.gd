@@ -174,10 +174,14 @@ static func stump(radius := 0.22) -> ArrayMesh:
 	var trunk := CylinderMesh.new()
 	trunk.top_radius = radius
 	trunk.bottom_radius = radius * 1.25
-	trunk.height = radius * 2.0
+	# It reaches a hand's breadth below the root as the trees' own trunks do, so on
+	# a slope the downhill side of the stump still meets the ground instead of
+	# standing on its edge in the air.
+	var sink := 0.3
+	trunk.height = radius * 2.0 + sink
 	trunk.radial_segments = 8
 	trunk.rings = 1
-	_append(tool, trunk, Transform3D(Basis(), Vector3(0.0, radius, 0.0)), TRUNK_COLOR)
+	_append(tool, trunk, Transform3D(Basis(), Vector3(0.0, radius - sink * 0.5, 0.0)), TRUNK_COLOR)
 
 	# The pale cut face on top, which is the whole reason a stump reads as a
 	# stump rather than as a rock.

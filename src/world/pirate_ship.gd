@@ -418,12 +418,12 @@ func _build_hull(body: AnimatableBody3D) -> void:
 		var yard := BoxMesh.new()
 		yard.size = Vector3(0.12, 0.12, HULL_HALF_WIDTH * 1.8)
 		Park._add(tool, yard, Transform3D(Basis(), Vector3(mast_x, mast_foot + 4.0, 0.0)), TIMBER.darkened(0.2))
-		var sail := BoxMesh.new()
-		sail.size = Vector3(0.05, 2.1, HULL_HALF_WIDTH * 1.7)
-		Park._add(tool, sail, Transform3D(Basis(), Vector3(mast_x - end * 0.14, mast_foot + 2.85, 0.0)), SAIL)
-		var stripe := BoxMesh.new()
-		stripe.size = Vector3(0.06, 0.4, HULL_HALF_WIDTH * 1.7)
-		Park._add(tool, stripe, Transform3D(Basis(), Vector3(mast_x - end * 0.14, mast_foot + 2.85, 0.0)), HULL)
+		# The sail is a node of its own, so it can belly with the wind.
+		var sail := Sail.new()
+		sail.name = "Sail%d" % int(end)
+		sail.position = Vector3(mast_x - end * 0.14, mast_foot + 2.85, 0.0)
+		sail.build(HULL_HALF_WIDTH * 1.7, 2.1, SAIL, HULL)
+		body.add_child(sail)
 		# A swallow-tailed flag at the masthead, its two tails splayed. It is a
 		# node of its own, not part of the baked hull, so it can fly the wind.
 		var pennant := Flag.new()

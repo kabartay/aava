@@ -161,6 +161,13 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 	belt.add_child(collider)
 	add_child(belt)
 
+## Where the flattened arrowhead's middle lies, measured from a tread's own
+## middle (which is 0.02 above the belt). The arrow is longer than the slat it
+## is on, so it cannot rest on the slat: it was set 0.04 up, which left both of
+## its ends hovering a few centimetres over the belt. Its underside is at about
+## -0.023 here, which is the belt's own surface give or take three millimetres.
+const ARROW_RISE := 0.0
+
 ## One tread: a slat across the belt, and on every sixth one an arrowhead
 ## pointing the way the belt is going.
 func _tread_mesh(heading: float) -> ArrayMesh:
@@ -188,7 +195,7 @@ func _tread_mesh(heading: float) -> ArrayMesh:
 		tool, head,
 		Transform3D(
 			Basis(Vector3.RIGHT, heading * -PI * 0.5).scaled(Vector3(1.0, 0.12, 1.0)),
-			Vector3(0.0, 0.04, 0.0)
+			Vector3(0.0, ARROW_RISE, 0.0)
 		),
 		ARROW
 	)

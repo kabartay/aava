@@ -719,7 +719,12 @@ func _physics_process(delta: float) -> void:
 	if not grounded and is_on_floor() and falling < -1.0:
 		landed.emit(absf(falling))
 
-	if horizontal.length_squared() > 0.05:
+	# Not for a steered machine, which is pointed by its bars alone. Turned
+	# towards where it is travelling as well, a machine backing up was pulled
+	# round towards its own tail by one easing and back to its heading by the
+	# other, and settled askew — drawn crabbing, with its rider, down the way
+	# it was reversing.
+	if horizontal.length_squared() > 0.05 and not steering:
 		var facing := atan2(-horizontal.x, -horizontal.z)
 		# A mount turns more slowly than a child on foot — its own body has to
 		# come round, not just the rider's shoulders — so it uses the mount's

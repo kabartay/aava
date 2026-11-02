@@ -68,10 +68,21 @@ func set_girth(half_width: float) -> void:
 	# which is what "it gets stuck" was. Half a metre of extra trunk is enough
 	# to have to steer round and little enough to leave gaps between trees.
 	_shape.radius = TRUNK_RADIUS + minf(half_width, WIDEST_RIDER)
+	for i in _shapes.size():
+		_shapes[i].radius = radius_of(i)
 
-## How wide a trunk is standing right now. For the checks.
+## How wide an ordinary trunk is standing right now. For the checks.
 func trunk_radius() -> float:
 	return _shape.radius
+
+## How wide the trunk in a given body is. A tree is drawn at a scale between
+## about a third under and a third over its mesh, and its bark is that much
+## thinner or wider; one radius for all of them let a child walk a hand's
+## breadth into the bark of a big tree. The rider's widening is added and the
+## sum capped where it always was, so a machine can still be steered between
+## two trunks.
+func radius_of(body_index: int) -> float:
+	return minf(_radii[body_index] + minf(_girth, WIDEST_RIDER), TRUNK_RADIUS + WIDEST_RIDER)
 
 ## How tall the collider is. Only has to cover a child, and a shorter cylinder
 ## is a cheaper one.
@@ -87,6 +98,10 @@ var vegetation: Vegetation
 var _bodies: Array[StaticBody3D] = []
 ## The one cylinder every trunk body wears, kept so its girth can be changed.
 var _shape: CylinderShape3D
+## Each body has a cylinder of its own, because trunks differ in girth, and the
+## bare radius of the tree it stands for (before any rider's widening).
+var _shapes: Array[CylinderShape3D] = []
+var _radii := PackedFloat32Array()
 var _last_refresh := Vector3(1e9, 1e9, 1e9)
 ## Which version of the forest the solid trunks were last chosen from.
 var _forest_seen := -1
@@ -104,10 +119,14 @@ func _init(forest: Vegetation) -> void:
 	for _i in BODIES:
 		var body := StaticBody3D.new()
 		var collider := CollisionShape3D.new()
-		# One shape resource shared by every body: they are all the same
-		# cylinder, and a copy each would be twenty times the memory for no
-		# difference anyone can walk into.
-		collider.shape = _shape
+		# A cylinder each, rather than one shared: a trunk's girth is the tree's.
+		# Thirty-odd small resources, made once.
+		var own := CylinderShape3D.new()
+		own.radius = TRUNK_RADIUS
+		own.height = TRUNK_HEIGHT
+		collider.shape = own
+		_shapes.append(own)
+		_radii.append(TRUNK_RADIUS)
 		collider.position = Vector3(0.0, TRUNK_HEIGHT * 0.5, 0.0)
 		body.add_child(collider)
 		body.position = PARKED
@@ -132,14 +151,23 @@ func follow(world_position: Vector3) -> void:
 		return
 	_forest_seen = vegetation.forest_generation()
 	_last_refresh = world_position
-	set_trunks(vegetation.trees_near(world_position, REACH if _girth <= 0.0 else RIDDEN_REACH))
+	var found := vegetation.trunks_near(world_position, REACH if _girth <= 0.0 else RIDDEN_REACH)
+	var places: Array[Vector3] = []
+	var radii := PackedFloat32Array()
+	for trunk in found:
+		places.append(Vector3(trunk.x, trunk.y, trunk.z))
+		radii.append(trunk.w)
+	set_trunks(places, radii)
 
-## The trunks to stand in for, nearest first. Separated from `follow` so a
-## check can hand it a list without building a forest.
-func set_trunks(trunks: Array[Vector3]) -> void:
+## The trunks to stand in for, nearest first, and optionally how thick each is
+## (the usual trunk where none is given). Separated from `follow` so a check can
+## hand it a list without building a forest.
+func set_trunks(trunks: Array[Vector3], radii := PackedFloat32Array()) -> void:
 	for i in _bodies.size():
 		if i < trunks.size():
 			_bodies[i].position = trunks[i]
+			_radii[i] = radii[i] if i < radii.size() else TRUNK_RADIUS
+			_shapes[i].radius = radius_of(i)
 		else:
 			_bodies[i].position = PARKED
 

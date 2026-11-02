@@ -564,7 +564,9 @@ static func _horse_head(tool: SurfaceTool, pivot: Vector3, hide := colour(HORSE)
 		eye.height = 0.08 * s
 		eye.radial_segments = 6
 		eye.rings = 3
-		_add(tool, eye, Transform3D(Basis(), Vector3(side * 0.16 * s, 2.17 * s, -1.2 * s) - pivot), hoof)
+		# Out at 0.19 so the eye shows on the side of the head: at 0.16 the
+		# head's skin (0.2 across here) covered all but a hair of it.
+		_add(tool, eye, Transform3D(Basis(), Vector3(side * 0.19 * s, 2.17 * s, -1.2 * s) - pivot), hoof)
 		var nostril := SphereMesh.new()
 		nostril.radius = 0.022 * s
 		nostril.height = 0.044 * s
