@@ -666,20 +666,54 @@ func _build_hoops(tool: SurfaceTool) -> void:
 		var arcs := 64
 		var from := deg_to_rad(28.0)
 		var to := TAU - deg_to_rad(28.0)
+		# A flat band rather than a bar: wide in the plane of the loop and
+		# thin across it, which is how these are actually built and what
+		# makes them read as one piece of steel from a distance.
+		#
+		# Swept round the ring as one surface, not a box per piece. A box per
+		# piece, each stretched a fifth too long so neighbours overlapped, left
+		# every joint a step proud of the next and the hoop read as a stack of
+		# bricks.
+		var half_deep := 0.475
+		var half_thick := 0.17
 		for piece in arcs:
 			var a := lerpf(from, to, float(piece) / float(arcs))
 			var b := lerpf(from, to, float(piece + 1) / float(arcs))
-			var here := centre + (forward * sin(a) - up * cos(a)) * hoop_radius
-			var next := centre + (forward * sin(b) - up * cos(b)) * hoop_radius
-			var run := next - here
-			# A flat band rather than a bar: wide in the plane of the loop and
-			# thin across it, which is how these are actually built and what
-			# makes them read as one piece of steel from a distance.
-			var band := BoxMesh.new()
-			band.size = Vector3(run.length() * 1.2, 0.95, 0.34)
-			var turn := Basis(Vector3.UP, atan2(-run.z, run.x))
-			turn = turn * Basis(Vector3.BACK, atan2(run.y, Vector2(run.x, run.z).length()))
-			Park._add(tool, band, Transform3D(turn, (here + next) * 0.5), HOOP)
+			var dir_a := forward * sin(a) - up * cos(a)
+			var dir_b := forward * sin(b) - up * cos(b)
+			var ring_a := centre + dir_a * hoop_radius
+			var ring_b := centre + dir_b * hoop_radius
+			# Four faces; each is two edge points a side, and its outward way.
+			for face in 4:
+				var lo_a: Vector3
+				var hi_a: Vector3
+				var lo_b: Vector3
+				var hi_b: Vector3
+				var outward: Vector3
+				if face < 2:
+					# Outer and inner rim: each runs across the band's thickness.
+					var sign_r := 1.0 if face == 0 else -1.0
+					lo_a = ring_a + dir_a * half_deep * sign_r - across * half_thick
+					hi_a = ring_a + dir_a * half_deep * sign_r + across * half_thick
+					lo_b = ring_b + dir_b * half_deep * sign_r - across * half_thick
+					hi_b = ring_b + dir_b * half_deep * sign_r + across * half_thick
+					outward = (dir_a + dir_b) * sign_r
+				else:
+					# The two flat sides: each runs across the band's depth.
+					var sign_s := 1.0 if face == 2 else -1.0
+					lo_a = ring_a - dir_a * half_deep + across * half_thick * sign_s
+					hi_a = ring_a + dir_a * half_deep + across * half_thick * sign_s
+					lo_b = ring_b - dir_b * half_deep + across * half_thick * sign_s
+					hi_b = ring_b + dir_b * half_deep + across * half_thick * sign_s
+					outward = across * sign_s
+				# Wound so the front faces outwards, whichever way round the
+				# ring happens to be drawn.
+				var quad: Array[Vector3] = [lo_a, lo_b, hi_b, hi_a]
+				if (lo_b - lo_a).cross(hi_a - lo_a).dot(outward) < 0.0:
+					quad = [hi_a, hi_b, lo_b, lo_a]
+				for k: int in [0, 1, 2, 0, 2, 3]:
+					tool.set_color(HOOP)
+					tool.add_vertex(quad[k])
 
 		# And down to the sand from each end of the ring. Short, because the
 		# ring itself comes within half a metre of the ground — a loop that

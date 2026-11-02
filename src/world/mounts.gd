@@ -383,6 +383,11 @@ func carry(at: Vector3, facing: float) -> void:
 ## wider than a bicycle and should notice a rut a bicycle straddles.
 func _lie_on_the_ground(at: Vector3, facing: float, kind: StringName) -> Basis:
 	var turn := Basis(Vector3.UP, facing)
+	# A boat lies on the water, which is flat, and not on the bed under it: the
+	# pond shelves where the boats wait, and a hull tipped to the shelf stood
+	# with one end in the air over perfectly level water.
+	if MountKinds.floats(kind):
+		return turn
 	var ahead := turn * Vector3(0.0, 0.0, -1.0)
 	var across := turn * Vector3(1.0, 0.0, 0.0)
 	var half_long: float = (MountKinds.body_box(kind)[0] as Vector3).z * 0.5

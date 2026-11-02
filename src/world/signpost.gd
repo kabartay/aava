@@ -135,7 +135,7 @@ func _build() -> void:
 		collar.rings = 1
 		Signpost._add(
 			tool, collar,
-			Transform3D(Basis(), Vector3(0.0, _plate_height(road) - PLATE_HEIGHT * 0.62, 0.0)),
+			Transform3D(Basis(), Vector3(0.0, _plate_height(road) - PLATE_HEIGHT * 0.5 - 0.04, 0.0)),
 			POLE_GREY
 		)
 

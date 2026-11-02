@@ -100,7 +100,12 @@ static func bake(
 			# from the grid instead. Cheaper, and identical at these spacings.
 			var dx := heights[here + 1] - heights[here - 1]
 			var dz := heights[here + padded] - heights[here - padded]
-			var slope := Vector2(dx, dz).length() / span
+			# Turned into steepness, the scale snow, ice and rock are all chosen on
+			# and the far ring already uses. It was handed over as the raw rise
+			# over run, which reads 1 at forty-five degrees where steepness reads
+			# about a half, so near ground went rocky and bare of snow on slopes
+			# the far mountains painted green and white.
+			var slope := HeightField.steepness_of_gradient(Vector2(dx, dz).length() / span)
 
 			var index := gz * grid + gx
 			vertices[index] = Vector3(local_x, height, local_z)

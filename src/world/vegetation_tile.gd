@@ -14,6 +14,11 @@ extends Node3D
 const TREE_CANDIDATES := 46
 const GRASS_CANDIDATES := 620
 
+## The least gap between two trunks' centres within a tile. A child is a third of
+## a metre across and each trunk is solid to a third of a metre either side, so
+## closer than this and a pair of trees is a wall the child cannot slip between.
+const MIN_TREE_GAP := 1.8
+
 ## Whether this tile was planted with grass. Read by the manager to decide if a
 ## tile that has come closer needs replanting.
 var has_grass := false
@@ -172,6 +177,10 @@ static func generate_trees(
 	var origin_z := float(coord.y * tile_size)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(Vector3i(world_seed, coord.x, coord.y))
+	# Where trees have stood in this tile, felled or not. A felled tree still
+	# keeps its neighbours at a distance, or cutting one would let the tree that
+	# had been crowded out spring up in its place.
+	var spots: Array[Vector2] = []
 
 	for _i in TREE_CANDIDATES:
 		var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
@@ -190,13 +199,25 @@ static func generate_trees(
 
 		if thinned:
 			continue
-		if felled != null and felled.is_felled(world_x, world_z):
-			continue
 		# Nothing grows in a pond, whatever height its water stands at. A
 		# raised pond's bed sits well above the world's waterline, so to
 		# everything that asks the height alone it looked like dry hillside —
 		# and a wood grew in the lake.
 		if field.is_pond(world_x, world_z):
+			continue
+		# Not in another trunk's lap. Only within the tile, so a pair either side
+		# of a tile edge can still stand close; the draws above were already
+		# taken, so this moves no other tree.
+		var here := Vector2(world_x, world_z)
+		var crowded := false
+		for other in spots:
+			if other.distance_squared_to(here) < MIN_TREE_GAP * MIN_TREE_GAP:
+				crowded = true
+				break
+		if crowded:
+			continue
+		spots.append(here)
+		if felled != null and felled.is_felled(world_x, world_z):
 			continue
 
 		# The wood changes character as it climbs rather than merely thinning:
@@ -253,8 +274,18 @@ func _add_layer(
 		multimesh.set_instance_transform(i, transforms[i])
 		# A slight per-instance tint so a stand of one mesh does not read as
 		# stamped copies. Multiplied onto the mesh's own vertex colours.
-		var shade := 0.86 + fmod(float(hash(i * 2654435761)) * 0.000000001, 0.28)
-		multimesh.set_instance_color(i, Color(shade, shade * 1.02, shade * 0.94))
+		#
+		# Chosen from where the plant stands, not from its place in the list:
+		# the index gave the first tree of every tile the same tint. A second
+		# draw leans it towards yellow-green or blue-green, which is what
+		# tells one tree from the next at a distance.
+		var at := transforms[i].origin
+		var seed_at := hash(Vector3i(int(at.x * 10.0), int(at.y * 10.0), int(at.z * 10.0)))
+		var shade := 0.86 + float(seed_at % 1000) * 0.00028
+		var warm := float((seed_at >> 10) % 1000) * 0.001 - 0.5
+		multimesh.set_instance_color(i, Color(
+			shade * (1.0 + warm * 0.16), shade * 1.02, shade * (0.94 - warm * 0.16)
+		))
 
 	var instance := MultiMeshInstance3D.new()
 	instance.multimesh = multimesh

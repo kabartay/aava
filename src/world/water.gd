@@ -139,12 +139,24 @@ void vertex() {
 
 	float to_river = abs(world_vertex.x - river_centre_x(world_vertex.z));
 	float river = 1.0 - smoothstep(river_half_width, river_half_width + bank_fade, to_river);
-	bank_blend = max(river, pond_blend(world_vertex));
+	float pond = pond_blend(world_vertex);
+	bank_blend = max(river, pond);
 
-	// Two crossed waves at different periods read as a current rather than a
-	// pulse, and cost two sines.
+	// Two crossed waves at different periods read as a pulse in a pond, which
+	// is the right thing for still water, and cost two sines.
 	float t = TIME * wave_speed;
-	float wave = sin(world_vertex.x * 0.10 + t) * cos(world_vertex.z * 0.075 - t * 0.8);
+	float still_wave = sin(world_vertex.x * 0.10 + t) * cos(world_vertex.z * 0.075 - t * 0.8);
+	// In the river the crests are measured from the river's own line instead:
+	// the phase runs with z and the across-river offset stands in for x, so the
+	// crests travel along every bend towards +z, which is the way
+	// HeightField.river_current_at carries a swimmer, and not diagonally over
+	// the banks. The ripple across the stream is fixed to the stream.
+	float across = world_vertex.x - river_centre_x(world_vertex.z);
+	float flowing_wave = sin(world_vertex.z * 0.10 - t) * cos(across * 0.075);
+	// A pond beside the river is still, and the two are blended rather than
+	// switched, so the surface has no step where they meet.
+	float in_river = river * (1.0 - pond);
+	float wave = mix(still_wave, flowing_wave, in_river);
 	VERTEX.y += wave * wave_height * bank_blend;
 }
 

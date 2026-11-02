@@ -62,6 +62,10 @@ var _deep := 0.0
 ## What the sky last asked for, before the water had its say.
 var _fog_in_air := Color(0.80, 0.87, 0.93)
 var _ambient_in_air := 0.55
+## The water's colour as the sky leaves it. The green is what daylight does to
+## river water; with the sun gone there is nothing to light it, and a bright
+## teal room at midnight is the one place the valley was brighter than the air.
+var _fog_in_water := UNDER_FOG
 
 ## Colour of the sunlight across a day, sampled by sun height.
 var _sun_colors := [
@@ -216,6 +220,7 @@ func _apply_time() -> void:
 	# separate branches, and the night one began from the full daytime 0.55: as
 	# the sun crossed 0.02 the ambient light leapt from about 0.29 to 0.54 and
 	# then sank to 0.20 — a flash of brightness at dusk.
+	_fog_in_water = UNDER_FOG.lerp(Color(0.012, 0.03, 0.05), night)
 	_ambient_in_air = lerpf(
 		lerpf(0.12, 0.55, smoothstep(-0.15, 0.25, height)), 0.20, night
 	)
@@ -262,7 +267,7 @@ func under_water() -> float:
 ## The air as the sky left it, bent towards the water by however much of the
 ## water is in the way.
 func _apply_water() -> void:
-	_environment.fog_light_color = _fog_in_air.lerp(UNDER_FOG, _under)
+	_environment.fog_light_color = _fog_in_air.lerp(_fog_in_water, _under)
 	_environment.fog_depth_begin = lerpf(FOG_BEGIN, UNDER_FOG_BEGIN, _under)
 	_environment.fog_depth_end = lerpf(
 		FOG_END, lerpf(UNDER_SEES_SHALLOW, UNDER_SEES_DEEP, _deep), _under

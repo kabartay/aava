@@ -1401,8 +1401,10 @@ static func two_wheeler_wheel_mesh(kind: StringName) -> Mesh:
 ## simply be made fatter — its tube is the gap between its two radii, and past
 ## a point the inner radius goes negative — so a fat tyre here is three tori
 ## laid side by side across the hub with the lugs spanning all of them.
-const QUAD_AXLE := 0.38
 const QUAD_WHEEL_RADIUS := 0.4
+## One radius up, so the tyre touches the ground rather than going into it: it
+## was 0.38, which sank every wheel two centimetres.
+const QUAD_AXLE := QUAD_WHEEL_RADIUS
 const QUAD_WHEEL_HALF_WIDTH := 0.21
 const QUAD_WHEELS: Array[Vector3] = [
 	Vector3(-0.56, QUAD_AXLE, -0.68), Vector3(0.56, QUAD_AXLE, -0.68),

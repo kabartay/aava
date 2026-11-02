@@ -415,7 +415,9 @@ func _step(animal: Dictionary, delta: float) -> void:
 		# turned away from its new target towards the old detour.
 		animal["hold"] = 0.0
 		animal["rest"] = float(animal["rest"]) - delta
-		if float(animal["rest"]) <= 0.0:
+		# A cow with her head down stays where the grass is: grazing is what
+		# the rest is for, and it ends when she lifts her head.
+		if float(animal["rest"]) <= 0.0 and not bool(animal.get("graze", false)):
 			_pick_wander(animal)
 	else:
 		var direction := to_target / distance
@@ -519,9 +521,10 @@ func _step(animal: Dictionary, delta: float) -> void:
 		# see the note in _lean_with_the_ground.
 		+ float(animal.get("lift", 0.0))
 		+ sin(bob) * 0.02 * (1.0 - trot)
-		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * (0.05 if hops else 0.02)) * trot
+		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * (0.05 if hops else 0.02)) * trot * (1.0 + 0.5 * run_of(kind, moving))
 	)
 	_stride(animal, node, kind, bob, trot, delta)
+	_head_and_tail(animal, node, kind, bob, moving, trot, delta)
 
 ## Which way a leg swings with the sine of the stride: diagonal pairs for a
 ## walk, every leg together for the squirrel's hop. The hop used to send the
@@ -551,13 +554,162 @@ func _stride(animal: Dictionary, node: Node3D, kind: StringName, bob: float, tro
 		animal["legs"] = legs
 	var swing_amount := float(LEG_SWINGS.get(kind, 0.45))
 	var hops := kind == AnimalKinds.SQUIRREL
+	var run := run_of(kind, float(animal.get("velocity", 0.0)))
 	for i in legs.size():
 		var leg: Node3D = legs[i]
 		var pair := leg_phase(i, hops)
-		var swing := sin(bob) * swing_amount * trot * pair
-		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-12.0 * delta))
+		# Walking, the diagonal pairs swing against each other. Running, the
+		# front pair and the hind pair each go together, one behind the other,
+		# and the whole stride is longer: the blend runs from one to the
+		# other as the speed rises, so a cat that bolts does not keep the
+		# legs of a cat that is strolling.
+		var offset := 0.0
+		if not hops:
+			offset = lerpf(0.0, GALLOP[i] - (PI if pair < 0.0 else 0.0), run)
+		var swing := sin(bob + offset) * swing_amount * (1.0 + 0.6 * run) * trot * pair
+		# Eased quickly enough to keep up: a run cycles the legs at a rate the
+		# walk's easing smooths away to a third of their swing, which left a
+		# bolting cat with legs that barely moved.
+		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-(12.0 + 150.0 * run) * delta))
 	body.scale.y = 1.0 + 0.015 * sin(bob * 0.5) * (1.0 - trot)
-	body.rotation.x = (sin(bob) * 0.04 if hops else 0.0) * trot
+	# The back flexes in a run, and the squirrel's whole body in its hop.
+	body.rotation.x = (sin(bob) * 0.04 if hops else sin(bob + 1.0) * 0.05 * run) * trot
+
+## Where in its stride each leg is when running, front-left first: the fronts
+## land together and the hinds follow them, rather than the walk's diagonals.
+const GALLOP: Array[float] = [0.0, 0.5, 2.6, 3.1]
+
+## How far into a run an animal at this speed is, 0 at a walk and 1 flat out.
+## A walk is its kind's own pace; the run begins well above it, so an animal
+## easing in and out of a walk never breaks into one. Before, the legs knew
+## only "how fast", clamped to the walking pace, and a cat bolting from a
+## motorcycle at nearly three times its pace swung them exactly as it did
+## strolling.
+static func run_of(kind: StringName, speed: float) -> float:
+	return clampf((speed / pace_of(kind) - 1.3) / 0.9, 0.0, 1.0)
+
+## How far the head goes down to the grass, per kind that grazes, in radians
+## about the foot of the neck. Chosen so the mouth is just above the ground:
+## a check measures it off the drawn head.
+const GRAZE_PITCH := {
+	AnimalKinds.COW: 0.55,
+	AnimalKinds.SHEEP: 0.85,
+}
+
+## How far to either side the head turns to look, and how far a head turns to
+## follow somebody standing near.
+const LOOK_YAW := 0.95
+const WATCH_RANGE := 5.0
+
+## The head and the tail, which are nodes of their own.
+##
+## Standing, an animal used to be a statue that breathed: the head was part of
+## the body and the tail part of it too. Now a cow or a sheep drops her head to
+## graze for several seconds at a time and lifts it to look about; the others
+## turn their heads to glance round, and all of them look at a child who comes
+## near; and the tail of a cat, a dog, a squirrel and a cow moves. Walking, the
+## head nods with the stride.
+##
+## It costs a handful of arithmetic and no allocation: the two nodes are found
+## once and kept, and the choice of what to do next is made when the last has
+## run out, every few seconds, not every frame.
+func _head_and_tail(
+	animal: Dictionary, node: Node3D, kind: StringName, bob: float, moving: float, trot: float, delta: float
+) -> void:
+	if not animal.has("head"):
+		animal["head"] = node.get_node_or_null("Head")
+		animal["tail"] = node.get_node_or_null("Tail")
+	var head := animal["head"] as Node3D
+	var tail := animal["tail"] as Node3D
+	var near_you := false
+	var toward_you := 0.0
+	if _has_player:
+		var to_player := _player - node.position
+		to_player.y = 0.0
+		if to_player.length_squared() < WATCH_RANGE * WATCH_RANGE:
+			near_you = true
+			# Relative to the body: the head turns on the neck, and no neck
+			# looks straight behind.
+			toward_you = clampf(
+				wrapf(atan2(-to_player.x, -to_player.z) - node.rotation.y, -PI, PI), -1.1, 1.1
+			)
+
+	if head != null:
+		var yaw := 0.0
+		var pitch := 0.0
+		var graze := bool(animal.get("graze", false))
+		if moving > 0.25:
+			graze = false
+			animal["look_t"] = 0.0
+			yaw = 0.0
+			# The head nods with the stride, a little more on the big ones.
+			pitch = sin(bob) * (0.06 if GRAZE_PITCH.has(kind) else 0.035) * trot
+		elif near_you:
+			graze = false
+			animal["look_t"] = 0.0
+			yaw = toward_you
+		else:
+			var left := float(animal.get("look_t", 0.0)) - delta
+			if left <= 0.0:
+				# Time to do something else. A grazer mostly grazes; a glance
+				# is a second or two, grazing five to ten.
+				# Only one that has arrived: one already sent somewhere else
+				# would be grazing with its mind on a walk.
+				var settled := (animal["target"] as Vector3).distance_to(node.position) < 0.5
+				graze = GRAZE_PITCH.has(kind) and settled and randf() < 0.6
+				if graze:
+					left = randf_range(5.0, 10.0)
+				else:
+					left = randf_range(1.2, 3.5)
+					# Half the glances are back to straight ahead.
+					animal["look_yaw"] = randf_range(-LOOK_YAW, LOOK_YAW) if randf() < 0.6 else 0.0
+					animal["look_pitch"] = randf_range(-0.12, 0.2)
+			animal["look_t"] = left
+			if graze:
+				pitch = float(GRAZE_PITCH[kind])
+				# Chewing: the head bobs a little as it works along the grass.
+				pitch += sin(bob * 5.0) * 0.05
+				yaw = sin(bob * 0.4) * 0.15
+			else:
+				yaw = float(animal.get("look_yaw", 0.0))
+				pitch = -float(animal.get("look_pitch", 0.0))
+		animal["graze"] = graze
+		# `pitch` is how far down; down is a negative turn about X, since a
+		# positive angle lifts what is at -Z, which is the nose.
+		var blend := 1.0 - exp((-3.0 if graze else -5.0) * delta)
+		animal["head_x"] = lerpf(float(animal.get("head_x", 0.0)), -pitch, blend)
+		head.rotation.x = float(animal["head_x"])
+		head.rotation.y = lerpf(head.rotation.y, yaw, blend)
+
+	if tail != null:
+		var glad := near_you and kind == AnimalKinds.DOG
+		var rate := 1.5
+		var reach := 0.0
+		match kind:
+			AnimalKinds.DOG:
+				# A wag that is fast and wide for somebody it knows, and an
+				# easy sway when it is only walking.
+				rate = 11.0 if glad else 4.0
+				reach = 0.6 if glad else (0.3 if moving > 0.25 else 0.12)
+			AnimalKinds.CAT:
+				rate = 2.0 + moving
+				reach = 0.28
+			AnimalKinds.SQUIRREL:
+				rate = 7.0 if moving > 0.25 else 2.5
+				reach = 0.16
+			_:
+				# A cow's tail swishes in bursts, at flies.
+				rate = 2.2
+				reach = 0.12 + 0.35 * maxf(0.0, sin(bob * 0.17))
+		var wag := float(animal.get("wag", 0.0)) + delta * rate
+		animal["wag"] = wag
+		var amount := lerpf(float(animal.get("wag_reach", reach)), reach, 1.0 - exp(-6.0 * delta))
+		animal["wag_reach"] = amount
+		tail.rotation.y = sin(wag) * amount
+		if kind == AnimalKinds.SQUIRREL:
+			# A squirrel's flicks up and down, not side to side.
+			tail.rotation.x = sin(wag) * amount
+			tail.rotation.y = 0.0
 
 ## Tip an animal to the ground under it, front to back.
 ##

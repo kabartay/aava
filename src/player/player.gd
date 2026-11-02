@@ -133,6 +133,12 @@ var is_carried := false
 ## player knows nothing about where the river or the pool are; it is told.
 var water_depth := 0.0
 
+## Which way the water is carrying whoever is in it, in metres a second on the
+## ground plane. Set by the game each frame alongside water_depth, because the
+## player knows nothing about rivers. Zero in a pond and in the pool, and
+## only ever felt by a swimmer or a boat: on foot the ground holds you.
+var current := Vector2.ZERO
+
 ## A height the body is held at, whatever the water or the ground would do —
 ## a rider sitting in the saddle of a swimming horse, or one following the
 ## ground their horse is walking on. Left at this sentinel when nothing is
@@ -666,6 +672,11 @@ func _physics_process(delta: float) -> void:
 	# squared it and made every pace short of full throttle far slower than it
 	# looked.
 	var target := wish * top * (1.0 if riding != &"" else minf(push, 1.0))
+	# The river carries a swimmer and a boat along. Added to where they are
+	# trying to go rather than to their speed, so letting go of the stick
+	# drifts and swimming upstream is merely slower — never impossible.
+	if afloat or boating:
+		target += Vector3(current.x, 0.0, current.y)
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 
 	var rate := GROUND_ACCELERATION if grounded else AIR_ACCELERATION

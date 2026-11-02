@@ -52,7 +52,8 @@ const WANTED := {
 ## read as four brown specks from five metres away on a tablet — the eldest
 ## could not tell the cat from the dog and the six-year-old could not see them
 ## at all. They are now half again as large, and each has a colour no other
-## animal shares: ginger cat, dark dog, red squirrel, slate beaver.
+## animal shares: ginger cat, dark dog, red squirrel, chestnut beaver (it was
+## slate, and a slate beaver at the water's edge was a dark blob with no face).
 const INFO := {
 	CAT: {
 		"want": &"", "coins": 2, "cooldown": 40.0,
@@ -71,7 +72,7 @@ const INFO := {
 	},
 	BEAVER: {
 		"want": &"stick", "coins": 5, "cooldown": 35.0,
-		"colour": Color(0.34, 0.26, 0.30), "size": 0.54,
+		"colour": Color(0.52, 0.34, 0.20), "size": 0.54,
 		"home": "water", "shy": 0.2,
 	},
 	# A sheep gives wool rather than coins, and only to somebody carrying
@@ -314,6 +315,21 @@ static func build_node(kind: StringName, variant := 0) -> Node3D:
 		leg.mesh = front_mesh if i < 2 else hind_mesh
 		leg.position = points[i]
 		body.add_child(leg)
+	# The head and, for those that wag one, the tail hang from the root rather
+	# than the body, so the body keeps exactly four children — the legs — and
+	# Animals can find each by name. Each is drawn about its own joint.
+	var head := MeshInstance3D.new()
+	head.name = "Head"
+	head.mesh = head_mesh(kind, variant)
+	head.position = head_pivot(kind)
+	root.add_child(head)
+	var tail := tail_mesh(kind, variant)
+	if tail != null:
+		var wag := MeshInstance3D.new()
+		wag.name = "Tail"
+		wag.mesh = tail
+		wag.position = tail_pivot(kind)
+		root.add_child(wag)
 	return root
 
 ## A body built from primitives: a body, a neck, a head with a face, a tail,
@@ -334,6 +350,22 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 	var long := float(shape["long"])
 	var tall := float(shape["tall"])
 	var slim := float(shape["slim"])
+
+	# Where the parts go. Baked into one mesh, everything goes to `tool`. Built
+	# for a node, the head and the tail kinds that wag go to meshes of their
+	# own, which Animals can turn: a head fixed to the body can neither graze
+	# nor look round, and a tail that is part of the body cannot wag. `tool` is
+	# pointed at whichever mesh is being added to as the code below goes round
+	# the animal, and back at the body between the parts.
+	var body_tool := tool
+	var head_tool := tool
+	var tail_tool := tool
+	if not with_legs:
+		head_tool = SurfaceTool.new()
+		head_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		if TAILS.has(kind):
+			tail_tool = SurfaceTool.new()
+			tail_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var body := SphereMesh.new()
 	body.radius = scale
@@ -380,7 +412,15 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 			# Carried lower than a dog's: a cow's head hangs from the shoulder
 			# rather than being held up on a stalk.
 			head_lift = scale * 1.3
+		BEAVER:
+			# Hunched: a beaver's head sits low and close on its shoulders,
+			# which is what stopped it reading as a second, smaller lump.
+			head_lift = scale * 1.3
+			head_forward = -scale * long * 0.8
 
+	# From the neck to the ears, what is added goes to the head's own mesh —
+	# see the note on `head_tool` — and `tool` is put back for the body after.
+	tool = head_tool
 	var neck := CylinderMesh.new()
 	neck.top_radius = scale * (0.24 if kind == CAT else 0.3)
 	neck.bottom_radius = scale * (0.3 if kind == CAT else 0.38)
@@ -391,13 +431,25 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 		Basis(Vector3.RIGHT, deg_to_rad(-32.0 if kind != SQUIRREL else -10.0)),
 		Vector3(0.0, head_lift - scale * 0.32, head_forward * 0.55)
 	), colour)
+	# The foot of the neck, where the head turns: its middle, less half its
+	# length along the way it leans.
+	var neck_pivot := Vector3(0.0, head_lift - scale * 0.32, head_forward * 0.55) - (
+		Basis(Vector3.RIGHT, deg_to_rad(-32.0 if kind != SQUIRREL else -10.0)) * Vector3.UP
+	) * neck.height * 0.5
 
+	# A sheep's face is dark, not fleece: the head used to be drawn in the
+	# coat's white and the dark mask sat inside it, so from the front a sheep
+	# was a white ball with two beads in it.
+	var face := SHEEP_FACE if kind == SHEEP else colour
 	var head := SphereMesh.new()
 	head.radius = scale * (0.55 if kind == CAT else (0.58 if kind == DOG else 0.62))
 	head.height = head.radius * 1.8
 	head.radial_segments = 10
 	head.rings = 6
-	_add(tool, head, Transform3D(Basis(), Vector3(0.0, head_lift, head_forward)), colour)
+	_add(tool, head, Transform3D(
+		Basis().scaled(Vector3(0.84, 0.96, 1.18)) if kind == SHEEP else Basis(),
+		Vector3(0.0, head_lift, head_forward)
+	), face)
 	# A brow over it: deeper than it is wide and set back a little, so the head
 	# has a forehead and cheeks rather than being a ball with eyes on. An
 	# ellipsoid again — the box that was here made every animal look like a
@@ -413,7 +465,7 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 			Basis().scaled(Vector3(1.0, 0.92, 1.15)),
 			Vector3(0.0, head_lift + scale * 0.05, head_forward + scale * 0.06)
 		),
-		colour
+		face
 	)
 
 	# A muzzle, so there is a front. Long and boxy on the dog, blunt on the
@@ -432,6 +484,11 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 		COW:
 			snout_long = 2.2
 	var snout_colour := colour.lightened(0.28) if kind == DOG else colour.darkened(0.12)
+	if kind == BEAVER:
+		# A paler muzzle on the dark face, as a real beaver has.
+		snout_colour = colour.lightened(0.3)
+	elif kind == SHEEP:
+		snout_colour = SHEEP_FACE.lightened(0.08)
 	_add(tool, snout, Transform3D(
 		Basis().scaled(Vector3(0.85, 0.75, snout_long)),
 		Vector3(0.0, head_lift - scale * 0.14, head_forward - scale * 0.5)
@@ -484,6 +541,8 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 			inner.rings = 1
 			_add(tool, inner, Transform3D(Basis(), Vector3(side * scale * 0.36, head_lift + scale * (0.66 if kind == CAT else 0.78), head_forward + scale * 0.02)), Color(0.86, 0.60, 0.62))
 
+	tool = body_tool
+
 	# A sheep is a fleece with a face, and the fleece is one smooth mass.
 	#
 	# It used to be twenty-two little spheres scattered over the barrel, meant
@@ -518,6 +577,7 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 			Basis().scaled(Vector3(slim * 0.94, tall * 0.74, long * 1.12)),
 			Vector3(0.0, scale * 1.24, 0.0)
 		), colour)
+		tool = head_tool
 		# The fleece carries on up the neck and stops behind the eyes, which is
 		# where a shorn sheep's wool line actually is. Without it the fleece
 		# ended at the shoulders and she was a woolly barrel holding up a bare
@@ -569,6 +629,7 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 				),
 				Vector3(side * scale * 0.46, head_lift + scale * 0.08, head_forward + scale * 0.04)
 			), SHEEP_FACE)
+		tool = body_tool
 		# A short tail, hanging, and woolly like the rest of her.
 		var tail := SphereMesh.new()
 		tail.radius = scale * 0.18
@@ -636,6 +697,7 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 		# is the face a child draws when asked to draw a cow. The muzzle is the
 		# long part: it used to be a small bead on a round ball, and the ball with
 		# two black eyes read as a polar bear rather than a cow.
+		tool = head_tool
 		var muzzle := SphereMesh.new()
 		muzzle.radius = scale * 0.3
 		muzzle.height = scale * 0.4
@@ -677,6 +739,7 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 				Basis(Vector3.FORWARD, side * deg_to_rad(-16.0)).scaled(Vector3(1.6, 0.4, 1.0)),
 				Vector3(side * scale * 0.56, head_lift + scale * 0.1, head_forward + scale * 0.12)
 			), colour.darkened(0.1))
+		tool = body_tool
 		# The udder, and a tail with a tuft on the end.
 		var udder := SphereMesh.new()
 		udder.radius = scale * 0.28
@@ -684,21 +747,26 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 		udder.radial_segments = 8
 		udder.rings = 4
 		_add(tool, udder, Transform3D(Basis(), Vector3(0.0, scale * 0.5, scale * long * 0.34)), Color(0.94, 0.78, 0.76))
+		tool = tail_tool
 		var dock := CylinderMesh.new()
 		dock.top_radius = scale * 0.045
 		dock.bottom_radius = scale * 0.06
 		dock.height = scale * 0.8
 		dock.radial_segments = 5
 		_add(tool, dock, Transform3D(
-			Basis(Vector3.RIGHT, deg_to_rad(16.0)),
-			Vector3(0.0, scale * 1.1, scale * long * 0.98)
+			# Hanging, the foot of it a little behind the root: tipped the
+			# other way it was a rod cocked up off the rump, and the tuft sat
+			# well clear of the end of it.
+			Basis(Vector3.RIGHT, deg_to_rad(-8.0)),
+			Vector3(0.0, scale * 1.1, scale * long * 0.98 + scale * 0.056)
 		), colour)
 		var tuft := SphereMesh.new()
 		tuft.radius = scale * 0.12
 		tuft.height = scale * 0.22
 		tuft.radial_segments = 6
 		tuft.rings = 3
-		_add(tool, tuft, Transform3D(Basis(), Vector3(0.0, scale * 0.72, scale * long * 1.06)), patch_colour)
+		_add(tool, tuft, Transform3D(Basis(), Vector3(0.0, scale * 0.66, scale * long * 0.98 + scale * 0.1)), patch_colour)
+		tool = body_tool
 
 	# A ginger cat is a tabby: bands over the back and rings down the tail,
 	# and a white bib and white socks. All of it is what a child draws when
@@ -744,7 +812,7 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 		patch.height = scale * 0.34
 		patch.radial_segments = 8
 		patch.rings = 4
-		_add(tool, patch, Transform3D(
+		_add(head_tool, patch, Transform3D(
 			Basis().scaled(Vector3(0.55, 0.9, 0.8)),
 			Vector3(scale * 0.3, head_lift + scale * 0.08, head_forward - scale * 0.18)
 		), colour.darkened(0.45))
@@ -752,6 +820,17 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 	# A squirrel's ears have tufts on them, and in a wood at twenty metres the
 	# tufts and the tail are the whole animal.
 	if kind == SQUIRREL:
+		# A cream chest and throat: the red squirrel's one pale thing, and what
+		# makes the sitting-up pose read as a chest being held out.
+		var chest := SphereMesh.new()
+		chest.radius = scale * 0.5
+		chest.height = scale * 1.2
+		chest.radial_segments = 8
+		chest.rings = 4
+		_add(tool, chest, Transform3D(
+			Basis().scaled(Vector3(0.78, 1.0, 0.5)),
+			Vector3(0.0, scale * 1.4, -scale * long * 0.7)
+		), Color(0.95, 0.88, 0.74))
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			var tuft := CylinderMesh.new()
 			tuft.top_radius = 0.0
@@ -759,7 +838,7 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 			tuft.height = scale * 0.5
 			tuft.radial_segments = 4
 			tuft.rings = 1
-			_add(tool, tuft, Transform3D(
+			_add(head_tool, tuft, Transform3D(
 				Basis(Vector3.FORWARD, deg_to_rad(side * 14.0)),
 				Vector3(side * scale * 0.36, head_lift + scale * 1.38, head_forward + scale * 0.12)
 			), colour.darkened(0.2))
@@ -811,10 +890,15 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 		_add_paws(tool, scale, long, slim, Color(0.96, 0.94, 0.90) if kind == CAT else dark)
 
 	_add_belly(tool, scale, long, tall, slim, colour)
-	_add_face(tool, kind, scale, head_lift, head_forward, snout_long, colour)
+	_add_face(head_tool, kind, scale, head_lift, head_forward, snout_long, colour)
 	if kind == DOG:
-		_add_collar(tool, scale, head_lift, head_forward)
-	_add_tail(tool, kind, scale, colour, long)
+		_add_collar(head_tool, scale, head_lift, head_forward)
+	_add_tail(tail_tool, kind, scale, colour, long)
+	if not with_legs:
+		_keep_part(key + "/head", head_tool, neck_pivot)
+		if TAILS.has(kind):
+			var root: Vector2 = TAILS[kind]
+			_keep_part(key + "/tail", tail_tool, Vector3(0.0, scale * root.x, scale * long * root.y))
 	tool.generate_normals()
 	# The material travels with the mesh. These meshes are built from vertex
 	# colours alone, so a caller that attaches the mesh without also knowing to
@@ -823,6 +907,55 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 	tool.set_material(fur_material())
 	_meshes[key] = tool.commit()
 	return _meshes[key]
+
+## Where each tail turns: how high, in units of the animal's size, and how far
+## back along it, as a fraction of its length. Inside the rump, so that a tail
+## swung about the point stays joined to her. Kinds not listed keep their tail
+## baked into the body.
+const TAILS := {
+	CAT: Vector2(1.0, 0.82),
+	DOG: Vector2(1.15, 0.85),
+	SQUIRREL: Vector2(1.05, 0.9),
+	COW: Vector2(1.5, 0.98),
+}
+
+## Pivots of the head and tail pieces, by the same key as the meshes.
+static var _pivots: Dictionary = {}
+
+## Commit a head or a tail as a mesh of its own, drawn about the point it turns
+## on rather than about the animal's middle, so that turning the node turns
+## the piece about its joint.
+static func _keep_part(key: String, tool: SurfaceTool, pivot: Vector3) -> void:
+	tool.generate_normals()
+	var raw := tool.commit()
+	var moved := SurfaceTool.new()
+	moved.begin(Mesh.PRIMITIVE_TRIANGLES)
+	moved.append_from(raw, 0, Transform3D(Basis(), -pivot))
+	moved.set_material(fur_material())
+	_meshes[key] = moved.commit()
+	_pivots[key] = pivot
+
+## The head of an animal that is built as a node: the neck, the face, the ears.
+## Hung from the shoulders by `head_pivot`, so that it can graze and look round.
+static func head_mesh(kind: StringName, variant := 0) -> Mesh:
+	body_mesh(kind, variant)
+	return _meshes["%s/%d/false/head" % [kind, variant % VARIANTS]]
+
+static func head_pivot(kind: StringName) -> Vector3:
+	body_mesh(kind)
+	return _pivots["%s/0/false/head" % kind]
+
+## The tail, for the kinds that wag one; null for the rest, whose tails stay
+## in the body.
+static func tail_mesh(kind: StringName, variant := 0) -> Mesh:
+	if not TAILS.has(kind):
+		return null
+	body_mesh(kind, variant)
+	return _meshes["%s/%d/false/tail" % [kind, variant % VARIANTS]]
+
+static func tail_pivot(kind: StringName) -> Vector3:
+	body_mesh(kind)
+	return _pivots["%s/0/false/tail" % kind]
 
 ## The flat panels that give a body corners: shoulders, flanks, a back and a
 ## rump, laid over the soft shape underneath.
@@ -942,6 +1075,9 @@ static func _add_face(
 	snout_long: float, colour: Color
 ) -> void:
 	var iris := Color(0.62, 0.78, 0.30) if kind == CAT else Color(0.08, 0.06, 0.05)
+	if kind == SHEEP:
+		# Black eyes in a black face are no eyes at all.
+		iris = Color(0.78, 0.62, 0.22)
 	var pupil := Color(0.05, 0.05, 0.05)
 	var shine := Color(0.95, 0.95, 0.95)
 	for side in PackedFloat32Array([-1.0, 1.0]):
@@ -1013,31 +1149,49 @@ static func _add_tail(tool: SurfaceTool, kind: StringName, scale: float, colour:
 		SQUIRREL:
 			# Two plumes in an S: up from the rump, then curling forward over
 			# the back, which is how a squirrel actually carries it.
+			# Three, thin at the root and fat at the top, and paler towards the
+			# tip: a squirrel's tail is a plume, and two sausages of one
+			# thickness were a pair of tails.
 			var lower := SphereMesh.new()
-			lower.radius = scale * 0.42
-			lower.height = scale * 1.5
+			lower.radius = scale * 0.3
+			lower.height = scale * 1.3
 			lower.radial_segments = 7
 			lower.rings = 4
 			_add(tool, lower, Transform3D(
 				Basis(Vector3.RIGHT, deg_to_rad(15.0)),
-				Vector3(0.0, scale * 1.55, scale * long * 0.95)
-			), colour.lightened(0.15))
+				Vector3(0.0, scale * 1.45, scale * long * 0.95)
+			), colour)
+			var middle := SphereMesh.new()
+			middle.radius = scale * 0.44
+			middle.height = scale * 1.4
+			middle.radial_segments = 7
+			middle.rings = 4
+			_add(tool, middle, Transform3D(
+				Basis(Vector3.RIGHT, deg_to_rad(-8.0)),
+				Vector3(0.0, scale * 2.2, scale * long * 0.9)
+			), colour.lightened(0.12))
 			var upper := SphereMesh.new()
-			upper.radius = scale * 0.52
-			upper.height = scale * 1.6
+			upper.radius = scale * 0.5
+			upper.height = scale * 1.4
 			upper.radial_segments = 7
 			upper.rings = 4
 			_add(tool, upper, Transform3D(
-				Basis(Vector3.RIGHT, deg_to_rad(-35.0)),
-				Vector3(0.0, scale * 2.55, scale * long * 0.75)
-			), colour.lightened(0.25))
+				Basis(Vector3.RIGHT, deg_to_rad(-40.0)),
+				Vector3(0.0, scale * 2.85, scale * long * 0.7)
+			), colour.lightened(0.3))
 		BEAVER:
-			var paddle := BoxMesh.new()
-			paddle.size = Vector3(scale * 0.9, scale * 0.16, scale * 1.5)
+			# A rounded paddle, flat on the ground and a little broader at the
+			# far end, rather than the plank it was; dark, like the real thing's
+			# bare scaly skin, against a warm brown coat.
+			var paddle := SphereMesh.new()
+			paddle.radius = scale * 0.5
+			paddle.height = scale * 1.0
+			paddle.radial_segments = 10
+			paddle.rings = 5
 			_add(tool, paddle, Transform3D(
-				Basis(Vector3.RIGHT, deg_to_rad(12.0)),
-				Vector3(0.0, scale * 0.55, scale * long * 1.35)
-			), colour.darkened(0.35))
+				Basis(Vector3.RIGHT, deg_to_rad(10.0)) * Basis.from_scale(Vector3(0.95, 0.16, 1.3)),
+				Vector3(0.0, scale * 0.5, scale * long * 1.2)
+			), colour.darkened(0.45))
 		CAT:
 			# Starts inside the rump and curves up in three pieces, tip
 			# forward: a cat pleased to see you. The first tail was one
@@ -1067,8 +1221,10 @@ static func _add_tail(tool: SurfaceTool, kind: StringName, scale: float, colour:
 			tip.radial_segments = 6
 			tip.rings = 3
 			_add(tool, tip, Transform3D(Basis(), tail_tip), Color(0.96, 0.94, 0.90))
-		_:
+		DOG:
 			# A dog's tail: up and over in a curl, with a tuft at the end.
+			# Named, not a `_:`: the sheep and the cow fell through to it and
+			# each wore a dog's curled tail beside her own.
 			var tip := _add_tail_curve(
 				tool, Vector3(0.0, scale * 1.15, scale * long * 0.85),
 				PackedFloat32Array([50.0, 12.0]),

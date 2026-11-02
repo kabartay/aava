@@ -46,6 +46,10 @@ uniform float plant_height = 6.4;
 uniform float sway_speed = 1.3;
 uniform float stiffness = 1.6;
 uniform float gust_scale = 0.012;
+// The valley's one wind (see Wind): the way the air is going, and how hard.
+uniform vec2 wind_direction = vec2(0.7, 0.7);
+uniform float wind_strength = 0.6;
+uniform float wind_clock = 0.0;
 
 void vertex() {
 	// MODEL_MATRIX carries the per-instance transform inside a MultiMesh, so
@@ -57,7 +61,10 @@ void vertex() {
 	// pass those describe the light instead, and the shadow would swing away
 	// from the plant casting it.
 	float phase = origin.x * 0.31 + origin.z * 0.23;
-	float gust = sin((origin.x + origin.z) * gust_scale + TIME * 0.27) * 0.5 + 0.75;
+	// A gust is a front that travels with the wind, so it crosses the meadow
+	// downwind rather than pulsing in place.
+	float front = dot(origin.xz, wind_direction) * gust_scale - wind_clock * 0.27;
+	float gust = (sin(front) * 0.25 + 0.75) * (0.35 + 0.65 * wind_strength);
 	float t = TIME * sway_speed + phase;
 
 	// Bending grows towards the top of the plant, so the trunk stays put and
@@ -65,8 +72,11 @@ void vertex() {
 	// is confined to the thin end.
 	float along = clamp(local_height / max(plant_height, 0.001), 0.0, 1.0);
 	float bend = pow(along, stiffness) * sway_amplitude * gust;
-	VERTEX.x += sin(t) * bend;
-	VERTEX.z += cos(t * 0.81) * bend * 0.7;
+	// Every plant leans downwind and flutters about that lean; only the
+	// flutter takes the plant's own phase. Across the wind it moves less.
+	vec2 across = vec2(-wind_direction.y, wind_direction.x);
+	vec2 move = wind_direction * (0.6 + 0.4 * sin(t)) + across * cos(t * 0.81) * 0.25;
+	VERTEX.xz += move * bend;
 }
 
 void fragment() {
@@ -133,6 +143,14 @@ func _init(height_field: HeightField, seed_value: int) -> void:
 	_grass_material.set_shader_parameter("plant_height", 0.3)
 	_grass_material.set_shader_parameter("stiffness", 1.3)
 	_grass_material.set_shader_parameter("sway_speed", 2.1)
+
+## Hands the shared wind to both materials, so every plant reads the same air.
+func _blow() -> void:
+	var now := Wind.clock()
+	for material: ShaderMaterial in [_tree_material, _grass_material]:
+		material.set_shader_parameter("wind_direction", Wind.direction(now))
+		material.set_shader_parameter("wind_strength", Wind.strength(now))
+		material.set_shader_parameter("wind_clock", now)
 
 func follow(world_position: Vector3) -> void:
 	var tile := Vector2i(
@@ -360,6 +378,7 @@ func _notification(what: int) -> void:
 
 func _process(_delta: float) -> void:
 	_assemble_finished()
+	_blow()
 
 	var in_flight := _baking.size()
 	var started := 0

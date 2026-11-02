@@ -200,6 +200,11 @@ func _physics_process(delta: float) -> void:
 			arrow["landed"] = true
 		elif now.y <= field.height_at(now.x, now.z):
 			arrow["landed"] = true
+			# At 44 m/s the step ends most of a metre under the grass, and the
+			# arrow was left lying there, out of sight. Stood back on the ground.
+			now.y = field.height_at(now.x, now.z)
+			arrow["at"] = now
+			node.position = now
 			missed.emit()
 		elif float(arrow["age"]) > MAX_FLIGHT:
 			arrow["landed"] = true

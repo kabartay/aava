@@ -43,10 +43,12 @@ static func conifer(height := 6.0, seed_value := 0) -> ArrayMesh:
 	var flare := CylinderMesh.new()
 	flare.top_radius = height * 0.05
 	flare.bottom_radius = height * 0.09
-	flare.height = height * 0.08
+	# It reaches below the root as well as above, so on a slope the downhill
+	# side of the trunk still meets the ground.
+	flare.height = height * 0.16
 	flare.radial_segments = 6
 	flare.rings = 1
-	_append(tool, flare, Transform3D(Basis(), Vector3(0.0, height * 0.04, 0.0)), TRUNK_COLOR.darkened(0.15))
+	_append(tool, flare, Transform3D(Basis(), Vector3.ZERO), TRUNK_COLOR.darkened(0.15))
 
 	# Four skirts, each narrower and shorter than the one below it, each
 	# turned a little so the edges do not line up into a ridge.
@@ -101,12 +103,16 @@ static func broadleaf(height := 5.0, seed_value := 0) -> ArrayMesh:
 	var flare := CylinderMesh.new()
 	flare.top_radius = height * 0.07
 	flare.bottom_radius = height * 0.12
-	flare.height = height * 0.08
+	flare.height = height * 0.16
 	flare.radial_segments = 6
 	flare.rings = 1
-	_append(tool, flare, Transform3D(Basis(), Vector3(0.0, height * 0.04, 0.0)), TRUNK_COLOR.darkened(0.15))
+	_append(tool, flare, Transform3D(Basis(), Vector3.ZERO), TRUNK_COLOR.darkened(0.15))
 
 	# Two limbs out of the fork, leaning opposite ways into the crown.
+	#
+	# Each starts on the top of the trunk and runs outward from there. They were
+	# once placed by their middles and turned the wrong way, so each crossed the
+	# other and its foot hung a tenth of the tree's height clear of the trunk.
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		var limb := CylinderMesh.new()
 		limb.top_radius = height * 0.018
@@ -114,10 +120,17 @@ static func broadleaf(height := 5.0, seed_value := 0) -> ArrayMesh:
 		limb.height = height * 0.34
 		limb.radial_segments = 5
 		limb.rings = 1
-		var lean := deg_to_rad(side * rng.randf_range(20.0, 32.0))
+		var lean := deg_to_rad(rng.randf_range(20.0, 32.0))
+		var along := Vector3(side * sin(lean), cos(lean), 0.0)
+		# A turn about +z by a negative angle tips the top towards +x, so the
+		# sign is the opposite of the side it leans to. (Vector3.FORWARD is -z,
+		# which is how the old code came to lean the wrong way.)
 		_append(
 			tool, limb,
-			Transform3D(Basis(Vector3.FORWARD, lean), Vector3(side * height * 0.06, height * 0.66, 0.0)),
+			Transform3D(
+				Basis(Vector3.BACK, -side * lean),
+				Vector3(0.0, height * 0.5, 0.0) + along * limb.height * 0.5
+			),
 			TRUNK_COLOR
 		)
 

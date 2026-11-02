@@ -88,7 +88,11 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 		# rising away from the ride: a wall at the mouth of it.
 		var stand := Transform3D(
 			Basis(Vector3.RIGHT, end * rise),
-			Vector3(offset, TOP * 0.5 - 0.02, end * (LENGTH * 0.5 + RAMP_LENGTH * 0.5))
+			# Half the slab's thickness down from the slope's middle, so its
+			# *top* runs from the sand to the belt. At -0.02 the surface stood
+			# four centimetres proud all the way, a lip at the sand and a step
+			# onto the belt, which is exactly what the ramps are there to avoid.
+			Vector3(offset, TOP * 0.5 - 0.06, end * (LENGTH * 0.5 + RAMP_LENGTH * 0.5))
 		)
 		Park._add(tool, ramp, stand, SIDE)
 		Park._solid(_sides, ramp.size, stand)
@@ -118,24 +122,29 @@ func _build_belt(tool: SurfaceTool, offset: float, heading: float) -> void:
 	# The sides, which are what makes it read as a walkway rather than a strip
 	# of paint, and a handrail along each.
 	for edge: float in [-1.0, 1.0]:
+		# Standing on the sand, not hung from the belt's height: started at
+		# `TOP` it left a third of a metre of daylight under a wall that
+		# looked like a kerb, and the belt beside it floated.
 		var wall := BoxMesh.new()
-		wall.size = Vector3(0.14, 0.72, LENGTH)
+		wall.size = Vector3(0.14, TOP + 0.72, LENGTH)
 		Park._add(
 			tool, wall,
-			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), TOP + 0.36, 0.0)),
+			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), (TOP + 0.72) * 0.5, 0.0)),
 			SIDE
 		)
 		# Solid, so a child steps onto a belt at its ends rather than walking
 		# in through its side onto the edge of a moving floor.
 		Park._solid(
-			_sides, Vector3(0.14, 0.72, LENGTH),
-			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), TOP + 0.36, 0.0))
+			_sides, wall.size,
+			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), (TOP + 0.72) * 0.5, 0.0))
 		)
+		# The handrail rests on the wall's top, which is TOP + 0.72: it hung a
+		# centimetre above it.
 		var rail := BoxMesh.new()
 		rail.size = Vector3(0.10, 0.10, LENGTH)
 		Park._add(
 			tool, rail,
-			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), TOP + 0.78, 0.0)),
+			Transform3D(Basis(), Vector3(offset + edge * (WIDTH * 0.5 + 0.07), TOP + 0.76, 0.0)),
 			TREAD
 		)
 

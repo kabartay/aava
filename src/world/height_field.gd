@@ -159,15 +159,19 @@ static func ice_at(height: float, steep: float) -> float:
 ## Where snow stops holding, and where ice does. Gradients, on the same scale
 ## steepness_at answers with: 0.85 is about forty degrees and 1.35 about
 ## fifty-four, which is where a slope stops keeping anything at all.
-## Raised from 0.85/1.35. The range came out grey more than white — rock with
-## snow in the gullies — and the Caucasus from the north is the other way
-## about: white, with rock showing through where a face is too steep to hold
-## anything. Snow now holds to about fifty degrees and only lets go past
-## sixty-five, which on this range leaves the crags bare and covers the rest.
-const SNOW_HOLDS_TO := 1.2
-const SNOW_SLIDES_AT := 2.2
-const ICE_GATHERS_TO := 0.55
-const ICE_SLIDES_AT := 1.15
+## Snow holds to about fifty degrees and only lets go past sixty-five, which
+## on this range leaves the crags bare and covers the rest. These were 1.2 and
+## 2.2, numbers that are rise over run at those angles; steepness is
+## (1 - cos) / SHEER and tops out at 1.82 on a sheer wall, so 2.2 was never
+## reached and a vertical cliff kept a third of its snow. In steepness the
+## same angles are 0.65 and 1.05; they sit a little higher, at 0.75 and 1.25
+## (about sixty and seventy-two degrees), because at the true fifty the
+## shoulders came out half bare. Ice, which wants it gentler, lets go by
+## about sixty degrees.
+const SNOW_HOLDS_TO := 0.75
+const SNOW_SLIDES_AT := 1.25
+const ICE_GATHERS_TO := 0.3
+const ICE_SLIDES_AT := 0.9
 
 ## Left where it is. Lowering it to deepen the white band put snow below the
 ## treeline, and the bands have an order — wood, spruce, pasture, crag, snow —
@@ -285,6 +289,31 @@ func river_centre_x(z: float) -> float:
 
 func distance_to_river(x: float, z: float) -> float:
 	return absf(x - river_centre_x(z))
+
+## How fast the river carries something floating in it, in metres a second.
+## A fifth of a swimmer's pace (Player.SWIM_SPEED is 2.6): a six-year-old can
+## always swim against it, and still notices that a boat left alone moves.
+const RIVER_CURRENT := 0.5
+
+## The river's slope along its own line, dx/dz: the derivative of
+## river_centre_x, which the water shader takes of the same meander.
+func river_slope(z: float) -> float:
+	return 46.0 * 0.0038 * cos(z * 0.0038) + 22.0 * 0.0111 * cos(z * 0.0111 + 1.3)
+
+## Which way, and how fast, the water moves at a point, on the ground plane.
+## The river runs towards +z, following its own bends: along the centre line's
+## tangent rather than straight down the axis, or a swimmer would be carried
+## into the bank on every meander. It fades out over the bank, and is nothing at
+## all in a pond or the swimming pool, which are still water.
+func river_current_at(x: float, z: float) -> Vector2:
+	var strength := 1.0 - smoothstep(
+		RIVER_HALF_WIDTH * 0.5, RIVER_HALF_WIDTH + 2.0, absf(x - river_centre_x(z))
+	)
+	if strength <= 0.0 or Lakes.influence(x, z) > 0.0:
+		return Vector2.ZERO
+	if PlaceSpec.excavation(x, z, camp_centre()) > 0.0:
+		return Vector2.ZERO
+	return Vector2(river_slope(z), 1.0).normalized() * (RIVER_CURRENT * strength)
 
 ## Where the river runs under the bridge. Worked out once: it never moves, and
 ## every board of the deck would otherwise ask for it again.
@@ -743,6 +772,11 @@ const SHEER := 0.55
 ## trees off slopes they would visibly lean out of.
 func steepness_at(x: float, z: float) -> float:
 	return clampf(1.0 - normal_at(x, z).y, 0.0, 1.0) / SHEER
+
+## What steepness_at would read on ground rising this much per metre of run,
+## for callers that already have the gradient from a grid of heights.
+static func steepness_of_gradient(gradient: float) -> float:
+	return steepness_of(atan(gradient))
 
 ## The angle a piece of ground of this steepness stands at.
 ##

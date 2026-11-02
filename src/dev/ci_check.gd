@@ -72,6 +72,7 @@ func _initialize() -> void:
 	_check_animals_stay_on_the_ground()
 	_check_trees_are_solid()
 	_check_a_thrown_ball_comes_down_on_the_ring()
+	_check_a_lost_basketball_comes_home()
 	_check_the_aim_shows_where_the_ball_goes()
 	_check_animals_walk_round_the_playground()
 	_check_animals_walk_on_their_legs()
@@ -94,6 +95,7 @@ func _initialize() -> void:
 	_check_the_forest_is_asked_once()
 	_check_nobody_falls_out_of_the_world()
 	_check_snow_lies_on_the_shoulders()
+	_check_steepness_is_one_scale_and_snow_leaves_walls()
 	_check_a_horse_cannot_walk_through_a_wood()
 	_check_the_terrace_is_off_the_doorstep()
 	_check_the_shop_is_somewhere_you_walk_to()
@@ -152,6 +154,7 @@ func _initialize() -> void:
 	_check_the_view_can_be_swapped()
 	_check_what_moves_every_frame_is_not_interpolated()
 	_check_the_wheels_turn()
+	_check_a_boat_lies_level_and_wheels_touch_down()
 	_check_the_animals_walk_at_their_own_pace()
 	_check_nothing_leans_into_the_hill()
 	_check_a_sheep_is_solid_as_wide_as_she_looks()
@@ -180,8 +183,13 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_ride_trim_stays_in_its_place()
+	_check_the_small_fittings_meet_their_parts()
+	_check_trees_are_joined_up_and_have_room_between_them()
+	_check_one_wind_blows_over_the_valley()
 	_check_the_ride_dressing_stays_out_of_the_sweep()
 	_check_the_animals_come_in_several_coats()
+	_check_the_animals_have_heads_and_tails_that_move()
 	_check_the_camera_looks_past_the_ball_and_the_goal()
 	await _check_the_aim_follows_through_first_person()
 	_check_dusk_has_no_flash_of_ambient_light()
@@ -243,6 +251,7 @@ func _initialize() -> void:
 	# read past them.
 	await _check_a_jump_from_the_saddle_is_a_jump()
 	await _check_a_child_can_swim_down()
+	await _check_the_river_has_a_gentle_current()
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
 	_check_a_rider_stays_on_a_bank()
 	_check_the_bridge_carries_what_crosses_it()
@@ -4827,6 +4836,17 @@ func _check_a_child_can_swim_down() -> void:
 	_expect(
 		Atmosphere.UNDER_SEES_SHALLOW < Atmosphere.FOG_BEGIN,
 		"and you see less far under the water than the air even begins to hide"
+	)
+	sky.set_time(0.0)
+	for frame in 90:
+		sky.go_under(2.0, step)
+	var night_water: Color = sky.get_child(0).environment.fog_light_color
+	sky.set_time(0.5)
+	var day_water: Color = sky.get_child(0).environment.fog_light_color
+	_expect(
+		night_water.get_luminance() < day_water.get_luminance() * 0.3,
+		"the water is not lit green at midnight (%.3f against %.3f at noon)" % [
+			night_water.get_luminance(), day_water.get_luminance()]
 	)
 	sky.queue_free()
 
@@ -14441,3 +14461,412 @@ func _check_the_camp_forgets_and_remembers_rightly() -> void:
 		_fail("a tree felled where a stump was grubbed out left no stump")
 	else:
 		_ok("a second felling leaves its stump")
+
+## The streamed ground and the far ring have to read steepness on one scale,
+## and snow has to let go of a wall that can actually occur. The chunk fed the
+## tint rise-over-run while the far ring fed it steepness_at, and the snow
+## limits sat past the largest steepness there is (1 / SHEER), so a sheer face
+## kept a third of its snow.
+func _check_steepness_is_one_scale_and_snow_leaves_walls() -> void:
+	print("steepness is one scale and snow leaves walls")
+	var field := HeightField.new(20260903)
+	var worst := 0.0
+	for i in 60:
+		var x := float(i) * 17.0 - 500.0
+		var z := 530.0 + float(i % 7) * 23.0
+		var e := 0.75
+		var gradient := Vector2(
+			field.height_at(x + e, z) - field.height_at(x - e, z),
+			field.height_at(x, z + e) - field.height_at(x, z - e)
+		).length() / (2.0 * e)
+		worst = maxf(worst, absf(HeightField.steepness_of_gradient(gradient) - field.steepness_at(x, z)))
+	_expect(worst < 0.01, "a grid gradient gives the steepness steepness_at gives (off by %.3f)" % worst)
+	var sheer := 1.0 / HeightField.SHEER
+	_expect(
+		HeightField.SNOW_SLIDES_AT < sheer,
+		"snow lets go before a sheer wall (%.2f against %.2f)" % [HeightField.SNOW_SLIDES_AT, sheer]
+	)
+	var wall := HeightField.snow_at(HeightField.SNOWLINE + 60.0, sheer)
+	_expect(wall < 0.02, "a sheer wall above the snowline is bare (%.2f)" % wall)
+
+func _check_one_wind_blows_over_the_valley() -> void:
+	var worst_turn := 0.0
+	var worst_step := 0.0
+	var lowest := 9.0
+	var highest := -9.0
+	for i in 6000:
+		var t := float(i)
+		worst_turn = maxf(worst_turn, absf(Wind.angle(t + 1.0) - Wind.angle(t)))
+		worst_step = maxf(worst_step, absf(Wind.strength(t + 1.0) - Wind.strength(t)))
+		lowest = minf(lowest, Wind.strength(t))
+		highest = maxf(highest, Wind.strength(t))
+	_expect(worst_turn < 0.02 and worst_step < 0.06, "the wind drifts, it does not jump (%.3f rad, %.3f per second)" % [worst_turn, worst_step])
+	_expect(lowest >= 0.15 and highest <= 1.0 and highest - lowest > 0.4, "the wind has calm spells and blustery ones (%.2f to %.2f)" % [lowest, highest])
+	_expect(Wind.direction(100.0).is_normalized(), "the wind direction is a unit vector")
+	_expect(
+		Vegetation.WIND_SHADER.contains("wind_direction") and not Vegetation.WIND_SHADER.contains("TIME * 0.27"),
+		"the plants lean the way the valley's wind blows"
+	)
+	var source := FileAccess.get_file_as_string("res://src/audio/ambience.gd")
+	_expect(source.contains("Wind.strength(") and not source.contains("_weather_target"), "the wind sound reads the valley's wind")
+
+## The river carries a swimmer gently downstream; ponds and the pool are still.
+func _check_the_river_has_a_gentle_current() -> void:
+	print("the river has a gentle current")
+	var field := HeightField.new(20260903)
+	var worst := 0.0
+	var wrong_way := 0
+	for z in range(-1200, 1201, 40):
+		var middle := field.river_current_at(field.river_centre_x(float(z)), float(z))
+		worst = maxf(worst, middle.length())
+		if middle.y <= 0.0:
+			wrong_way += 1
+		# Along the bend: the current points where the centre line goes.
+		var ahead := Vector2(field.river_slope(float(z)), 1.0).normalized()
+		if middle.normalized().dot(ahead) < 0.999:
+			_fail("the current at z=%d does not follow the river's bend" % z)
+			return
+	_expect(wrong_way == 0, "the river flows one way along its whole length")
+	_expect(worst > 0.1, "there is a current in the river (%.2f m/s)" % worst)
+	_expect(
+		worst <= Player.SWIM_SPEED * 0.25,
+		"and a six-year-old can always swim against it (%.2f of %.1f m/s)" % [worst, Player.SWIM_SPEED]
+	)
+	var far := field.river_centre_x(0.0) + 200.0
+	_expect(field.river_current_at(far, 0.0) == Vector2.ZERO, "none on dry land far from the river")
+	for pond in Lakes.count():
+		var at := Vector2(Lakes.at(pond, Lakes.POND_X), Lakes.at(pond, Lakes.POND_Z))
+		_expect(
+			field.river_current_at(at.x, at.y) == Vector2.ZERO,
+			"pond %d is still water" % pond
+		)
+	var pool := PlaceSpec.centre_of(Places.POOL, field.camp_centre())
+	_expect(field.river_current_at(pool.x, pool.z) == Vector2.ZERO, "the pool is still water")
+
+	# And it moves a swimmer: drifting downstream when nobody swims.
+	var swimmer := Player.new()
+	get_root().add_child(swimmer)
+	swimmer.global_position = Vector3(400.0, 0.0, 400.0)
+	swimmer.current = Vector2(0.0, HeightField.RIVER_CURRENT)
+	for frame in 90:
+		swimmer.water_depth = 3.0
+		await physics_frame
+	_expect(
+		swimmer.velocity.z > HeightField.RIVER_CURRENT * 0.5,
+		"a swimmer who stops swimming is carried downstream (%.2f m/s)" % swimmer.velocity.z
+	)
+	swimmer.queue_free()
+
+## A broadleaf's limbs grow from the top of its trunk and lean outward, its
+## trunk goes below the root so a slope cannot lift it, and no two trees in a
+## tile stand too close together to walk between.
+##
+## The limbs were once placed by their middles and tipped the wrong way: each
+## crossed the other, and its foot hung a tenth of the tree's height clear of
+## the trunk, so the crown floated on two loose sticks.
+func _check_trees_are_joined_up_and_have_room_between_them() -> void:
+	print("trees are joined up and have room between them")
+	var height := 5.0
+	var mesh := PlantMeshes.broadleaf(height, 3)
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var foot_reach := 0.0
+	var tip_reach := INF
+	var low := INF
+	for i in vertices.size():
+		low = minf(low, vertices[i].y)
+		# Only the bark-coloured parts above the trunk's top are limb.
+		# Bark is brown: red well above blue. Leaf is green, so this tells them
+		# apart without depending on the exact stored colour.
+		if colours[i].r > colours[i].g and vertices[i].y > height * 0.5:
+			if vertices[i].y < height * 0.56:
+				foot_reach = maxf(foot_reach, absf(vertices[i].x))
+			if vertices[i].y > height * 0.78:
+				tip_reach = minf(tip_reach, absf(vertices[i].x))
+	_expect(foot_reach > 0.0 and tip_reach < INF, "the limbs were found in the mesh")
+	_expect(foot_reach < height * 0.1, "a limb's foot is on the trunk (%.2f m out)" % foot_reach)
+	_expect(tip_reach > height * 0.06, "and its tip leans out (%.2f m from the axis)" % tip_reach)
+	_expect(low < 0.0, "the trunk goes below the root, so a slope cannot lift it")
+	var spruce := PlantMeshes.conifer(6.4, 0)
+	var spruce_low := INF
+	for v in spruce.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array:
+		spruce_low = minf(spruce_low, v.y)
+	_expect(spruce_low < 0.0, "and so does a conifer's")
+
+	var field := HeightField.new(20260903)
+	var crowded := 0
+	var counted := 0
+	for z in range(-6, 7):
+		for x in range(-6, 7):
+			var grown := VegetationTile.generate_trees(field, Vector2i(x, z), 32, 20260903, null)
+			counted += grown.size()
+			for a in grown.size():
+				for b in range(a + 1, grown.size()):
+					var pa: Vector3 = grown[a]["position"]
+					var pb: Vector3 = grown[b]["position"]
+					if Vector2(pa.x - pb.x, pa.z - pb.z).length() < VegetationTile.MIN_TREE_GAP - 0.001:
+						crowded += 1
+	_expect(counted > 20, "there are %d trees to compare" % counted)
+	_expect(crowded == 0, "%d pairs of trees stand too close to walk between" % crowded)
+
+## The little fittings are drawn from parts, and a part that does not reach the
+## one it belongs to is the kind of fault a child sees at once: a plaque with a
+## great round disc rising behind it, a lantern hung in the air over its post,
+## a walkway with a lip at its mouth and daylight under its walls. Each is
+## measured where it is made.
+func _check_the_small_fittings_meet_their_parts() -> void:
+	print("the small fittings meet their parts")
+
+	# An enamel plaque's round top is as high as it was asked to be, not as high
+	# as the plaque is wide.
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	Plaque.build(tool, 0.0, Vector3.ZERO, 5.0, 1.35, 0.52)
+	tool.generate_normals()
+	var box := tool.commit().get_aabb()
+	_expect(
+		box.end.y < 1.35 * 0.5 + 0.52 + 0.01,
+		"a plaque's arch rises %.2f m above its body, not the half-width" % (box.end.y - 1.35 * 0.5)
+	)
+	_expect(box.size.x < 5.0 + 0.01, "and is no wider than the plaque")
+
+	# The writing stands clear of the enamel field, whatever depth the plaque
+	# was built to: a label on the very surface is a label that flickers.
+	var holder := Node3D.new()
+	for depth: float in [0.12, 0.10]:
+		Plaque.write(holder, 0.0, Vector3.ZERO, [["X", 0.0, 0.002]], depth)
+	var field_faces: Array[float] = [0.12 * 0.5 + Plaque.LAYER_STEP, 0.10 * 0.5 + Plaque.LAYER_STEP]
+	var clear := true
+	for index in 2:
+		var label := holder.get_child(index * 2) as Label3D
+		clear = clear and label.position.z > field_faces[index] + 0.005
+	_expect(clear, "the writing floats in front of the blue field of a plaque of either depth")
+	holder.free()
+
+	# Lanterns sit on their posts.
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var hung := 0
+	for lamp: Dictionary in places._lamps:
+		var pane: MeshInstance3D = lamp["glass"]
+		var world := places.position + pane.position
+		# The post is footed a hand's breadth into the ground and is `height`
+		# tall; the lit pane's foot is 0.13 under its middle.
+		var post_top := field.height_at(world.x, world.z) - 0.05
+		var gap := (world.y - 0.13) - post_top
+		var heights := [Places.LAMP_HEIGHT, Places.PITCH_LAMP_HEIGHT]
+		var matched := false
+		for height: float in heights:
+			matched = matched or absf(gap - height) < 0.03
+		if not matched:
+			hung += 1
+	_expect(hung == 0, "%d of %d lanterns are off the end of their posts" %[hung, places._lamps.size()])
+	places.queue_free()
+
+	# The walkway: ramps that run from the sand to the belt without a lip, and
+	# walls that stand on the sand.
+	var walkway := Walkway.new(Vector3.ZERO)
+	var lipped := 0
+	var floating := 0
+	for child in walkway._sides.get_children():
+		var shape := (child as CollisionShape3D).shape as BoxShape3D
+		var where := (child as CollisionShape3D).transform
+		if shape.size.y < 0.2:
+			var outer := where * Vector3(0.0, shape.size.y * 0.5, shape.size.z * 0.5)
+			var inner := where * Vector3(0.0, shape.size.y * 0.5, -shape.size.z * 0.5)
+			if absf(outer.z) < absf(inner.z):
+				var swap := outer
+				outer = inner
+				inner = swap
+			if outer.y > 0.01 or inner.y > Walkway.TOP + 0.01 or inner.y < Walkway.TOP - 0.01:
+				lipped += 1
+		elif where.origin.y - shape.size.y * 0.5 > 0.01:
+			floating += 1
+	_expect(lipped == 0, "no ramp has a lip at the sand or a step at the belt (%d do)" % lipped)
+	_expect(floating == 0, "no side wall hangs above the ground (%d do)" % floating)
+	walkway.free()
+
+	# The fairground's gateway carries its name on the beam, not over it.
+	var park := Park.new(field)
+	var ground := park.get_node("Ground") as MeshInstance3D
+	var top := ground.get_aabb().end.y - ParkSpec.LEVEL
+	_expect(top < 5.2 + 0.64 + 0.7 + 0.52 + 0.05, "the gateway's plate stands on its beam (top %.2f m)" % top)
+	park.free()
+
+## The head and the tail are nodes of their own, so that a cow can graze, a dog
+## can wag and a cat can look round — and the sheep and the cow wear no dog's
+## tail.
+##
+## `_add_tail` ended in a `_:` that was meant for the dog, so the sheep and the
+## cow both fell through to it and carried a curled dog's tail with a pale tuft
+## beside their own: a small white stick standing up from a cow's rump.
+func _check_the_animals_have_heads_and_tails_that_move() -> void:
+	print("the animals have heads and tails that move")
+	for kind: StringName in AnimalKinds.ALL:
+		var bare := SurfaceTool.new()
+		bare.begin(Mesh.PRIMITIVE_TRIANGLES)
+		AnimalKinds._add_tail(bare, kind, 1.0, Color.WHITE, 1.5)
+		var drawn := bare.commit().get_surface_count() > 0
+		var has_one := kind in [AnimalKinds.CAT, AnimalKinds.DOG, AnimalKinds.SQUIRREL, AnimalKinds.BEAVER]
+		_expect(drawn == has_one, "the %s's tail is drawn only for a cat, dog, squirrel or beaver (drawn: %s)" % [kind, drawn])
+
+		var node := AnimalKinds.build_node(kind)
+		var body := node.get_node("Body") as MeshInstance3D
+		var head := node.get_node_or_null("Head") as MeshInstance3D
+		_expect(body.get_child_count() == 4, "the %s's body still has only its legs" % kind)
+		_expect(head != null and head.mesh != null, "the %s has a head of its own" % kind)
+		var trunk := body.mesh.get_aabb().grow(0.05)
+		if head != null:
+			var box := head.mesh.get_aabb()
+			box.position += head.position
+			_expect(trunk.intersects(box), "the %s's head is joined to her" % kind)
+		var tail := node.get_node_or_null("Tail") as MeshInstance3D
+		_expect((tail != null) == AnimalKinds.TAILS.has(kind), "the %s has a tail node if it wags one" % kind)
+		if tail != null:
+			var box := tail.mesh.get_aabb()
+			box.position += tail.position
+			_expect(trunk.intersects(box), "the %s's tail is joined to her" % kind)
+		node.free()
+
+	# A grazing head reaches the grass without going into it.
+	for kind: StringName in Animals.GRAZE_PITCH:
+		var mesh := AnimalKinds.head_mesh(kind) as ArrayMesh
+		var lowest := 1000.0
+		var turn := Transform3D(Basis(Vector3.RIGHT, -float(Animals.GRAZE_PITCH[kind])), AnimalKinds.head_pivot(kind))
+		for point in mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array:
+			lowest = minf(lowest, (turn * point).y)
+		var size := AnimalKinds.size_of(kind)
+		_expect(
+			lowest > -0.04 * size and lowest < 0.25 * size,
+			"a grazing %s's mouth is %.2f m off the ground" % [kind, lowest]
+		)
+
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var at := Vector3(0.0, field.height_at(0.0, 0.0), 0.0)
+
+	# Standing about, a cow drops her head to the grass and does not choose to
+	# walk off while it is down; a dog's tail wags.
+	seed(7)
+	var cow := animals.put_one_at(AnimalKinds.COW, at)
+	cow["rest"] = 0.1
+	var lowest_head := 0.0
+	var wandered := false
+	for _frame in 60 * 40:
+		animals._step(cow, 1.0 / 60.0)
+		lowest_head = minf(lowest_head, ((cow["node"] as Node3D).get_node("Head") as Node3D).rotation.x)
+		if (cow["target"] as Vector3).distance_to(at) > 0.5 and bool(cow.get("graze", false)):
+			wandered = true
+	_expect(lowest_head < -0.45,"a cow standing for forty seconds puts her head down (%.0f degrees)" % rad_to_deg(lowest_head))
+	_expect(not wandered, "and does not choose to walk off with it down")
+
+	var dog := animals.put_one_at(AnimalKinds.DOG, at + Vector3(30.0, 0.0, 0.0))
+	dog["rest"] = 99.0
+	var wagged := 0.0
+	for _frame in 120:
+		animals._step(dog, 1.0 / 60.0)
+		wagged = maxf(wagged, absf(((dog["node"] as Node3D).get_node("Tail") as Node3D).rotation.y))
+	_expect(wagged > 0.05, "a dog's tail moves (%.0f degrees)" % rad_to_deg(wagged))
+
+	# And the gait matches the speed: a cat bolting swings its legs further
+	# than the same cat strolling, and runs rather than walks.
+	_expect(Animals.run_of(AnimalKinds.CAT, Animals.pace_of(AnimalKinds.CAT)) == 0.0, "at its own pace a cat is walking")
+	_expect(Animals.run_of(AnimalKinds.CAT, Animals.FLEE_SPEED) > 0.9, "and fleeing at %.1f m/s it is running" % Animals.FLEE_SPEED)
+	var swings: Array[float] = []
+	for speed: float in [Animals.pace_of(AnimalKinds.CAT), Animals.FLEE_SPEED]:
+		var cat := animals.put_one_at(AnimalKinds.CAT, at + Vector3(60.0, 0.0, 0.0))
+		cat["target"] = at + Vector3(60.0, 0.0, -400.0)
+		cat["speed"] = speed
+		var widest := 0.0
+		for frame in 180:
+			animals._step(cat, 1.0 / 60.0)
+			if frame > 90:
+				for i in 4:
+					widest = maxf(widest, absf(((cat["node"] as Node3D).get_node("Body/Leg%d" % i) as Node3D).rotation.x))
+		swings.append(widest)
+	_expect(swings[1] > swings[0] * 1.2, "a bolting cat swings its legs %.0f degrees against %.0f strolling" % [rad_to_deg(swings[1]), rad_to_deg(swings[0])])
+	animals.queue_free()
+
+## A gondola's trim must stay inside the hoops it hangs between: the yellow
+## capping on its walls is drawn only, and must never reach where the rim sweeps.
+func _check_the_ride_trim_stays_in_its_place() -> void:
+	print("the ride trim stays in its place")
+	var park := Park.new(HeightField.new(20260903))
+	get_root().add_child(park)
+	var car: Node3D = park.wheel.gondola(0)
+	var worst := 0.0
+	for child in car.get_children():
+		if child is MeshInstance3D and child.name != "Rail":
+			var box: AABB = (child as MeshInstance3D).get_aabb()
+			worst = maxf(worst, maxf(absf(box.position.x), absf(box.end.x)))
+	_expect(
+		worst <= FerrisWheel.HOOP_X + 0.25,
+		"a gondola's drawing reaches %.2f m across, hoops stand at %.2f" % [worst, FerrisWheel.HOOP_X]
+	)
+	park.queue_free()
+
+## A boat lies on the water, and a wheel stands on the ground.
+##
+## A boat was tipped to the bed under it, as everything else here is: the pond
+## shelves, so a boat in wading depth near the bank stood with its bow or its
+## side in the air, over water that is perfectly flat. And a quad's axles were
+## hung a couple of centimetres lower than its tyres are tall, which put the
+## tyres into the ground they stood on. Every wheeled machine's axle must be
+## exactly one radius up.
+func _check_a_boat_lies_level_and_wheels_touch_down() -> void:
+	print("a boat lies level and wheels touch down")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	mounts.launch_boats(0, 5)
+	var worst := 0.0
+	for i in 5:
+		var node := mounts.node_of(MountKinds.boat_id(i))
+		worst = maxf(worst, node.transform.basis.y.angle_to(Vector3.UP))
+	_expect(worst < 0.01, "boats on flat water are level: worst lean %.1f degrees" % rad_to_deg(worst))
+	mounts.queue_free()
+	for kind: StringName in [MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD]:
+		for spot in MountKinds.wheel_spots(kind):
+			_expect(
+				absf(spot.y - MountKinds.wheel_radius(kind)) < 0.005,
+				"a %s's axle is %.3f up and its tyre %.3f tall" % [kind, spot.y, MountKinds.wheel_radius(kind)]
+			)
+
+## A basketball that fell through the world before its chunk's collision
+## arrived fell for ever: it was never "at rest" and never far from home on the
+## flat, so nothing sent it back. One sunk in a pond was as lost to a child.
+func _check_a_lost_basketball_comes_home() -> void:
+	print("a basketball that falls through the world or sinks comes home")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var ball: Ball = places._balls[0]
+	var home := ball.home
+	ball.position = home + Vector3(0.0, -400.0, 0.0)
+	ball.linear_velocity = Vector3(0.0, -30.0, 0.0)
+	places._watch_balls()
+	_expect(ball.position.distance_to(home) < 1.0, "a ball 400 m under the ground is put back by the hoop (at %s)" % ball.position)
+	places.queue_free()
+
+	# And an arrow that lands comes to rest on the grass, not under it.
+	var range_ := Archery.new(field)
+	get_root().add_child(range_)
+	var ground := field.height_at(0.0, 0.0)
+	var node := Node3D.new()
+	range_.add_child(node)
+	range_._arrows.append({
+		"at": Vector3(0.0, ground + 0.2, 0.0), "velocity": Vector3(0.0, -44.0, 0.0),
+		"age": 0.0, "landed": false, "rest": 0.0, "node": node,
+	})
+	range_._physics_process(1.0 / 60.0)
+	_expect(
+		absf(node.position.y - ground) < 0.01,
+		"a landed arrow lies on the ground (%.2f m off)" % (node.position.y - ground)
+	)
+	range_.queue_free()
+

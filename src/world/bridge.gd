@@ -191,7 +191,7 @@ func _build() -> void:
 			Bridge._add(
 				tool, cap,
 				Transform3D(Basis(), Vector3(
-					at_x, deck + BridgeSpec.RAIL_HEIGHT + 0.20, rail_z
+					at_x, deck + BridgeSpec.RAIL_HEIGHT + 0.09, rail_z
 				)),
 				TIMBER
 			)
@@ -269,7 +269,7 @@ func _build_name(tool: SurfaceTool, river_x: float) -> void:
 	Plaque.write(self, yaw, centre, [
 		["PONT DU", 0.20, 0.0018],
 		["LAC MAGNIFIQUE", -0.13, 0.0028],
-	])
+	], 0.10)
 
 ## The deck's collision: one continuous prism swept along the arch.
 ##

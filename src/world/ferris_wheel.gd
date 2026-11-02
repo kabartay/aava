@@ -506,6 +506,13 @@ func _build_car(index: int) -> AnimatableBody3D:
 		panel.size = size
 		Park._add(tool, panel, Transform3D(Basis(), where), STEEL)
 		_solid(car, size, where)
+		# A painted capping along the top of each wall, in the colour of the
+		# bar across the doorway: a plain steel panel is a hoarding, and a
+		# yellow edge is what makes it a car. It stands a hair proud of the
+		# wall each way and is drawn only, so the collider is the wall's own.
+		var capping := BoxMesh.new()
+		capping.size = size * Vector3(1.0 if size.x > size.z else 1.6, 0.0, 1.0 if size.z > size.x else 1.6) + Vector3(0.0, 0.10, 0.0)
+		Park._add(tool, capping, Transform3D(Basis(), where + Vector3(0.0, size.y * 0.5 + 0.02, 0.0)), BAR_COLOUR)
 
 	# The doorway: a sill across the floor and a post at each jamb, so the way
 	# in reads as a way in rather than as a missing wall.

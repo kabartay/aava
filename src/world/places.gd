@@ -2621,8 +2621,8 @@ func _build_pool(at: Vector3) -> void:
 	var buoy := TorusMesh.new()
 	buoy.inner_radius = 0.18
 	buoy.outer_radius = 0.32
-	buoy.rings = 8
-	buoy.ring_segments = 14
+	buoy.rings = 14
+	buoy.ring_segments = 8
 	_add(tool, buoy, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(2.0, 0.9, -POOL_FENCE_Z - 0.08)), Color(0.90, 0.28, 0.24))
 
 	# The way in: gate posts, the turnstile itself (its own body, so it can
@@ -3697,7 +3697,13 @@ func _watch_balls() -> void:
 			baskets += 1
 			basket.emit(baskets)
 		var home_distance := Vector2(ball.position.x - ball.home.x, ball.position.z - ball.home.z).length()
-		if home_distance > 28.0 and ball.at_rest():
+		# Fallen through the world, or sunk in a pond: the ground is only solid
+		# near the child, and a ball that dropped before its chunk's collision
+		# arrived falls for ever, never "at rest" and never far from home on
+		# the flat. One lying on a pond bed is as lost to a child as that.
+		var wet_at := field.water_level_at(ball.position.x, ball.position.z) + 0.1
+		var lost := now < wet_at or now < ball.home.y - 8.0
+		if lost or (home_distance > 28.0 and ball.at_rest()):
 			ball.reset_to(ball.home)
 
 ## A round trampoline: a frame on legs and a dark mat stretched across it. The
@@ -3709,8 +3715,10 @@ func _build_trampoline(at: Vector3, solid: StaticBody3D) -> void:
 	var frame := TorusMesh.new()
 	frame.inner_radius = TRAMPOLINE_RADIUS - 0.08
 	frame.outer_radius = TRAMPOLINE_RADIUS + 0.06
-	frame.rings = 8
-	frame.ring_segments = 28
+	# `rings` is the major circle, the frame's own outline; eight of them made
+	# the frame an octagon that the round mat and the legs stuck out of.
+	frame.rings = 28
+	frame.ring_segments = 8
 	_add(tool, frame, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP, 0.0)), frame_colour)
 	for i in 12:
 		var angle := TAU * float(i) / 12.0
@@ -3756,7 +3764,9 @@ func _build_hoop(at: Vector3, solid: StaticBody3D) -> void:
 	# The board faces +X, into the playground.
 	var board := BoxMesh.new()
 	board.size = Vector3(0.08, 1.15, 1.8)
-	var board_at := HOOP + Vector3(0.12, HOOP_HEIGHT + 0.35, 0.0)
+	# Its back face on the pole's axis side, so the board is bolted to the pole
+	# rather than hanging two centimetres off it.
+	var board_at := HOOP + Vector3(0.08, HOOP_HEIGHT + 0.35, 0.0)
 	_add(tool, board, Transform3D(Basis(), board_at), Color(0.95, 0.95, 0.92))
 	var board_shape := BoxShape3D.new()
 	board_shape.size = board.size
@@ -3767,9 +3777,18 @@ func _build_hoop(at: Vector3, solid: StaticBody3D) -> void:
 	var ring := TorusMesh.new()
 	ring.inner_radius = HOOP_RING - 0.02
 	ring.outer_radius = HOOP_RING + 0.02
-	ring.rings = 6
-	ring.ring_segments = 20
+	ring.rings = 20
+	ring.ring_segments = 6
 	_add(tool, ring, Transform3D(Basis(), HOOP + Vector3(HOOP_REACH, HOOP_HEIGHT, 0.0)), Color(0.90, 0.42, 0.14))
+	# The bracket that joins the ring to the board: without it the ring floats
+	# a few centimetres out from the face it is meant to be screwed to.
+	var bracket := BoxMesh.new()
+	var board_face := 0.12
+	var ring_back := HOOP_REACH - HOOP_RING - 0.02
+	bracket.size = Vector3(ring_back - board_face + 0.02, 0.04, 0.10)
+	_add(tool, bracket, Transform3D(Basis(), HOOP + Vector3(
+		(board_face + ring_back) * 0.5, HOOP_HEIGHT, 0.0
+	)), Color(0.90, 0.42, 0.14))
 	# A few strands of net, so it reads as a hoop from the far side of the pad.
 	for i in 8:
 		var angle := TAU * float(i) / 8.0
@@ -3798,8 +3817,8 @@ func _build_bin(at: Vector3, local: Vector3, solid: StaticBody3D) -> void:
 	var rim := TorusMesh.new()
 	rim.inner_radius = 0.19
 	rim.outer_radius = 0.25
-	rim.rings = 6
-	rim.ring_segments = 12
+	rim.rings = 12
+	rim.ring_segments = 6
 	_add(tool, rim, Transform3D(Basis(), local + Vector3(0.0, 0.72, 0.0)), Color(0.30, 0.31, 0.34))
 	_finish_into(tool, at)
 	var shape := CylinderShape3D.new()
@@ -3839,8 +3858,8 @@ func _build_fountain(at: Vector3, solid: StaticBody3D) -> void:
 	var lip := TorusMesh.new()
 	lip.inner_radius = 0.96
 	lip.outer_radius = 1.20
-	lip.rings = 8
-	lip.ring_segments = 24
+	lip.rings = 24
+	lip.ring_segments = 8
 	_add(tool, lip, Transform3D(Basis(), FOUNTAIN + Vector3(0.0, 0.56, 0.0)), pale)
 	var pool := CylinderMesh.new()
 	pool.top_radius = 1.0
@@ -3963,7 +3982,9 @@ func _build_lamp(
 	_collide(solid, post_shape, Transform3D(Basis(), local + Vector3(0.0, height * 0.5, 0.0)))
 
 	# The lantern: a pale pane in an iron frame, with a little roof.
-	var head_at := local + Vector3(0.0, height + 0.17, 0.0)
+	# Seated on the post's end: the post stops at `height` and the pane's foot
+	# is there, not a hand's breadth above it where the lantern hung in the air.
+	var head_at := local + Vector3(0.0, height + 0.12, 0.0)
 	var glass := BoxMesh.new()
 	glass.size = Vector3(0.26, 0.24, 0.26)
 	_add(tool, glass, Transform3D(Basis(), head_at), pane)
@@ -4047,8 +4068,8 @@ func _build_flower_bed(at: Vector3, local: Vector3) -> void:
 	var earth := TorusMesh.new()
 	earth.inner_radius = 0.72
 	earth.outer_radius = 0.98
-	earth.rings = 6
-	earth.ring_segments = 18
+	earth.rings = 18
+	earth.ring_segments = 6
 	_add(tool, earth, Transform3D(Basis(), local + Vector3(0.0, 0.06, 0.0)), Color(0.40, 0.28, 0.18))
 	var petals: Array[Color] = [
 		Color(0.90, 0.24, 0.30), Color(0.98, 0.82, 0.22), Color(0.94, 0.52, 0.72),
@@ -4113,8 +4134,10 @@ func _build_bench(at: Vector3, local: Vector3, solid: StaticBody3D) -> void:
 	_add(tool, seat, Transform3D(Basis(), local + Vector3(0.0, 0.46, 0.0)), wood)
 	var back := BoxMesh.new()
 	back.size = Vector3(1.7, 0.36, 0.06)
+	# Leaning back, away from the sitter: the seat faces -Z, so the top of the
+	# back goes towards +Z. It was tipped the other way, over the seat.
 	_add(tool, back, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(-12.0)), local + Vector3(0.0, 0.74, 0.24)
+		Basis(Vector3.RIGHT, deg_to_rad(12.0)), local + Vector3(0.0, 0.74, 0.24)
 	), wood)
 	for side in PackedFloat32Array([-0.75, 0.75]):
 		var leg := BoxMesh.new()
@@ -4123,7 +4146,7 @@ func _build_bench(at: Vector3, local: Vector3, solid: StaticBody3D) -> void:
 		var upright := BoxMesh.new()
 		upright.size = Vector3(0.06, 0.44, 0.06)
 		_add(tool, upright, Transform3D(
-			Basis(Vector3.RIGHT, deg_to_rad(-12.0)), local + Vector3(side, 0.70, 0.24)
+			Basis(Vector3.RIGHT, deg_to_rad(12.0)), local + Vector3(side, 0.70, 0.24)
 		), iron)
 	tool.generate_normals()
 	tool.set_material(_material())

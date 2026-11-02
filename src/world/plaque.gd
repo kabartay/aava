@@ -17,7 +17,7 @@ const OFF_WHITE := Color(0.92, 0.93, 0.90)
 ## How proud of the green each inner layer sits, and how far the writing floats
 ## in front of the field.
 const LAYER_STEP := 0.03
-const WRITING_OUT := 0.09
+const WRITING_OUT := 0.015
 
 ## Add the enamel itself to a surface, facing along `yaw` with its middle at
 ## `centre`. `arch` is how far the round top rises above the body.
@@ -58,8 +58,12 @@ static func build(
 		cap.height = deep
 		cap.radial_segments = 20
 		cap.rings = 1
+		# Squashed in height, which is the world's y once the disc is on its
+		# side. `scaled` works on world axes, so scaling z flattened the
+		# plaque's thickness instead and left a full round disc as wide as the
+		# plaque standing behind it, metres above the body.
 		var lie := Basis(Vector3.RIGHT, PI * 0.5).scaled(
-			Vector3(1.0, 1.0, rise / (wide * 0.5))
+			Vector3(1.0, rise / (wide * 0.5), 1.0)
 		)
 		Plaque._add(
 			tool, cap,
@@ -86,7 +90,7 @@ static func build(
 				Transform3D(turn * Basis(Vector3.RIGHT, PI * 0.5), turn * (centre + Vector3(
 					corner.x * (width * 0.5 - boss_radius * 0.95),
 					corner.y * (body * 0.5 - boss_radius * 0.95),
-					face * (depth * 0.5 + LAYER_STEP * 2.0)
+					face * (depth * 0.5 + LAYER_STEP * 2.0 - 0.01)
 				))),
 				GREEN.lightened(0.18)
 			)
@@ -94,8 +98,14 @@ static func build(
 ## Hang the writing on both faces. `lines` holds [text, height above centre,
 ## pixel size] for each line, and both faces get all of them, so the plaque
 ## reads from either side.
-static func write(parent: Node3D, yaw: float, centre: Vector3, lines: Array) -> void:
+##
+## `depth` is the one the plaque was built with. The writing floats a hair in
+## front of the blue field, whose face is `LAYER_STEP` past the slab's own: a
+## fixed 0.09 put it exactly on the field of a 0.12 plaque, and a label
+## coplanar with a surface flickers against it.
+static func write(parent: Node3D, yaw: float, centre: Vector3, lines: Array, depth := 0.12) -> void:
 	var turn := Basis(Vector3.UP, yaw)
+	var out := depth * 0.5 + LAYER_STEP + WRITING_OUT
 	for face: float in [1.0, -1.0]:
 		for line: Array in lines:
 			var label := Label3D.new()
@@ -105,7 +115,7 @@ static func write(parent: Node3D, yaw: float, centre: Vector3, lines: Array) -> 
 			label.modulate = OFF_WHITE
 			label.rotation.y = yaw + (0.0 if face > 0.0 else PI)
 			label.position = turn * (
-				centre + Vector3(0.0, float(line[1]), face * WRITING_OUT)
+				centre + Vector3(0.0, float(line[1]), face * out)
 			)
 			parent.add_child(label)
 

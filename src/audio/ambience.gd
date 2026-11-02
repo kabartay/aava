@@ -73,8 +73,6 @@ var _leaf_level := 0.0
 ## sounds like a machine left running. This drifts over minutes, so a child
 ## hears calm spells and blustery ones without either being an event.
 var _weather := 0.5
-var _weather_target := 0.5
-var _weather_wait := 0.0
 var _water_level := 0.0
 var _bird_level := 0.0
 var _swim_level := 0.0
@@ -359,14 +357,10 @@ func follow(
 	# audible result is the wind lurching the wrong way on exactly the frames
 	# where the game is already struggling.
 	var weight := clampf(delta / FOLLOW, 0.0, 1.0)
-	# Weather first: a target strength picked every half-minute or so and drifted
-	# towards, so the wind rises and falls over minutes rather than holding one
-	# level for ever.
-	_weather_wait -= delta
-	if _weather_wait <= 0.0:
-		_weather_target = randf_range(0.15, 1.0)
-		_weather_wait = randf_range(22.0, 55.0)
-	_weather = lerpf(_weather, _weather_target, clampf(delta / 14.0, 0.0, 1.0))
+	# Weather first: not dice of our own but the valley's one wind, the same
+	# that is bending the trees, so what is heard is what is seen. It drifts
+	# over minutes by itself, so nothing here needs to ease it.
+	_weather = Wind.strength(Wind.clock())
 
 	# Wind: the higher and barer the ground, the more of it. Sheltered down by
 	# the river, wild up on a hillside.

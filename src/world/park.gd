@@ -257,6 +257,17 @@ func _build_booth(tool: SurfaceTool, solid: StaticBody3D) -> void:
 	# And the price, on a plate over the window, in the valley's own enamel.
 	var board := at + Vector3(0.0, BOOTH_HEIGHT + 1.0, BOOTH_DEPTH * 0.5 - 0.1)
 	Plaque.build(tool, 0.0, board, 3.0, 0.92, 0.0, 0.10)
+	# Two stubs from the roof to the plate's foot. It stands a quarter-metre
+	# over the slope of the roof, and with nothing under it the price hung in
+	# the air above the kiosk.
+	for side: float in [-1.0, 1.0]:
+		var stub := BoxMesh.new()
+		stub.size = Vector3(0.12, 0.45, 0.12)
+		Park._add(
+			tool, stub,
+			Transform3D(Basis(), at + Vector3(side * 1.3, BOOTH_HEIGHT + 0.375, BOOTH_DEPTH * 0.5 - 0.1)),
+			Color(0.32, 0.30, 0.34)
+		)
 	# A coaster drawn on the plate rather than the word for one: a hump of
 	# track with a train going over it, which a six-year-old reads without
 	# reading. The price goes beside it, where a price goes.
@@ -301,7 +312,7 @@ func _build_booth(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		)
 	Plaque.write(self, 0.0, board, [
 		["%d" % RIDE_PRICE, -0.02, 0.0042],
-	])
+	], 0.10)
 
 ## Where the big trampoline's mat is.
 func trampoline_mat() -> Vector3:
@@ -366,7 +377,9 @@ func _build_gateway(tool: SurfaceTool, solid: StaticBody3D, gate: Vector3) -> vo
 	)
 	# The name, on an enamel plate over the gate — the same plate the square
 	# and the bridge wear, because one valley has one signwriter.
-	var centre := Vector3(gate.x, ParkSpec.LEVEL + height + 0.85, gate.z)
+	# Standing on the beam, whose top is level with the posts' ends: it was
+	# hung twenty centimetres over it, a sign in the air.
+	var centre := Vector3(gate.x, ParkSpec.LEVEL + height + 0.64, gate.z)
 	Plaque.build(tool, 0.0, centre, 5.0, 1.35, 0.52)
 	Plaque.write(self, 0.0, centre, [
 		[PARK_NAME_TOP, 0.30, 0.0046],

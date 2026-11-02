@@ -880,6 +880,7 @@ func _process(delta: float) -> void:
 	# difference is what sent one into the sky. See Places.submersion.
 	var at := player.global_position
 	player.water_depth = world.places.submersion(at)
+	player.current = world.field.river_current_at(at.x, at.z)
 
 	# Going under.
 	#
