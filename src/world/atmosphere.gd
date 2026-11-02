@@ -27,7 +27,10 @@ var _sky_material: ProceduralSkyMaterial
 ## underwater borrows these numbers and lerps away from them, and a constant
 ## that lives only at its call site cannot be lerped away from.
 const FOG_BEGIN := 220.0
-const FOG_END := 2600.0
+## Full fog 100 m past the far country's rim (DistantLand.OUTER, 2,100 m). It
+## was 2,600, which left the rim at 73% fog: a ring of hillside with a hard
+## edge against the sky, in the one place the fog is there to hide it.
+const FOG_END := 2200.0
 const FOG_CURVE := 1.35
 const FOG_SKY_AFFECT := 0.18
 const SATURATION := 1.12
@@ -186,7 +189,11 @@ func _apply_time() -> void:
 	var sun_angle := (time_of_day - 0.25) * TAU
 	var height := sin(sun_angle)
 
-	_sun.rotation = Vector3(-asin(clampf(height, -1.0, 1.0)), deg_to_rad(-38.0) + sun_angle * 0.35, 0.0)
+	# The light always points down: below the horizon it is the moon's, which
+	# stands where the sun is not. Both lie flat at the horizon, so the hand-over
+	# is continuous. The moon used to take over only once the night had begun,
+	# and until then the dusk sun, still lit, pointed up out of the ground.
+	_sun.rotation = Vector3(-asin(clampf(absf(height), 0.0, 1.0)), deg_to_rad(-38.0) + sun_angle * 0.35, 0.0)
 
 	var day := clampf(height, 0.0, 1.0)
 	_sun.light_energy = lerpf(0.0, 1.05, smoothstep(-0.05, 0.30, height))
@@ -245,12 +252,6 @@ func _apply_time() -> void:
 	if night > 0.0:
 		_sun.light_energy = lerpf(_sun.light_energy, 0.26, night)
 		_sun.light_color = _sun.light_color.lerp(Color(0.62, 0.72, 1.0), night)
-		_sun.rotation = Vector3(
-			-asin(clampf(-height, -1.0, 1.0)),
-			deg_to_rad(-38.0) + sun_angle * 0.35,
-			0.0
-		)
-
 ## The camera is `depth` metres under the surface — zero when it is in the air.
 ## Called every frame by the game, and eased here rather than at the call site
 ## because what is being smoothed is the eye adjusting, which is this node's

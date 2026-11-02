@@ -252,6 +252,11 @@ static func _drawn_width(kind: StringName) -> float:
 	_widths[kind] = widest * 2.0
 	return widest * 2.0
 
+## How far a paw hangs below the end of its leg, in units of the animal's size
+## and the kind's own leg thickness: the sphere on the foot of `leg_mesh` reaches
+## a quarter of its thickness (0.13 of the size) past the end of the cylinder.
+const PAW_DEPTH := 0.0325
+
 static func hips(kind: StringName) -> Array[Vector3]:
 	var scale := size_of(kind)
 	var shape := _shape(kind)
@@ -259,9 +264,18 @@ static func hips(kind: StringName) -> Array[Vector3]:
 	for front in PackedFloat32Array([-1.0, 1.0]):
 		for side in PackedFloat32Array([-1.0, 1.0]):
 			var lift := float(shape["hip_lift"]) if front < 0.0 else 0.0
+			# The hip is as high as the leg is long, so the paw rests on the
+			# ground. It was a flat `scale`, which left a sheep's legs (0.72 of
+			# it) ending inside her own fleece, fourteen centimetres off the
+			# grass, and a cow's (1.15) buried to the hocks. A raised front leg
+			# keeps the height it was given: the squirrel holds those to its chest.
+			var height := scale * (1.0 + lift)
+			if lift == 0.0:
+				var reach := float(shape["leg"]) * (float(shape["front_leg"]) if front < 0.0 else 1.0)
+				height = scale * (reach + PAW_DEPTH * float(shape["leg_slim"]))
 			out.append(Vector3(
 				side * scale * 0.44 * float(shape["slim"]),
-				scale * (1.0 + lift),
+				height,
 				front * scale * float(shape["long"]) * 0.6
 			))
 	return out

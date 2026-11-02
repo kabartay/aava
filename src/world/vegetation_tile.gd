@@ -27,6 +27,15 @@ const BROADLEAF_HEIGHT := 5.2
 ## The thinnest a trunk is ever made solid, however stunted the tree.
 const MIN_TRUNK_RADIUS := 0.2
 
+## Where the trees dissolve away, in metres from the camera; the dissolve begins
+## a little under a quarter of that nearer. Tiles stream in out to TREE_RADIUS of
+## them, so the middle of a tile that has only just arrived is some 240 m off:
+## ending the fade at the full 256 m means it arrives almost transparent and
+## thickens as the child walks towards it, instead of a whole wood appearing in
+## one frame. Visibility range measures to the middle of a layer's bounds, which
+## for a tile is the tile's middle, so the whole tile fades together.
+const TREE_FADE_END := 256.0
+
 ## Whether this tile was planted with grass. Read by the manager to decide if a
 ## tile that has come closer needs replanting.
 var has_grass := false
@@ -169,10 +178,10 @@ func _init(
 	position = Vector3(float(coord.x * tile_size), 0.0, float(coord.y * tile_size))
 	has_grass = baked["with_grass"]
 
-	_add_layer(conifer, tree_material, baked["conifers"], tile_size, 24.0, true, 0.0)
-	_add_layer(broadleaf, tree_material, baked["broadleaves"], tile_size, 24.0, true, 0.0)
+	_add_layer(conifer, tree_material, baked["conifers"], tile_size, 24.0, true, TREE_FADE_END)
+	_add_layer(broadleaf, tree_material, baked["broadleaves"], tile_size, 24.0, true, TREE_FADE_END)
 	if stump != null:
-		_add_layer(stump, tree_material, baked["stumps"], tile_size, 24.0, true, 0.0)
+		_add_layer(stump, tree_material, baked["stumps"], tile_size, 24.0, true, TREE_FADE_END)
 	_add_layer(grass, grass_material, baked["grass"], tile_size, 1.5, false, 74.0)
 
 ## Where every tree in a tile stands, as a pure function of the world seed.

@@ -162,6 +162,7 @@ func _initialize() -> void:
 	_check_the_animals_walk_at_their_own_pace()
 	_check_nothing_leans_into_the_hill()
 	_check_a_sheep_is_solid_as_wide_as_she_looks()
+	_check_the_camera_looks_past_the_signpost()
 	_check_a_rider_is_held_to_the_deck()
 	_check_the_engine_does_not_whistle()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
@@ -188,7 +189,11 @@ func _initialize() -> void:
 	_check_the_wheel_turns_with_its_gondolas_and_the_platform_is_not_the_ring()
 	_check_the_wheel_stands_on_the_sand()
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
+	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_animals_stand_on_their_feet()
+	_check_the_cafe_sign_stands_on_the_roof()
+	_check_the_trees_fade_out_before_the_streaming_edge()
 	_check_the_sky_below_the_horizon_goes_dark_at_night()
 	_check_the_bridge_foam_is_a_wake_not_rings()
 	_check_an_arrow_that_hits_stops_in_the_face()
@@ -208,6 +213,7 @@ func _initialize() -> void:
 	_check_solid_trunks_and_stumps_match_what_is_drawn()
 	_check_trees_keep_their_distance_across_tile_edges()
 	_check_one_wind_blows_over_the_valley()
+	_check_the_plants_sway_each_on_their_own_phase()
 	_check_the_ride_dressing_stays_out_of_the_sweep()
 	_check_the_animals_come_in_several_coats()
 	_check_the_animals_have_heads_and_tails_that_move()
@@ -241,6 +247,7 @@ func _initialize() -> void:
 	_check_the_network_keeps_its_promises()
 	_check_damaged_saves_load_what_is_valid()
 	await _check_the_trampoline_rim_is_closed_and_a_ride_is_sold_once()
+	await _check_the_trampoline_rim_leaves_the_mat_clear()
 	_check_the_pirate_ship_carries_a_child_round_with_it()
 	_check_the_pirate_ship_bars_hold()
 	_check_an_animal_does_not_wade_into_a_pond()
@@ -276,6 +283,7 @@ func _initialize() -> void:
 	await _check_a_child_can_swim_down()
 	await _check_the_river_has_a_gentle_current()
 	_check_the_river_surface_shows_its_flow_and_its_piers()
+	_check_the_streaks_travel_at_the_current_not_twice_it()
 	await _check_the_things_afloat_drift_in_the_river_only()
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
 	_check_a_rider_stays_on_a_bank()
@@ -14552,6 +14560,16 @@ func _check_one_wind_blows_over_the_valley() -> void:
 	var source := FileAccess.get_file_as_string("res://src/audio/ambience.gd")
 	_expect(source.contains("Wind.strength(") and not source.contains("_weather_target"), "the wind sound reads the valley's wind")
 
+## The plants must not sway in step, nor on a clock that rolls over. (Written
+## here beside the wind check; registered with it near the top.)
+func _check_the_plants_sway_each_on_their_own_phase() -> void:
+	print("the plants sway each on their own phase")
+	var code := Vegetation.WIND_SHADER
+	_expect(not code.contains("TIME *") and not code.contains("TIME)"), "the sway reads the shared clock, not TIME, which rolls over every hour")
+	_expect(not code.contains("origin.x * 0.31"), "a plant's phase is not a plane across the meadow")
+	_expect(code.contains("fract(sin(dot(origin.xz"), "it is a hash of where the plant stands")
+	_expect(code.contains("length(MODEL_MATRIX[1].xyz)"), "and height is measured in the plant's own units, so a tall tree bends all along")
+
 ## The river carries a swimmer gently downstream; ponds and the pool are still.
 func _check_the_river_has_a_gentle_current() -> void:
 	print("the river has a gentle current")
@@ -16486,4 +16504,147 @@ func _check_a_parked_mount_keeps_its_heading_across_a_save() -> void:
 	_expect(restored.exists(&"bicycle:0"), "and a save with no heading still loads")
 	parked.queue_free()
 	restored.queue_free()
+
+func _check_the_trees_fade_out_before_the_streaming_edge() -> void:
+	print("trees dissolve before the streaming edge rather than popping in")
+	var field := HeightField.new(20260904)
+	var wooded := Vector2i.ZERO
+	var found := false
+	for x in range(-20, 20):
+		for z in range(-20, 20):
+			if not found and not VegetationTile.generate_trees(field, Vector2i(x, z), 32, 20260904, null).is_empty():
+				wooded = Vector2i(x, z)
+				found = true
+	var tile := VegetationTile.new(
+		VegetationTile.bake(field, wooded, 32, 20260904, null, false), 32,
+		PlantMeshes.conifer(), PlantMeshes.broadleaf(), PlantMeshes.grass_tuft(),
+		ShaderMaterial.new(), ShaderMaterial.new(), PlantMeshes.stump()
+	)
+	var layers := 0
+	for child in tile.get_children():
+		if child is MultiMeshInstance3D:
+			layers += 1
+			_expect(
+				child.visibility_range_end > 0.0
+				and child.visibility_range_end <= float(Vegetation.TREE_RADIUS * Vegetation.TILE_SIZE),
+				"a tree layer ends its range inside the streamed radius, not %.0f" % child.visibility_range_end
+			)
+	_expect(layers > 0, "the wooded tile has tree layers")
+	tile.free()
+
+## The streaks and flecks on the river slide at the current's pace, not a
+## multiple of it: a leaf beside a streak must not be left behind by it.
+func _check_the_streaks_travel_at_the_current_not_twice_it() -> void:
+	print("the streaks travel at the current, not twice it")
+	_expect(not Water.SHADER.contains("TIME * pace * 2.0"), "the streaks are carried at the pace itself")
+	_expect(not Water.SHADER.contains("TIME * river_current * 2.0"), "and so are the flecks behind the trestle legs")
+	_expect(Water.SHADER.contains("world_vertex.z - TIME * pace;"), "the streaks still slide downstream")
+
+func _check_the_light_points_down_and_the_fog_hides_the_far_rim() -> void:
+	var sky := Atmosphere.new()
+	get_root().add_child(sky)
+	var light: DirectionalLight3D = null
+	for child in sky.get_children():
+		if child is DirectionalLight3D:
+			light = child
+	_expect(light != null, "the sky has a sun to look at")
+	if light != null:
+		# Every hour, including the minutes either side of sunset when the sun
+		# is low but lit: the light must never point up out of the ground, or
+		# the meadow loses its light in one frame.
+		for step in 200:
+			sky.set_time(float(step) / 200.0)
+			var along: Vector3 = -light.global_transform.basis.z
+			_expect(along.y <= 0.0001,
+				"the sun or moon never shines up from below the ground (time %d/200)" % step)
+	# Fog at the rim of the far country, as the engine computes it.
+	var amount := pow(
+		clampf((DistantLand.OUTER - Atmosphere.FOG_BEGIN) / (Atmosphere.FOG_END - Atmosphere.FOG_BEGIN), 0.0, 1.0),
+		Atmosphere.FOG_CURVE
+	)
+	_expect(amount > 0.9, "the fog has all but closed by the rim of the far country (%.2f)" % amount)
+	sky.queue_free()
+
+## The sign over the café's door stood 0.4 m out at the eave with its foot 0.17 m
+## over the roof's edge, which there is a hand's breadth thick: a sign hanging
+## in the air in front of the tiles. Its foot has to land on the roof.
+func _check_the_cafe_sign_stands_on_the_roof() -> void:
+	print("the cafe's sign stands on its roof")
+	var foot := Places.CAFE_SIGN_RISE - 0.33
+	var front_face := Places.CAFE_SIGN_OUT + 0.04
+	var roof := Places.cafe_roof_rise(front_face)
+	_expect(
+		roof >= foot - 0.02,
+		"the sign's foot is %.2f m over the wall and the roof is %.2f m there" % [foot, roof]
+	)
+	_expect(
+		Places.CAFE_SIGN_OUT - 0.04 <= 0.02,
+		"and its back is %.2f m from the wall, not hung out in front of it" % (Places.CAFE_SIGN_OUT - 0.04)
+	)
+## The solid ring round the fairground's trampoline is the rim, not part of the
+## mat: a ray laid across the mat at the height of the ring has to meet it at
+## the mat's edge or beyond. It stood 0.35 m in over the mat, so a child near
+## the edge was stopped by a wall nothing drew.
+func _check_the_trampoline_rim_leaves_the_mat_clear() -> void:
+	print("the trampoline's rim leaves the whole mat clear")
+	var field := HeightField.new(20260903)
+	var park := Park.new(field)
+	get_root().add_child(park)
+	await physics_frame
+	var space := get_root().get_world_3d().direct_space_state
+	var mat := park.trampoline_mat()
+	var nearest := INF
+	for post in 28:
+		var angle := TAU * float(post) / 28.0
+		var out := Vector3(cos(angle), 0.0, sin(angle))
+		var level := Vector3(0.0, 0.3, 0.0)
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(
+			mat + level, mat + out * (Park.TRAMPOLINE_RADIUS + 1.5) + level
+		))
+		if hit.is_empty():
+			nearest = 0.0
+			continue
+		var at: Vector3 = hit["position"]
+		nearest = minf(nearest, Vector2(at.x - mat.x, at.z - mat.z).length())
+	_expect(
+		nearest >= Park.TRAMPOLINE_RADIUS - 0.10 - 0.02,
+		"the rim starts %.2f m from the middle and the mat reaches %.2f m" % [nearest, Park.TRAMPOLINE_RADIUS - 0.10]
+	)
+	park.queue_free()
+
+## An animal stands on its feet: the lowest point of every leg that is meant to
+## reach the ground must be at the ground. The hips used to hang at one height
+## for every kind, so a sheep's short legs ended inside her fleece, off the
+## grass, and a cow's long ones were buried to the hocks.
+func _check_animals_stand_on_their_feet() -> void:
+	print("animals stand on their feet")
+	for kind in AnimalKinds.ALL:
+		var hips := AnimalKinds.hips(kind)
+		for i in hips.size():
+			var front := i < 2
+			# The squirrel's hands are held up to its chest on purpose.
+			if front and kind == AnimalKinds.SQUIRREL:
+				continue
+			var arrays := (AnimalKinds.leg_mesh(kind, front) as ArrayMesh).surface_get_arrays(0)
+			var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var lowest := 99.0
+			for point in points:
+				lowest = minf(lowest, point.y)
+			var foot := hips[i].y + lowest
+			_expect(absf(foot) < 0.01, "the %s's leg %d ends %.3f m from the ground" % [kind, i, foot])
+
+## The signpost's pole is a thin post like the swings' and the goals': the child
+## bumps it, the camera's arm does not. It was left on the ground layer, which
+## the arm stops at, so the view jerked in whenever a child passed the square.
+func _check_the_camera_looks_past_the_signpost() -> void:
+	print("the camera looks past the signpost")
+	var post := Signpost.new(HeightField.new(20260903))
+	var body := post.get_node_or_null("Solid") as StaticBody3D
+	_expect(body != null, "the signpost has a solid pole")
+	if body != null:
+		_expect(body.collision_layer == TerrainSpec.LAYER_PROPS, "on the props layer, which the camera arm does not stop at")
+		var probe_player := Player.new()
+		_expect((probe_player.collision_mask & body.collision_layer) != 0, "and the child still meets it")
+		probe_player.free()
+	post.free()
 

@@ -46,6 +46,13 @@ const CAFE_MID_Z := 1.6
 const CAFE_CHIMNEY_FOOT := 0.6
 const CAFE_CHIMNEY_TOP := 2.55
 const CAFE_DOOR_HALF := 0.9
+## The sign over the door: how far its middle stands out from the wall's face,
+## and how high above the wall's top. Its foot (a third of a metre below the
+## middle) has to meet the roof, whose edge is 0.45 out from the wall and which
+## rises two metres to the ridge: see `cafe_roof_rise`.
+const CAFE_SIGN_OUT := 0.05
+const CAFE_SIGN_RISE := 0.5
+const CAFE_ROOF_OVERHANG := 0.45
 ## Where the tables stand inside, and out on the terrace under umbrellas, and
 ## the two lamps that light the terrace at dusk like the playground's.
 const CAFE_TABLES: Array[Vector3] = [
@@ -154,6 +161,12 @@ const SHOP_ROOF_PITCH := 26.0
 const SHOP_ROOF_OVERHANG := 0.45
 
 ## Where the eave and the ridge are, from that pitch. For the checks.
+## How far the café's roof stands over the top of its walls, at a point `out`
+## metres in front of the wall's face: nothing at the eave, two metres at the
+## ridge. For the sign over the door, and the checks.
+static func cafe_roof_rise(out: float) -> float:
+	return 2.0 * maxf(0.0, CAFE_ROOF_OVERHANG - out) / (CAFE_DEPTH * 0.5 + CAFE_ROOF_OVERHANG)
+
 static func shop_eave_height() -> float:
 	return SHOP_HEIGHT + 0.18
 
@@ -2948,22 +2961,25 @@ func _build_cafe(at: Vector3) -> void:
 			Basis(Vector3.RIGHT, deg_to_rad(-16.0)),
 			Vector3(-1.8 + float(i) * 0.6, 2.75, front - 0.62)
 		), stripe_a if i % 2 == 0 else stripe_b)
+	# Against the wall's top, where the roof's edge rises to meet its foot: it
+	# stood 0.4 m out at the eave, a hand's breadth over the tiles, and hung in
+	# the air in front of the roof.
 	var sign := BoxMesh.new()
 	sign.size = Vector3(1.8, 0.66, 0.08)
-	_add(tool, sign, Transform3D(Basis(), Vector3(0.0, h + 0.5, front - 0.4)), stripe_b)
+	_add(tool, sign, Transform3D(Basis(), Vector3(0.0, h + CAFE_SIGN_RISE, front - CAFE_SIGN_OUT)), stripe_b)
 	var sign_cup := CylinderMesh.new()
 	sign_cup.top_radius = 0.17
 	sign_cup.bottom_radius = 0.13
 	sign_cup.height = 0.32
 	sign_cup.radial_segments = 8
 	sign_cup.rings = 1
-	_add(tool, sign_cup, Transform3D(Basis(), Vector3(-0.1, h + 0.48, front - 0.46)), stripe_a)
+	_add(tool, sign_cup, Transform3D(Basis(), Vector3(-0.1, h + CAFE_SIGN_RISE - 0.02, front - CAFE_SIGN_OUT - 0.06)), stripe_a)
 	var sign_handle := TorusMesh.new()
 	sign_handle.inner_radius = 0.06
 	sign_handle.outer_radius = 0.12
 	sign_handle.rings = 6
 	sign_handle.ring_segments = 10
-	_add(tool, sign_handle, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.16, h + 0.48, front - 0.46)), stripe_a)
+	_add(tool, sign_handle, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.16, h + CAFE_SIGN_RISE - 0.02, front - CAFE_SIGN_OUT - 0.06)), stripe_a)
 
 	# --- Inside: the bar along the back wall, and what is on it.
 	var bar_x := 1.0
@@ -3173,7 +3189,7 @@ func _add_cup(tool: SurfaceTool, at: Vector3, radius: float, height: float, chin
 	handle.outer_radius = radius * 0.6
 	handle.rings = 5
 	handle.ring_segments = 8
-	_add(tool, handle, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), at + Vector3(radius * 1.05, height * 0.5, 0.0)), china)
+	_add(tool, handle, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), at + Vector3(radius * 1.05, height * 0.5, 0.0)), china)
 
 ## A round table with a chair either side, all solid, and — outside — an
 ## umbrella over it. Each chair is a seat a child can be sat at.

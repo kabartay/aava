@@ -55,17 +55,25 @@ void vertex() {
 	// MODEL_MATRIX carries the per-instance transform inside a MultiMesh, so
 	// this is where each plant gets its own phase and stops swaying in unison.
 	vec3 origin = MODEL_MATRIX[3].xyz;
-	float local_height = max(VERTEX.y - origin.y, 0.0);
+	// Measured in the plant's own units: a tree grown half as tall again is
+	// still bent along its whole length, not rigidly shoved above 6.4 m.
+	float local_height = max(VERTEX.y - origin.y, 0.0) / max(length(MODEL_MATRIX[1].xyz), 0.001);
 
 	// Deliberately nothing here reads the camera or the screen: in a shadow
 	// pass those describe the light instead, and the shadow would swing away
 	// from the plant casting it.
-	float phase = origin.x * 0.31 + origin.z * 0.23;
+	//
+	// The phase is a hash of where the plant stands. It was a plane
+	// (x * 0.31 + z * 0.23), so neighbours differed by a fraction of a radian
+	// and the whole meadow rolled in diagonal stripes, in step.
+	float phase = fract(sin(dot(origin.xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
 	// A gust is a front that travels with the wind, so it crosses the meadow
 	// downwind rather than pulsing in place.
 	float front = dot(origin.xz, wind_direction) * gust_scale - wind_clock * 0.27;
 	float gust = (sin(front) * 0.25 + 0.75) * (0.35 + 0.65 * wind_strength);
-	float t = TIME * sway_speed + phase;
+	// The shared clock, not TIME: TIME rolls over every hour, and with it
+	// every plant in the valley would jump to a new phase at once.
+	float t = wind_clock * sway_speed + phase;
 
 	// Bending grows towards the top of the plant, so the trunk stays put and
 	// only the crown moves — the higher the stiffness the more the movement

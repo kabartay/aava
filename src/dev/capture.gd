@@ -669,8 +669,9 @@ func _gather_animals() -> void:
 		# put the ends of the row outside the picture.
 		var spot := origin + forward * 9.0 + across * (float(i) - middle) * 1.9
 		spot.y = _world.field.height_at(spot.x, spot.z)
-		var body := MeshInstance3D.new()
-		body.mesh = AnimalKinds.build_mesh(kind, AnimalKinds.variant_at(spot.x, spot.z))
+		# The node the game itself hangs, legs and all: the baked mesh has paws
+		# of its own and hid how the legs of the real animal meet the ground.
+		var body := AnimalKinds.build_node(kind, AnimalKinds.variant_at(spot.x, spot.z))
 		# Facing the camera, so a screenshot shows heads rather than tails. The
 		# meshes face -Z, as Godot does, so turning them by the heading alone
 		# pointed them the way the camera looks — tails first.

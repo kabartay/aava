@@ -206,7 +206,7 @@ void fragment() {
 	// the current is. Each streak is the product of two slow ripples across the
 	// river, cut to a thin crest, broken into dashes by a third running with it.
 	float pace = river_current * (1.0 - smoothstep(river_half_width * 0.5, river_half_width + 2.0, from_line));
-	float carried = world_vertex.z - TIME * pace * 2.0;
+	float carried = world_vertex.z - TIME * pace;
 	float lanes = sin(across_line * 1.7 + sin(carried * 0.045) * 2.0) * sin(across_line * 0.53 + 1.0);
 	float dashes = sin(carried * 0.55 + across_line * 0.2) * 0.5 + 0.5;
 	float streak = smoothstep(0.4, 0.9, lanes) * smoothstep(0.2, 0.9, dashes);
@@ -244,7 +244,7 @@ void fragment() {
 		trail *= gap.y > 0.0 ? 1.0 : 1.0 - smoothstep(0.0, 0.6, -gap.y);
 		// The flecks slide down at the streaks' own pace, so the wake is part of
 		// the same current and not a sticker on it.
-		float slid = gap.y - TIME * river_current * 2.0;
+		float slid = gap.y - TIME * river_current;
 		float flecks = sin(gap.x * 3.1 + slid * 1.3) * sin(slid * 0.9 - gap.x * 2.3 + float(i));
 		float broken = smoothstep(-0.1, 0.7, flecks * 0.5 + 0.5 + 0.2 * sin(slid * 0.37));
 		pier_foam = max(pier_foam, trail * (0.15 + 0.85 * broken) * 0.8);

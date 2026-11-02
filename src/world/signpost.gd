@@ -180,6 +180,10 @@ func _build() -> void:
 	# not a wall.
 	var body := StaticBody3D.new()
 	body.name = "Solid"
+	# On the props layer with the other thin posts: on the default ground layer
+	# the camera's arm stopped at the pole whenever a child walked or rode past
+	# the square, and the view jerked in and out. The player still meets it.
+	body.collision_layer = TerrainSpec.LAYER_PROPS
 	var shape := CylinderShape3D.new()
 	shape.radius = POLE_RADIUS * 1.6
 	shape.height = POLE_HEIGHT

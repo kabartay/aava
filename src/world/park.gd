@@ -46,6 +46,11 @@ const PIRATE_SHIP_AT := Vector3(76.0, 0.0, -195.0)
 ## The big trampoline: twice the one on the playground, which is 3.5 m across.
 const TRAMPOLINE_RADIUS := 7.0
 const TRAMPOLINE_TOP := 1.05
+## The solid ring round the mat: how thick it is, and how far past the mat's own
+## radius its middle stands, so that its inner face is at the mat's edge and no
+## further in.
+const RIM_THICKNESS := 0.5
+const RIM_OUT := 0.15
 ## How much of a fall it gives back, and the least bounce it will give a child
 ## who merely steps onto it.
 const TRAMPOLINE_REBOUND := 0.72
@@ -446,11 +451,16 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		# below lays a box's x along the radius, so the long side is z: it was
 		# the other way about, a post 0.9 m along the rim with two thirds of a
 		# metre of gap between each pair.
+		#
+		# Half a metre thick and standing just outside the mat, not centred on
+		# the rim: at 0.9 it reached 0.35 m in over the mat, an invisible wall a
+		# child bouncing near the edge stopped against before they got there.
+		var outside := on_rim.normalized() * (TRAMPOLINE_RADIUS + RIM_OUT)
 		Park._solid(
-			solid, Vector3(0.9, TRAMPOLINE_TOP + 0.4, 1.9),
+			solid, Vector3(RIM_THICKNESS, TRAMPOLINE_TOP + 0.4, 1.9),
 			Transform3D(
 				Basis(Vector3.UP, -round_it),
-				at + Vector3(on_rim.x, (TRAMPOLINE_TOP + 0.4) * 0.5, on_rim.y)
+				at + Vector3(outside.x, (TRAMPOLINE_TOP + 0.4) * 0.5, outside.y)
 			)
 		)
 
