@@ -34,10 +34,14 @@ const BLEND := 22.0
 ## six-year-old should be able to find it by walking, without a bridge.
 const CENTRE := Vector3(-46.0, 0.0, 34.0)
 
-## Goal geometry. Small enough that a child scores, wide enough that a
-## ten-year-old has to aim.
-const GOAL_WIDTH := 5.2
-const GOAL_HEIGHT := 2.1
+## Goal geometry. Small enough that a ten-year-old has to aim, big enough
+## that a six-year-old scores. It was 5.2 by 2.1: kicked from anywhere in the
+## attacking half with a child's wobble of about fourteen degrees, a little over
+## half of shots went in; at 6.5 it is about two in three, while a careful aim
+## still beats a careless one (eight in ten against nineteen in twenty at
+## eight metres, where it stops being a game).
+const GOAL_WIDTH := 6.5
+const GOAL_HEIGHT := 2.4
 const GOAL_DEPTH := 1.6
 const POST_RADIUS := 0.11
 
@@ -84,6 +88,14 @@ static func is_levelled(x: float, z: float) -> bool:
 		and absf(z - CENTRE.z) <= HALF_WIDTH + APRON
 	)
 
+## True on the pitch, on its apron, or within `margin` metres of it: where the
+## score is worth showing, because the game is there to be looked at.
+static func is_beside(x: float, z: float, margin: float) -> bool:
+	return (
+		absf(x - CENTRE.x) <= HALF_LENGTH + APRON + margin
+		and absf(z - CENTRE.z) <= HALF_WIDTH + APRON + margin
+	)
+
 ## The centre of each goal mouth, at ground level. Index 0 is the goal at
 ## negative x, index 1 the goal at positive x.
 static func goal_centre(index: int) -> Vector3:
@@ -111,3 +123,70 @@ static func is_goal(index: int, ball: Vector3, ball_radius: float, surface := 0.
 	# past the line, and was given as a goal.
 	var roof := lerpf(GOAL_HEIGHT, 0.06, clampf(beyond / GOAL_DEPTH, 0.0, 1.0))
 	return ball.y - surface < roof
+
+## The scoreboard: five metres tall, at the middle of the north touchline and
+## one metre outside the apron, so it is never on the pitch or the run-up and
+## can be read from the far touchline. Its numbers live here, in the leaf
+## script, because KeepOut has to keep builders off it and the football ground
+## has to build it, and neither may depend on the other.
+const BOARD_HEIGHT := 5.0
+const BOARD_HALF_WIDTH := 3.2
+const BOARD_THICKNESS := 0.3
+## The dark board itself is this tall, hung from the top of the legs.
+const BOARD_FACE := 2.4
+const LEG_HALF := 0.17
+
+## What standing at its foot is called, for the place offer: "new game".
+const SCOREBOARD := &"scoreboard"
+
+## How near the foot a child must be to be offered a new game.
+const BOARD_REACH_SIDE := 4.5
+const BOARD_REACH_NORTH := 3.0
+const BOARD_REACH_SOUTH := 4.5
+
+## Where the board's legs stand, on the ground: the middle of the north
+## touchline, just past the apron.
+static func scoreboard_foot() -> Vector3:
+	return Vector3(CENTRE.x, 0.0, CENTRE.z - HALF_WIDTH - APRON - 1.0)
+
+## Is this point at the foot of the scoreboard, near enough to offer a new game?
+static func near_scoreboard(x: float, z: float) -> bool:
+	var foot := scoreboard_foot()
+	return (
+		absf(x - foot.x) <= BOARD_REACH_SIDE
+		and z >= foot.z - BOARD_REACH_NORTH
+		and z <= foot.z + BOARD_REACH_SOUTH
+	)
+
+## Ground the scoreboard stands on, with `back` of clear ground round its sides
+## and behind it. Its front is the apron, which is kept already.
+static func under_scoreboard(x: float, z: float, back: float) -> bool:
+	var foot := scoreboard_foot()
+	return (
+		absf(x - foot.x) < BOARD_HALF_WIDTH + back
+		and z < foot.z + BOARD_THICKNESS * 0.5 + back
+		and z > foot.z - BOARD_THICKNESS * 0.5 - back
+	)
+
+## Does a flight, given as the points a ball passes through, end up in a goal
+## mouth? Walked segment by segment, because a hard shot moves further between
+## two dots than a goal is deep, and a test of the dots alone would miss it.
+## The ball is judged where it first has its whole width over the line, by the
+## same `is_goal` that gives the goal. `ground` answers the grass height.
+## Returns the goal's index, or -1.
+static func goal_ahead(points: PackedVector3Array, ball_radius: float, ground: Callable) -> int:
+	for index in 2:
+		var mouth := goal_centre(index)
+		var surface := float(ground.call(mouth.x, mouth.z))
+		var sign := -1.0 if index == 0 else 1.0
+		var line := mouth.x + sign * (ball_radius + 0.001)
+		for i in range(1, points.size()):
+			var a := points[i - 1]
+			var b := points[i]
+			# Only a segment that carries the ball over the line this step.
+			if (a.x - line) * sign >= 0.0 or (b.x - line) * sign < 0.0:
+				continue
+			var t := (line - a.x) / (b.x - a.x)
+			if is_goal(index, a.lerp(b, t), ball_radius, surface):
+				return index
+	return -1

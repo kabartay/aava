@@ -25,6 +25,9 @@ static func kept(x: float, z: float, camp: Vector3, river_x: float) -> bool:
 	# The football pitch, which is levelled rather than reserved.
 	if Pitch.is_levelled(x, z):
 		return true
+	# The scoreboard behind it, whose legs stand just outside the apron.
+	if Pitch.under_scoreboard(x, z, KEEP_BACK):
+		return true
 	# The fairground, and a stride of sand outside its fence.
 	if inside_the_park(x, z):
 		return true
@@ -59,6 +62,20 @@ static func nearest_free(x: float, z: float, camp: Vector3, river_x: float) -> V
 		at = Vector2(free.x, free.z)
 	if inside_the_park(at.x, at.y):
 		at = out_of_the_park(at)
+	# The scoreboard: out by whichever of its ends or its back is nearest. Its
+	# front is the apron, which nothing stands on to begin with.
+	if Pitch.under_scoreboard(at.x, at.y, KEEP_BACK):
+		var foot := Pitch.scoreboard_foot()
+		var margin := KEEP_BACK + 0.5
+		var end := signf(at.x - foot.x)
+		if end == 0.0:
+			end = 1.0
+		var to_end := Pitch.BOARD_HALF_WIDTH + margin - absf(at.x - foot.x)
+		var to_back := at.y - (foot.z - Pitch.BOARD_THICKNESS * 0.5 - margin)
+		if to_end < absf(to_back):
+			at.x = foot.x + end * (Pitch.BOARD_HALF_WIDTH + margin)
+		else:
+			at.y = foot.z - Pitch.BOARD_THICKNESS * 0.5 - margin
 	# The crossing and the signs both push straight away from themselves.
 	if (
 		absf(at.y - BridgeSpec.CENTRE_Z) < BridgeSpec.HALF_WIDTH + KEEP_BACK

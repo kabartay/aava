@@ -45,6 +45,10 @@ func _initialize() -> void:
 	_check_a_shot_stays_in_the_goal()
 	_check_goals_are_judged()
 	_check_kick_can_be_aimed()
+	_check_two_sides_keep_score_on_the_board()
+	_check_new_game_and_old_saves()
+	_check_the_scoreboard_stands_clear_and_is_kept_clear()
+	_check_the_aim_follows_the_camera_and_the_preview_agrees()
 	_check_rocks_are_jumpable()
 	_check_the_camera_zooms()
 	await _check_the_indoor_camera_cannot_reach_outside()
@@ -13791,11 +13795,11 @@ func _check_a_goal_is_counted_once_and_only_inside() -> void:
 	var ball: Ball = ground._balls[0]
 	ball.position = Vector3(mouth.x + 0.8, field.height_at(mouth.x, mouth.z) + 0.3, mouth.z)
 	ground._physics_process(0.016)
-	_expect(ground.score == 1, "a ball kicked into the net scores (score %d)" % ground.score)
+	_expect(ground.blue + ground.red == 1, "a ball kicked into the net scores (score %d:%d)" % [ground.blue, ground.red])
 	# The celebration clock runs out, but the restart has not yet happened.
 	ground._physics_process(FootballGround.CELEBRATION + 0.5)
 	ground._physics_process(0.016)
-	_expect(ground.score == 1, "a ball left in the net scored once, not %d times" % ground.score)
+	_expect(ground.blue + ground.red == 1, "a ball left in the net scored once, not %d times" % (ground.blue + ground.red))
 	ground.queue_free()
 ## A load or a reset has to reach the pickups already standing in the world, and
 ## a full fire has to say no before it is handed a log.
@@ -14378,6 +14382,9 @@ func _check_the_aim_follows_through_first_person() -> void:
 	print("the aim follows through first person")
 	var player := Player.new()
 	get_root().add_child(player)
+	# Held still, as in the view-swap check: falling with no ground under it,
+	# the body's interpolated position lagged by however long the run took.
+	player.set_physics_process(false)
 	await process_frame
 	var rig := CameraRig.new(player)
 	player.add_child(rig)
@@ -14385,12 +14392,12 @@ func _check_the_aim_follows_through_first_person() -> void:
 	rig.set_first_person(true)
 	await process_frame
 	player.global_position += Vector3(80.0, 0.0, 0.0)
-	# The rig follows the body's interpolated position, which only catches up
-	# once physics has ticked: waiting on drawn frames alone measured the lag of
-	# the interpolation, not the aim.
-	await physics_frame
-	await physics_frame
-	await process_frame
+	# A teleport, so the interpolation is told to start afresh — what the game
+	# does when it moves the child — and a few frames for the rig to follow.
+	player.reset_physics_interpolation()
+	for _frame in 3:
+		await physics_frame
+		await process_frame
 	var gap := rig._aim.distance_to(player.global_position)
 	_expect(gap < 3.0, "in first person the aim point is %.1f m from the child" % gap)
 	rig.queue_free()
@@ -16647,4 +16654,252 @@ func _check_the_camera_looks_past_the_signpost() -> void:
 		_expect((probe_player.collision_mask & body.collision_layer) != 0, "and the child still meets it")
 		probe_player.free()
 	post.free()
+
+## Put a ball into a goal's mouth and let the ground judge it, past any
+## celebration still running from the last one.
+func _score_in(ground: FootballGround, field: HeightField, ball_number: int, goal: int) -> void:
+	var mouth := Pitch.goal_centre(goal)
+	var outward := -1.0 if goal == 0 else 1.0
+	var ball: Ball = ground._balls[ball_number]
+	ball.position = Vector3(mouth.x + outward * 0.8, field.height_at(mouth.x, mouth.z) + 0.3, mouth.z)
+	ground._physics_process(FootballGround.CELEBRATION + 0.5)
+	ground._physics_process(0.016)
+## Two sides: the west goal is blue's end and the east goal red's, and a ball
+## into one is a goal for the other. The board and the chip show both numbers,
+## and the posts and bar are painted in the sides' colours.
+func _check_two_sides_keep_score_on_the_board() -> void:
+	print("two sides keep score, and the board shows it")
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var told: Array = []
+	ground.goal_scored.connect(func(goal: int, blue: int, red: int) -> void: told.append([goal, blue, red]))
+
+	_score_in(ground, field, 0, 1)
+	_expect(ground.blue == 1 and ground.red == 0, "a ball into the red goal, in the east, scores for blue (%d:%d)" % [ground.blue, ground.red])
+	_score_in(ground, field, 1, 0)
+	_expect(ground.blue == 1 and ground.red == 1, "a ball into the blue goal, in the west, scores for red (%d:%d)" % [ground.blue, ground.red])
+	_score_in(ground, field, 2, 0)
+	_expect(ground.red == 2 and ground.blue == 1, "and again for red")
+	_expect(told == [[1, 1, 0], [0, 1, 1], [0, 1, 2]], "each goal says which end and both scores: %s" % str(told))
+	_expect(ground.board_digits() == PackedStringArray(["1", "2"]), "the board reads the two scores: %s" % ", ".join(ground.board_digits()))
+
+	var west: Goal = null
+	var east: Goal = null
+	for child in ground.get_children():
+		if child is Goal:
+			if (child as Goal).index == 0:
+				west = child
+			else:
+				east = child
+	_expect(
+		west != null and east != null
+		and west._side_material.albedo_color == Goal.SIDE_COLOURS[0]
+		and east._side_material.albedo_color == Goal.SIDE_COLOURS[1],
+		"the west goal's frame is blue and the east goal's red"
+	)
+	_expect(
+		Goal.SIDE_COLOURS[0].b > Goal.SIDE_COLOURS[0].r and Goal.SIDE_COLOURS[1].r > Goal.SIDE_COLOURS[1].b,
+		"and blue is blue, red is red"
+	)
+	var board := ground._board
+	_expect(
+		board._blue.modulate == Goal.SIDE_COLOURS[0] and board._red.modulate == Goal.SIDE_COLOURS[1]
+		and not board._blue.shaded and not board._red.shaded,
+		"the digits are in the sides' colours and lit by themselves, so they read at night"
+	)
+
+	# The chip in the interface: both numbers, only on or beside the pitch.
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.set_score(3, 7)
+	hud.set_at_the_pitch(true)
+	_expect(hud.score_text() == "3:7" and hud.score_is_shown(), "the chip reads 3:7 beside the pitch")
+	hud.set_at_the_pitch(Pitch.is_beside(Pitch.CENTRE.x + 400.0, Pitch.CENTRE.z, 10.0))
+	_expect(not hud.score_is_shown(), "and is hidden across the valley")
+	_expect(Pitch.is_beside(Pitch.CENTRE.x, Pitch.CENTRE.z, 10.0) and Pitch.is_beside(Pitch.scoreboard_foot().x, Pitch.scoreboard_foot().z, 10.0), "it is shown on the pitch and at the board")
+	hud.queue_free()
+	ground.queue_free()
+
+## A new game empties both scores and fetches every ball back to the halfway
+## line, and a save from before there were two sides still opens.
+func _check_new_game_and_old_saves() -> void:
+	print("new game resets the score and the balls, and old saves load")
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var homes: Array[Vector3] = []
+	for ball: Ball in ground._balls:
+		homes.append(ball.position)
+	_score_in(ground, field, 0, 1)
+	_score_in(ground, field, 1, 0)
+	ground._balls[2].position = Vector3(Pitch.CENTRE.x + 12.0, 9.0, Pitch.CENTRE.z - 8.0)
+	var heard: Array = []
+	ground.scores_changed.connect(func(blue: int, red: int) -> void: heard.append([blue, red]))
+	ground.new_game()
+	_expect(ground.blue == 0 and ground.red == 0, "a new game is 0:0")
+	_expect(heard == [[0, 0]], "and says so")
+	_expect(ground.board_digits() == PackedStringArray(["0", "0"]), "the board is cleared too")
+	var back := true
+	for i in ground._balls.size():
+		var ball: Ball = ground._balls[i]
+		if Vector2(ball.position.x - homes[i].x, ball.position.z - homes[i].z).length() > 0.01 or absf(ball.position.y - homes[i].y) > 0.05:
+			back = false
+			printerr("  ball %d is at %v, not %v" % [i, ball.position, homes[i]])
+	_expect(back, "every ball is back on the halfway line")
+	# And a goal is counted again straight away, not held off by the last one's
+	# celebration.
+	var mouth := Pitch.goal_centre(1)
+	ground._balls[0].position = Vector3(mouth.x + 0.8, field.height_at(mouth.x, mouth.z) + 0.3, mouth.z)
+	ground._physics_process(0.016)
+	_expect(ground.blue == 1, "the first goal of the new game counts at once")
+
+	# Saves: two numbers round-trip; the old single `score` loads as 0:0, odd
+	# ones are clamped, and nothing throws.
+	_score_in(ground, field, 1, 0)
+	var saved := ground.to_data()
+	var other := FootballGround.new(field)
+	get_root().add_child(other)
+	other.from_data(saved)
+	_expect(other.blue == ground.blue and other.red == ground.red, "the two scores survive a save: %d:%d" % [other.blue, other.red])
+	other.from_data({"score": 5})
+	_expect(other.blue == 0 and other.red == 0, "an old save's single score of 5 loads as 0:0")
+	other.from_data({"blue": -4, "red": 2})
+	_expect(other.blue == 0 and other.red == 2, "a negative score is not believed")
+	other.from_data({})
+	_expect(other.blue == 0 and other.red == 0 and other.board_digits() == PackedStringArray(["0", "0"]), "an empty save is 0:0")
+	other.queue_free()
+	ground.queue_free()
+
+## The board stands five metres tall at the middle of the north touchline, with
+## nothing of it on the pitch or the apron, its legs solid, and nothing may be
+## built through it or left standing in it.
+func _check_the_scoreboard_stands_clear_and_is_kept_clear() -> void:
+	print("the scoreboard stands clear and is kept clear")
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var board := ground._board
+	var foot := Pitch.scoreboard_foot()
+	_expect(
+		is_equal_approx(foot.x, Pitch.CENTRE.x) and is_equal_approx(foot.z, Pitch.CENTRE.z - Pitch.HALF_WIDTH - Pitch.APRON - 1.0),
+		"it stands at the middle of the north touchline, one metre past the apron"
+	)
+	var top := -INF
+	var solid := 0
+	var on_the_ground := false
+	var clear := true
+	for child in board.get_children():
+		if child is StaticBody3D:
+			solid += 1
+			var box := ((child as StaticBody3D).get_child(0) as CollisionShape3D).shape as BoxShape3D
+			var at: Vector3 = (child as StaticBody3D).position
+			top = maxf(top, at.y + box.size.y * 0.5)
+			if at.y - box.size.y * 0.5 <= 0.0:
+				on_the_ground = true
+			# Every corner of the footprint, in the world.
+			for corner_x: float in [-1.0, 1.0]:
+				for corner_z: float in [-1.0, 1.0]:
+					var wx: float = board.position.x + at.x + corner_x * box.size.x * 0.5
+					var wz: float = board.position.z + at.z + corner_z * box.size.z * 0.5
+					if Pitch.is_levelled(wx, wz):
+						clear = false
+	_expect(solid == 3, "two legs and a board are solid (%d bodies)" % solid)
+	_expect(is_equal_approx(top, 5.0), "and it is five metres tall (%.2f m)" % top)
+	_expect(on_the_ground, "the legs reach the ground")
+	_expect(clear, "nothing of it is on the pitch or the apron")
+	var writing := 0
+	for child in board.get_children():
+		if child is Label3D:
+			writing += 1
+	_expect(writing >= 4, "a title, two scores and a colon are written on it (%d labels)" % writing)
+
+	var camp := field.camp_centre()
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	_expect(KeepOut.kept(foot.x, foot.z, camp, river_x), "nothing may be built at its foot")
+	_expect(KeepOut.kept(foot.x + Pitch.BOARD_HALF_WIDTH + 1.0, foot.z, camp, river_x), "nor just beside it")
+	_expect(KeepOut.kept(foot.x, foot.z - 2.0, camp, river_x), "nor behind it")
+	_expect(not KeepOut.kept(foot.x, foot.z - 8.0, camp, river_x), "but eight metres behind it is open ground")
+	# A tree already standing in it is moved out, to ground that is not kept.
+	var free := KeepOut.nearest_free(foot.x + 1.0, foot.z - 0.5, camp, river_x)
+	_expect(not KeepOut.kept(free.x, free.y, camp, river_x), "a tree standing in it is moved to free ground (%.1f, %.1f)" % [free.x, free.y])
+
+	_expect(Pitch.near_scoreboard(foot.x, foot.z + 2.0), "standing in front of it offers a new game")
+	_expect(not Pitch.near_scoreboard(Pitch.CENTRE.x, Pitch.CENTRE.z), "and the middle of the pitch does not")
+	ground.queue_free()
+
+## The kick goes where the camera looks, and where the preview says: the ball's
+## launch, the preview's arc and the green mark all come from the one arithmetic.
+func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
+	print("the aim follows the camera and the preview agrees")
+	var field := HeightField.new(20260903)
+	var flat := func(x: float, z: float) -> float:
+		return field.height_at(x, z)
+	var mouth := Pitch.goal_centre(1)
+	var surface := field.height_at(mouth.x, mouth.z)
+	var at := Vector3(mouth.x - 10.0, surface + Ball.RADIUS, mouth.z)
+	var striker := at - Vector3(1.1, 0.0, 0.0)
+
+	# Straight ahead: look and run-up agree, and so does the kick.
+	var ahead := Ball.aim_direction(at, striker, Vector3.LEFT, Vector3.RIGHT)
+	_expect(ahead.is_equal_approx(Vector3.RIGHT), "ball straight ahead of the view goes the way the view points")
+	# Looking well away from where they walked: the run-up wins past eighty degrees.
+	var sideways := Ball.aim_direction(at, striker, Vector3.LEFT, Vector3.BACK)
+	_expect(sideways.is_equal_approx(Vector3.RIGHT), "a ball well off to the side of the view is kicked the way they walked")
+	# In between, a blend that lies between the two.
+	var between := Ball.aim_direction(at, striker, Vector3.LEFT, Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(40.0)))
+	var turned := Vector3.RIGHT.angle_to(between)
+	_expect(turned > deg_to_rad(2.0) and turned < deg_to_rad(40.0), "in between it blends: %.0f degrees off the run-up" % rad_to_deg(turned))
+	_expect(Ball.aim_direction(at, striker, Vector3.LEFT).is_equal_approx(Vector3.RIGHT), "with no look it is the run-up, as before")
+	# Standing on the ball, the look is all there is.
+	_expect(Ball.aim_direction(at, at, Vector3.LEFT, Vector3.FORWARD).is_equal_approx(Vector3.FORWARD), "on top of the ball it follows the view")
+
+	var ball := Ball.new(at)
+	# The kick and its preview, over a sweep of loft: the same velocity, the
+	# arc starts along it, and the ring is where the arc ends.
+	var found_on_target := false
+	var kick_agrees := true
+	var ring_agrees := true
+	for step in 21:
+		var loft := float(step) / 20.0
+		var look := Vector3.RIGHT
+		var launch := Ball.launch_velocity(at, striker, Vector3.LEFT, false, 0.8, loft, look)
+		var path := Ball.predict(at, launch, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
+		var flight := PackedVector3Array([at])
+		flight.append_array(path)
+		var on_target := Pitch.goal_ahead(flight, Ball.RADIUS, flat) == 1
+		found_on_target = found_on_target or on_target
+		ball.position = at
+		ball.kick(striker, Vector3.LEFT, false, 0.8, loft, look)
+		if not ball.linear_velocity.is_equal_approx(launch):
+			kick_agrees = false
+		var preview := KickPreview.new()
+		preview.show_path(path, on_target, float(flat.call(path[path.size() - 1].x, path[path.size() - 1].z)))
+		var end := path[path.size() - 1]
+		if preview.is_on_target() != on_target or Vector2(preview.ring_position().x - end.x, preview.ring_position().z - end.z).length() > 0.001:
+			ring_agrees = false
+		preview.free()
+	_expect(kick_agrees, "the ball leaves with exactly the velocity the preview was drawn from")
+	_expect(ring_agrees, "the ring is where the arc ends, and green exactly when the shot is on target")
+	_expect(found_on_target, "a shot at the middle of the east goal from ten metres is marked on target for some loft")
+
+	# Aimed wide, no loft makes it a shot on goal; aimed at the middle and
+	# sent over the bar, it is not either.
+	var wide_look := Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(-20.0))
+	var any_wide := false
+	for step in 21:
+		var launch := Ball.launch_velocity(at, striker, Vector3.LEFT, false, 0.8, float(step) / 20.0, wide_look)
+		var path := Ball.predict(at, launch, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
+		var flight := PackedVector3Array([at])
+		flight.append_array(path)
+		if Pitch.goal_ahead(flight, Ball.RADIUS, flat) >= 0:
+			any_wide = true
+	_expect(not any_wide, "turned twenty degrees off the goal, no loft is marked on target")
+	var over := Ball.launch_velocity(at, striker, Vector3.LEFT, true, 1.0, 1.0, Vector3.RIGHT)
+	var over_path := Ball.predict(at, over, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
+	var over_flight := PackedVector3Array([at])
+	over_flight.append_array(over_path)
+	_expect(Pitch.goal_ahead(over_flight, Ball.RADIUS, flat) < 0, "a full-power chip over the bar is not marked on target")
+	ball.free()
+
 

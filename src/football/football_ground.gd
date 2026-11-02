@@ -19,9 +19,18 @@ const CELEBRATION := 2.2
 ## home. Generous, so that chasing a long ball is still part of the fun.
 const STRAY_DISTANCE := 46.0
 
-signal goal_scored(goal_index: int, total: int)
+## A goal went in at `goal_index`, and this is the score now: blue's, then red's.
+signal goal_scored(goal_index: int, blue: int, red: int)
 
-var score := 0
+## The score changed any way at all — a goal, a new game, a load.
+signal scores_changed(blue: int, red: int)
+
+## Goals scored by each side. Blue defends the west goal and red the east, so
+## the ball into the east goal is blue's goal and the other way round.
+var blue := 0
+var red := 0
+
+var _board: Scoreboard
 
 var _balls: Array[Ball] = []
 var _cooldown := 0.0
@@ -49,6 +58,10 @@ func _init(field: HeightField) -> void:
 		var mouth := Pitch.goal_centre(index)
 		mouth.y = _field.height_at(mouth.x, mouth.z)
 		add_child(Goal.new(index, mouth))
+
+	var foot := Pitch.scoreboard_foot()
+	_board = Scoreboard.new(_field.height_at(foot.x, foot.z))
+	add_child(_board)
 
 	# Balls start spread across the halfway line, not stacked on the centre
 	# spot, or they spend the first second of the game shoving each other.
@@ -88,9 +101,15 @@ func _check_goal(ball: Ball) -> bool:
 		var grass := _field.height_at(mouth.x, mouth.z)
 		if not Pitch.is_goal(index, ball.position, Ball.RADIUS, grass):
 			continue
-		score += 1
+		# The goal an end defends is the other side's to score in.
+		if index == 1:
+			blue += 1
+		else:
+			red += 1
 		_cooldown = CELEBRATION
-		goal_scored.emit(index, score)
+		_board.show_scores(blue, red)
+		goal_scored.emit(index, blue, red)
+		scores_changed.emit(blue, red)
 		# Put it back on the centre spot after the celebration, the way a
 		# restart works, rather than instantly, which reads as the ball
 		# vanishing at the moment of triumph.
@@ -99,6 +118,10 @@ func _check_goal(ball: Ball) -> bool:
 		_in_the_net[ball] = true
 		var timer := get_tree().create_timer(CELEBRATION)
 		timer.timeout.connect(func() -> void:
+			# A new game may have fetched the ball already, and the child
+			# kicked it since: it is not taken from them a second time.
+			if not _in_the_net.has(ball):
+				return
 			_in_the_net.erase(ball)
 			ball.reset_to(restart)
 		)
@@ -179,8 +202,34 @@ func ball_near(from: Vector3) -> Ball:
 			best = ball
 	return best
 
+## Start the game again: both scores to nothing and every ball back where it
+## began, on the halfway line, as when the world was made.
+func new_game() -> void:
+	blue = 0
+	red = 0
+	_cooldown = 0.0
+	_in_the_net.clear()
+	_afloat.clear()
+	for ball in _balls:
+		var spot := ball.home
+		spot.y = _field.height_at(spot.x, spot.z)
+		ball.reset_to(spot)
+	_board.show_scores(blue, red)
+	scores_changed.emit(blue, red)
+
+## The board's own digits, for the checks.
+func board_digits() -> PackedStringArray:
+	return _board.digits()
+
 func to_data() -> Dictionary:
-	return {"score": score}
+	return {"blue": blue, "red": red}
 
 func from_data(data: Dictionary) -> void:
-	score = int(data.get("score", 0))
+	# A save from before there were two sides holds one number, "score", for
+	# goals in either end, and there is no telling now whose they were. It is
+	# loaded as 0:0 rather than handed to blue: a child should not open the game
+	# to a lead that one of two brothers never scored.
+	blue = maxi(int(data.get("blue", 0)), 0)
+	red = maxi(int(data.get("red", 0)), 0)
+	_board.show_scores(blue, red)
+	scores_changed.emit(blue, red)

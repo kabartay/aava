@@ -195,13 +195,13 @@ func _build_mesh(which: Look) -> Mesh:
 ##
 ## Returns the resulting speed in metres per second, or zero if the striker was
 ## not close enough to reach it.
-func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25) -> float:
+func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25, look := Vector3.ZERO) -> float:
 	var offset := position - from
 	offset.y = 0.0
 	if offset.length() > KICK_REACH + RADIUS:
 		return 0.0
 
-	var launch := launch_velocity(position, from, facing, sprinting, strength, loft)
+	var launch := launch_velocity(position, from, facing, sprinting, strength, loft, look)
 	var direction := Vector3(launch.x, 0.0, launch.z).normalized()
 	var speed := launch.length()
 	var charged := clampf(strength, 0.0, 1.0)
@@ -222,19 +222,39 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft
 	kicked.emit(charged, clampf(loft, 0.0, 1.0))
 	return speed
 
+## Where the camera looking along `look` sends a kick from `from` at a ball at
+## `at`, along the ground. The ball straight ahead of the view goes the way the
+## view points. A child who walked at a ball that is off to one side of the view
+## still kicks it the way they walked, so between ten and eighty degrees of
+## difference the two are blended, turning smoothly from one to the other and
+## never jumping; past eighty degrees it is the run-up line alone.
+static func aim_direction(at: Vector3, from: Vector3, facing: Vector3, look := Vector3.ZERO) -> Vector3:
+	var offset := at - from
+	offset.y = 0.0
+	var flat_look := Vector3(look.x, 0.0, look.z)
+	var run := offset.normalized() if offset.length_squared() > 0.02 else Vector3.ZERO
+	if flat_look.length_squared() < 0.0001:
+		return run if run != Vector3.ZERO else facing
+	flat_look = flat_look.normalized()
+	if run == Vector3.ZERO:
+		return flat_look
+	var off := run.angle_to(flat_look)
+	var run_weight := smoothstep(deg_to_rad(10.0), deg_to_rad(80.0), off)
+	if run_weight >= 1.0:
+		return run
+	return flat_look.slerp(run, run_weight)
+
 ## The velocity a kick gives a ball at `at`, from a striker at `from`. Pure,
 ## so the aim preview can draw where the ball will go before it is kicked and
 ## be right about it — the same arithmetic, in one place.
 ##
-## The kick goes along the line from striker to ball, not the way the striker
-## happens to be facing: a child aims by walking at the ball, and being sent
-## somewhere else because the camera had swung feels like a bug. Strength is
+## Which way it goes is `aim_direction`: where the camera looks, `look`, so a
+## child turns the view to aim; and the run-up line from striker to ball when
+## no look is given or the ball is well off to one side of the view. Strength is
 ## squared, so the first half of the hold barely adds anything and the last
 ## quarter adds a lot — winding up rather than being dragged up to speed.
-static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinting: bool, strength: float, loft: float) -> Vector3:
-	var offset := at - from
-	offset.y = 0.0
-	var direction := offset.normalized() if offset.length_squared() > 0.02 else facing
+static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinting: bool, strength: float, loft: float, look := Vector3.ZERO) -> Vector3:
+	var direction := aim_direction(at, from, facing, look)
 	var charged := clampf(strength, 0.0, 1.0)
 	var speed := lerpf(KICK_SPEED_MIN, KICK_SPEED_MAX, charged * charged)
 	if sprinting:

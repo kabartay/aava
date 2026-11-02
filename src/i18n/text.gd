@@ -728,6 +728,11 @@ const STRINGS := {
 	"aim_over": {EN: "up and over", FR: "en cloche", RU: "повыше"},
 	"aim_high": {EN: "high over the top", FR: "très haut", RU: "высоко навесом"},
 
+	# The scoreboard by the pitch: its thin title, and what is said when a child
+	# starts the game again from it.
+	"board_title": {EN: "GOALS", FR: "BUTS", RU: "ГОЛЫ"},
+	"say_new_game": {EN: "new game: 0 – 0", FR: "nouveau match : 0 – 0", RU: "новая игра: 0 – 0"},
+
 	# Things the world says back.
 	"say_goal": {EN: "GOAL", FR: "BUT", RU: "ГОЛ"},
 	# %d is the wood taken, %d the coins the tree's growing had paid.

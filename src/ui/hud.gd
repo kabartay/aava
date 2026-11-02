@@ -178,7 +178,15 @@ var _message: Label
 var _message_timer := 0.0
 var _building := false
 var _kick_button: Button
-var _score: Label
+var _score: Panel
+var _score_blue: Label
+var _score_colon: Label
+var _score_red: Label
+## Whether the child is on or beside the pitch, which is when the chip shows.
+var _at_the_pitch := false
+
+## The score chip's size, in pixels.
+const SCORE_CHIP := Vector2(168.0, 44.0)
 var _jump_button: Button
 var _power_bar: ColorRect
 var _power_fill: ColorRect
@@ -320,7 +328,30 @@ func _init() -> void:
 	_aim_label.visible = false
 	add_child(_aim_label)
 
-	_score = _label(34, Color(1.0, 0.94, 0.72))
+	# The football score: blue's number, a colon, red's number, each in its
+	# side's own colour on a small dark chip so it reads over any sky. Shown only
+	# on or beside the pitch, where there is a game to count.
+	_score = Panel.new()
+	_score.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var chip := StyleBoxFlat.new()
+	chip.bg_color = Color(0.06, 0.07, 0.10, 0.62)
+	chip.set_corner_radius_all(14)
+	_score.add_theme_stylebox_override("panel", chip)
+	_score.size = SCORE_CHIP
+	_score_blue = _label(34, Goal.SIDE_COLOURS[0].lightened(0.25))
+	_score_colon = _label(34, Color(0.96, 0.96, 0.94))
+	_score_red = _label(34, Goal.SIDE_COLOURS[1].lightened(0.25))
+	_score_colon.text = ":"
+	_score_blue.text = "0"
+	_score_red.text = "0"
+	var third := SCORE_CHIP.x / 3.0
+	for part: Array in [[_score_blue, 0.0], [_score_colon, third], [_score_red, third * 2.0]]:
+		var label: Label = part[0]
+		label.position = Vector2(float(part[1]), 0.0)
+		label.size = Vector2(third, SCORE_CHIP.y)
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_score.add_child(label)
 	_score.visible = false
 	add_child(_score)
 
@@ -1310,6 +1341,8 @@ func set_place_offer(place: StringName) -> void:
 				which = ActionIcon.Kind.EAT
 			elif place == Places.SHOP:
 				which = ActionIcon.Kind.SHOP
+			elif place == Pitch.SCOREBOARD:
+				which = ActionIcon.Kind.NEW_GAME
 			face.show_kind(which)
 	if _visit_button.visible != wanted:
 		_visit_button.visible = wanted
@@ -1747,13 +1780,26 @@ func set_kick_preview(charging: bool, strength: float, loft: float) -> void:
 		aim = Text.of("aim_over")
 	_aim_label.text = aim
 
-## The running total of goals. Hidden until the first one, because a scoreboard
-## reading zero before anyone has played is just clutter.
-func set_score(goals: int) -> void:
-	_score.text = "%d" % goals
-	if not _score.visible and goals > 0:
-		_score.visible = true
-		_layout()
+## The two scores, blue's then red's, in their own colours.
+func set_score(blue: int, red: int) -> void:
+	_score_blue.text = "%d" % blue
+	_score_red.text = "%d" % red
+
+## Show the score chip while the child is on or beside the pitch, and hide it
+## everywhere else: a reading of 0 : 0 across the valley is only clutter.
+func set_at_the_pitch(near: bool) -> void:
+	if _at_the_pitch == near and _score.visible == near:
+		return
+	_at_the_pitch = near
+	_score.visible = near
+	_layout()
+
+## What the chip reads, for the checks.
+func score_text() -> String:
+	return "%s:%s" % [_score_blue.text, _score_red.text]
+
+func score_is_shown() -> bool:
+	return _score.visible
 
 ## A short, centred announcement. Used for the things the world does in reply.
 ## Whether a child may talk at all. Set from the saved settings when the game
@@ -2012,8 +2058,7 @@ func _layout() -> void:
 	_aim_label.size.x = view.x
 	_aim_label.position = Vector2(0.0, _power_bar.position.y - 36.0)
 
-	_score.size.x = view.x
-	_score.position = Vector2(0.0, safe.position.y + MARGIN)
+	_score.position = Vector2(view.x * 0.5 - SCORE_CHIP.x * 0.5, safe.position.y + MARGIN)
 
 	_task_label.size.x = view.x
 	_task_label.position = Vector2(0.0, safe.position.y + MARGIN + 44.0)

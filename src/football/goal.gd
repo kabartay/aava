@@ -16,6 +16,15 @@ extends Node3D
 const FRAME_COLOR := Color(0.97, 0.97, 0.98)
 const NET_COLOR := Color(0.90, 0.93, 0.96)
 
+## Whose end it is. The west goal (index 0) is blue's to defend and the east
+## goal (index 1) red's, painted on the posts, the bar and a band across the net
+## so that a child sees at a glance which end is whose. A ball into the red
+## goal is a goal for blue, and the other way round.
+const SIDE_COLOURS: Array[Color] = [
+	Color(0.16, 0.42, 0.95),
+	Color(0.92, 0.22, 0.20),
+]
+
 ## How much of the ball's speed survives the netting. Almost none.
 const NET_BOUNCE := 0.04
 
@@ -32,6 +41,7 @@ var index: int
 
 var _frame_material: StandardMaterial3D
 var _net_material: StandardMaterial3D
+var _side_material: StandardMaterial3D
 
 func _init(goal_index: int, at: Vector3) -> void:
 	index = goal_index
@@ -47,14 +57,18 @@ func _init(goal_index: int, at: Vector3) -> void:
 	_net_material.albedo_color = NET_COLOR
 	_net_material.roughness = 0.9
 
+	_side_material = StandardMaterial3D.new()
+	_side_material.albedo_color = SIDE_COLOURS[goal_index]
+	_side_material.roughness = 0.45
+
 	var half := Pitch.GOAL_WIDTH * 0.5
 	var depth := Pitch.GOAL_DEPTH
 	var height := Pitch.GOAL_HEIGHT
 
 	# Front frame: the bit that gets hit.
-	_post(Vector3(0.0, 0.0, -half), height)
-	_post(Vector3(0.0, 0.0, half), height)
-	_crossbar(Vector3(0.0, height, 0.0), Pitch.GOAL_WIDTH, Vector3.FORWARD)
+	_post(Vector3(0.0, 0.0, -half), height, _side_material)
+	_post(Vector3(0.0, 0.0, half), height, _side_material)
+	_crossbar(Vector3(0.0, height, 0.0), Pitch.GOAL_WIDTH, Vector3.FORWARD, _side_material)
 
 	# Two struts from the top of each post down to the ground behind, and a
 	# bar along the ground between them, which is what the net hangs over.
@@ -63,9 +77,10 @@ func _init(goal_index: int, at: Vector3) -> void:
 	var ground_back := Vector3(depth, foot_y, 0.0)
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		_strut(top_back + Vector3(0.0, 0.0, side * half), ground_back + Vector3(0.0, 0.0, side * half))
-	_crossbar(ground_back, Pitch.GOAL_WIDTH, Vector3.FORWARD)
+	_crossbar(ground_back, Pitch.GOAL_WIDTH, Vector3.FORWARD, _frame_material)
 
 	_string_the_net(half, depth, height, foot_y)
+	_band_the_net(Vector3(depth, foot_y - height, 0.0), Vector3(0.0, height, 0.0))
 
 	# What the ball meets behind the strings: the sloping back, the two sides,
 	# all dead.
@@ -175,7 +190,20 @@ static func _string(tool: SurfaceTool, size: Vector3, basis: Basis, centre: Vect
 	for i in indices.size():
 		tool.add_vertex(transform * vertices[indices[i]])
 
-func _post(at: Vector3, height: float) -> void:
+## A broad band of the side's colour across the back of the net, a little over
+## a quarter of the way down, drawn as one slab lying on the slope. It sits just
+## inside the strings so that it reads from the pitch and from behind.
+func _band_the_net(slope: Vector3, top_back: Vector3) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.03, slope.length() * 0.2, Pitch.GOAL_WIDTH)
+	var visual := MeshInstance3D.new()
+	visual.mesh = mesh
+	visual.material_override = _side_material
+	visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	visual.transform = Transform3D(_lying_along(slope), top_back + slope * 0.45)
+	add_child(visual)
+
+func _post(at: Vector3, height: float, material: StandardMaterial3D) -> void:
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = Pitch.POST_RADIUS
 	mesh.bottom_radius = Pitch.POST_RADIUS
@@ -185,7 +213,7 @@ func _post(at: Vector3, height: float) -> void:
 
 	var visual := MeshInstance3D.new()
 	visual.mesh = mesh
-	visual.material_override = _frame_material
+	visual.material_override = material
 	visual.position = at + Vector3.UP * height * 0.5
 	add_child(visual)
 
@@ -195,7 +223,7 @@ func _post(at: Vector3, height: float) -> void:
 		0.55
 	)
 
-func _crossbar(at: Vector3, width: float, _axis: Vector3) -> void:
+func _crossbar(at: Vector3, width: float, _axis: Vector3, material: StandardMaterial3D) -> void:
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = Pitch.POST_RADIUS
 	mesh.bottom_radius = Pitch.POST_RADIUS
@@ -205,7 +233,7 @@ func _crossbar(at: Vector3, width: float, _axis: Vector3) -> void:
 
 	var visual := MeshInstance3D.new()
 	visual.mesh = mesh
-	visual.material_override = _frame_material
+	visual.material_override = material
 	# A cylinder stands along its own y, so it has to be laid on its side.
 	visual.rotation.x = deg_to_rad(90.0)
 	visual.position = at

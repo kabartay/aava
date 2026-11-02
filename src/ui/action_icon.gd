@@ -28,6 +28,7 @@ enum Kind {
 	MIC_ON, MIC_OFF,
 	MAP, TOGETHER, BAG, SETTINGS,
 	DIVE, SURFACE,
+	NEW_GAME,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -150,6 +151,8 @@ func _draw() -> void:
 			_across_the_water(box, false)
 		Kind.SETTINGS:
 			_gear(box)
+		Kind.NEW_GAME:
+			_play_again(box)
 
 ## The mark that turns a machine into "get off it": an arrow rising away from
 ## it, up and to the side, which is the way somebody actually leaves one.
@@ -384,6 +387,32 @@ func _shop(box: Rect2) -> void:
 	var coin_at := Vector2(centre.x + unit * 0.22, centre.y - unit * 0.3)
 	draw_circle(coin_at, unit * 0.13, tint)
 	draw_arc(coin_at, unit * 0.06, 0.0, TAU, 12, HOLE, maxf(1.5, unit * 0.03))
+
+## Play again: a ball with an arrow curling right round it, the sign for
+## "from the start" that needs no word.
+func _play_again(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var thick := maxf(2.5, unit * 0.075)
+	var radius := unit * 0.32
+	# Most of a circle, open at the top right, ending in a head.
+	var from := deg_to_rad(-40.0)
+	var to := deg_to_rad(250.0)
+	draw_arc(centre, radius, from, to, 28, tint, thick)
+	# The arc is drawn with the angle rising, which is clockwise on screen, so
+	# it arrives at its far end travelling along (-sin, cos); the head sits
+	# there and points the way it was going.
+	var tip := centre + Vector2(cos(to), sin(to)) * radius
+	var heading := Vector2(-sin(to), cos(to))
+	var out := Vector2(cos(to), sin(to))
+	draw_colored_polygon(PackedVector2Array([
+		tip + heading * unit * 0.13,
+		tip - heading * unit * 0.04 + out * unit * 0.12,
+		tip - heading * unit * 0.04 - out * unit * 0.12,
+	]), tint)
+	# The ball in the middle.
+	draw_circle(centre, unit * 0.12, tint)
+	draw_circle(centre, unit * 0.05, HOLE)
 
 ## A cross. The build button turns into this while the palette is open, which
 ## is the same button saying "shut this" — it used to say it in words, and the

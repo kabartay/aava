@@ -256,6 +256,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_time_of_day.connect(world.atmosphere.set_time)
 
 	world.football.goal_scored.connect(_on_goal)
+	world.football.scores_changed.connect(_on_scores_changed)
 	world.places.basket.connect(func(total: int) -> void:
 		sounds.play(Sounds.Sound.GOAL)
 		hud.announce(Text.of("say_basket"), 1.6)
@@ -400,7 +401,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud = Hud.new()
 	hud.name = "Hud"
 	add_child(hud)
-	hud.set_score(world.football.score)
+	hud.set_score(world.football.blue, world.football.red)
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 
 	# The interface exists from here and not one line earlier. These sat above,
@@ -915,12 +916,13 @@ func _process(delta: float) -> void:
 	_carry(delta, at)
 
 	# Whatever the place a child is standing in offers.
-	var here := world.places.nearest(at)
+	var here := _place_here(at)
 	# And the child's own cafe or shop, where the valley's are not.
 	var home := structures.venue_at(at) if here == &"" else &""
 	hud.set_place_offer(_offer_at(here) if here != &"" else home)
 	hud.set_cafe_price_offer(home == &"cafe")
 	structures.light_lamps(world.atmosphere.evening(), at)
+	hud.set_at_the_pitch(Pitch.is_beside(at.x, at.z, SCORE_SHOWN_WITHIN))
 	# The shelf is for standing at the counter. Left open, it went on selling
 	# to a child who had walked off across the valley, with the stick still live
 	# under it, and they came back to find the screen covered.
@@ -1138,7 +1140,7 @@ func _show_the_state() -> void:
 	_refresh_vitals()
 	hud.set_voice_allowed(_voice_allowed)
 	hud.set_first_person(_first_person)
-	hud.set_score(world.football.score)
+	hud.set_score(world.football.blue, world.football.red)
 
 ## The one line at the top of the screen: the next step while a child is still
 ## learning the valley, and today's task, counted, once they have.
@@ -1309,10 +1311,21 @@ func _carry(delta: float, at: Vector3) -> void:
 		_slid = 0.0
 		sounds.play(Sounds.Sound.JUMP, 1.4)
 
+## How far off the pitch's apron the score is still shown, in metres.
+const SCORE_SHOWN_WITHIN := 10.0
+
+## The place a child is standing in, counting the foot of the scoreboard, which
+## is not one of the camp's places but offers a button the same way.
+func _place_here(at: Vector3) -> StringName:
+	var here := world.places.nearest(at)
+	if here == &"" and Pitch.near_scoreboard(at.x, at.z):
+		return Pitch.SCOREBOARD
+	return here
+
 ## What the place a child is standing in is offering, as a label — or nothing.
 func _offer_at(place: StringName) -> StringName:
 	match place:
-		Places.PLAYGROUND, Places.CAFE, Places.SHOP:
+		Places.PLAYGROUND, Places.CAFE, Places.SHOP, Pitch.SCOREBOARD:
 			return place
 		_:
 			# The pool needs no button: a child walks in and swims. Offering
@@ -1663,7 +1676,7 @@ func _on_today_done(_kind: StringName, reward: int) -> void:
 	hud.set_task(_task_line())
 
 func _on_place_used() -> void:
-	var here := world.places.nearest(player.global_position)
+	var here := _place_here(player.global_position)
 	if here == &"":
 		# Not at a place of the valley's: perhaps at one the child built.
 		match structures.venue_at(player.global_position):
@@ -1673,6 +1686,8 @@ func _on_place_used() -> void:
 				_sell_at_home()
 		return
 	match here:
+		Pitch.SCOREBOARD:
+			_new_game()
 		Places.PLAYGROUND:
 			if world.places.push_swing(player.global_position):
 				# Higher-pitched the harder it is already going, so pumping
@@ -1686,6 +1701,12 @@ func _on_place_used() -> void:
 			# it was written and nothing in the game ever opened it: a child
 			# could earn coins and never spend one.
 			hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
+
+## Both scores to nothing and the balls back on the halfway line, said aloud.
+func _new_game() -> void:
+	world.football.new_game()
+	sounds.play(Sounds.Sound.CHIME, 1.1)
+	hud.announce(Text.of("say_new_game"), 2.0)
 
 ## A meal at the café: coins for energy. This closes the energy loop from the
 ## other end — animals earn coins, the café turns coins back into a full bar.
@@ -2295,8 +2316,15 @@ func _on_kick_release() -> void:
 		player.facing(),
 		player.is_sprinting(),
 		maxf(strength, 0.12),
-		camera_rig.aim_height()
+		camera_rig.aim_height(),
+		_kick_look()
 	)
+
+## Where the camera looks along the ground, which is where a kick is aimed.
+## One place for the kick and for its preview, so the dots cannot show a
+## different direction from the one the ball takes.
+func _kick_look() -> Vector3:
+	return Vector3(-sin(camera_rig.yaw), 0.0, -cos(camera_rig.yaw))
 
 ## While the kick button is held, a faint dotted arc in the air from the ball
 ## to where it will land — the same arithmetic the kick and the throw use, so
@@ -2309,13 +2337,21 @@ func _show_where_it_goes(ball: Ball) -> void:
 	else:
 		velocity = Ball.launch_velocity(
 			ball.position, player.global_position, player.facing(), player.is_sprinting(),
-			maxf(player.kick_charge, 0.12), camera_rig.aim_height()
+			maxf(player.kick_charge, 0.12), camera_rig.aim_height(), _kick_look()
 		)
 	var ground := func(x: float, z: float) -> float:
 		return world.field.height_at(x, z)
-	kick_preview.show_path(Ball.predict(
+	var path := Ball.predict(
 		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, ground
-	))
+	)
+	# Green when the shot is going into a goal mouth. The ball's own start is
+	# put in front of the dots, so a shot that crosses the line within its first
+	# step is not missed.
+	var flight := PackedVector3Array([ball.position])
+	flight.append_array(path)
+	var on_target := Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0 and ball.look == Ball.Look.FOOTBALL
+	var end := path[path.size() - 1] if not path.is_empty() else ball.position
+	kick_preview.show_path(path, on_target, float(ground.call(end.x, end.z)))
 
 ## The tick or the cross under a question. Everything that spends a child's
 ## coins comes through here.
@@ -2473,12 +2509,18 @@ func _on_boulder_jumped(_at: Vector3, total: int) -> void:
 	sounds.play(Sounds.Sound.CLEARED)
 	hud.announce(Text.format("say_cleared", [total]), 1.8)
 
-func _on_goal(_index: int, total: int) -> void:
+func _on_goal(_index: int, _blue: int, _red: int) -> void:
 	journal.record(Journal.GOALS)
 	today.record(Today.SCORE)
 	sounds.play(Sounds.Sound.GOAL)
-	hud.set_score(total)
 	hud.announce(Text.of("say_goal"), 2.0)
+
+## The score changed for any reason — a goal, a new game, a load or a reset.
+## The interface may not exist yet when a save is read, and shows the state
+## itself when it does.
+func _on_scores_changed(blue: int, red: int) -> void:
+	if hud != null:
+		hud.set_score(blue, red)
 
 func _on_place() -> void:
 	# Captured before placing, because place() moves the preview on.

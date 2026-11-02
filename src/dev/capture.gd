@@ -31,6 +31,9 @@ extends Node3D
 ##   --water=N  draw the bottle at this fraction, and carry one
 ##   --animals=1  place one of every animal in front of the camera
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
+##   --aim=1        show the aim preview (arc, landing ring, green when on
+##                  target) as the game draws it while the kick button is held
+##   --score=B,R    set the football score (blue, red) before the shot
 ##   --power=0..1   how hard to kick it
 ##   --loft=0..1    how high: 0 along the ground, 1 chipped over the top
 ##   --nowater=1    leave the water sheet out, to see the ground under it
@@ -66,6 +69,8 @@ var _at_pitch := false
 var _kick_after := 0.0
 var _kick_strength := 1.0
 var _kick_loft := 0.25
+var _aim_preview := false
+var _score := Vector2i(-1, -1)
 var _zoom := 0.0
 var _shop := false
 var _together := ""
@@ -211,6 +216,11 @@ func _spawn_player() -> void:
 
 	_hud = Hud.new()
 	add_child(_hud)
+	# The score chip, as the game shows it on or beside the pitch.
+	if _score.x >= 0:
+		_world.football.from_data({"blue": _score.x, "red": _score.y})
+	_hud.set_score(_world.football.blue, _world.football.red)
+	_hud.set_at_the_pitch(_at_pitch)
 	# The same wiring the game uses, from the same place, so this tool cannot
 	# photograph a game that is connected differently from the real one.
 	Wiring.connect_hud(
@@ -430,8 +440,40 @@ func _kick_nearest() -> void:
 		return
 	ball.kick(
 		_player.global_position, _player.facing(), false,
-		_kick_strength, _kick_loft
+		_kick_strength, _kick_loft, _kick_look()
 	)
+
+func _kick_look() -> Vector3:
+	return Vector3(-sin(_rig.yaw), 0.0, -cos(_rig.yaw))
+
+## The aim preview the game shows while the kick button is held, drawn the way
+## the game draws it: the kick's own arithmetic, the ring, and the green mark.
+func _show_the_aim() -> void:
+	# With no player (the free camera, which is what a shot is usually taken
+	# with), a striker stands beside the middle ball and looks along --yaw.
+	var striker := Pitch.centre() + Vector3(1.1, 0.0, 0.0)
+	var look := Vector3(-sin(deg_to_rad(_yaw)), 0.0, -cos(deg_to_rad(_yaw)))
+	if _player != null:
+		striker = _player.global_position
+		look = _kick_look()
+	var ball := _world.football.ball_near(striker)
+	if ball == null:
+		return
+	var ground := func(x: float, z: float) -> float:
+		return _world.field.height_at(x, z)
+	var velocity := Ball.launch_velocity(
+		ball.position, striker, look, false, _kick_strength, _kick_loft, look
+	)
+	var path := Ball.predict(
+		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, ground
+	)
+	var flight := PackedVector3Array([ball.position])
+	flight.append_array(path)
+	var preview := KickPreview.new()
+	add_child(preview)
+	var end := path[path.size() - 1]
+	print("aim preview: %d dots from %v to %v, on target: %s" % [path.size(), ball.position, end, Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0])
+	preview.show_path(path, Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0, float(ground.call(end.x, end.z)))
 
 func _wait_for_world() -> void:
 	var frames := 0
@@ -462,6 +504,8 @@ func _wait_for_world() -> void:
 
 	# Strike a ball and watch it go, so the picture proves the kick rather than
 	# merely showing a ball sitting on the grass.
+	if _aim_preview:
+		_show_the_aim()
 	if _kick_after > 0.0:
 		_kick_nearest()
 		var flying := 0.0
@@ -591,6 +635,12 @@ func _parse_arguments() -> void:
 			"kick":
 				# Seconds of flight to watch after striking the ball.
 				_kick_after = value.to_float()
+			"aim":
+				_aim_preview = value.to_int() != 0
+			"score":
+				var both := value.split(",")
+				if both.size() == 2:
+					_score = Vector2i(both[0].to_int(), both[1].to_int())
 			"power":
 				_kick_strength = value.to_float()
 			"loft":
