@@ -160,6 +160,7 @@ func _drop_tile(coord: Vector2i) -> void:
 	for i in range(_active.size() - 1, -1, -1):
 		if _active[i]["tile"] == coord:
 			_active.remove_at(i)
+			_revision += 1
 
 func _process(_delta: float) -> void:
 	var built := 0
@@ -170,22 +171,58 @@ func _process(_delta: float) -> void:
 ## Called by whoever owns the player, rather than the pickups reaching for the
 ## player themselves: the world does not get to know about the game.
 func check_reach(world_position: Vector3) -> void:
+	# Nothing can have come into reach unless the child has walked further than
+	# the gap that was left at the last full look, or the list has changed (a
+	# tile built or dropped, a pickup taken). Pickups do not move, so until
+	# then there is nothing to measure: every frame, every pickup in the
+	# loaded tiles — nearly two hundred — was measured against a child who is
+	# nowhere near any of them.
+	if _reach_revision == _revision and _weighted(world_position - _reach_from) < _reach_slack:
+		return
 	var reach_squared := REACH * REACH
+	var nearest := INF
 	for i in range(_active.size() - 1, -1, -1):
 		var record := _active[i]
 		var offset: Vector3 = record["position"] - world_position
 		# Vertical distance is weighted down so standing on a slope above a
 		# stone still counts as reaching it.
 		offset.y *= 0.5
-		if offset.length_squared() > reach_squared:
+		var away := offset.length_squared()
+		if away > reach_squared:
+			nearest = minf(nearest, away)
 			continue
 		taken[record["id"]] = true
 		var node: Node3D = record["node"]
 		if is_instance_valid(node):
 			node.queue_free()
 		_active.remove_at(i)
+		_revision += 1
 		taken_here.emit(record["id"])
 		collected.emit(record["kind"], record["position"])
+	_reach_from = world_position
+	# Measured the same way the reach is, so the slack is exact: the weighted
+	# distance to a pickup changes by no more than the weighted distance the
+	# child moves.
+	_reach_slack = sqrt(nearest) - REACH
+	_reach_revision = _revision
+	_reach_scans += 1
+
+## The child's own measure of distance to a pickup, with height counting half.
+func _weighted(offset: Vector3) -> float:
+	offset.y *= 0.5
+	return offset.length()
+
+## Bumped whenever `_active` changes, so that `check_reach` knows its last look
+## is out of date. Where the child stood for it, how far they may walk before
+## it has to look again, and how many full looks it has made (for the checks).
+var _revision := 0
+var _reach_revision := -1
+var _reach_from := Vector3.ZERO
+var _reach_slack := 0.0
+var _reach_scans := 0
+
+func reach_scans() -> int:
+	return _reach_scans
 
 ## Somebody else picked this up. It is gone here too, without a reward: it went
 ## into their bag. A tile not built yet will leave it out when it is.
@@ -198,6 +235,7 @@ func taken_elsewhere(id: String) -> void:
 		if is_instance_valid(node):
 			node.queue_free()
 		_active.remove_at(i)
+		_revision += 1
 
 func _build_tile(coord: Vector2i) -> void:
 	var holder := Node3D.new()
@@ -244,6 +282,7 @@ func _build_tile(coord: Vector2i) -> void:
 		)
 		holder.add_child(node)
 
+		_revision += 1
 		_active.append({
 			"id": id,
 			"kind": kind,

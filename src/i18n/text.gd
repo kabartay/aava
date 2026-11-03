@@ -651,6 +651,13 @@ const STRINGS := {
 		FR: "%s : impossible de partir d'ici — pousse-le sur le côté",
 		RU: "%s: отсюда не уехать — отодвинь в сторону",
 	},
+	# Said to the child who got on a machine at the very moment the other one
+	# did and was the one to get down again: the host's child keeps it.
+	"say_mount_taken": {
+		EN: "your friend got on it first",
+		FR: "ton ami est monté dessus le premier",
+		RU: "твой друг сел на него первым",
+	},
 	# Said to a guest who tries to sell a machine in somebody else's valley.
 	"say_sell_at_home": {
 		EN: "sell it in your own valley",

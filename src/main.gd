@@ -968,6 +968,10 @@ func _process(delta: float) -> void:
 			_waiting_for_ground = false
 		return
 
+	# The ground under the child is never left to the stream alone: if their own
+	# chunk has no collision yet, it is built on the spot. See ensure_ground_at.
+	world.terrain.ensure_ground_at(player.global_position)
+
 	# Which seat the child is in, if they are in one, so that their body sits.
 	var seated := _seat_at(player.global_position)
 	player.seat_pose = seated.get("pose", &"")
@@ -1329,16 +1333,15 @@ func _process(delta: float) -> void:
 	)
 
 	# The axe only offers itself when there is a tree to use it on.
-	var tree_in_reach := (
-		wallet.has(ShopStock.AXE)
-		and bool(world.vegetation.nearest_tree_found(player.global_position, CHOP_REACH)[1])
-	)
-	# A tree somebody planted is felled first (see _on_chop), and is somebody's
-	# work: it takes a held press, where a wild tree takes a tap.
-	hud.set_tree_in_reach(
-		tree_in_reach,
-		tree_in_reach and not structures.nearest_grown_tree(player.global_position, CHOP_REACH).is_empty()
-	)
+	# A planted tree counts on its own: a child's tree standing in a meadow with
+	# no wild one within reach was never offered the axe at all.
+	var wild_in_reach := bool(world.vegetation.nearest_tree_found(player.global_position, CHOP_REACH)[1])
+	var planted_in_reach := not structures.nearest_grown_tree(player.global_position, CHOP_REACH).is_empty()
+	var tree_in_reach := wallet.has(ShopStock.AXE) and (wild_in_reach or planted_in_reach)
+	# A tree somebody planted is felled first unless a wild one is nearer (see
+	# _on_chop), and is somebody's work: it takes a held press, where a wild
+	# tree takes a tap.
+	hud.set_tree_in_reach(tree_in_reach, tree_in_reach and _axe_falls_on_a_planted_tree())
 
 	# The care button says what the animal in front of you wants, at the moment
 	# you can do something about it.
@@ -2026,6 +2029,18 @@ func _follow_their_mount(id: int, at: Vector3, facing: float, mount: StringName)
 		_rides_of_others.erase(id)
 		_ride_spots.erase(id)
 		return
+	# Both children got on this machine in the same moment. The host's keeps
+	# it (see Session.gives_way_on_a_mount): the host's phone ignores the
+	# guest's claim, and the guest's puts its child down where they are, with
+	# the machine taken to the host's rider, a gentle word and no jolt.
+	if mount == player.riding:
+		if not Session.gives_way_on_a_mount(session.is_following(), id):
+			_rides_of_others.erase(id)
+			_ride_spots.erase(id)
+			return
+		_get_off_quietly()
+		sounds.play(Sounds.Sound.REFUSE, 0.6)
+		hud.announce(Text.of("say_mount_taken"), 2.6)
 	_rides_of_others[id] = mount
 	_ride_spots[id] = [at, facing]
 	world.mounts.ride_remote(mount, at, facing)
@@ -2345,7 +2360,17 @@ func _on_remote_picked(id: String) -> void:
 func _on_remote_parked(id: StringName, at: Vector3, facing: float) -> void:
 	if not _the_hosts_valley_is_here():
 		return
-	world.mounts.park_remote(id, at, facing)
+	# The host chooses where a machine is left, and says so. A guest takes the
+	# host's spot as it is; the host moves a machine that was left in something
+	# to clear ground and sends the spot back, so both phones have it in one
+	# place (see Mounts.park_remote).
+	var told_by_the_host := session.is_following()
+	world.mounts.park_remote(id, at, facing, told_by_the_host)
+	if told_by_the_host or not world.mounts.exists(id):
+		return
+	var chosen := world.mounts.position_of(id)
+	if Vector2(chosen.x - at.x, chosen.z - at.z).length() > 0.05:
+		session.report_parked(id, chosen, world.mounts.facing_of(id))
 
 ## Is what this phone holds the valley the other child is building in? A host's
 ## always is. A guest's is not until the host's has arrived: connected, they
@@ -2816,14 +2841,27 @@ func _on_ride() -> void:
 	sounds.play(Sounds.Sound.JUMP, 0.8)
 	hud.announce(Text.format("say_mounted", [Text.of("mount_%s_on" % MountKinds.kind_of(kind))]), 2.0)
 
+## Whether the axe, swung now, would fall on a tree a child planted. The same
+## answer drives the button (a held press for a planted tree, a tap for a wild
+## one) and the swing, so the two cannot disagree about which tree it is.
+func _axe_falls_on_a_planted_tree() -> bool:
+	var mine := structures.nearest_grown_tree(player.global_position, CHOP_REACH)
+	if mine.is_empty():
+		return false
+	var answer := world.vegetation.nearest_tree_found(player.global_position, CHOP_REACH)
+	return Structures.planted_is_the_one_axed(
+		player.global_position, mine["position"], answer[0], bool(answer[1])
+	)
+
 func _on_chop() -> void:
 	if not wallet.has(ShopStock.AXE):
 		return
 	# A tree the child planted themselves, first: it stands where the forest's
 	# own trees do not, and an axe swung at it should fell it rather than
-	# reaching past it into the wood behind.
+	# reaching past it into the wood behind. Unless a wild trunk is nearer, in
+	# which case that is the tree in front of the child.
 	var mine := structures.nearest_grown_tree(player.global_position, CHOP_REACH)
-	if not mine.is_empty():
+	if not mine.is_empty() and _axe_falls_on_a_planted_tree():
 		_fell_a_planted_tree(mine)
 		return
 
@@ -3031,6 +3069,10 @@ func _catch_a_fall(at: Vector3) -> void:
 	if at.y > ground - Player.CAUGHT_BELOW:
 		return
 	player.velocity = Vector3.ZERO
+	# The ground they are put back on has to be solid, or they fall again at once
+	# and are caught again, every frame. A child can only be here because their
+	# chunk had no collision, so that chunk is made solid before they land on it.
+	world.terrain.ensure_ground_at(Vector3(at.x, ground, at.z))
 	player.global_position = Vector3(at.x, ground + 0.5, at.z)
 	# Told, not silently mended: a child who has just watched the world vanish
 	# deserves to know they are back rather than wondering what happened.

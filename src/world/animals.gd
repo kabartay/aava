@@ -1316,6 +1316,13 @@ func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionar
 		var node: Node3D = animal["node"]
 		if not is_instance_valid(node) or float(animal["cooldown"]) > 0.0:
 			continue
+		# Out of reach first, before anything is asked about what it wants:
+		# this runs every frame for every animal in the valley, and nearly all
+		# of them are a long way off. Asking each whether it was thirsty meant
+		# a look-up on the river's distance for every one of them.
+		var distance := node.position.distance_to(player_position)
+		if distance > best_distance:
+			continue
 		# An animal we cannot feed may still be one we can water, and the caller
 		# decides which. Filtering on food alone hid every thirsty squirrel from
 		# a player who had a full bottle but no cones.
@@ -1328,10 +1335,8 @@ func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionar
 		var wanted := AnimalKinds.want(kind)
 		if wanted != &"" and inventory.count(wanted) <= 0 and not is_thirsty(animal):
 			continue
-		var distance := node.position.distance_to(player_position)
-		if distance <= best_distance:
-			best_distance = distance
-			best = animal
+		best_distance = distance
+		best = animal
 	return best
 
 ## Thirst is separate from hunger: an animal far from the river wants a drink,

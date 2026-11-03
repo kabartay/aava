@@ -1240,7 +1240,24 @@ func _solid(car: AnimatableBody3D, size: Vector3, where: Vector3) -> void:
 	collider.position = where
 	car.add_child(collider)
 
+## Where along the track the train was when the cars were last put down, and
+## how many times they have been. A train standing at the platform for its ten
+## seconds is exactly where it was a sixtieth of a second ago, and every car
+## was still being worked out afresh — a point on the track and a frame for
+## each, five times over — to arrive at the transform it already had.
+var _placed_at := -1.0
+var _placements := 0
+
+var _cap_base := NAN
+
+func placements() -> int:
+	return _placements
+
 func _place_cars() -> void:
+	if _at_distance == _placed_at:
+		return
+	_placed_at = _at_distance
+	_placements += 1
 	for index in _cars.size():
 		var along := _at_distance - float(index) * CAR_GAP
 		var here := point_at(along)
@@ -1266,10 +1283,11 @@ func _physics_process(delta: float) -> void:
 		_cap_paint.albedo_color = (
 			BUTTON_LIT if (_booked or boarding()) else BUTTON
 		)
-		_cap.position.y = (
-			point_at(distance_of(BOARDS_AT)).y + CAR_FLOOR + BUTTON_HEIGHT
-			+ (0.0 if _booked else 0.06)
-		)
+		# The platform does not move, so the height of the track beside it is
+		# worked out once.
+		if is_nan(_cap_base):
+			_cap_base = point_at(distance_of(BOARDS_AT)).y + CAR_FLOOR + BUTTON_HEIGHT
+		_cap.position.y = _cap_base + (0.0 if _booked else 0.06)
 
 	# The harnesses come down as the train leaves and go up as it stops, over
 	# about a second, which is how long the real ones take.

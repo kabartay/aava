@@ -392,7 +392,10 @@ func follow(
 	# Wind: the higher and barer the ground, the more of it. Sheltered down by
 	# the river, wild up on a hillside.
 	var exposure := smoothstep(WIND_QUIET_HEIGHT, WIND_LOUD_HEIGHT, at.y)
-	var sheltered := 1.0 - smoothstep(0.0, 60.0, field.distance_to_river(at.x, at.z)) * 0.35
+	# Asked of the river once for the frame: the wind and the water below both
+	# want the same distance from the same spot.
+	var to_river := field.distance_to_river(at.x, at.z)
+	var sheltered := 1.0 - smoothstep(0.0, 60.0, to_river) * 0.35
 	# Barely there down in the valley and only really heard on an open hillside.
 	# The floor was 0.25, which meant a quarter of full wind everywhere a child
 	# ever stood, including in the shelter of the trees — a constant hiss that
@@ -402,7 +405,6 @@ func follow(
 	)
 
 	# Water: from whichever is nearer, the river or a lake.
-	var to_river := field.distance_to_river(at.x, at.z)
 	var to_water := to_river
 	if places != null:
 		to_water = minf(to_water, Lakes.distance_to_water(at.x, at.z))
@@ -432,11 +434,14 @@ func follow(
 	# the same piping wherever a child stood all night; now each cricket has its
 	# own spot in the grass and is heard only on coming near it, full within ten
 	# metres and gone by twenty. Not at all while swimming.
-	_cricket_level = lerpf(
-		_cricket_level,
-		darkness * cricket_near(at, field) * (1.0 - _swim_level),
-		weight
-	)
+	#
+	# By day the target is nothing whatever the crickets are doing, so they are
+	# not looked for: nine squares of height field a frame, in broad daylight,
+	# were the largest single cost in this function.
+	var cricket_target := 0.0
+	if darkness > 0.0:
+		cricket_target = darkness * _cricket_near_cached(at, field) * (1.0 - _swim_level)
+	_cricket_level = lerpf(_cricket_level, cricket_target, weight)
 
 	# Quiet. All of these were mixed by ear on a laptop and were far too loud
 	# on a tablet held at arm's length — the wind in particular drowned the
@@ -475,14 +480,47 @@ static func cricket_spot(key: Vector2i) -> Vector2:
 
 static func cricket_near(at: Vector3, field: HeightField) -> float:
 	var cell := Vector2i(floori(at.x / CRICKET_CELL), floori(at.z / CRICKET_CELL))
-	var best := INF
+	return _loudness_of(at, _dry_crickets_around(cell, field))
+
+## The crickets of the nine squares round `cell` that live on dry ground.
+static func _dry_crickets_around(cell: Vector2i, field: HeightField) -> Array[Vector2]:
+	var dry: Array[Vector2] = []
 	for dx in range(-1, 2):
 		for dz in range(-1, 2):
 			var spot := cricket_spot(Vector2i(cell.x + dx, cell.y + dz))
 			if field != null and field.height_at(spot.x, spot.y) < field.water_level_at(spot.x, spot.y) + 0.2:
 				continue
-			best = minf(best, spot.distance_to(Vector2(at.x, at.z)))
+			dry.append(spot)
+	return dry
+
+static func _loudness_of(at: Vector3, spots: Array[Vector2]) -> float:
+	var best := INF
+	for spot in spots:
+		best = minf(best, spot.distance_to(Vector2(at.x, at.z)))
 	return 1.0 - smoothstep(CRICKET_NEAR, CRICKET_FAR, best)
+
+## The square the child was last in, and the dry crickets round it. Where a
+## cricket lives and whether the ground there is dry do not change, so they
+## are worked out when the child crosses into another square rather than for
+## every frame of the night: eighteen height-field samples, about a hundred
+## microseconds on a laptop.
+var _cricket_cell := Vector2i(1 << 30, 1 << 30)
+var _cricket_field: HeightField
+var _cricket_dry: Array[Vector2] = []
+var _cricket_refreshes := 0
+
+func _cricket_near_cached(at: Vector3, field: HeightField) -> float:
+	var cell := Vector2i(floori(at.x / CRICKET_CELL), floori(at.z / CRICKET_CELL))
+	if cell != _cricket_cell or field != _cricket_field:
+		_cricket_cell = cell
+		_cricket_field = field
+		_cricket_dry = _dry_crickets_around(cell, field)
+		_cricket_refreshes += 1
+	return _loudness_of(at, _cricket_dry)
+
+## How many times the cricket squares have been looked up. For the checks.
+func cricket_refreshes() -> int:
+	return _cricket_refreshes
 
 ## How loud each voice is right now, for the checks: nothing else can hear
 ## the mix.

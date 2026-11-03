@@ -936,6 +936,19 @@ func nearest_grown_tree(world_position: Vector3, reach: float) -> Dictionary:
 			best = record
 	return best
 
+## Whether the axe should fall on the tree a child planted rather than the
+## wild one, given where the child stands. The planted one is the default, as
+## it stands where the forest's own do not; but a wild trunk that is plainly
+## nearer is the one the child is facing, and felling the planted one behind it
+## took the held press the child never meant to make. A tie goes to the
+## planted tree, whose loss is the one that cannot be undone.
+static func planted_is_the_one_axed(from: Vector3, planted_at: Vector3, wild_at: Vector3, wild_found: bool) -> bool:
+	if not wild_found:
+		return true
+	var planted := Vector2(planted_at.x - from.x, planted_at.z - from.z).length()
+	var wild := Vector2(wild_at.x - from.x, wild_at.z - from.z).length()
+	return planted <= wild
+
 ## Take a piece back down. Returns what it was, so the caller can refund it.
 ##
 ## Everything a child builds must be removable. Without that, a misplaced wall
@@ -1105,11 +1118,14 @@ func grove_count() -> int:
 ## trees a child plants, and it never disagrees with itself between frames.
 func _recompute_groves() -> void:
 	var centres := _grove_centres_of(false)
-	if centres.size() != _grove_centres.size():
-		_grove_centres = centres
+	# Said when a grove moves or two merge as well as when one appears or goes:
+	# the birds are given the centres on this signal, and a tree planted
+	# beside a grove shifts its middle without changing how many there are, so
+	# they went on circling the old spot.
+	var changed := centres != _grove_centres
+	_grove_centres = centres
+	if changed:
 		groves_changed.emit(_grove_centres)
-	else:
-		_grove_centres = centres
 
 ## How many groves stand that this child's own trees make up, leaving out
 ## what the other child planted (`paid` false). A grove is only theirs if the
@@ -1131,8 +1147,13 @@ func _grove_centres_of(own_only: bool) -> Array:
 		if claimed.has(i):
 			continue
 		var cluster: Array[int] = [i]
-		for j in range(i + 1, grown.size()):
-			if claimed.has(j):
+		# Every tree not yet spoken for, the ones before this one in the list
+		# too. Looking only forward made a grove depend on the order the trees
+		# were planted in: three in a row fourteen metres apart were a grove
+		# when the middle one came first, and nothing when it came last,
+		# because its two neighbours were each judged without the other.
+		for j in grown.size():
+			if j == i or claimed.has(j):
 				continue
 			if grown[i].distance_to(grown[j]) <= GROVE_RADIUS:
 				cluster.append(j)

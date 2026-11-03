@@ -161,10 +161,35 @@ func _mesh_for(i: int) -> Mesh:
 		return _drake_pale if second else _drake
 	return _hen_dark if second else _hen
 
+## Beyond this from the eye a duck is paddled on every fourth frame only, with
+## the time it missed, staggered by its place in the list so they do not all
+## come due together: the same bargain the far animals strike. At sixty metres
+## a duck is a few pixels and a step a fifteenth of a second long cannot be
+## told from sixty a second, but every duck in the valley, a pond of five on
+## each of them, was being walked and its solid moved every frame.
+const NEAR_THE_EYE := 60.0
+const FAR_EVERY := 4
+var _frame := 0
+
 func _process(delta: float) -> void:
 	var stamp := PerfLog.stamp()
-	for duck in _ducks:
-		_paddle(duck, delta)
+	_frame += 1
+	# Where the eye is, asked of the viewport so that nothing has to tell the
+	# ducks. Without a camera, as in the checks, every duck is near.
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	var eye := camera.global_position if camera != null else Vector3.ZERO
+	for index in _ducks.size():
+		var duck := _ducks[index]
+		var owed := float(duck.get("owed", 0.0)) + delta
+		var node: Node3D = duck["node"]
+		if camera != null and is_instance_valid(node):
+			var gap := node.global_position - eye
+			if gap.x * gap.x + gap.z * gap.z > NEAR_THE_EYE * NEAR_THE_EYE \
+					and (_frame + index) % FAR_EVERY != 0:
+				duck["owed"] = owed
+				continue
+		duck["owed"] = 0.0
+		_paddle(duck, minf(owed, 0.25))
 	PerfLog.note("ducks", stamp)
 
 ## One duck: forward along its heading, turning away from the bank when it gets

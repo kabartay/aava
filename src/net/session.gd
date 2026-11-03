@@ -648,6 +648,15 @@ func _take_position(from: int, at: Vector3, facing: float, mount: String, motion
 	guest_moving.emit(from, motion & 255)
 	guest_moved.emit(from, at, facing, riding)
 
+## Two children got on the same machine in the same moment, each phone having
+## seen its own child first. The host's child keeps it, and a guest whose
+## machine the host names gives way, so both phones come to the same answer
+## without a word more being sent: the host ignores the guest's claim and the
+## guest, seeing the host's, gets off. `following` is whether this phone is a
+## guest's, `rider` the peer id of the child said to be on it.
+static func gives_way_on_a_mount(following: bool, rider: int) -> bool:
+	return following and rider == HOST_ID
+
 ## The highest number in a mount's id: a herd of twenty is the most the valley
 ## has, and a machine bought is numbered from nought (see Mounts.free_id).
 const MAX_MOUNT_NUMBER := 63

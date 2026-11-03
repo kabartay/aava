@@ -36,6 +36,7 @@ func _initialize() -> void:
 	_check_pickups_are_findable()
 	await _check_the_cafe_price_is_kept()
 	await _check_loading_reaches_what_is_already_built()
+	await _check_the_busy_frame_does_its_work_on_change()
 	_check_inventory_arithmetic()
 	_check_build_costs_are_real()
 	_check_a_grove_forms()
@@ -245,6 +246,7 @@ func _initialize() -> void:
 	_check_a_child_pushes_a_basketball_the_way_they_push_a_football()
 	_check_the_animals_near_a_guest_are_looked_after()
 	_check_a_guest_cannot_make_up_mounts()
+	_check_remote_mounts_are_decided_clear_and_bounded_the_same_on_both_phones()
 	_check_the_dam_is_offered_only_at_the_river()
 	_check_a_second_machine_does_not_stand_inside_the_first()
 	_check_the_task_line_clears_the_side_row()
@@ -498,6 +500,8 @@ func _initialize() -> void:
 	_check_a_built_chairs_plate_is_in_front_of_its_sitter()
 	await _check_a_built_chair_is_solid_and_lets_its_sitter_out()
 	await _check_a_stray_tap_does_not_fell_a_planted_tree()
+	_check_a_grove_does_not_depend_on_planting_order()
+	_check_the_axe_falls_on_the_nearer_tree_and_offers_itself_for_a_lone_planted_one()
 	_check_nothing_is_built_on_a_trunk()
 	_check_the_looks_of_the_pony_rider_neck_and_carousel_pink()
 	_check_a_carousel_rider_sits_nearly_upright_and_the_pale_figures_read_warm()
@@ -510,6 +514,7 @@ func _initialize() -> void:
 	_check_a_phone_put_away_lets_go_of_the_stick_and_a_long_frame_ejects_nobody()
 	_check_the_engine_dies_away_and_close_voices_are_capped()
 	await _check_a_child_is_saved_and_loaded_on_safe_ground()
+	_check_the_chunk_under_a_fast_child_always_has_collision()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -25898,6 +25903,10 @@ func _check_a_machine_with_nowhere_clear_stays_unsolid_until_there_is() -> void:
 	mounts.watch(spot + Vector3(0.0, 0.0, -20.0))
 	_expect(not mounts.is_solid(MountKinds.HORSE), "and is still not solid when the child has walked far off")
 	jammed[0] = false
+	# A blocked machine asks again a few times a second (Mounts.RECHECK_MSEC),
+	# not every frame; this run has not had those milliseconds, so they are
+	# let pass here.
+	mounts._found_blocked_at.clear()
 	mounts.watch(spot + Vector3(0.0, 0.0, -20.0))
 	_expect(mounts.is_solid(MountKinds.HORSE), "and becomes solid once what was in the way is gone")
 	mounts.queue_free()
@@ -26058,6 +26067,73 @@ func _check_a_phone_put_away_lets_go_of_the_stick_and_a_long_frame_ejects_nobody
 		"so it takes several unlucky frames, never one, to put a rider down"
 	)
 
+## Three trees fourteen metres apart in a line are one grove, whichever was
+## planted last. The clustering only looked at trees after the anchor in its
+## list, so with the middle tree last its neighbours were each judged without
+## the other and the grove was never counted. The birds are also told when a
+## grove's middle moves without the count changing.
+func _check_a_grove_does_not_depend_on_planting_order() -> void:
+	print("a grove does not depend on planting order")
+	var field := HeightField.new(20260903)
+	var spawn := field.find_spawn_point()
+	var total := BuildKinds.GROWTH_STAGE_SECONDS * float(BuildKinds.GROWTH_STAGES) + 1.0
+	for order: Array in [[0.0, 14.0, 28.0], [14.0, 0.0, 28.0], [0.0, 28.0, 14.0]]:
+		var structures := Structures.new(field)
+		get_root().add_child(structures)
+		for offset: float in order:
+			var at := spawn + Vector3(offset, 0.0, 0.0)
+			at.y = field.height_at(at.x, at.z)
+			structures.place(BuildKinds.SAPLING, at, 0.0)
+		var elapsed := 0.0
+		while elapsed < total:
+			structures._process(1.0)
+			elapsed += 1.0
+		_expect(structures.grove_count() == 1, "three trees in a line fourteen metres apart are one grove, planted in order %s" % [order])
+		structures.queue_free()
+
+	var moving := Structures.new(field)
+	get_root().add_child(moving)
+	var told: Array = []
+	moving.groves_changed.connect(func(centres: Array) -> void: told.append(centres.size()))
+	for offset: float in [0.0, 3.0, 6.0, 12.0]:
+		var at := spawn + Vector3(offset, 0.0, 0.0)
+		at.y = field.height_at(at.x, at.z)
+		moving.place(BuildKinds.SAPLING, at, 0.0)
+		# One at a time, grown, so the fourth arrives to a grove already there.
+		moving.advance_offline(total)
+		var elapsed := 0.0
+		while elapsed < 2.0:
+			moving._process(1.0)
+			elapsed += 1.0
+	_expect(moving.grove_count() == 1, "a fourth tree joins the grove rather than making another")
+	_expect(told.size() >= 2, "and the birds are told the grove has moved: %s" % [told])
+	moving.queue_free()
+
+## The axe falls on the nearer of a planted and a wild tree, and is offered for
+## a planted tree standing alone. Before, a planted tree within reach was
+## always the one felled, even with a wild trunk at the child's elbow, and the
+## button only appeared when a wild tree was in reach, so a tree in the middle
+## of a meadow could not be felled at all.
+func _check_the_axe_falls_on_the_nearer_tree_and_offers_itself_for_a_lone_planted_one() -> void:
+	print("the axe falls on the nearer tree")
+	var from := Vector3(10.0, 0.0, 10.0)
+	var planted := Vector3(13.0, 0.0, 10.0)
+	var wild_near := Vector3(10.5, 0.0, 10.0)
+	var wild_far := Vector3(10.0, 0.0, 6.0)
+	_expect(not Structures.planted_is_the_one_axed(from, planted, wild_near, true), "a wild trunk at the elbow is the one axed, not the planted tree behind it")
+	_expect(Structures.planted_is_the_one_axed(from, Vector3(10.0, 0.0, 12.0), wild_far, true), "a planted tree nearer than the wild one is the one axed")
+	_expect(Structures.planted_is_the_one_axed(from, planted, Vector3.ZERO, false), "a planted tree with no wild one in reach is the one axed")
+	_expect(Structures.planted_is_the_one_axed(from, planted, Vector3(16.0, 0.0, 10.0), true), "a tie goes to the planted tree")
+
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var frame := loop.substr(loop.find("var wild_in_reach"))
+	frame = frame.substr(0, frame.find("hud.set_tree_in_reach(") + 160)
+	_expect(frame.contains("(wild_in_reach or planted_in_reach)"), "the axe is offered for a planted tree with no wild one in reach")
+	var chop := loop.substr(loop.find("func _on_chop("))
+	chop = chop.substr(0, chop.find("\nfunc ", 1))
+	_expect(chop.contains("_axe_falls_on_a_planted_tree()"), "the swing asks which tree is nearer before felling a planted one")
+
+
 func game_const(name: String) -> Variant:
 	return (load("res://src/main.gd") as GDScript).get_script_constant_map().get(name)
 
@@ -26189,4 +26265,395 @@ func _check_text_placeholders_and_plurals_agree() -> void:
 	var sold := Text.format("say_sold", [1, 22])
 	Text.set_language(Text.EN)
 	_expect(sold == "продано 1 за 22 монеты", "two numbers in one text agree separately ('%s')" % sold)
+
+## A child at the fastest machine's 16.5 m/s, at 30 and at 60 frames a second,
+## must always have collision under them, however far the streamer has got. The
+## streamer is only asked a few hundred frames of questions, with the workers
+## doing real bakes, so the check is bounded; the net (ensure_ground_at) is
+## what makes the assertion true when a bake has not landed yet. A chunk that a
+## stale non-collision bake is still working on must also end up solid.
+func _check_the_chunk_under_a_fast_child_always_has_collision() -> void:
+	print("the chunk under a fast child always has collision")
+	var field := HeightField.new(20260903)
+	var start := field.find_spawn_point()
+	for fps: int in [30, 60]:
+		var terrain := Terrain.new(field)
+		get_root().add_child(terrain)
+		var delta := 1.0 / float(fps)
+		var frames := fps * 4
+		var solid := true
+		var late := 0
+		var deadline := Time.get_ticks_msec() + 20000
+		for frame in frames:
+			if Time.get_ticks_msec() > deadline:
+				break
+			var at := start + Vector3(16.5 * delta * float(frame), 0.0, 0.0)
+			terrain.follow(at)
+			terrain._process(delta)
+			if not terrain.has_ground_at(at):
+				late += 1
+			terrain.ensure_ground_at(at)
+			if not terrain.has_ground_at(at):
+				solid = false
+			OS.delay_usec(500)
+		print("  %d fps: the stream was late under the child on %d of %d frames" % [fps, late, frames])
+		_expect(solid, "at 16.5 m/s and %d fps the chunk under the child has collision on every frame" % fps)
+		terrain.queue_free()
+
+	# A far chunk with a hollow bake in flight: made solid, and still solid once
+	# the stale bake would have landed.
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	terrain.follow(start)
+	var far := TerrainSpec.chunk_at(start) + Vector2i(5, 0)
+	terrain._submit_chunk(far, 2)
+	var spot := Vector3((float(far.x) + 0.5) * TerrainSpec.CHUNK_SIZE, 0.0, (float(far.y) + 0.5) * TerrainSpec.CHUNK_SIZE)
+	_expect(not terrain.has_ground_at(spot), "a chunk five away has no collision to begin with")
+	terrain.ensure_ground_at(spot)
+	_expect(terrain.has_ground_at(spot), "and has some once the net has caught it")
+	var deadline := Time.get_ticks_msec() + 5000
+	for frame in 60:
+		if Time.get_ticks_msec() > deadline:
+			break
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(1000)
+	_expect(terrain.has_ground_at(spot), "and a hollow bake that was in flight does not replace it")
+	terrain.queue_free()
+
+## A dry, level spot a good way from the camp's own furniture, for the mount
+## checks that need ground nothing reserves.
+func _open_meadow(mounts: Mounts, field: HeightField) -> Vector3:
+	var camp := field.camp_centre()
+	for step in 60:
+		var at := camp + Vector3(70.0 + 9.0 * float(step), 0.0, 40.0)
+		at.y = field.height_at(at.x, at.z)
+		var clear := true
+		for ring: Vector3 in [Vector3.ZERO, Vector3(8.0, 0.0, 0.0), Vector3(-8.0, 0.0, 0.0), Vector3(0.0, 0.0, 8.0), Vector3(0.0, 0.0, -8.0)]:
+			if not mounts._is_dry_footing(at + ring) or not mounts.spot_is_clear(MountKinds.HORSE, at + ring):
+				clear = false
+		if clear:
+			return at
+	return camp + Vector3(70.0, 0.0, 40.0)
+
+## Two phones getting on one machine at once, a machine left on another or in a
+## wall, a damaged save, and a machine with nowhere clear asking every frame.
+func _check_remote_mounts_are_decided_clear_and_bounded_the_same_on_both_phones() -> void:
+	print("remote mounts are decided clear and bounded the same on both phones")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var here := _open_meadow(mounts, field)
+	var horse := MountKinds.horse_id(0)
+	var bike := &"bicycle:0"
+
+	# 1. The host keeps a machine both children got on; a guest gives way.
+	_expect(Session.gives_way_on_a_mount(true, Session.HOST_ID), "a guest gives way to the host on a machine both are on")
+	_expect(not Session.gives_way_on_a_mount(false, 2), "the host never gives way to a guest")
+	_expect(not Session.gives_way_on_a_mount(true, 3), "and a guest does not give way to another guest on the host's say-so")
+	mounts.place(horse, here)
+	_expect(mounts.mount(horse), "this child gets on the horse")
+	_expect(not mounts.ride_remote(horse, here + Vector3(0.0, 0.0, 1.0), 0.0), "the other child's claim does not take it from under them")
+	mounts.dismount(here, 0.0)
+	_expect(mounts.ride_remote(horse, here, 0.0), "once off, the other child's claim is taken")
+	mounts.release_remote(horse)
+	var main_source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(main_source.contains("Session.gives_way_on_a_mount(session.is_following(), id)"), "the game asks who gives way when the claims meet")
+	_expect(main_source.contains("hud.announce(Text.of(\"say_mount_taken\")"), "and the child who gives way is told, gently")
+	_expect(Text.of("say_mount_taken") != "say_mount_taken", "with words for it")
+
+	# 2. A machine left or let go of on another, or in a built piece, is moved.
+	mounts.place(bike, here)
+	var wall_at := here + Vector3(40.0, 0.0, 0.0)
+	mounts.in_the_way.append(func(at: Vector3, radius: float) -> bool: return Vector2(at.x - wall_at.x, at.z - wall_at.z).length() < 3.0 + radius)
+	mounts.park_remote(horse, here + Vector3(0.2, 0.0, 0.0), 0.0)
+	_expect(mounts.spot_is_clear(horse, mounts.position_of(horse)), "a machine left on another is set down clear of it")
+	var told := here + Vector3(0.2, 0.0, 0.0)
+	mounts.park_remote(horse, told, 0.0, true)
+	_expect(Vector2(mounts.position_of(horse).x - told.x, mounts.position_of(horse).z - told.z).length() < 0.01, "the host's own spot is taken exactly, as it is on both phones")
+	mounts.park_remote(horse, wall_at, 0.0)
+	_expect(mounts.spot_is_clear(horse, mounts.position_of(horse)), "a machine left in a built piece comes out of it")
+	mounts.ride_remote(horse, here, 0.0)
+	mounts.release_remote(horse)
+	_expect(mounts.spot_is_clear(horse, mounts.position_of(horse)), "and so is one let go of on another machine")
+	var far := mounts.position_of(horse)
+	mounts.park_remote(horse, Vector3(9.0e6, 0.0, 0.0), 0.0)
+	_expect(mounts.position_of(horse) == far, "a spot outside the world is not believed")
+
+	# 3. A save with places no valley has, or with a house on the spot.
+	var saved := {
+		"bicycle:1": [1.0e9, 0.0, -1.0e9, 0.0],
+		"bicycle:2": [NAN, 0.0, 0.0, 0.0],
+		"bicycle:3": [wall_at.x, 0.0, wall_at.z, 0.0],
+	}
+	var loaded := Mounts.new(field)
+	get_root().add_child(loaded)
+	loaded.in_the_way.append(func(at: Vector3, radius: float) -> bool: return Vector2(at.x - wall_at.x, at.z - wall_at.z).length() < 3.0 + radius)
+	loaded.from_data(saved)
+	var edge := loaded.position_of(&"bicycle:1")
+	_expect(loaded.exists(&"bicycle:1") and absf(edge.x) <= RespawnSpot.WORLD_HALF and absf(edge.z) <= RespawnSpot.WORLD_HALF, "a mount saved at a million kilometres is brought back inside the world")
+	_expect(not loaded.exists(&"bicycle:2"), "and one saved at no number at all is dropped")
+	_expect(loaded.exists(&"bicycle:3") and loaded.spot_is_clear(&"bicycle:3", loaded.position_of(&"bicycle:3")), "a mount saved where a house now stands is moved to clear ground")
+	loaded.queue_free()
+
+	# 4. A machine with nowhere clear is not asked about every frame.
+	var asked := [0]
+	var jammed := Mounts.new(field)
+	get_root().add_child(jammed)
+	jammed.place(horse, here)
+	jammed.mount(horse)
+	jammed.in_the_way.append(func(_at: Vector3, _radius: float) -> bool:
+		asked[0] += 1
+		return true)
+	jammed.dismount(here, 0.0)
+	asked[0] = 0
+	for frame in 120:
+		jammed.watch(here + Vector3(0.0, 0.0, -20.0))
+	_expect(asked[0] <= 2, "a machine with nowhere clear asks %d times in 120 frames (at most 2)" % asked[0])
+	_expect(not jammed.is_solid(horse), "and stays unsolid while it is blocked")
+	jammed.in_the_way.clear()
+	jammed._found_blocked_at[horse] = Time.get_ticks_msec() - Mounts.RECHECK_MSEC - 1
+	jammed.watch(here + Vector3(0.0, 0.0, -20.0))
+	_expect(jammed.is_solid(horse), "and is solid soon after the ground clears")
+	jammed.queue_free()
+	mounts.queue_free()
+
+## The per-frame costs that were found by measuring the busy places (see
+## src/dev/perf_log.gd for the numbers the phone reports): the mounts' grazing,
+## the pickups' reach, the crickets, the far ducks, the coaster standing at its
+## platform and the animals' nearest-to-care. Each is work that used to be done
+## every frame and is now done on change, and each must give the answer it
+## always gave.
+func _check_the_busy_frame_does_its_work_on_change() -> void:
+	print("the busy frame does its work on change")
+	# Once the tree is running: a node added during _initialize is not yet in it,
+	# and a mount asked for its place there answers with nothing.
+	await process_frame
+	var field := HeightField.new(20260903)
+
+	# Mounts: the parts of each are found once, at placing, and the loops walk
+	# only the horses and the boats.
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var camp := field.camp_centre()
+	for index in 3:
+		mounts.place(MountKinds.horse_id(index), camp + Vector3(6.0 * float(index), 0.0, 0.0))
+	mounts.place(MountKinds.boat_id(0), camp + Vector3(0.0, 0.0, 30.0))
+	mounts.place(MountKinds.BICYCLE, camp + Vector3(-8.0, 0.0, 0.0))
+	_expect(
+		mounts._horses.size() == 3 and mounts._boats.size() == 1 and mounts._rigs.size() == 5,
+		"the mounts know their horses and boats from placing: %d, %d, %d rigs" % [
+			mounts._horses.size(), mounts._boats.size(), mounts._rigs.size()
+		]
+	)
+	mounts.place(MountKinds.horse_id(1), camp + Vector3(6.0, 0.0, 2.0))
+	_expect(
+		mounts._horses.size() == 3 and mounts._rigs.size() == 5,
+		"placing a horse again does not list it twice"
+	)
+	# `blocks` agrees with the plain distance to every mount.
+	var agree := true
+	var probe_rng := RandomNumberGenerator.new()
+	probe_rng.seed = 5
+	for _i in 300:
+		var x := camp.x + probe_rng.randf_range(-14.0, 20.0)
+		var z := camp.z + probe_rng.randf_range(-6.0, 36.0)
+		var plain := false
+		for id: StringName in [MountKinds.horse_id(0), MountKinds.horse_id(1), MountKinds.horse_id(2), MountKinds.boat_id(0), MountKinds.BICYCLE]:
+			var at := mounts.node_of(id).global_position
+			if Vector2(x - at.x, z - at.z).length() < MountKinds.girth(id) + 0.55:
+				plain = true
+		if mounts.blocks(x, z, 0.55) != plain:
+			agree = false
+	_expect(agree, "blocks() gives the answer the plain distance gives")
+
+	# Grazing far from the child is stepped in longer, rarer steps; near, as ever.
+	mounts.watch(camp)
+	var far_id := MountKinds.horse_id(2)
+	mounts.place(far_id, camp + Vector3(200.0, 0.0, 0.0))
+	mounts.watch(camp)
+	# Horse 1, not 0: the first looks up for its first two and a half seconds,
+	# and a head held level does not move.
+	var near_head := mounts.node_of(MountKinds.horse_id(1)).get_node("Body/Head") as Node3D
+	var far_head := mounts.node_of(far_id).get_node("Body/Head") as Node3D
+	var near_moves := 0
+	var far_moves := 0
+	var last_near := near_head.rotation.x
+	var last_far := far_head.rotation.x
+	for _frame in 40:
+		mounts._process(1.0 / 60.0)
+		if near_head.rotation.x != last_near:
+			near_moves += 1
+		if far_head.rotation.x != last_far:
+			far_moves += 1
+		last_near = near_head.rotation.x
+		last_far = far_head.rotation.x
+	_expect(near_moves >= 38, "a horse beside the child grazes every frame (%d of 40)" % near_moves)
+	_expect(far_moves <= 11 and far_moves >= 1, "a horse 200 m off grazes about every fourth frame (%d of 40)" % far_moves)
+	# And it ends up where the every-frame horse would: the same head angle to
+	# within a hair after a few seconds.
+	var reference := Mounts.new(field)
+	get_root().add_child(reference)
+	reference.place(far_id, camp + Vector3(200.0, 0.0, 0.0))
+	var reference_head := reference.node_of(far_id).get_node("Body/Head") as Node3D
+	for _frame in 400:
+		mounts._process(1.0 / 60.0)
+		reference._process(1.0 / 60.0)
+	# 400 more frames each, on top of the 40: the reference ran 400, so give it
+	# the 40 that the far horse had already had.
+	for _frame in 40:
+		reference._process(1.0 / 60.0)
+	_expect(
+		absf(far_head.rotation.x - reference_head.rotation.x) < 0.2,
+		"the far horse's head is where an every-frame horse's is, to %.3f rad" % absf(far_head.rotation.x - reference_head.rotation.x)
+	)
+	mounts._forget(far_id)
+	_expect(not mounts._rigs.has(far_id) and not mounts._horses.has(far_id), "a mount sold is forgotten by the rigs too")
+	mounts.queue_free()
+	reference.queue_free()
+
+	# Pickups: the child standing or walking far from every pickup is measured
+	# against none of them, and still takes what they walk onto.
+	var pickups := Pickups.new(field, 20260903)
+	get_root().add_child(pickups)
+	var spawn := field.find_spawn_point()
+	pickups.follow(spawn)
+	for _i in 200:
+		pickups._process(0.016)
+		if pickups.is_idle():
+			break
+	var reference_left: Array[Vector3] = []
+	var ids_left := {}
+	for record in pickups._active:
+		reference_left.append(record["position"])
+		ids_left[record["id"]] = record["position"]
+	var taken_log: Array = []
+	pickups.taken_here.connect(func(id: String) -> void: taken_log.append(id))
+	var scans_before := pickups.reach_scans()
+	var walker := spawn
+	var expected_ids := {}
+	var weighted_reach := Pickups.REACH
+	for step in 600:
+		walker += Vector3(0.12, 0.0, 0.07)
+		for id: String in ids_left.keys():
+			var offset: Vector3 = ids_left[id] - walker
+			offset.y *= 0.5
+			if offset.length() <= weighted_reach and not expected_ids.has(id):
+				expected_ids[id] = true
+		pickups.check_reach(walker)
+	_expect(
+		taken_log.size() == expected_ids.size() and taken_log.all(func(id: String) -> bool: return expected_ids.has(id)),
+		"walking 600 steps takes exactly the %d pickups that come within reach (took %d)" % [expected_ids.size(), taken_log.size()]
+	)
+	var scans := pickups.reach_scans() - scans_before
+	_expect(scans < 150, "and measured them in %d full looks, not 600" % scans)
+	var still := pickups.reach_scans()
+	var far_off := Vector3(9000.0, 0.0, 9000.0)
+	for _i in 120:
+		pickups.check_reach(far_off)
+	_expect(pickups.reach_scans() - still <= 1, "a child far from every pickup is looked at once, not every frame (%d looks)" % (pickups.reach_scans() - still))
+	pickups.queue_free()
+
+	# Ambience: no crickets are looked for by day, and by night the nine squares
+	# are looked up once per square the child stands in.
+	var ambience := Ambience.new()
+	get_root().add_child(ambience)
+	for _i in 30:
+		ambience.follow(spawn, field, null, 0.0, 1.0 / 60.0)
+	_expect(ambience.cricket_refreshes() == 0, "by day the crickets are not looked for")
+	for _i in 30:
+		ambience.follow(spawn, field, null, 0.9, 1.0 / 60.0)
+	_expect(ambience.cricket_refreshes() == 1, "by night they are looked up once for the square the child is in (%d)" % ambience.cricket_refreshes())
+	_expect(
+		is_equal_approx(ambience._cricket_near_cached(spawn, field), Ambience.cricket_near(spawn, field)),
+		"and the answer is the one the plain search gives"
+	)
+	ambience.follow(spawn + Vector3(Ambience.CRICKET_CELL * 2.0, 0.0, 0.0), field, null, 0.9, 1.0 / 60.0)
+	_expect(ambience.cricket_refreshes() == 2, "and looked up again on crossing into another square")
+	ambience.queue_free()
+
+	# Ducks: a camera far off steps them every fourth frame; one beside them,
+	# every frame.
+	var ducks := Ducks.new()
+	get_root().add_child(ducks)
+	ducks.settle(20260903, field)
+	var camera := Camera3D.new()
+	get_root().add_child(camera)
+	camera.global_position = ducks.duck_position(0) + Vector3(300.0, 20.0, 0.0)
+	camera.make_current()
+	var far_steps := 0
+	var last := ducks.duck_position(0)
+	for _frame in 40:
+		ducks._process(1.0 / 60.0)
+		var now := ducks.duck_position(0)
+		if now != last:
+			far_steps += 1
+		last = now
+	_expect(far_steps <= 11 and far_steps >= 1, "ducks far from the eye are paddled every fourth frame (%d of 40)" % far_steps)
+	camera.global_position = ducks.duck_position(0) + Vector3(5.0, 3.0, 0.0)
+	var near_steps := 0
+	for _frame in 40:
+		ducks._process(1.0 / 60.0)
+		var now := ducks.duck_position(0)
+		if now != last:
+			near_steps += 1
+		last = now
+	_expect(near_steps >= 39, "and ducks beside it every frame (%d of 40)" % near_steps)
+	camera.queue_free()
+	ducks.queue_free()
+
+	# The coaster standing at its platform puts its cars down once, not every tick.
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	var placed := coaster.placements()
+	coaster._waiting = 5.0
+	var cars_at := coaster.car_at(0).global_transform
+	for _i in 60:
+		coaster._physics_process(1.0 / 60.0)
+	_expect(coaster.placements() == placed, "a train waiting at the platform is not re-placed (%d placements)" % (coaster.placements() - placed))
+	_expect(coaster.car_at(0).global_transform.is_equal_approx(cars_at), "and has not moved")
+	coaster._waiting = 0.0
+	coaster._speed = 5.0
+	for _i in 10:
+		coaster._physics_process(1.0 / 60.0)
+	_expect(coaster.placements() - placed == 10, "but a moving one is placed on every tick (%d of 10)" % (coaster.placements() - placed))
+	coaster.queue_free()
+
+	# The animals: the nearest that can be cared for is still the nearest.
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var inventory := Inventory.new()
+	inventory.add(ItemKinds.CHOCOLATE, 1)
+	var holder := Node3D.new()
+	animals.add_child(holder)
+	var kinds: Array[StringName] = [AnimalKinds.SQUIRREL, AnimalKinds.CAT, AnimalKinds.DOG]
+	for index in 12:
+		var node := Node3D.new()
+		holder.add_child(node)
+		node.position = Vector3(float(index) * 0.7, 0.0, 4.0 + float(index % 3) * 0.6)
+		animals._living.append({
+			"kind": kinds[index % 3], "node": node, "cooldown": 0.0 if index != 5 else 9.0,
+			"home": node.position, "target": node.position, "tile": Vector2i.ZERO,
+			"rest": 1.0, "bob": 0.0, "heading": 0.0, "velocity": 0.0,
+		})
+	var from := Vector3(3.5, 0.0, 4.5)
+	var best := -1
+	var best_gap := Animals.REACH
+	for index in animals._living.size():
+		var candidate: Dictionary = animals._living[index]
+		if float(candidate["cooldown"]) > 0.0:
+			continue
+		var wanted := AnimalKinds.want(candidate["kind"])
+		if wanted != &"" and inventory.count(wanted) <= 0 and not animals.is_thirsty(candidate):
+			continue
+		var gap := (candidate["node"] as Node3D).position.distance_to(from)
+		if gap <= best_gap:
+			best_gap = gap
+			best = index
+	var found := animals.nearest_caring(from, inventory)
+	_expect(
+		(best < 0 and found.is_empty()) or (best >= 0 and found == animals._living[best]),
+		"the animal nearest to care for is the one a plain scan finds (index %d)" % best
+	)
+	_expect(best >= 0, "and there was one in reach to find")
+	animals.queue_free()
 

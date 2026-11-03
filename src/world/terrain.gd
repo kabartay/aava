@@ -216,6 +216,47 @@ func has_ground_at(world_position: Vector3) -> bool:
 	var chunk: TerrainChunk = _chunks.get(TerrainSpec.chunk_at(world_position))
 	return chunk != null and chunk.has_collision
 
+## Make sure the ground under a point holds somebody up, building it here and
+## now if it does not yet.
+##
+## Streaming is fast enough on paper: a chunk is 64 m, the nearest chunk without
+## collision is at least three chunks (192 m) away, and the fastest machine does
+## 16.5 m/s, so a child needs about twelve seconds to outrun it. But "on paper"
+## assumes a steady frame rate. A phone that stalls for a few seconds (another
+## app, thermal throttling, a long garbage-collection) lets the child's own
+## chunk arrive late, and a dam rebuild or a fall put-back can land them on a
+## chunk that was never given collision. One chunk baked on the main thread is
+## about a frame and a half; a child falling out of the world is worse. So the
+## streaming stays asynchronous, and this is only the net under it.
+##
+## An in-flight bake of the same chunk is waited for and dropped, not left to
+## land afterwards: it may have been started without collision, and assembling
+## it would replace the solid chunk with a hollow one.
+func ensure_ground_at(world_position: Vector3) -> void:
+	if has_ground_at(world_position):
+		return
+	var coord := TerrainSpec.chunk_at(world_position)
+	var job = _baking.get(coord)
+	if job != null:
+		WorkerThreadPool.wait_for_task_completion(job["task"])
+		_baking.erase(coord)
+	var gap := coord - _centre
+	# Far from the focus (the streamer has not been told about the move yet) the
+	# chunk is built as if it were beside it, which is the detail it will want.
+	var ring := maxi(TerrainSpec.ring_for(maxi(absi(gap.x), absi(gap.y))), 0)
+	var step: int = TerrainSpec.RINGS[ring]["step"]
+	var baked := TerrainChunk.bake(field, coord, step, true)
+	# And not built a second time, coarser and hollow, when its turn in the queue
+	# comes round.
+	_queue.erase(coord)
+	_lazy.erase(coord)
+	var previous = _chunks.get(coord)
+	if previous != null:
+		previous.queue_free()
+	var chunk := TerrainChunk.new(baked, ring, _material, true)
+	add_child(chunk)
+	_chunks[coord] = chunk
+
 ## Rebuild the chunks within `radius` of a point, because the ground there has
 ## changed. Used when a dam is finished — the only thing in the game that edits
 ## the height field after generation.

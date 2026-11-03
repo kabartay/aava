@@ -110,6 +110,7 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 	_facings[kind] = facing
 	_nodes[kind] = node
 	_positions[kind] = grounded
+	_register(kind, node)
 
 ## Where a mount rests: on the ground, or, for a boat, on the water wherever
 ## the ground is under it. A boat left in the shallows sat on the bed with
@@ -274,9 +275,13 @@ func _forget(id: StringName) -> void:
 	if is_instance_valid(node):
 		node.queue_free()
 	_nodes.erase(id)
+	_rigs.erase(id)
+	_horses.erase(id)
+	_boats.erase(id)
 	_positions.erase(id)
 	_facings.erase(id)
 	_waiting_to_be_solid.erase(id)
+	_found_blocked_at.erase(id)
 	_remote.erase(id)
 	if _settling == id:
 		_settling = &""
@@ -291,11 +296,22 @@ func _forget(id: StringName) -> void:
 ## The ridden one does not count. A child is standing in it.
 func blocks(x: float, z: float, margin: float) -> bool:
 	for id in _nodes:
-		if id == riding or _remote.has(id) or not is_instance_valid(_nodes[id]):
-			continue
 		var node: Node3D = _nodes[id]
+		if id == riding or not is_instance_valid(node) or _remote.has(id):
+			continue
+		# The box round it first. Every animal that is walking asks about every
+		# mount in the meadow, and nearly all of them are far off: a pair of
+		# subtractions turns most of them away without a square root or a
+		# vector made to measure with. This node sits at the world's origin,
+		# so its position is its global position (see `place`).
 		var reach := MountKinds.girth(id) + margin
-		if Vector2(x - node.global_position.x, z - node.global_position.z).length() < reach:
+		var dx := x - node.position.x
+		if dx > reach or dx < -reach:
+			continue
+		var dz := z - node.position.z
+		if dz > reach or dz < -reach:
+			continue
+		if dx * dx + dz * dz < reach * reach:
 			return true
 	return false
 
@@ -311,10 +327,13 @@ func is_ridden_elsewhere(id: StringName) -> bool:
 	return _remote.has(id)
 
 ## Somebody else is on this mount, and has just said where. Not while this
-## child is on it: whoever got on first keeps it.
-func ride_remote(id: StringName, at: Vector3, facing: float) -> void:
+## child is on it: this phone does not take it from under them, and says so by
+## returning false. Who gives way when two children got on in the same moment
+## is not decided here but by the game (see Session.gives_way_on_a_mount), the
+## same way on both phones.
+func ride_remote(id: StringName, at: Vector3, facing: float) -> bool:
 	if id == riding or not exists(id):
-		return
+		return false
 	var node: Node3D = _nodes[id]
 	if not _remote.has(id):
 		_remote[id] = true
@@ -322,17 +341,36 @@ func ride_remote(id: StringName, at: Vector3, facing: float) -> void:
 		_waiting_to_be_solid.erase(id)
 		node.visible = false
 	_stand_at(id, at, facing)
+	return true
 
-## Their rider got off, or went home: it is drawn and solid again where it is.
+## Their rider got off, or went home: it is drawn and solid again, where it is
+## if that is somewhere it can stand.
+##
+## "Where it is" is where its rider last was, which is not a place anybody
+## chose for a machine: a rider who left the valley mid-ride left it among
+## the trees, in a wall the other child built since, or on top of another
+## machine, and the solid box that came back with it was round somebody's legs.
+## It is set to the nearest clear ground instead (see `_clear_spot_near`).
 func release_remote(id: StringName) -> void:
-	if not _remote.erase(id) or not exists(id):
+	if not _let_go_of(id):
 		return
+	var facing: float = _facings.get(id, 0.0)
+	var spot := _clear_spot_near(id, _positions[id], facing)
+	if spot != _positions[id]:
+		_stand_at(id, spot, facing)
+
+## Draw it and make it solid again, without choosing where. False if it was not
+## somebody else's.
+func _let_go_of(id: StringName) -> bool:
+	if not _remote.erase(id) or not exists(id):
+		return false
 	(_nodes[id] as Node3D).visible = true
 	_waiting_to_be_solid[id] = true
 	# Not `_settling = id`: there is one slot for the horse being eased back to
 	# standing, and it belongs to the one this child got off. A guest's horse was
 	# never strided on this phone, so it has nothing to settle, and taking the
 	# slot left the child's own horse with its legs cocked out for good.
+	return true
 
 func release_all_remote() -> void:
 	for id in _remote.keys():
@@ -351,8 +389,15 @@ func _count_of_kind(kind: StringName) -> int:
 
 ## Somebody else got off a mount and left it here. A mount this phone has never
 ## heard of — a machine bought on the other one — is put into the valley.
-func park_remote(id: StringName, at: Vector3, facing: float) -> void:
-	if id == riding:
+##
+## Not blindly where they say: their phone chose the spot with its own
+## machines and its own copy of the valley, and a machine of this phone's, or a
+## wall built a moment ago, may stand there now. The host's phone is the one
+## that decides (see Main._on_remote_parked): it moves the machine to clear
+## ground and sends the spot it chose back, and a guest, who is `told_by_the_host`,
+## takes that spot as it is so that both phones have the machine in one place.
+func park_remote(id: StringName, at: Vector3, facing: float, told_by_the_host := false) -> void:
+	if id == riding or not RespawnSpot.in_the_world(at):
 		return
 	# A peer cannot fill the valley with machines: one a kind has that many of
 	# already is not given another, however it is numbered.
@@ -360,13 +405,37 @@ func park_remote(id: StringName, at: Vector3, facing: float) -> void:
 		return
 	var was_ridden := _remote.has(id) and exists(id)
 	var from := (_nodes[id] as Node3D).global_position if was_ridden else Vector3.ZERO
-	release_remote(id)
+	_let_go_of(id)
+	var spot := at if told_by_the_host else _clear_spot_near(id, at, facing)
 	if not exists(id):
-		place(id, at, facing)
+		place(id, spot, facing)
 		return
-	_stand_at(id, at, facing)
+	_stand_at(id, spot, facing)
 	if was_ridden and MountKinds.kind_of(id) == MountKinds.HORSE:
 		_glide(id, from)
+
+## The nearest ground a mount can be put down on without standing in something:
+## `at` itself if that is clear, else a ring of eight bearings a stride and
+## further out, the first that is dry, not a cliff, in the world and clear of
+## everything `spot_is_clear` knows. Nowhere clear leaves it where it was, to be
+## unsolid until the ground is (see `watch`), as a dismounted machine is.
+##
+## Bearings start from the way the machine faces, so that the answer is the
+## same on any phone that asks with the same valley.
+func _clear_spot_near(kind: StringName, at: Vector3, facing: float) -> Vector3:
+	if MountKinds.floats(kind) or spot_is_clear(kind, at):
+		return at
+	for reach: float in CLEAR_SEARCH:
+		for step in 8:
+			var bearing := facing + TAU * float(step) / 8.0
+			var spot := at + Vector3(cos(bearing), 0.0, -sin(bearing)) * reach
+			if RespawnSpot.in_the_world(spot) and _is_dry_footing(spot) and spot_is_clear(kind, spot):
+				return spot
+	return at
+
+## How far out `_clear_spot_near` looks, in metres: a stride aside, then
+## further, as far as a child would push a bicycle to be rid of it.
+const CLEAR_SEARCH: Array[float] = [1.8, 2.9, 4.0, 5.5, 7.5]
 
 ## Every mount in the valley as the host has it, replacing this phone's own.
 ## The guest's own come back with the reload that ends the visit.
@@ -853,9 +922,38 @@ func _process(delta: float) -> void:
 ## Only where the river runs: the ponds have no current, so a boat left on one
 ## stays where it was left. It stops where the water gets too shallow to float
 ## it, rather than sliding up the bank.
+## What the per-frame loops need to know about each mount, found once when it
+## is placed: its parts, and the number that staggers its grazing. Every one
+## of those was worked out afresh for every mount every frame — an id cut apart
+## at its colon twice and up to four `get_node_or_null` name lookups — to learn
+## things that change only when the mount is placed again. `_horses` and
+## `_boats` are the ids those loops are about, so that they do not walk the
+## bicycles and the quad to find the horses.
+var _rigs: Dictionary = {}
+var _horses: Array[StringName] = []
+var _boats: Array[StringName] = []
+
+func _register(id: StringName, node: Node3D) -> void:
+	var body := node.get_node_or_null("Body") as Node3D
+	_rigs[id] = {
+		"body": body,
+		"number": MountKinds.which(id),
+		"offset": float(MountKinds.which(id)) * 3.1,
+		"owed": 0.0,
+		"head": body.get_node_or_null("Head") as Node3D if body != null else null,
+		"reins": body.get_node_or_null("Reins") as MeshInstance3D if body != null else null,
+		"tail": body.get_node_or_null("Tail") as Node3D if body != null else null,
+	}
+	_horses.erase(id)
+	_boats.erase(id)
+	if MountKinds.kind_of(id) == MountKinds.HORSE:
+		_horses.append(id)
+	if MountKinds.floats(id):
+		_boats.append(id)
+
 func _drift_the_boats(delta: float) -> void:
-	for id in _nodes:
-		if id == riding or _remote.has(id) or not MountKinds.floats(id):
+	for id in _boats:
+		if id == riding or _remote.has(id):
 			continue
 		var node: Node3D = _nodes[id]
 		if not is_instance_valid(node):
@@ -1161,23 +1259,47 @@ const CLEAR_OF_IT := 2.4
 ## Mounts that have been got off and are not solid yet, by kind.
 var _waiting_to_be_solid: Dictionary = {}
 
+## How long a machine that found the ground not clear waits before asking
+## again, in milliseconds. One that was left with nowhere clear to go asked
+## every frame, a dozen questions of every tree, boulder and piece built, at
+## sixty a second, for as long as the child stayed away from it.
+const RECHECK_MSEC := 300
+
+## When each waiting mount last found the ground not clear, by kind, in the
+## engine's milliseconds.
+var _found_blocked_at: Dictionary = {}
+
 ## Called every frame with where the child is. A mount just got off becomes
 ## solid again once they are clear of it.
 func watch(player_position: Vector3) -> void:
+	_watcher = player_position
+	_has_watcher = true
 	if _waiting_to_be_solid.is_empty():
 		return
+	var now := Time.get_ticks_msec()
 	for kind in _waiting_to_be_solid.keys():
 		if not exists(kind):
 			_waiting_to_be_solid.erase(kind)
+			_found_blocked_at.erase(kind)
 			continue
 		var flat: Vector3 = _positions[kind] - player_position
 		flat.y = 0.0
+		if flat.length() <= CLEAR_OF_IT:
+			continue
+		# Asked a few times a second, not every frame: the ground being
+		# blocked is news that changes at the pace of somebody building, and
+		# the machine is a picture to walk through in the meantime either way.
+		if now - int(_found_blocked_at.get(kind, now - RECHECK_MSEC)) < RECHECK_MSEC:
+			continue
 		# Clear of the child *and* of everything else. A machine that had
 		# nowhere clear to go (see `_where_to_leave_it`) stays a picture the
 		# child can walk through until it is somewhere it can be solid.
-		if flat.length() > CLEAR_OF_IT and spot_is_clear(kind, _positions[kind]):
+		if spot_is_clear(kind, _positions[kind]):
 			_set_solid(kind, true)
 			_waiting_to_be_solid.erase(kind)
+			_found_blocked_at.erase(kind)
+		else:
+			_found_blocked_at[kind] = now
 
 ## The same, all at once, for a horse whose turn at settling is being taken.
 func _stand_at_ease(id: StringName) -> void:
@@ -1271,40 +1393,68 @@ const GRAZE_LOOKS_UP_FOR := 2.6
 
 var _grazing_time := 0.0
 
+## Where the child was last said to be (see `watch`), so that a horse a long way
+## off can graze in fewer, longer steps, as the far animals do. Until the game
+## has said, every horse is near.
+var _watcher := Vector3.ZERO
+var _has_watcher := false
+var _graze_frame := 0
+## Further than this from the child a horse's grazing is stepped every fourth
+## frame, with the time it missed. A head dipping and a tail swinging on a horse
+## sixty metres away are a few pixels, and every horse in the valley was paying
+## for them sixty times a second.
+const GRAZE_NEAR := 60.0
+const GRAZE_FAR_EVERY := 4
+
 ## Every horse nobody is riding grazes: head down, up now and then, tail
 ## swinging. Cheap — a rotation each on a handful of nodes.
 func _graze(delta: float) -> void:
 	_grazing_time += delta
-	for kind in _nodes:
-		if MountKinds.kind_of(kind) != MountKinds.HORSE or kind == riding:
+	_graze_frame += 1
+	for kind in _horses:
+		if kind == riding:
 			continue
+		if not is_instance_valid(_nodes[kind]):
+			continue
+		var rig: Dictionary = _rigs[kind]
 		# The one just got off is being eased back to standing; it can put its
 		# head down once it has.
 		if kind == _settling:
 			continue
-		var node = _nodes[kind]
-		if not is_instance_valid(node):
-			continue
-		var body := (node as Node3D).get_node_or_null("Body") as Node3D
+		var body := rig["body"] as Node3D
 		if body == null:
 			continue
+		# A horse far from the child is stepped on every fourth frame, staggered
+		# by its number so they do not all come due together, with the time it
+		# has missed. What it does is drawn from the clock and eased towards
+		# it, so a longer step lands in the same place.
+		var step := delta
+		if _has_watcher:
+			var gap := (_positions[kind] as Vector3) - _watcher
+			if gap.x * gap.x + gap.z * gap.z > GRAZE_NEAR * GRAZE_NEAR:
+				var owed := float(rig["owed"]) + delta
+				if (_graze_frame + int(rig["number"])) % GRAZE_FAR_EVERY != 0:
+					rig["owed"] = owed
+					continue
+				rig["owed"] = 0.0
+				step = owed
 		# Each on its own clock, so a field of horses does not lift its heads
 		# in unison.
-		var offset := float(MountKinds.which(kind)) * 3.1
+		var offset := float(rig["offset"])
 		var cycle := fmod(_grazing_time + offset, GRAZE_LOOKS_UP_EVERY)
 		var looking_up := cycle < GRAZE_LOOKS_UP_FOR
-		var head := body.get_node_or_null("Head") as Node3D
+		var head := rig["head"] as Node3D
 		if head != null:
 			var wanted := 0.0 if looking_up else -GRAZE_DOWN
-			head.rotation.x = lerp_angle(head.rotation.x, wanted, 1.0 - exp(-2.5 * delta))
+			head.rotation.x = lerp_angle(head.rotation.x, wanted, 1.0 - exp(-2.5 * step))
 			# The reins hang from the bit, which goes down with the head. Left
 			# as they were made they floated in the air where the head had been.
-			var reins := body.get_node_or_null("Reins") as MeshInstance3D
+			var reins := rig["reins"] as MeshInstance3D
 			if reins != null:
 				var drawn := _reins_for_head(head.rotation.x)
 				if reins.mesh != drawn:
 					reins.mesh = drawn
-		var tail := body.get_node_or_null("Tail") as Node3D
+		var tail := rig["tail"] as Node3D
 		if tail != null:
 			tail.rotation.y = sin((_grazing_time + offset) * 1.3) * 0.14
 
@@ -1501,6 +1651,15 @@ func from_data(data: Dictionary) -> void:
 		if id == MountKinds.HORSE:
 			id = MountKinds.horse_id(0)
 		var at := Vector3(float(entry[0]), float(entry[1]), float(entry[2]))
+		# A damaged or hand-edited save may name a place no valley has: a
+		# number that is not a number, or one in the millions, where the
+		# terrain would be sampled and a machine streamed towards. Not a
+		# place at all is skipped; one past the edge is brought back to it.
+		if not at.is_finite():
+			continue
+		at.x = clampf(at.x, -RespawnSpot.WORLD_HALF, RespawnSpot.WORLD_HALF)
+		at.z = clampf(at.z, -RespawnSpot.WORLD_HALF, RespawnSpot.WORLD_HALF)
+		at.y = clampf(at.y, -RespawnSpot.WORLD_HALF, RespawnSpot.WORLD_HALF)
 		# A horse saved standing in water comes out of it. Worlds written
 		# before the ponds had their own water level have horses in the middle
 		# of a lake — the test for dry ground compared against the world's
@@ -1524,6 +1683,12 @@ func from_data(data: Dictionary) -> void:
 		# that had been standing every which way came out of a reload lined up
 		# like a fence, and a bicycle left across the path stood along it.
 		var facing := float(entry[3]) if entry.size() >= 4 else 0.0
+		if not is_finite(facing):
+			facing = 0.0
+		# And one saved where something now stands — a house built over the
+		# place it was left, a boulder, another machine — comes out beside it
+		# rather than inside it, as one got off beside a wall does.
+		at = _clear_spot_near(id, at, facing)
 		place(id, at, facing)
 
 ## How fast the ground a rider is held to may rise *faster than the slope says
