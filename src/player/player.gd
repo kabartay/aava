@@ -190,6 +190,15 @@ var jump_boost := 1.0
 ## How high the child's body is lifted while riding, so they sit on the mount
 ## rather than standing inside it. Eased, so mounting looks like climbing on.
 var _ride_lift := 0.0
+## How far through getting on a horse (1) or off it (0) the child is, whether it
+## is one they are on or have just left, and which side of it they climb: 1 to its
+## right, -1 to its left. The game says which, from where they stood.
+var _board := 0.0
+var _boards_horse := false
+var board_side := 1.0
+## Where the ridden horse is in its stride, in radians, which the game says: the
+## body keeps time with it. Negative when there is no horse to keep time with.
+var ride_stride := -1.0
 ## How far the body is dropped into the water while swimming, and how far it
 ## is tipped forward.
 var _swim_sink := 0.0
@@ -448,7 +457,10 @@ func _animate(delta: float) -> void:
 		_motion.seat = MountKinds.kind_of(riding)
 		_motion.seat_placed = false
 		_motion.gait = Vector2(velocity.x, velocity.z).length()
+		_motion.stride = ride_stride
+		_motion.sit_time = Mounts.boarding_time(riding)
 	else:
+		_motion.sit_time = Mounts.BOARD_TIME if _boards_horse else 0.2
 		_motion.seat = seat_pose
 		_motion.seat_placed = seat_pose != &""
 		_motion.seat_place = seat_place
@@ -861,7 +873,23 @@ func _physics_process(delta: float) -> void:
 	# left over from the last horse would hold the body at an angle.
 	if riding == &"":
 		_seat_up = Vector3.UP
-	_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
+	# A horse is climbed onto and slid down from, beside it, and not risen to
+	# like a lift: the climb is a curve (see Mounts.boarding_lift) and the child
+	# is out to the side they stand on until they swing over the saddle.
+	if riding != &"":
+		_boards_horse = MountKinds.kind_of(riding) == MountKinds.HORSE
+	var side_out := Vector3.ZERO
+	if _boards_horse:
+		var going_up := riding != &""
+		_board = move_toward(_board, 1.0 if going_up else 0.0, delta / Mounts.BOARD_TIME)
+		_ride_lift = MountKinds.eye_lift(MountKinds.HORSE) * Mounts.boarding_lift(_board, going_up)
+		var turned := facing_angle()
+		side_out = Vector3(cos(turned), 0.0, -sin(turned)) * board_side * Mounts.boarding_out(_board, going_up)
+		if _board <= 0.0 and not going_up:
+			_boards_horse = false
+	else:
+		_board = 0.0
+		_ride_lift = lerpf(_ride_lift, wanted_lift, 1.0 - exp(-6.0 * delta))
 	_settle_in_water(delta)
 	# Lifted along the mount's own up, not the world's and not the rider's.
 	#
@@ -876,7 +904,7 @@ func _physics_process(delta: float) -> void:
 	# over by whatever is carrying the rider, so the seat is where the saddle
 	# is by construction.
 	_visual.position = (
-		_seat_up * (_ride_lift + saddle_lift) - Vector3(0.0, _swim_sink + _swim_bob(), 0.0)
+		_seat_up * (_ride_lift + saddle_lift) - Vector3(0.0, _swim_sink + _swim_bob(), 0.0) + side_out
 	)
 
 	# The world streams around wherever the player is, but only when they have

@@ -269,6 +269,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.guest_arrived.connect(_on_guest_arrived)
 	session.guest_left.connect(_on_guest_left)
 	session.peer_gone.connect(voice.forget)
+	session.peer_gone.connect(_let_go_of_their_mounts)
 	voice.someone_spoke.connect(visitors.speaking)
 	session.guest_renamed.connect(_on_guest_renamed)
 	session.guest_moved.connect(_on_guest_moved)
@@ -535,6 +536,15 @@ var _asked_ride: StringName = &""
 func _offer_a_ride(which: StringName) -> bool:
 	if _asked != &"":
 		return true
+	# A coaster ticket stays good until the child leaves the park, but the
+	# booking it bought does not: the train pulls up, stands its ten seconds and
+	# clears it. A child who missed it and came back to the button was asked
+	# for, and charged, a second ticket for a ride already paid for. The one
+	# they hold is simply put back on the train's list.
+	if which == &"coaster" and _coaster_paid:
+		world.park.coaster.book()
+		hud.announce(Text.of("say_coaster_booked"), 2.4)
+		return true
 	if wallet.tickets > 0:
 		_asked = &"ride"
 		_asked_ride = which
@@ -701,6 +711,11 @@ func _physics_process(delta: float) -> void:
 		and not is_nan(seat.origin.x)
 	)
 	if strapped:
+		# Off the mount first. A bar comes down over a child, not over a child
+		# and a horse: left riding, the animal was carried round the track
+		# under them and the body was still drawn in the saddle.
+		if player.riding != &"":
+			_on_ride()
 		player.carried_to = seat.origin
 		player.carried_facing = seat.basis
 	player.strapped_in = strapped
@@ -783,8 +798,8 @@ func _process(delta: float) -> void:
 	# than something a child carries, so this only applies while they are at it.
 	var warmth := world.hearths.warmth_at(player.global_position)
 	vitals.advance(
-		delta * (1.0 + warmth * (Hearths.REST_BONUS - 1.0)),
-		player.is_running, player.is_moving
+		delta, player.is_running, player.is_moving,
+		1.0 + warmth * (Hearths.REST_BONUS - 1.0)
 	)
 	player.may_run = vitals.can_run()
 	if world.park.on_trampoline(player.global_position):
@@ -834,7 +849,7 @@ func _process(delta: float) -> void:
 	_share_the_animals(delta)
 	# Offered only when there is somebody in the valley to talk to.
 	hud.set_voice(
-		voice.is_available() and session.is_connected_to_anyone(),
+		voice.is_available() and session.has_company(),
 		voice.is_talking()
 	)
 
@@ -951,6 +966,7 @@ func _process(delta: float) -> void:
 		# lying on this frame rather than the ground it was on last one.
 		player.set_seat_up(world.mounts.up_of(player.riding))
 		player.saddle_lift = world.mounts.saddle_lift()
+		player.ride_stride = world.mounts.stride()
 	else:
 		player.saddle_lift = 0.0
 	_watch_the_turnstile()
@@ -1177,6 +1193,7 @@ func _on_collected(kind: StringName, _at: Vector3) -> void:
 ## down each one to update it is the kind of job that is always one label short.
 func _on_language(code: StringName) -> void:
 	Text.set_language(code)
+	world.football.rewrite_board()
 	_write_save()
 	_rebuild_hud()
 
@@ -1380,8 +1397,18 @@ var _dining := 0.0
 var _dining_seat := Vector3.ZERO
 var _dining_facing := 0.0
 
+## Whether the slide, a chair or the swing has hold of the child right now.
+func _is_being_carried() -> bool:
+	return _sliding >= 0.0 or _dining > 0.0 or world.places.swinging()
+
 ## Put the child where the ride says they should be, or let them go.
 func _carry(delta: float, at: Vector3) -> void:
+	# A swing, a slide and a chair at a table all take hold of the child's own
+	# body, so a mount cannot come with them: it was carried into the café
+	# under the tray, and a child on the swing was drawn sitting on a horse.
+	# Got off, as on any other ride that has hold of them.
+	if player.riding != &"" and _is_being_carried():
+		_on_ride()
 	if _sliding >= 0.0:
 		_sliding += delta
 		var top := world.places.slide_top()
@@ -1441,7 +1468,9 @@ func _carry(delta: float, at: Vector3) -> void:
 
 	# Stepping onto the top of the slide starts the ride, with no button: a
 	# child who climbed the ladder has already said what they want.
-	if world.places.at_slide_top(at) and _sliding < 0.0:
+	# On foot only: a slide that carries a rider off a horse leaves the machine
+	# dragged down the chute after them.
+	if world.places.at_slide_top(at) and _sliding < 0.0 and player.riding == &"":
 		_sliding = 0.0
 		_slid = 0.0
 		sounds.play(Sounds.Sound.JUMP, 1.4)
@@ -1589,6 +1618,12 @@ func _on_name_chosen(typed: String) -> void:
 ## certain to read all of it.
 func _become(other: String) -> void:
 	_write_save()
+	# The connection is ended here and not left to the reload: it belongs to the
+	# scene tree and outlives this scene, so the other phone would go on holding
+	# a child who had handed the tablet to a brother. Going home is the reload
+	# that follows, so the close must not start a second one.
+	_going_home = true
+	session.close()
 	profiles.choose_player(other)
 	if not profiles.may_enter(profiles.current_world, other):
 		var theirs := profiles.worlds_for(other)
@@ -1683,14 +1718,20 @@ func _on_guest_moved(id: int, at: Vector3, facing: float, mount := &"") -> void:
 ## leave, or the connection ends.
 var _rides_of_others: Dictionary = {}
 
+## Where each of those riders was last said to be, as [position, facing], so
+## that a mount can be put under them again (see _on_remote_shared).
+var _ride_spots: Dictionary = {}
+
 func _follow_their_mount(id: int, at: Vector3, facing: float, mount: StringName) -> void:
 	var was: StringName = _rides_of_others.get(id, &"")
 	if was != &"" and was != mount:
 		world.mounts.release_remote(was)
 	if mount == &"":
 		_rides_of_others.erase(id)
+		_ride_spots.erase(id)
 		return
 	_rides_of_others[id] = mount
+	_ride_spots[id] = [at, facing]
 	world.mounts.ride_remote(mount, at, facing)
 
 func _let_go_of_their_mounts(id := 0) -> void:
@@ -1698,6 +1739,7 @@ func _let_go_of_their_mounts(id := 0) -> void:
 		if id == 0 or who == id:
 			world.mounts.release_remote(_rides_of_others[who])
 			_rides_of_others.erase(who)
+			_ride_spots.erase(who)
 
 ## A mount this child got off is left standing, and the other phone is told
 ## where. Its rider's last position said where *they* were, which is a stride
@@ -1761,6 +1803,14 @@ func _on_remote_shared(
 	# Off whatever they were riding before its machine is swapped for the host's.
 	_get_off_quietly()
 	world.mounts.adopt(mounts)
+	# Adopting forgets which machines somebody is on, and the host's first
+	# position — which names the horse it is riding — arrives before this does.
+	# A host standing still in the saddle sends nothing more, so the horse
+	# would be left drawn, solid and empty at its old place beneath them.
+	for who: int in _rides_of_others:
+		var spot: Array = _ride_spots.get(who, [])
+		if spot.size() == 2:
+			world.mounts.ride_remote(_rides_of_others[who], spot[0], spot[1])
 
 ## Off the mount without telling the host where it was left: it is one of this
 ## child's own, from their own valley, and the host has none of that name.
@@ -1869,6 +1919,13 @@ func _on_remote_built(
 	# so this is the arriving piece's: a second piece in the same place cannot
 	# be taken down by one tap.
 	if not structures.is_clear(at, _footprint_of_kind(kind), kind, spin, extent):
+		return
+	# Nor on ground that belongs to something else here. The other child's ghost
+	# judged it against their valley; a piece let in on the fairground or the
+	# pitch would be walked through, and moved out piece by piece at the next load.
+	if KeepOut.kept(
+		at.x, at.z, world.field.camp_centre(), world.field.river_centre_x(BridgeSpec.CENTRE_Z)
+	):
 		return
 	# Not paid for here: it came out of the other child's bag.
 	structures.place(
@@ -2141,7 +2198,10 @@ func _first_house_step() -> StringName:
 	if structures.revision != _house_step_revision:
 		_house_step_revision = structures.revision
 		_house_step = structures.house_step()
-		_built_a_house = _house_step == &""
+		# Not remembered in somebody else's valley: the host's house standing
+		# there says nothing of this child, and the mark is saved with them, so
+		# a guest who had only looked at a house was never taught to build one.
+		_built_a_house = _house_step == &"" and not _visiting
 	return _house_step
 
 ## Seconds since the game began: the clock the free meal's wait is kept on.
@@ -2186,7 +2246,11 @@ func _finish_eating(seat: Dictionary) -> void:
 	_refresh_vitals()
 	# The meal is served at the nearest seat, and the child is sat down at it
 	# for a while — eating is something you sit down for.
-	if not seat.is_empty():
+	#
+	# Not from the saddle: sitting a rider into a chair pinned them to it while
+	# the machine was still carried along under them, and left the child stuck
+	# in the furniture. They eat where they are, and ride on afterwards.
+	if not seat.is_empty() and player.riding == &"":
 		_dining = Places.MEAL_SHOWN * 0.8
 		_dining_seat = seat["seat"]
 		_dining_facing = float(seat["facing"])
@@ -2241,9 +2305,20 @@ func _on_arrow_hit(index: int, ring: int, points: int) -> void:
 		Text.format("say_gold" if ring == 0 else "say_hit", [points]), 2.0
 	)
 
+## Which side of a horse at `horse_at` the child stands on, as it faces the way
+## the child does: 1 for its right, -1 for its left.
+func _side_of(horse_at: Vector3) -> float:
+	var turned := player.facing_angle()
+	var right := Vector3(cos(turned), 0.0, -sin(turned))
+	var side := (player.global_position - horse_at).dot(right)
+	return -1.0 if side < 0.0 else 1.0
+
 func _on_ride() -> void:
 	if player.riding != &"":
 		var got_off := world.mounts.dismount(player.global_position, player.facing_angle())
+		# They slide down the side the horse is not put down on.
+		if got_off != &"":
+			player.board_side = _side_of(world.mounts.position_of(got_off))
 		player.riding = &""
 		camera_rig.set_eye_lift(0.0)
 		if got_off != &"":
@@ -2252,6 +2327,9 @@ func _on_ride() -> void:
 
 	var kind := world.mounts.nearest(player.global_position)
 	if kind == &"":
+		return
+	# Not from a chair or a swing: see _carry, which would only put them down.
+	if _is_being_carried():
 		return
 
 	# Refused before getting on rather than a stride afterwards.
@@ -2278,6 +2356,8 @@ func _on_ride() -> void:
 
 	if MountKinds.floats(kind):
 		sounds.play(Sounds.Sound.SPLASH, 0.8)
+	# They climb on from the side they are standing on.
+	player.board_side = _side_of(mount_at)
 	if not world.mounts.mount(kind):
 		return
 	player.riding = kind
@@ -2346,7 +2426,9 @@ func _fell_a_planted_tree(record: Dictionary) -> void:
 
 	# Floored at what there is, like the toll on a wild tree: being told "you
 	# may not" by a game about a valley is worse than being told what it cost.
-	var toll := mini(reward, wallet.coins)
+	# And nothing for a tree adopted from the host's valley: its reward went into
+	# the host's purse, not this child's.
+	var toll := mini(reward, wallet.coins) if bool(record.get("paid", true)) else 0
 	if toll > 0:
 		wallet.spend(toll)
 	inventory.add(ItemKinds.WOOD, WOOD_PER_TREE)
@@ -2519,6 +2601,15 @@ var _look_offered := true
 func _on_sell_back(item: StringName) -> void:
 	if not wallet.has(item):
 		return
+	# A machine is sold out of the valley standing on this phone, and a guest's
+	# phone holds the host's valley, not their own. The coins were paid and the
+	# host's machine (or none) went; the child's own stayed in the world file,
+	# which is not written while visiting, so it came back at home, sold and
+	# kept. It is sold at home, where it stands.
+	if _visiting and _is_a_machine(item):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_sell_at_home"), 3.0)
+		return
 	# Selling the last of a machine while sitting on it gets the child off
 	# first. Mounts will never sell the one being ridden, and without this the
 	# coins were paid and the machine stayed — or, before that rule, vanished
@@ -2552,6 +2643,10 @@ func _on_sell_back(item: StringName) -> void:
 	hud.announce(Text.format("say_sold_back", [ShopStock.label(item), paid]), 2.6)
 	hud.set_owned(wallet.owned)
 	hud.set_shop_open(true, wallet.coins, wallet.owned)
+
+## Whether the shop's thing is one of the machines left standing in the valley.
+func _is_a_machine(item: StringName) -> bool:
+	return item == ShopStock.BICYCLE or item == ShopStock.MOTORCYCLE or item == ShopStock.QUAD
 
 func _on_buy(item: StringName) -> void:
 	# A bar of chocolate is used up rather than owned, so it goes through the
@@ -2718,7 +2813,11 @@ func _take_down_piece(record: Dictionary) -> void:
 	# home if all of it could be. Otherwise planting, waiting and taking down
 	# again was coins from nothing.
 	var before := wallet.coins
-	var repaid := wallet.repay(BuildKinds.grown_worth(record))
+	#
+	# Only a tree this child's own purse was paid for. One adopted from the
+	# host's valley paid its reward into the host's purse, so a guest taking it
+	# down was being charged coins they had never been given.
+	var repaid := wallet.repay(BuildKinds.grown_worth(record) if paid else 0)
 	if paid and repaid:
 		_give_back(record)
 	if before > wallet.coins:
@@ -2982,7 +3081,9 @@ func _on_goal(index: int, _blue: int, _red: int) -> void:
 
 ## A side has won the match: said in its own colour over the board's.
 func _on_match_won(side: int, _blue: int, _red: int) -> void:
-	sounds.play(Sounds.Sound.CHIME, 1.3)
+	# From the pitch, like the goal that won it, not in the ear of a child at the
+	# far end of the valley.
+	sounds.play_at(Sounds.Sound.CHIME, _metres_to_play(), 1.3)
 	hud.announce(
 		Text.of("say_won_blue" if side == 0 else "say_won_red"),
 		FootballGround.WIN_PAUSE - 1.0, Goal.SIDE_COLOURS[side].lightened(0.2)

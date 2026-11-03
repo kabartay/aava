@@ -73,7 +73,8 @@ static func bake(
 	var conifers: Array[Transform3D] = []
 	var broadleaves: Array[Transform3D] = []
 	var stumps: Array[Transform3D] = []
-	for grown in generate_trees(field, coord, tile_size, world_seed, null):
+	var forest := generate_trees(field, coord, tile_size, world_seed, null)
+	for grown in forest:
 		var at: Vector3 = grown["position"]
 		if felled != null and felled.is_felled(at.x, at.z):
 			# Felled but grubbed out draws nothing at all: the tree stays gone
@@ -91,6 +92,25 @@ static func bake(
 			conifers.append(grown["transform"])
 		else:
 			broadleaves.append(grown["transform"])
+
+	# Stumps of trees that were never the forest's: one a child planted and then
+	# felled is recorded as felled but is not in the list above, so it left bare
+	# grass where it had stood. Any record the forest's own trees account for was
+	# drawn in the loop already.
+	if felled != null:
+		for stump in felled.shown_in(origin_x, origin_z, float(tile_size)):
+			var known := false
+			for grown in forest:
+				var there: Vector3 = grown["position"]
+				if absf(there.x - stump.x) < Felled.MATCH_RADIUS and absf(there.z - stump.y) < Felled.MATCH_RADIUS:
+					known = true
+					break
+			if known:
+				continue
+			stumps.append(Transform3D(
+				Basis(Vector3.UP, float(stumps.size()) * 1.1),
+				Vector3(stump.x - origin_x, field.height_at(stump.x, stump.y), stump.y - origin_z)
+			))
 
 	var tufts: Array[Transform3D] = []
 	if with_grass:

@@ -732,6 +732,10 @@ func _draw_own_kick(ball: Ball, shown: Dictionary, delta: float) -> void:
 		shown["to_turn"] = turn
 		shown["velocity"] = v
 
+## The board's words again, after a change of language.
+func rewrite_board() -> void:
+	_board.rewrite_title()
+
 ## The board's own digits, for the checks.
 func board_digits() -> PackedStringArray:
 	return _board.digits()

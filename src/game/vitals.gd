@@ -56,15 +56,17 @@ func water_fraction() -> float:
 func can_run() -> bool:
 	return fraction() > TIRED
 
-## Called every frame with what the player is actually doing.
-func advance(delta: float, running: bool, moving: bool) -> void:
+## Called every frame with what the player is actually doing. `recovery_scale`
+## speeds only what comes back — beside a fire — and never what running costs:
+## it used to be folded into `delta`, so running past a fire drained faster.
+func advance(delta: float, running: bool, moving: bool, recovery_scale := 1.0) -> void:
 	var before := energy
 	if running and moving:
 		energy -= RUN_DRAIN * delta
 	elif moving:
-		energy += WALK_RECOVERY * delta
+		energy += WALK_RECOVERY * delta * recovery_scale
 	else:
-		energy += REST_RECOVERY * delta
+		energy += REST_RECOVERY * delta * recovery_scale
 	energy = clampf(energy, 0.0, MAX_ENERGY)
 
 	# Announce crossing the tired line in both directions, so the interface can

@@ -627,6 +627,12 @@ const STRINGS := {
 		FR: "le %s ne part pas d'ici — pousse-le au clair",
 		RU: "отсюда на нём не проехать: откати %s в сторону",
 	},
+	# Said to a guest who tries to sell a machine in somebody else's valley.
+	"say_sell_at_home": {
+		EN: "sell it in your own valley",
+		FR: "vends-le dans ta propre vallée",
+		RU: "продай его в своей долине",
+	},
 	"say_too_dear": {
 		EN: "not enough coins yet",
 		FR: "pas encore assez de pièces",

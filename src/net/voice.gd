@@ -260,7 +260,10 @@ func start_talking() -> void:
 		return
 	if not _available or _talking or _session == null:
 		return
-	if not _session.is_connected_to_anyone():
+	# Somebody has to be in the valley, not merely a door held open: a host
+	# waiting alone has nobody to hear, and the microphone is not opened for
+	# nobody. (The button is not offered then either; see main.gd.)
+	if not _session.has_company():
 		return
 
 	# Asked for here, on the press, rather than at startup — see the note at the

@@ -266,6 +266,10 @@ func follow_the_host(on: bool) -> void:
 		freeze = true
 		collision_layer = 0
 		collision_mask = 0
+		# A frozen body keeps the velocity it had. Left going, a ball that was
+		# rolling when the visit began would be let go again at that pace.
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
 		return
 	freeze = false
 	collision_layer = TerrainSpec.LAYER_PROPS

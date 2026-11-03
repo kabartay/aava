@@ -213,6 +213,10 @@ func _suits(x: float, z: float) -> bool:
 	# that was there before the shop was, which is true and no help at all.
 	if PlaceSpec.indoors(x, z, field.camp_centre()):
 		return false
+	# Nor in the levelled ground the playground, the pool, the range and the
+	# café keep for themselves: a rock there is solid, and sat among the swings.
+	if PlaceSpec.reserved(x, z, field.camp_centre()):
+		return false
 	if height < HeightField.WATER_LEVEL + 0.4:
 		return false
 	if Pitch.is_levelled(x, z):

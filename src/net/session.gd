@@ -633,6 +633,25 @@ static func mount_named(text: String) -> StringName:
 		return &""
 	return StringName(text)
 
+## A guest only ever talks to the host: guests are not connected to each other.
+## So when one guest builds, fells or picks something up, the host is the only
+## phone that hears, and a second guest in the valley never sees it unless the
+## host passes it on. Who the host should pass a message to: every other guest
+## who has said who they are, and nobody at all for a guest or a linked check.
+func others_than(from: int) -> Array[int]:
+	var out: Array[int] = []
+	if role != Role.HOSTING or _link != null:
+		return out
+	for id: int in guests:
+		if id != from:
+			out.append(id)
+	return out
+
+## Who sent the message being handled; nobody when a check calls a handler
+## directly, outside the tree and so without a multiplayer to ask.
+func _sender() -> int:
+	return multiplayer.get_remote_sender_id() if is_inside_tree() and multiplayer != null else 0
+
 ## Is this from the host? 0 is no sender at all, which is how a check calls a
 ## handler directly. Another guest's message relayed through the host is not
 ## the host's, and must not set the score.
@@ -702,18 +721,24 @@ func _send_built(
 		return
 	# Whatever arrives as a material is one of ours or it is plaster.
 	remote_built.emit(StringName(kind), at, spin, extent, HouseParts.material_from(material))
+	for id in others_than(_sender()):
+		_send_built.rpc_id(id, kind, at, spin, extent, material)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_removed(at: Vector3, kind := "") -> void:
 	if not believable(at):
 		return
 	remote_removed.emit(at, StringName(kind))
+	for id in others_than(_sender()):
+		_send_removed.rpc_id(id, at, kind)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_felled(at: Vector3) -> void:
 	if not believable(at):
 		return
 	remote_felled.emit(at)
+	for id in others_than(_sender()):
+		_send_felled.rpc_id(id, at)
 
 ## More pieces in one message than anybody builds in an afternoon; a longer
 ## list is nonsense. A phone that has not been updated sends the whole valley
@@ -863,12 +888,16 @@ static func is_pickup_id(id: String) -> bool:
 func _send_picked(id: String) -> void:
 	if is_pickup_id(id):
 		remote_picked.emit(id)
+		for other in others_than(_sender()):
+			_send_picked.rpc_id(other, id)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_parked(id: String, at: Vector3, facing: float) -> void:
 	if mount_named(id) == &"" or not believable(at) or not is_finite(facing):
 		return
 	remote_parked.emit(StringName(id), at, facing)
+	for other in others_than(_sender()):
+		_send_parked.rpc_id(other, id, at, facing)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_animals(states: PackedFloat32Array) -> void:
@@ -890,12 +919,16 @@ func _send_dam_stick(site: float) -> void:
 	if not is_finite(site) or absf(site) > BELIEVABLE_REACH:
 		return
 	remote_dam_stick.emit(site)
+	for id in others_than(_sender()):
+		_send_dam_stick.rpc_id(id, site)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_time_of_day(fraction: float) -> void:
 	if not is_finite(fraction):
 		return
 	remote_time_of_day.emit(fposmod(fraction, 1.0))
+	for id in others_than(_sender()):
+		_send_time_of_day.rpc_id(id, fraction)
 
 ## Names are exchanged once on arrival rather than sent with every message.
 @rpc("any_peer", "call_remote", "reliable")

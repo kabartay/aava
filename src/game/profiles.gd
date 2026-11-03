@@ -119,7 +119,11 @@ func load_index() -> void:
 			var saved_guests = entry.get("guests", [])
 			if saved_guests is Array:
 				for guest in saved_guests:
-					guests.append(String(guest))
+					# Once each, and never the owner: remove_player and
+					# uninvite erase one entry, so a name listed twice stayed
+					# invited after being taken away.
+					if not guests.has(String(guest)) and String(guest) != String(entry.get("owner", "")):
+						guests.append(String(guest))
 			worlds[String(id)] = {
 				"map": map_name,
 				"owner": String(entry.get("owner", "")),
@@ -158,9 +162,14 @@ static func is_valid_name(name: String) -> bool:
 	for character in trimmed:
 		var code := character.unicode_at(0)
 		var latin := (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
-		var cyrillic := code >= 0x0410 and code <= 0x044F
+		# Ё and ё sit outside the А–я block, so "Артём" and "Фёдор" were refused.
+		var cyrillic := (code >= 0x0410 and code <= 0x044F) or code == 0x0401 or code == 0x0451
+		# The accented letters French is written with (Zoé, Léa, Noël, Inès),
+		# less the multiplication and division signs that sit among them. The
+		# game is played in French, so its children's names must be allowed.
+		var accented := code >= 0xC0 and code <= 0xFF and code != 0xD7 and code != 0xF7
 		var digit := code >= 48 and code <= 57
-		if not (latin or cyrillic or digit or character == " " or character == "-"):
+		if not (latin or cyrillic or accented or digit or character == " " or character == "-"):
 			return false
 	# Not the one name whose file is already spoken for. A player's save is
 	# "<name>--<valley>" and the valley's own is "world--<valley>", so a child

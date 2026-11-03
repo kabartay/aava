@@ -234,7 +234,10 @@ func sell_one(kind: StringName, from: Vector3) -> bool:
 	for id in _nodes:
 		if MountKinds.kind_of(id) != kind or not is_instance_valid(_nodes[id]):
 			continue
-		if id == riding:
+		# Nor one a visitor is riding: it is hidden here and sits wherever they
+		# are, which may well be the furthest, and the shop took the other
+		# child's ride out from under them and left the one for sale standing.
+		if id == riding or _remote.has(id):
 			continue
 		var node: Node3D = _nodes[id]
 		var distance := node.global_position.distance_to(from)
@@ -312,7 +315,10 @@ func release_remote(id: StringName) -> void:
 		return
 	(_nodes[id] as Node3D).visible = true
 	_waiting_to_be_solid[id] = true
-	_settling = id
+	# Not `_settling = id`: there is one slot for the horse being eased back to
+	# standing, and it belongs to the one this child got off. A guest's horse was
+	# never strided on this phone, so it has nothing to settle, and taking the
+	# slot left the child's own horse with its legs cocked out for good.
 
 func release_all_remote() -> void:
 	for id in _remote.keys():
@@ -323,11 +329,15 @@ func release_all_remote() -> void:
 func park_remote(id: StringName, at: Vector3, facing: float) -> void:
 	if id == riding:
 		return
+	var was_ridden := _remote.has(id) and exists(id)
+	var from := (_nodes[id] as Node3D).global_position if was_ridden else Vector3.ZERO
 	release_remote(id)
 	if not exists(id):
 		place(id, at, facing)
 		return
 	_stand_at(id, at, facing)
+	if was_ridden and MountKinds.kind_of(id) == MountKinds.HORSE:
+		_glide(id, from)
 
 ## Every mount in the valley as the host has it, replacing this phone's own.
 ## The guest's own come back with the reload that ends the visit.
@@ -408,6 +418,10 @@ func mount(kind: StringName) -> bool:
 	# Each ride starts with nowhere remembered, which falls back to putting a
 	# child down where they actually are.
 	_last_good = Vector3(1e9, 1e9, 1e9)
+	# A horse is carried to the child (see `carry`), and comes to them rather
+	# than being put under them.
+	if MountKinds.kind_of(kind) == MountKinds.HORSE:
+		_glide(kind, (_nodes[kind] as Node3D).global_position)
 	# The mount stays visible and is carried along under the child. Hiding it
 	# was the first version, on the reasoning that the player "becomes" the
 	# horse — but the child's own body is still drawn, so what a rider actually
@@ -521,6 +535,12 @@ var _pace := 0.0
 ## The same, signed: negative while the machine is going backwards.
 var _rolling := 0.0
 var _stride := 0.0
+
+## Where in its stride the ridden horse is, in radians, for the rider to keep
+## time with.
+func stride() -> float:
+	return _stride
+
 var _idle := 0.0
 ## Where `carry` last put the ridden mount, and where it was the frame
 ## before: the two and the frame's own delta are what its speed is.
@@ -540,8 +560,110 @@ var _saddle_lift := 0.0
 func saddle_lift() -> float:
 	return _saddle_lift
 
+## How long a child takes to climb into a saddle, and to slide down out of it, in
+## seconds. A short climb: long enough to be seen as one, not so long that a
+## child who wants to be off and away is kept waiting. Every other mount is got
+## on in the rig's own settling time.
+const BOARD_TIME := 0.9
+## How far beside the horse's middle a child stands to climb on or slides down,
+## in metres: the barrel's half width (0.3) and a hand's breadth.
+const BOARD_OUT := 0.55
+
+static func boarding_time(kind: StringName) -> float:
+	# The other is RigMotion.SIT_TIME, written out: RigMotion reads this class.
+	return BOARD_TIME if MountKinds.kind_of(kind) == MountKinds.HORSE else 0.2
+
+## How far up the saddle's height a child is, 0 to 1, `progress` of the way
+## through getting on (`up`) or off. Going up they are lifted beside the horse,
+## a foot in the iron, and rise a little over the saddle as the leg swings across
+## before they settle; going down they lean out, and then slide down the side,
+## slowly at first and quicker as they go.
+static func boarding_lift(progress: float, up: bool) -> float:
+	if up:
+		return smoothstep(0.1, 0.85, progress) + 0.05 * sin(PI * smoothstep(0.6, 1.0, progress))
+	var gone := 1.0 - progress
+	return 1.0 - smoothstep(0.25, 1.0, gone) * (0.6 + 0.4 * gone)
+
+## How far to the side of the horse the child is, in metres, at the same
+## moment: beside it on the ground, over it at the top.
+static func boarding_out(progress: float, up: bool) -> float:
+	# Nothing at either end: the child's own spot is where they begin and end,
+	# and a step out and back in is what is between.
+	if up:
+		return BOARD_OUT * smoothstep(0.0, 0.15, progress) * (1.0 - smoothstep(0.5, 1.0, progress))
+	var gone := 1.0 - progress
+	return BOARD_OUT * smoothstep(0.0, 0.4, gone) * (1.0 - smoothstep(0.75, 1.0, gone))
+
+## The horse's gait from how fast it is going, the same for the horse itself and
+## for whoever sits on it. `effort` is the pace as a fraction of its top pace.
+static func effort_of(pace: float) -> float:
+	return clampf(pace / MountKinds.speed(MountKinds.HORSE), 0.0, 1.3)
+
+## A trot up to about half pace, breaking into a gallop above it.
+static func gallop_of(pace: float) -> float:
+	return smoothstep(0.5, 0.95, effort_of(pace))
+
+static func stride_metres(pace: float) -> float:
+	return lerpf(STRIDE_METRES, STRIDE_METRES * 1.7, gallop_of(pace))
+
+## How far a horse's body is lifted by its stride at `phase`: two beats to a
+## cycle, the saddle highest at each.
+static func saddle_bob(phase: float, pace: float) -> float:
+	return absf(sin(phase)) * lerpf(0.07, 0.16, gallop_of(pace)) * effort_of(pace)
+
+## How far a rider's hips are above the saddle, in metres, at that point of the
+## stride. At a trot they rise out of it on one beat and sit down on the next,
+## which is what a rider does to keep from being thrown up at every one; at a
+## canter they sit deep, and sink into the saddle as it rises under them. Nothing
+## at a walk, where the saddle hardly moves.
+static func rider_heave(phase: float, pace: float) -> float:
+	var gallop := gallop_of(pace)
+	var trot := smoothstep(0.2, 0.4, effort_of(pace)) * (1.0 - gallop)
+	return 0.09 * trot * maxf(sin(phase), 0.0) - 0.035 * gallop * absf(sin(phase))
+
+## How far a rider's hands move with the horse's head, which nods in the stride:
+## they hold the reins and give and take with them. Where the hands are, and
+## where the reins end, are the same thing.
+static func hand_sway(phase: float, pace: float) -> Vector3:
+	var effort := effort_of(pace)
+	return Vector3(0.0, 0.012 * effort * sin(phase + 0.6), 0.03 * effort * sin(phase + 0.6))
+
+## A horse that has been got on or off glides between where it stood and where
+## it now is, rather than being put there: where it stood, in the world, how
+## far through the glide it is (0 to 1) and which horse.
+var _glide_from := Vector3.ZERO
+var _glide_k := 1.0
+var _glide_id := &""
+const GLIDE_TIME := 0.35
+
+func _glide(id: StringName, from: Vector3) -> void:
+	_glide_from = from
+	_glide_k = 0.0
+	_glide_id = id
+
+func _glide_step(delta: float) -> void:
+	if _glide_id == &"":
+		return
+	var body: Node3D = null
+	if exists(_glide_id):
+		body = (_nodes[_glide_id] as Node3D).get_node_or_null("Body") as Node3D
+	if body == null:
+		_glide_id = &""
+		return
+	_glide_k = minf(_glide_k + delta / GLIDE_TIME, 1.0)
+	var node := _nodes[_glide_id] as Node3D
+	# The body is put back by what is left of the distance, in the horse's own
+	# frame, so that it is drawn where it stood and slides to where it is.
+	var left := (_glide_from - node.global_position) * (1.0 - smoothstep(0.0, 1.0, _glide_k))
+	var local := node.global_transform.basis.orthonormalized().transposed() * left
+	body.position.x = local.x
+	body.position.z = local.z
+	if _glide_k >= 1.0:
+		_glide_id = &""
+
 func _process(delta: float) -> void:
 	_saddle_lift = 0.0
+	_glide_step(delta)
 	_drift_the_boats(delta)
 	# Every horse nobody is riding grazes, whether or not one of them is being
 	# ridden: four horses frozen mid-mouthful while you ride the fifth is worse
@@ -576,15 +698,14 @@ func _process(delta: float) -> void:
 		return
 	# A stationary horse settles its legs and stands; a moving one strides,
 	# faster the faster it goes, and its body rises and falls with each beat.
-	var effort := clampf(_pace / MountKinds.speed(MountKinds.HORSE), 0.0, 1.3)
+	var effort := effort_of(_pace)
 	# A trot up to about half pace, breaking into a gallop above it: at a
 	# trot the diagonal pairs move together; at a gallop the front legs reach
 	# together and the hind legs drive together a beat behind, the stride
 	# lengthens, and the whole body rocks and lifts. Blended, so the change
 	# of gait is a change and not a switch.
-	var gallop := smoothstep(0.5, 0.95, effort)
-	var stride_metres := lerpf(STRIDE_METRES, STRIDE_METRES * 1.7, gallop)
-	_stride = fmod(_stride + delta * TAU * _pace / stride_metres, TAU)
+	var gallop := gallop_of(_pace)
+	_stride = fmod(_stride + delta * TAU * _pace / stride_metres(_pace), TAU)
 	var reach := LEG_SWING * clampf(effort * 1.6, 0.0, 1.0) * lerpf(1.0, 1.5, gallop)
 	if effort < 0.02:
 		reach = 0.0
@@ -598,7 +719,7 @@ func _process(delta: float) -> void:
 		var gallop_swing := sin(_stride if is_front else _stride + PI * 0.55) * (1.0 if is_front else -0.85)
 		var swing := lerpf(trot_swing, gallop_swing, gallop) * reach
 		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-14.0 * delta))
-	body.position.y = absf(sin(_stride)) * lerpf(0.07, 0.16, gallop) * effort
+	body.position.y = saddle_bob(_stride, _pace)
 	_saddle_lift = body.position.y
 	body.rotation.x = sin(_stride) * lerpf(0.02, 0.06, gallop) * effort
 	# The head nods with the stride and the tail swings behind; standing,
@@ -612,6 +733,11 @@ func _process(delta: float) -> void:
 		var sway := sin(_stride * 0.5) * 0.18 * effort + sin(_idle * 1.3) * 0.08
 		tail.rotation.y = lerp_angle(tail.rotation.y, sway, 1.0 - exp(-8.0 * delta))
 		tail.rotation.x = lerp_angle(tail.rotation.x, -0.15 * effort, 1.0 - exp(-4.0 * delta))
+	# The reins run from the bit, which goes with the head, to the hands, which
+	# give and take with it (RigMotion moves them by the same sway).
+	var reins := body.get_node_or_null("Reins") as MeshInstance3D
+	if reins != null:
+		reins.mesh = MountKinds.horse_reins_mesh(head.rotation.x if head != null else 0.0, hand_sway(_stride, _pace))
 	_idle += delta
 
 ## A boat nobody is in goes with the river, as anything left on water would.
@@ -670,6 +796,8 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 		# is (cos, 0, -sin).
 		var spot := _where_to_leave_it(kind, at, facing)
 		spot.y = _rest_height(kind, spot)
+		if MountKinds.kind_of(kind) == MountKinds.HORSE:
+			_glide(kind, node.global_position)
 		node.global_position = spot
 		node.transform.basis = _lie_on_the_ground(spot, facing, kind)
 		_facings[kind] = facing
@@ -904,6 +1032,10 @@ func _settle_the_last_one(delta: float) -> void:
 			still = false
 	body.position.y = lerpf(body.position.y, 0.0, weight)
 	body.rotation.x = lerpf(body.rotation.x, 0.0, weight)
+	# The reins hang as they were made, with nobody's hands in them.
+	var reins := body.get_node_or_null("Reins") as MeshInstance3D
+	if reins != null:
+		reins.mesh = MountKinds.horse_part("reins")
 	var head := body.get_node_or_null("Head") as Node3D
 	if head != null:
 		head.rotation.x = lerp_angle(head.rotation.x, 0.0, weight)

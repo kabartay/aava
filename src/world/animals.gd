@@ -593,7 +593,7 @@ func _step(animal: Dictionary, delta: float) -> void:
 	var kind: StringName = animal["kind"]
 	var hops := kind == AnimalKinds.SQUIRREL
 	node.position.y = (
-		_footing(node.position.x, node.position.z)
+		_ground_under(animal, node.position, delta)
 		# Enough to keep a long animal on a steep hill out of the ground:
 		# see the note in _lean_with_the_ground.
 		+ float(animal.get("lift", 0.0))
@@ -602,6 +602,31 @@ func _step(animal: Dictionary, delta: float) -> void:
 	)
 	_stride(animal, node, kind, bob, trot, delta)
 	_head_and_tail(animal, node, kind, bob, moving, trot, delta)
+
+## How long an animal that has not moved trusts the ground height it read last.
+const GROUND_RECHECK := 1.0
+
+## Where an animal's feet rest, read afresh only when it has moved or a second
+## has gone by.
+##
+## `_footing` is the whole height field — noise, the pitch, the fairground, the
+## lakes, the paths — and it was asked once a frame for every animal within
+## a hundred and forty metres, nearly all of them standing about grazing on
+## ground that has not changed since the last frame. The second's patience is
+## for the one thing that changes the ground under a standing animal, a dam
+## going up. The first look is staggered by chance, so the whole valley's
+## animals do not come due on the same frame.
+func _ground_under(animal: Dictionary, at: Vector3, delta: float) -> float:
+	var age := float(animal.get("ground_age", randf() * GROUND_RECHECK)) + delta
+	var seen: Vector2 = animal.get("ground_at", Vector2(INF, INF))
+	if age < GROUND_RECHECK and seen.x == at.x and seen.y == at.z:
+		animal["ground_age"] = age
+		return float(animal["ground"])
+	var ground := _footing(at.x, at.z)
+	animal["ground"] = ground
+	animal["ground_at"] = Vector2(at.x, at.z)
+	animal["ground_age"] = 0.0
+	return ground
 
 ## Which way a leg swings with the sine of the stride: diagonal pairs for a
 ## walk, every leg together for the squirrel's hop. The hop used to send the
@@ -873,7 +898,12 @@ func _clear_way(animal: Dictionary, node: Node3D, forward: Vector3, toward: Vect
 		return forward
 	var at := node.global_position
 	if not _solid_ahead(animal, at, forward):
-		animal.erase("side")
+		# Only when it is the way the animal was going anyway that is clear. A
+		# sidestep being held is clear by definition, and forgetting the side
+		# then let the next look at the fence pick it afresh from the target's
+		# bearing, which can be the other side: the animal swung to and fro.
+		if float(animal.get("hold", 0.0)) <= 0.0:
+			animal.erase("side")
 		return forward
 	var side := float(animal.get("side", 0.0))
 	if side == 0.0:

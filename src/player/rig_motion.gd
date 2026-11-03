@@ -33,6 +33,19 @@ var seat: StringName = &""
 ## How fast whatever carries the child is going, in metres a second: the horse's
 ## stride, the bicycle's pedals and the boat's strokes keep time with it.
 var gait := 0.0
+## Where the horse is in its stride, in radians, when the game knows (the
+## child's own horse); negative when it does not, and then the rider keeps a
+## stride of their own, counted off from `gait` the way the horse counts its.
+var stride := -1.0
+var _own_stride := 0.0
+## How long the body takes to settle into the seat, and out of it: a horse
+## is climbed, which is slower than a bicycle is sat on.
+var sit_time := 0.2
+
+## Where in its stride the body is: the horse's if it was told, or its own.
+func stride_phase() -> float:
+	return stride if stride >= 0.0 else _own_stride
+
 ## For a ride, where the seat is in the world: the place its pose is written
 ## about (the origin is where the child's feet would stand on the footing, the
 ## basis the way the seat faces and tips). The rig is moved and turned to it, so
@@ -308,7 +321,7 @@ func _seat_step(delta: float, sitting: bool) -> void:
 	# a settling and never a jump from one seat to the other.
 	if sitting and _sat != seat and _sit <= 0.0:
 		_sat = seat
-	_sit = move_toward(_sit, 1.0 if (sitting and seat == _sat) else 0.0, delta / SIT_TIME)
+	_sit = move_toward(_sit, 1.0 if (sitting and seat == _sat) else 0.0, delta / maxf(sit_time, 0.05))
 	if _sit <= 0.0:
 		_tilt_known = false
 		if _posed:
@@ -333,8 +346,19 @@ func _seat_step(delta: float, sitting: bool) -> void:
 	# the seat, which the horse lifts and lowers and the rider's carrier goes
 	# with: a bob made here would be a bob against the saddle.
 	var pitch := 0.0
+	# At a trot the body rises out of the saddle on one beat and sits on the next,
+	# and at a canter it sits deep, in time with the stride (Mounts.rider_heave);
+	# the hands give and take with the head, which nods in it.
+	var heave := 0.0
+	var sway := Vector3.ZERO
 	if style == &"rock":
-		pitch = 0.05 * carry * sin(_bounce)
+		var phase := stride
+		if phase < 0.0:
+			_own_stride = fmod(_own_stride + delta * TAU * gait / Mounts.stride_metres(gait), TAU)
+			phase = _own_stride
+		pitch = (0.05 + 0.04 * Mounts.gallop_of(gait)) * carry * sin(phase)
+		heave = Mounts.rider_heave(phase, gait) * w
+		sway = Mounts.hand_sway(phase, gait) * w
 	# A swing is pumped with the legs the way a child does it: stretched out
 	# and up while the seat is swinging forwards, tucked back under it on the
 	# way back, so it is read from how the seat is tipping, which is what the
@@ -350,9 +374,9 @@ func _seat_step(delta: float, sitting: bool) -> void:
 		_pump = 0.5
 
 	var seat_at: Vector3 = pose["seat"]
-	var hips_at := Vector3(seat_at.x, seat_at.y + _pelvis, seat_at.z)
+	var hips_at := Vector3(seat_at.x, seat_at.y + _pelvis + heave, seat_at.z)
 	var reach: float = pose["reach"]
-	var grip: Vector3 = pose["hand"]
+	var grip: Vector3 = pose["hand"] + sway
 	var lean: float = pose["lean"] + pitch
 	# A body is as long as it is: the clay toy's chest is half again as tall as
 	# the bear cub's, and the same lean that puts one's hands on the bars leaves

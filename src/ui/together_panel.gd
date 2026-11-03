@@ -29,6 +29,11 @@ enum Page { CHOICE, HOSTING, TYPING, VISITING }
 const BUTTON_HEIGHT := 74.0
 const KEY_SIZE := 92.0
 
+## The keys are a little shorter than they are wide. Four rows of square ones
+## made the keypad page 761 pixels tall on a 720-pixel screen, and the back
+## button was the part cut off.
+const KEY_HEIGHT := 78.0
+
 var page := Page.CHOICE
 
 var _column: VBoxContainer
@@ -141,7 +146,7 @@ func _build_typing() -> void:
 
 	var entry := Label.new()
 	entry.text = _typed if not _typed.is_empty() else "—"
-	entry.add_theme_font_size_override("font_size", 96)
+	entry.add_theme_font_size_override("font_size", 72)
 	entry.add_theme_color_override("font_color", Color(0.58, 0.82, 0.96))
 	entry.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_column.add_child(entry)
@@ -217,7 +222,7 @@ func _press(key: String) -> void:
 func _key(label: String) -> Button:
 	var button := Button.new()
 	button.text = label
-	button.custom_minimum_size = Vector2(KEY_SIZE, KEY_SIZE)
+	button.custom_minimum_size = Vector2(KEY_SIZE, KEY_HEIGHT)
 	button.focus_mode = Control.FOCUS_NONE
 	button.add_theme_font_size_override("font_size", 40)
 	button.pressed.connect(func() -> void: _press(label))

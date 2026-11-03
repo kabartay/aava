@@ -427,6 +427,7 @@ static func _horse(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 	_horse_body(tool, hide)
 	_horse_head(tool, Vector3.ZERO, hide)
 	_horse_tail(tool, Vector3.ZERO, hide)
+	_horse_reins(tool, [horse_rein_way(-1.0), horse_rein_way(1.0)])
 	for i in HORSE_HIPS.size():
 		_horse_leg(tool, HORSE_HIPS[i], Vector3.ZERO, hide)
 
@@ -443,10 +444,10 @@ static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 	HorseNatural.body(tool, hide)
 
 	var pad := BoxMesh.new()
-	pad.size = Vector3(0.74 * s, 0.05 * s, 0.82 * s)
+	pad.size = Vector3(0.54 * s, 0.05 * s, 0.82 * s)
 	_add(tool, pad, Transform3D(Basis(), Vector3(0.0, 1.78 * s, 0.04 * s)), blanket)
 	var seat := BoxMesh.new()
-	seat.size = Vector3(0.44 * s, 0.14 * s, 0.54 * s)
+	seat.size = Vector3(0.34 * s, 0.14 * s, 0.54 * s)
 	_add(tool, seat, Transform3D(Basis(), Vector3(0.0, 1.87 * s, 0.04 * s)), leather)
 	var pommel := SphereMesh.new()
 	pommel.radius = 0.07 * s
@@ -455,26 +456,34 @@ static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 	pommel.rings = 3
 	_add(tool, pommel, Transform3D(Basis(), Vector3(0.0, 1.98 * s, -0.2 * s)), leather)
 	var cantle := BoxMesh.new()
-	cantle.size = Vector3(0.4 * s, 0.12 * s, 0.08 * s)
+	cantle.size = Vector3(0.32 * s, 0.12 * s, 0.08 * s)
 	_add(tool, cantle, Transform3D(Basis(), Vector3(0.0, 1.97 * s, 0.29 * s)), leather)
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		# Short leathers, a child's: the irons hang 0.22 below the saddle's top
-		# and 0.48 out, where a child's legs, hanging down the barrel's side,
-		# come to. They hung 0.56 down, which no child's leg reaches from the
+		# Short leathers, a child's: the irons hang 0.14 below the saddle's centre
+		# and 0.36 out, a hand's breadth beyond the barrel (0.3 each side of
+		# the middle), where a child's legs, hanging down its side, come to:
+		# the shortest of the five has a leg 0.29 m from hip to ankle. They hung 0.56 down, which no child's leg reaches from the
 		# saddle, and left the feet lying along the blanket instead.
 		var strap := BoxMesh.new()
 		strap.size = Vector3(0.05 * s, 0.10 * s, 0.05 * s)
-		_add(tool, strap, Transform3D(Basis(), Vector3(side * 0.40 * s, 1.76 * s, 0.04 * s)), leather)
+		_add(tool, strap, Transform3D(Basis(), Vector3(side * 0.30 * s, 1.82 * s, 0.04 * s)), leather)
 		var stirrup := BoxMesh.new()
 		stirrup.size = Vector3(0.1 * s, 0.09 * s, 0.05 * s)
-		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.40 * s, 1.69 * s, 0.04 * s)), hoof)
-		# A rein from the bit back to the pommel. A straight line between
-		# them ran through the neck, which is wider than the rein is far from
-		# its middle, so it goes round it: from the bit, out past the cheek,
-		# along the side of the neck, and in over the withers to the pommel.
-		var way := horse_rein_way(side)
+		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.30 * s, 1.75 * s, 0.04 * s)), hoof)
+
+## The reins, each from the bit back to the rider's hand. A straight line
+## between them ran through the neck, which is wider than the rein is far from
+## its middle, so each goes round it: from the bit, out past the cheek, along
+## the side of the neck, and in over the withers to the hand. A rein is a line
+## of corners, `ways` being one for each; they are their own node, because the
+## ridden horse's are drawn again at every frame, the bit going with the head
+## and the hand with the rider's.
+static func _horse_reins(tool: SurfaceTool, ways: Array) -> void:
+	var s := 1.2
+	var leather := Color(0.36, 0.22, 0.12)
+	for way: Array in ways:
 		for leg_of_it in way.size() - 1:
-			var run := way[leg_of_it + 1] - way[leg_of_it]
+			var run: Vector3 = way[leg_of_it + 1] - way[leg_of_it]
 			var rein := CylinderMesh.new()
 			rein.top_radius = 0.012 * s
 			rein.bottom_radius = 0.012 * s
@@ -488,6 +497,24 @@ static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 				way[leg_of_it] + run * 0.5
 			), leather)
 
+## The ridden horse's reins as they are now: the bit turned with the head by
+## `head_turn` (about X, as the head node is) and the hands moved by `sway`.
+static func horse_reins_mesh(head_turn: float, sway: Vector3) -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var ways: Array = []
+	var turn := Basis(Vector3.RIGHT, head_turn)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var way := horse_rein_way(side)
+		for corner in 2:
+			way[corner] = turn * (way[corner] - HORSE_HEAD_PIVOT) + HORSE_HEAD_PIVOT
+		way[way.size() - 1] += sway
+		ways.append(way)
+	_horse_reins(tool, ways)
+	tool.generate_normals()
+	tool.set_material(AnimalKinds.fur_material())
+	return tool.commit()
+
 ## The corners of one rein, from the bit to the pommel, in the body's frame;
 ## `side` is -1 for the left rein and 1 for the right. Read by the drawing and
 ## by the checks, which hold it outside the neck.
@@ -495,8 +522,15 @@ static func horse_rein_way(side: float) -> Array[Vector3]:
 	var s := 1.2
 	return [
 		Vector3(side * 0.13 * s, 2.0 * s, -1.85 * s), Vector3(side * 0.25 * s, 1.93 * s, -1.42 * s),
-		Vector3(side * 0.30 * s, 1.88 * s, -0.95 * s), Vector3(side * 0.06 * s, 2.0 * s, -0.2 * s),
+		Vector3(side * 0.30 * s, 1.88 * s, -0.95 * s), horse_rein_hand(side),
 	]
+
+## Where a rider's hand holds a rein, in the body's frame: the grip the seat's
+## pose gives (SeatPose, written about the saddle), so that the rein ends in the
+## hand and not at the pommel a hand's breadth below it.
+static func horse_rein_hand(side: float) -> Vector3:
+	var grip: Vector3 = SeatPose.POSES[HORSE]["hand"]
+	return Vector3(side * absf(grip.x), HORSE_SADDLE_Y + grip.y, grip.z)
 
 ## The neck and head, with the mane, the forelock, the ears and the face,
 ## relative to the shoulder they pivot about.
@@ -544,6 +578,8 @@ static func horse_part(part: String, hide := colour(HORSE)) -> Mesh:
 			_horse_head(tool, HORSE_HEAD_PIVOT, hide)
 		"tail":
 			_horse_tail(tool, HORSE_TAIL_PIVOT, hide)
+		"reins":
+			_horse_reins(tool, [horse_rein_way(-1.0), horse_rein_way(1.0)])
 		_:
 			_horse_body(tool, hide)
 	tool.generate_normals()
@@ -555,8 +591,8 @@ static func horse_part(part: String, hide := colour(HORSE)) -> Mesh:
 ## shoulders, at the height the leg mesh pivots from. Order: front-left,
 ## front-right, hind-left, hind-right.
 const HORSE_HIPS: Array[Vector3] = [
-	Vector3(-0.36, 1.56, -0.744), Vector3(0.36, 1.56, -0.744),
-	Vector3(-0.36, 1.56, 0.744), Vector3(0.36, 1.56, 0.744),
+	Vector3(-0.27, 1.56, -0.744), Vector3(0.27, 1.56, -0.744),
+	Vector3(-0.27, 1.56, 0.744), Vector3(0.27, 1.56, 0.744),
 ]
 
 ## One horse leg, built with its pivot at the hip so that turning the node
@@ -637,6 +673,10 @@ static func build_node(kind: StringName) -> Node3D:
 		tail.mesh = horse_part("tail", hide)
 		tail.position = HORSE_TAIL_PIVOT
 		body.add_child(tail)
+		var reins := MeshInstance3D.new()
+		reins.name = "Reins"
+		reins.mesh = horse_part("reins", hide)
+		body.add_child(reins)
 		for i in HORSE_HIPS.size():
 			var leg := MeshInstance3D.new()
 			leg.name = "Leg%d" % i

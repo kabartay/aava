@@ -46,13 +46,15 @@ const PELVIS := 0.09
 const POSES := {
 	# The horse's saddle: the seat box is centred at HORSE_SADDLE_Y (the rig's
 	# own origin, because that is where eye_lift puts the child) and 0.168 high,
-	# so its top is 0.084 above, with the pommel at z -0.24 and the reins made
-	# fast to it. The barrel is 0.82 across at the saddle: the legs go out and
-	# down over it, astride.
+	# so its top is 0.084 above, with the pommel at z -0.24 and the reins ending
+	# in the hands (MountKinds.horse_rein_hand reads the grip from here). The
+	# barrel is 0.6 across at the saddle and the irons hang 0.36 out and 0.14
+	# below the seat's centre: the legs go out and down over it, astride, the feet
+	# in the irons.
 	&"horse": {
 		"seat": Vector3(0.0, 0.084, 0.06), "lean": 0.5, "nod": 0.25,
 		"hand": Vector3(-0.11, 0.27, -0.27), "reach": 1.1,
-		"foot": Vector3(-0.40, -0.15, 0.06), "toe": -0.5,
+		"foot": Vector3(-0.34, -0.08, 0.06), "toe": -0.5,
 		"knee": Vector3(-0.2, 0.2, -1.0), "elbow": Vector3(-1.0, -0.2, 0.3),
 		"style": &"rock",
 	},

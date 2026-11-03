@@ -43,7 +43,7 @@ static func write(data: Dictionary, path := PATH, version := VERSION) -> bool:
 	if file == null:
 		push_warning("could not write %s: %s" % [scratch, error_string(FileAccess.get_open_error())])
 		return false
-	var stored := file.store_string(JSON.stringify(data, "\t"))
+	var stored := file.store_string(JSON.stringify(_finite(data), "\t"))
 	var trouble := file.get_error()
 	# Closed explicitly rather than when the handle happens to fall out of
 	# scope, because the rename below must not overtake the last of the bytes.
@@ -70,6 +70,30 @@ static func write(data: Dictionary, path := PATH, version := VERSION) -> bool:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(scratch))
 		return false
 	return true
+
+## The same data with every number that is not a number put to nought.
+##
+## JSON has no way to say NaN or infinity, and the stringifier writes them as
+## the bare words `nan` and `inf`, which `read()` then cannot parse: one bad
+## float anywhere — a camera angle, a position after a divide by nothing — made
+## the whole file unreadable, so the next start set the child's valley aside
+## and began a new one. The write was whole and the rename atomic and it still
+## lost the afternoon. Nought is a wrong value for one field; an unreadable
+## file is a wrong value for all of them.
+static func _finite(value: Variant) -> Variant:
+	if value is float:
+		return value if is_finite(value) else 0.0
+	if value is Dictionary:
+		var out := {}
+		for key in value:
+			out[key] = _finite(value[key])
+		return out
+	if value is Array:
+		var out := []
+		for item in value:
+			out.append(_finite(item))
+		return out
+	return value
 
 static func read(path := PATH) -> Dictionary:
 	if not FileAccess.file_exists(path):

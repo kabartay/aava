@@ -25,11 +25,15 @@ static func body(tool: SurfaceTool, hide: Color) -> void:
 	# shoulder, the belly tucks up towards the flank, the back runs level from
 	# the withers to a rounded croup and the rump turns down to the dock. The
 	# barrel is narrower than it is deep; it was as broad as a cask, and the
-	# tops of the legs stood out of its sides as lumps.
+	# tops of the legs stood out of its sides as lumps. It is now 0.6 m across
+	# at the saddle (the half-widths below are in the horse's unit, so 0.25 is
+	# 0.30 m): a pony a child rides, whose legs a child's own can hang down.
+	# The breast carries up into the neck so that the two meet at a shallow
+	# angle and not in a notch.
 	var loft := AnimalLoft.make(AnimalNatural._section(S, [
-		[-1.0, 1.50, 0.98, 0.25], [-0.78, 1.80, 0.86, 0.32], [-0.46, 1.84, 0.82, 0.35],
-		[-0.05, 1.78, 0.88, 0.34], [0.40, 1.79, 0.97, 0.35], [0.80, 1.83, 0.98, 0.39],
-		[1.12, 1.74, 1.02, 0.35], [1.32, 1.56, 1.15, 0.24],
+		[-1.08, 1.70, 1.04, 0.19], [-0.82, 1.84, 0.88, 0.235], [-0.46, 1.84, 0.82, 0.25],
+		[-0.05, 1.78, 0.88, 0.25], [0.40, 1.79, 0.97, 0.265], [0.80, 1.83, 0.98, 0.28],
+		[1.12, 1.74, 1.02, 0.26], [1.32, 1.56, 1.15, 0.19],
 	]), Vector3.UP, 10, 2, 0.2 * S, 0.16 * S)
 	loft.cap_rings = [0.7]
 	loft.paint = func(_p: Vector3, _along: float, a: float) -> Color:
@@ -48,10 +52,10 @@ static func head(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
 	# Long in the neck, which rises and arches forward to the poll, and long in
 	# the head, which is carried down from it to a soft, square muzzle.
 	var skull := AnimalLoft.make(_rings([
-		[0.0, 1.56, -0.62, 0.30, 0.32, 0.32], [0.0, 1.84, -0.82, 0.22, 0.27, 0.26],
-		[0.0, 2.14, -1.02, 0.17, 0.22, 0.21], [0.0, 2.30, -1.20, 0.19, 0.24, 0.20],
-		[0.0, 2.27, -1.40, 0.17, 0.20, 0.21], [0.0, 2.17, -1.62, 0.13, 0.15, 0.17],
-		[0.0, 2.06, -1.80, 0.11, 0.12, 0.12], [0.0, 1.97, -1.93, 0.125, 0.10, 0.10, 2.6],
+		[0.0, 1.54, -0.62, 0.25, 0.34, 0.38], [0.0, 1.84, -0.82, 0.20, 0.27, 0.30],
+		[0.0, 2.14, -1.02, 0.17, 0.22, 0.23], [0.0, 2.30, -1.20, 0.19, 0.24, 0.25],
+		[0.0, 2.27, -1.40, 0.16, 0.20, 0.22], [0.0, 2.17, -1.62, 0.115, 0.15, 0.17],
+		[0.0, 2.07, -1.80, 0.095, 0.115, 0.115], [0.0, 1.98, -1.93, 0.105, 0.095, 0.09, 2.6],
 	]), Vector3.UP, 10, 1, 0.0, 0.07 * S)
 	var nose := AnimalNatural._nose(skull, 0.07 * S)
 	var tip: Vector3 = nose["tip"]
@@ -65,7 +69,9 @@ static func head(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
 	AnimalLoft.ball(mine, tip - (nose["T"] as Vector3) * 0.03 * S, Vector3(0.12, 0.05, 0.05) * S, dark.darkened(0.3), 5)
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		AnimalNatural._eye(mine, skull, 4.2, side * 1.35, 0.045 * S, Color(0.08, 0.05, 0.05), false)
-		AnimalLoft.ball(mine, tip - (nose["T"] as Vector3) * 0.07 * S + (nose["S"] as Vector3) * side * 0.06 * S, Vector3(0.025, 0.035, 0.02) * S, Color(0.1, 0.08, 0.08), 4)
+		# Flared nostrils: wide, pushed out to the side and up a little, as a
+		# horse's are, and dark enough to read from the saddle.
+		AnimalLoft.ball(mine, tip - (nose["T"] as Vector3) * 0.08 * S + (nose["S"] as Vector3) * side * 0.062 * S + Vector3(0.0, 0.015, 0.0) * S, Vector3(0.035, 0.05, 0.03) * S, Color(0.06, 0.04, 0.04), 5)
 		# Ears: upright, pointed, a little forward.
 		var ear_at := skull.surface(3.2, side * 0.8) + Vector3(-side * 0.02, 0.0, 0.0) * S
 		AnimalNatural._leaf(mine, ear_at, [Vector3.ZERO, Vector3(side * 0.03, 0.14, -0.02) * S, Vector3(side * 0.0, 0.1, -0.03) * S],
@@ -164,7 +170,7 @@ static func leg(tool: SurfaceTool, front: bool, hip: Vector3, pivot: Vector3, hi
 	# Only the top is drawn in towards the middle, so that it lies within the
 	# flank and the leg comes out from under it.
 	for row: Array in rows:
-		row[0] = -side * 0.17 * smoothstep(-0.75, 0.1, float(row[1]))
+		row[0] = -side * 0.12 * smoothstep(-0.75, 0.1, float(row[1]))
 	var loft := AnimalLoft.make(_rings(rows), Vector3(0.0, 0.0, 1.0), 7, 1, 0.1 * S, sole * S)
 	loft.cap_rings = [0.7]
 	loft.origin = hip - pivot

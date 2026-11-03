@@ -138,6 +138,16 @@ func show_winner(side: int, seconds: float) -> void:
 	celebrate(side, seconds)
 	_confetti(side)
 
+## Write the title again in the language now spoken. The board is part of the
+## world, not of the interface, so rebuilding the interface for a new language
+## did not touch it: it went on saying GOALS, or who had won, in the old one.
+func rewrite_title() -> void:
+	if _winner < 0:
+		_title.text = Text.of("board_title")
+		return
+	_title.text = Text.of("board_wins_blue" if _winner == 0 else "board_wins_red")
+	_title.pixel_size = clampf(5.2 / (float(_title.text.length()) * 115.0), 0.002, 0.0055)
+
 ## The title as it reads, for the checks.
 func title_text() -> String:
 	return _title.text

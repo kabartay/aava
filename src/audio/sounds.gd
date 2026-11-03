@@ -67,8 +67,10 @@ const HEARD_NOT := 70.0
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _cache: Dictionary = {}
-## The frame each sound last started on. See play().
+## The frame each sound last started on, and the loudest it was started at in
+## that frame. See play().
 var _started: Dictionary = {}
+var _started_db: Dictionary = {}
 
 ## A handful of players cycled round, so overlapping sounds do not cut each
 ## other off — a child collecting quickly triggers three in half a second.
@@ -88,10 +90,18 @@ func play(sound: Sound, pitch := 1.0, volume_db := 0.0) -> void:
 	# the same instant, and twenty copies of one waveform in step add up to
 	# twenty times the amplitude: a crack at the limiter, and a ring of six
 	# players cut off one after another. Once is what was meant.
+	#
+	# Only a repeat that is no louder is dropped. A brother's wall going up across
+	# the valley arrives at minus twenty decibels, and it used to take the frame's
+	# one place for PLACE: the child's own wall, put down in the same frame beside
+	# them, was then silent.
 	var frame := Engine.get_process_frames()
-	if frame > 0 and _started.get(sound, -1) == frame:
+	if frame > 0 and _started.get(sound, -1) == frame and volume_db <= _started_db[sound]:
 		return
+	if _started.get(sound, -1) != frame:
+		_started_db[sound] = volume_db
 	_started[sound] = frame
+	_started_db[sound] = maxf(_started_db[sound], volume_db)
 	var stream: AudioStreamWAV = _cache.get(sound)
 	if stream == null:
 		stream = _build(sound)

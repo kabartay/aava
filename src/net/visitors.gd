@@ -162,7 +162,7 @@ func relook(id: int, chose: int, look: Array) -> void:
 	var riding: StringName = record.get("mount", &"")
 	if riding != &"":
 		record["mount"] = &""
-		_ride(record, riding)
+		_ride(record, riding, true)
 
 ## What moves a body's joints, or null for a body that has none.
 func _motion_for(body: Node3D) -> RigMotion:
@@ -202,13 +202,24 @@ func mount_of(id: int) -> StringName:
 ## second. Nothing is rebuilt when it has not changed: this is asked of every
 ## position that arrives. Whoever they are drawn as is lifted: the simple
 ## figure's mesh is made again at the saddle's height, a rig is raised whole.
-func _ride(record: Dictionary, mount: StringName) -> void:
+func _ride(record: Dictionary, mount: StringName, quietly := false) -> void:
 	if record.get("mount", &"") == mount:
 		return
+	var before: StringName = record.get("mount", &"")
 	record["mount"] = mount
 	var node: Node3D = record["node"]
 	if not is_instance_valid(node):
 		return
+	# Getting on or off a horse is a climb and a slide, as the child's own is
+	# (see Player): begun here and carried on by `_board_step`. Not when the
+	# child only changed who they are drawn as, in the saddle all the while.
+	var horse := MountKinds.kind_of(mount if mount != &"" else before) == MountKinds.HORSE
+	record["boarding"] = false
+	if horse and not quietly and node.get_node_or_null("Rig") != null and (mount == &"" or before == &""):
+		record["boarding"] = true
+		record["board_up"] = mount != &""
+		record["board_side"] = 1.0 if mount != &"" else -1.0
+		record["board"] = 0.0 if mount != &"" else 1.0
 	var old := node.get_node_or_null("Mount")
 	if old != null:
 		node.remove_child(old)
@@ -223,11 +234,34 @@ func _ride(record: Dictionary, mount: StringName) -> void:
 		(node as MeshInstance3D).mesh = _build_body(record["shirt"], Character.SKINS[look[1]], lift)
 	else:
 		var rig := node.get_node_or_null("Rig") as Node3D
-		if rig != null:
+		if rig != null and not record["boarding"]:
 			rig.position.y = lift
+		elif rig != null:
+			rig.position.y = 0.0 if mount != &"" else MountKinds.eye_lift(before)
 	for child in node.get_children():
 		if child is Label3D:
 			(child as Label3D).position.y = 2.15 + lift
+
+## Carry a child on or off a horse, a little each frame: lifted beside it and
+## across the saddle, or slid down its side, with the name above them.
+func _board_step(record: Dictionary, delta: float) -> void:
+	if not record.get("boarding", false):
+		return
+	var node: Node3D = record["node"]
+	var rig := node.get_node_or_null("Rig") as Node3D if is_instance_valid(node) else null
+	if rig == null:
+		record["boarding"] = false
+		return
+	var up: bool = record["board_up"]
+	var progress := move_toward(float(record["board"]), 1.0 if up else 0.0, delta / Mounts.BOARD_TIME)
+	record["board"] = progress
+	var lift := MountKinds.eye_lift(MountKinds.HORSE) * Mounts.boarding_lift(progress, up)
+	rig.position = Vector3(float(record["board_side"]) * Mounts.boarding_out(progress, up), lift, 0.0)
+	for child in node.get_children():
+		if child is Label3D:
+			(child as Label3D).position.y = 2.15 + lift
+	if progress == (1.0 if up else 0.0):
+		record["boarding"] = false
 
 ## The body: the simple figure is one mesh with the name on it; the others are
 ## a rig, with the name on a node that carries it.
@@ -341,6 +375,7 @@ func _process(delta: float) -> void:
 		var motion: RigMotion = record["motion"]
 		if motion != null:
 			_animate(record, motion, node, delta, eye)
+		_board_step(record, delta)
 
 ## How often somebody is animated, by how far they are from the camera: every
 ## frame close by, and further off only as often as a stride can be told from
@@ -381,7 +416,20 @@ func _animate(record: Dictionary, motion: RigMotion, node: Node3D, delta: float,
 		motion.seat = MountKinds.kind_of(mount)
 		motion.seat_placed = false
 		motion.gait = motion.speed
+		motion.sit_time = Mounts.boarding_time(mount)
+		# Their horse is not moving here, so the saddle is lifted by the
+		# stride the rider keeps, which is the one it would have.
+		if MountKinds.kind_of(mount) == MountKinds.HORSE and not record.get("boarding", false):
+			var bob := Mounts.saddle_bob(motion.stride_phase(), motion.speed)
+			var steed := node.get_node_or_null("Mount/Body") as Node3D
+			if steed != null:
+				steed.position.y = bob
+			var rig := node.get_node_or_null("Rig") as Node3D
+			if rig != null:
+				rig.position.y = _lift_of(record) + bob
 	else:
+		# Still climbing down from a horse takes as long as climbing up did.
+		motion.sit_time = Mounts.BOARD_TIME if record.get("boarding", false) else 0.2
 		var seated: Dictionary = seat_finder.call(node.global_position) if seat_finder.is_valid() else {}
 		motion.seat = seated.get("pose", &"")
 		motion.seat_placed = not seated.is_empty()

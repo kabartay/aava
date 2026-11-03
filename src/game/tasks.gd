@@ -29,6 +29,10 @@ const STICKS_WANTED := 3
 
 var step: Step = Step.GATHER
 
+## Sticks actually found since the opening began. Counted rather than read off
+## the bag: sticks refunded by taking a build down, or spent on one, moved the
+## bag's count without a stick being found.
+var _found := 0
 var _sticks_at_start := -1
 
 func instruction() -> String:
@@ -48,16 +52,15 @@ func is_finished() -> bool:
 	return step == Step.FREE
 
 ## Called whenever anything is collected.
-func on_collected(inventory: Inventory, kind: StringName = ItemKinds.STICK) -> void:
+func on_collected(_inventory: Inventory, kind: StringName = ItemKinds.STICK) -> void:
 	if step != Step.GATHER:
 		return
 	# Only a stick counts. A stone picked up while three sticks from a refund
 	# were already in the bag finished "gather sticks" without one being found.
 	if kind != ItemKinds.STICK:
 		return
-	if _sticks_at_start < 0:
-		_sticks_at_start = 0
-	if inventory.count(ItemKinds.STICK) - _sticks_at_start >= STICKS_WANTED:
+	_found += 1
+	if _found >= STICKS_WANTED:
 		_advance(Step.BUILD, Text.of("task_gather_done"))
 
 func on_built(_kind: StringName) -> void:
@@ -83,10 +86,11 @@ func _advance(next: Step, reward: String) -> void:
 	changed.emit(instruction())
 
 func to_data() -> Dictionary:
-	return {"step": int(step), "sticks_at_start": _sticks_at_start}
+	return {"step": int(step), "sticks_at_start": _sticks_at_start, "sticks_found": _found}
 
 func from_data(data: Dictionary) -> void:
 	# Clamped, because a step past FREE is neither a task nor finished: no
 	# instruction is shown and the thread never ends.
 	step = clampi(int(data.get("step", 0)), Step.GATHER, Step.FREE) as Step
 	_sticks_at_start = int(data.get("sticks_at_start", -1))
+	_found = maxi(0, int(data.get("sticks_found", 0)))

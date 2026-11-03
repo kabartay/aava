@@ -69,6 +69,29 @@ func clear_stumps_near(world_position: Vector3, radius: float) -> int:
 func shows_stump(world_x: float, world_z: float) -> bool:
 	return is_felled(world_x, world_z) and not _is_cleared(world_x, world_z)
 
+## Every stump that shows inside a square of ground, for a tile to draw. A tree
+## the child planted and then felled is recorded here but is not one of the
+## forest's own, so the generator never offers it and only this list knows it.
+func shown_in(origin_x: float, origin_z: float, size: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	if _count == 0:
+		return out
+	var first := _cell_of(origin_x, origin_z)
+	var last := _cell_of(origin_x + size - 0.001, origin_z + size - 0.001)
+	for cx in range(first.x, last.x + 1):
+		for cz in range(first.y, last.y + 1):
+			var key := Vector2i(cx, cz)
+			if not _stumps.has(key):
+				continue
+			for stump in _stumps[key] as PackedVector2Array:
+				if (
+					stump.x >= origin_x and stump.x < origin_x + size
+					and stump.y >= origin_z and stump.y < origin_z + size
+					and not _is_cleared(stump.x, stump.y)
+				):
+					out.append(stump)
+	return out
+
 func _uncheck_cleared(world_x: float, world_z: float) -> void:
 	var base := Vector2i(int(floor(world_x / CELL)), int(floor(world_z / CELL)))
 	for dx: int in [-1, 0, 1]:
@@ -102,6 +125,13 @@ func fell(world_position: Vector3) -> void:
 	# on tidied ground and then cut down would leave bare grass behind it.
 	_uncheck_cleared(world_position.x, world_position.z)
 	var key := _cell_of(world_position.x, world_position.z)
+	# The same spot felled twice is one stump: both children in a shared valley
+	# can swing at one tree before either hears of the other's cut, and each
+	# phone then records it. Two records would be saved twice and drawn twice.
+	if _stumps.has(key):
+		for stump in _stumps[key] as PackedVector2Array:
+			if Vector2(world_position.x, world_position.z).distance_to(stump) < 0.05:
+				return
 	if not _stumps.has(key):
 		_stumps[key] = PackedVector2Array()
 	var bucket: PackedVector2Array = _stumps[key]
