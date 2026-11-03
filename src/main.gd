@@ -1201,7 +1201,11 @@ func _process(delta: float) -> void:
 	# short grace means a child has to actually be somewhere impossible rather
 	# than to have passed through it.
 	if refused:
-		_bad_ground += delta
+		# At most a tenth of a second a frame. A phone brought back from the
+		# app switcher can hand the first frame back several seconds long, and
+		# one frame of unlucky ground then counted as seconds of it and put the
+		# rider down on the spot.
+		_bad_ground += minf(delta, MAX_STUCK_STEP)
 	else:
 		_bad_ground = 0.0
 	if riding != &"" and _bad_ground > STUCK_GROUND:
@@ -1740,6 +1744,12 @@ func _carry(delta: float, at: Vector3) -> void:
 		if wants_off:
 			world.places.step_off_swing()
 			player.is_carried = false
+			# Put down, not thrown. The carry leaves the body moving at the
+			# seat's own speed, which at the bottom of a full arc is over seven
+			# metres a second, and the ground gives that up only as fast as
+			# friction takes it: a child who stepped off a high swing flew
+			# several metres, and one who stepped off on the way up rose as well.
+			player.velocity = Vector3.ZERO
 		else:
 			player.carried_to = world.places.swing_rider_at()
 			player.is_carried = true
@@ -2167,6 +2177,8 @@ func _let_the_rides_go() -> void:
 	_slid = 0.0
 	_dining = 0.0
 	player.is_carried = false
+	# Whatever speed the ride was giving them stays behind with it.
+	player.velocity = Vector3.ZERO
 	player.strapped_in = false
 	player.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
 
@@ -3028,6 +3040,8 @@ func _catch_a_fall(at: Vector3) -> void:
 ## down. Long enough that crossing a lip is not an ejection, short enough that
 ## nobody rides up a cliff.
 const STUCK_GROUND := 0.45
+## The most one frame can add to that count, however long the frame was.
+const MAX_STUCK_STEP := 0.1
 ## Whether the camera was under the surface last frame, so crossing it is heard.
 var _eye_was_under := false
 
@@ -3763,6 +3777,15 @@ func _notification(what: int) -> void:
 		or what == NOTIFICATION_APPLICATION_PAUSED
 	):
 		_write_save()
+	# A thumb is lifted from the stick while the game is not looking: Home, a
+	# call, the app switcher. The release is never delivered, the stick stays
+	# held, and the child walked off on their own the moment the game came back.
+	if (
+		what == NOTIFICATION_APPLICATION_PAUSED
+		or what == NOTIFICATION_APPLICATION_FOCUS_OUT
+		or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT
+	):
+		_let_go_of_the_controls()
 	# A phone puts the game away and brings it back days later without starting
 	# it again, so the day it was opened on went on being "today": yesterday's
 	# task stayed offered, and finishing it paid out for a day long gone.
@@ -3771,6 +3794,15 @@ func _notification(what: int) -> void:
 		today.begin(int(Time.get_unix_time_from_system()))
 		if today.day_number() != was and hud != null:
 			hud.set_task(_task_line())
+
+## Let go of everything a hand could be holding down: the stick, sprint and
+## jump. A hand that is still there will press them again with its next touch.
+func _let_go_of_the_controls() -> void:
+	for action: StringName in [
+		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT, InputActions.MOVE_FORWARD,
+		InputActions.MOVE_BACK, InputActions.SPRINT, InputActions.JUMP,
+	]:
+		Input.action_release(action)
 
 ## Offer the new day's task if midnight has passed since the last one was set.
 func _turn_the_day() -> void:

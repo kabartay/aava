@@ -450,6 +450,7 @@ func _initialize() -> void:
 	_check_a_rider_can_see_out()
 	_check_nobody_rides_the_coaster_unstrapped()
 	_check_the_rides_are_paid_for()
+	_check_stepping_off_a_swing_puts_the_child_down_where_they_are()
 
 	# Last, and deliberately: these two run a body through real physics frames,
 	# and the scene tree's own root is not yet in the tree while the first of
@@ -505,6 +506,7 @@ func _initialize() -> void:
 	await _check_the_cafe_menu_gives_way_to_building()
 	await _check_a_wandering_animal_does_not_cover_the_palette_or_the_kick()
 	await _check_switching_voice_off_lets_go_of_a_held_talk_button()
+	_check_a_phone_put_away_lets_go_of_the_stick_and_a_long_frame_ejects_nobody()
 	_check_the_engine_dies_away_and_close_voices_are_capped()
 	await _check_a_child_is_saved_and_loaded_on_safe_ground()
 
@@ -25985,4 +25987,76 @@ func _check_a_carousel_rider_sits_nearly_upright_and_the_pale_figures_read_warm(
 	# source so that a bluish white put back there is caught.
 	var source := FileAccess.get_file_as_string("res://src/world/carousel.gd")
 	_expect(source.contains("var white := Color(1.0, 0.98, 0.93)"), "the swan's white has its blue under its red")
+
+## A swing carries the child at the seat's own speed, and the body keeps that
+## speed when the carry lets go. Stepping off a high swing then threw the child
+## several metres, and off the way up lifted them as well. The game has to
+## stand them down with no speed of their own, and has to do the same when a
+## visit lifts them off a ride.
+func _check_stepping_off_a_swing_puts_the_child_down_where_they_are() -> void:
+	print("stepping off a swing puts the child down where they are")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var child := Player.new()
+	get_root().add_child(child)
+	var seat := places.seat_positions()[0]
+	child.global_position = seat
+	for _push in 3:
+		places.push_swing(seat)
+	var fastest := 0.0
+	for _frame in 240:
+		places._tick(1.0 / 60.0)
+		child.carried_to = places.swing_rider_at()
+		child.is_carried = true
+		child._physics_process(1.0 / 60.0)
+		fastest = maxf(fastest, child.velocity.length())
+	_expect(fastest > 3.0, "a child on a full swing is carried at %.1f m/s, which is what a release would keep" % fastest)
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var at := game.find("if wants_off:")
+	var off := game.substr(at, game.find("else:", at) - at)
+	_expect(off.contains("step_off_swing()") and off.contains("player.velocity = Vector3.ZERO"), "stepping off the swing leaves the child with no speed")
+	var at_let := game.find("func _let_the_rides_go")
+	var letting := game.substr(at_let, game.find("\nfunc ", at_let + 1) - at_let)
+	_expect(letting.contains("player.velocity = Vector3.ZERO"), "and so does being lifted off a ride for a visit")
+	child.queue_free()
+	places.queue_free()
+
+## A thumb lifted from the stick while the game was in the app switcher never
+## sent its release, so the stick stayed held and the child set off on their own
+## when the game came back. And the same trip hands the first frame back several
+## seconds long, which the rider's "bad ground" count took at its word.
+func _check_a_phone_put_away_lets_go_of_the_stick_and_a_long_frame_ejects_nobody() -> void:
+	print("a phone put away lets go of the stick, and a long frame ejects nobody")
+	var game: Node = (load("res://src/main.gd") as GDScript).new()
+	var held: Array[StringName] = [
+		InputActions.MOVE_LEFT, InputActions.MOVE_FORWARD, InputActions.SPRINT,
+	]
+	for what: int in [
+		Node.NOTIFICATION_APPLICATION_PAUSED,
+		Node.NOTIFICATION_APPLICATION_FOCUS_OUT,
+		Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT,
+	]:
+		for action in held:
+			Input.action_press(action)
+		game._notification(what)
+		var still_held := false
+		for action in held:
+			still_held = still_held or Input.is_action_pressed(action)
+		_expect(not still_held, "notification %d releases the stick and sprint" % what)
+	game.free()
+
+	var source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		source.contains("_bad_ground += minf(delta, MAX_STUCK_STEP)"),
+		"and one frame can add only a tenth of a second to the count of bad ground"
+	)
+	_expect(
+		float(game_const("MAX_STUCK_STEP")) * 4.0 < float(game_const("STUCK_GROUND")) + 0.001,
+		"so it takes several unlucky frames, never one, to put a rider down"
+	)
+
+func game_const(name: String) -> Variant:
+	return (load("res://src/main.gd") as GDScript).get_script_constant_map().get(name)
 
