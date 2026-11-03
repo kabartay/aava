@@ -242,6 +242,7 @@ func _initialize() -> void:
 	_check_the_shop_never_sells_a_machine_a_visitor_is_riding()
 	_check_no_rock_stands_in_a_kept_place()
 	_check_a_standing_animal_does_not_read_the_ground_every_frame()
+	_check_far_animals_are_stepped_less_often_and_walk_as_far()
 	_check_a_piece_from_the_other_child_keeps_off_the_playing_places()
 	_check_the_host_passes_a_guests_changes_to_the_other_guests()
 	_check_the_host_does_not_pass_on_what_the_network_already_relays()
@@ -22203,3 +22204,37 @@ func _check_rocks_and_finds_follow_the_ground_when_a_dam_lifts_it() -> void:
 
 
 
+
+## Animals far from the child are stepped every second or fourth frame, with
+## the time they missed, so they walk just as far. Every animal stepped every
+## frame cost half a frame on the phone and made riding through the valley jerky.
+func _check_far_animals_are_stepped_less_often_and_walk_as_far() -> void:
+	print("far animals are stepped less often and walk as far")
+	var field := HeightField.new(20260903)
+	var near := Animals.new(field, 20260903)
+	var far := Animals.new(field, 20260903)
+	get_root().add_child(near)
+	get_root().add_child(far)
+	var spot := field.find_spawn_point()
+	var a := near.put_one_at(AnimalKinds.SHEEP, spot)
+	var b := far.put_one_at(AnimalKinds.SHEEP, spot)
+	for animal: Dictionary in [a, b]:
+		animal["target"] = spot + Vector3(6.0, 0.0, 0.0)
+		animal["target"].y = field.height_at(spot.x + 6.0, spot.z)
+		animal["rest"] = 1000.0
+	near.follow(spot)
+	far.follow(spot + Vector3(0.0, 0.0, 200.0))
+	_expect(near._step_every(a) == 1, "an animal beside the child is stepped every frame")
+	_expect(far._step_every(b) == 4, "one two hundred metres off every fourth (%d)" % far._step_every(b))
+	for _frame in 120:
+		near._tick(1.0 / 60.0)
+		far._tick(1.0 / 60.0)
+	var walked_near := (a["node"] as Node3D).position.distance_to(spot)
+	var walked_far := (b["node"] as Node3D).position.distance_to(spot)
+	_expect(walked_near > 1.0, "the near one walks (%.2f m)" % walked_near)
+	_expect(
+		absf(walked_near - walked_far) < 0.35,
+		"and the far one as far in the same time (%.2f m against %.2f m)" % [walked_far, walked_near]
+	)
+	near.queue_free()
+	far.queue_free()

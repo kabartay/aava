@@ -243,8 +243,42 @@ func _tick(delta: float) -> void:
 	while built < TILES_PER_FRAME and not _queue.is_empty():
 		_build_tile(_queue.pop_front())
 		built += 1
-	for animal in _living:
-		_step(animal, delta)
+	# Near animals are stepped every frame, further ones every second or fourth,
+	# with the time they missed: each one walks just as far, only in fewer
+	# steps. Every animal in reach stepped every frame was 14-15 ms of a 30 ms
+	# frame on the phone, which made riding past them a jerky crawl; at forty
+	# metres and more a step a fifteenth of a second long cannot be told from
+	# sixty a second. Staggered by place in the list, so the far ones do not
+	# all come due on the same frame.
+	_frame += 1
+	for index in _living.size():
+		var animal: Dictionary = _living[index]
+		var owed := float(animal.get("owed", 0.0)) + delta
+		var every := _step_every(animal)
+		if every > 1 and (_frame + index) % every != 0:
+			animal["owed"] = owed
+			continue
+		animal["owed"] = 0.0
+		_step(animal, minf(owed, 0.25))
+
+## How many frames apart this animal is stepped: 1 near the child, more far off.
+## Everything is stepped every frame until the game has said where the child is.
+const STEP_NEAR := 28.0
+const STEP_MID := 60.0
+var _frame := 0
+
+func _step_every(animal: Dictionary) -> int:
+	if not _has_player:
+		return 1
+	var node: Node3D = animal["node"]
+	if not is_instance_valid(node):
+		return 1
+	var away := Vector2(node.position.x - _player.x, node.position.z - _player.z).length_squared()
+	if away < STEP_NEAR * STEP_NEAR:
+		return 1
+	if away < STEP_MID * STEP_MID:
+		return 2
+	return 4
 
 func _build_tile(coord: Vector2i) -> void:
 	var holder := Node3D.new()
