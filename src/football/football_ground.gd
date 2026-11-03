@@ -291,6 +291,15 @@ func body_count() -> int:
 func body_of(id: int) -> AnimatableBody3D:
 	return _bodies.get(id)
 
+## Let a child's body and the balls pass through one another in the physics
+## server, so that all they do to each other is `Ball.pushed_velocity`: the
+## capsule on its own stopped a running child dead against a ball that would not
+## move, and let one that kept going climb onto it.
+func let_pass(body: PhysicsBody3D) -> void:
+	for ball in _balls:
+		body.add_collision_exception_with(ball)
+		ball.add_collision_exception_with(body)
+
 ## A gentle touch for a child on foot at `from`, moving at `velocity`: a ball
 ## they are walking or jogging at is kept near their feet instead of being
 ## shoved off (see Ball.touch_velocity). The game of whoever hosts, or plays
@@ -447,7 +456,7 @@ func ball_near(from: Vector3) -> Ball:
 		var offset := ball.position - from
 		offset.y = 0.0
 		var distance := offset.length()
-		if distance <= best_distance:
+		if distance <= best_distance and Ball.within_reach(ball.position, from):
 			best_distance = distance
 			best = ball
 	return best
@@ -630,15 +639,14 @@ func kick(
 	var index := _balls.find(ball)
 	if not _following or index < 0:
 		return ball.kick(from, facing, sprinting, strength, loft, look)
-	var offset := ball.position - from
-	offset.y = 0.0
-	if offset.length() > Ball.KICK_REACH + Ball.RADIUS:
+	if not Ball.within_reach(ball.position, from):
 		return 0.0
 	var launch := Ball.launch_velocity(ball.position, from, facing, sprinting, strength, loft, look)
 	_session.report_kick(index, launch)
 	var shown := _drawn[index]
 	shown["predicting"] = PREDICT_FOR
 	shown["guess"] = launch
+	shown["spin"] = Ball.spin_of(launch, loft)
 	ball.kicked.emit(clampf(strength, 0.0, 1.0), clampf(loft, 0.0, 1.0))
 	return launch.length()
 
@@ -701,6 +709,11 @@ func _take_the_hosts_word(i: int, at: Vector3, v: Vector3, turn: Quaternion, now
 	shown["to_turn"] = turn
 	shown["velocity"] = v
 
+## How long a drawn ball takes to close on where the host's ball has got to, and
+## how far on from the last word it is allowed to be taken meanwhile.
+const DRAW_LAG := 0.05
+const DRAW_AHEAD := 0.25
+
 ## Slide each ball from where it was shown to where the host last put it, and
 ## a little on past, in the direction it was going, until the host speaks again.
 func _draw_the_hosts_balls(delta: float) -> void:
@@ -718,11 +731,15 @@ func _draw_the_hosts_balls(delta: float) -> void:
 		var turn: Quaternion = (shown["from_turn"] as Quaternion).slerp(
 			shown["to_turn"], clampf(age / span, 0.0, 1.0)
 		)
-		if age <= span:
-			ball.show_at((shown["from"] as Vector3).lerp(shown["to"], age / span), turn)
-		else:
-			var past := minf(age - span, 0.1)
-			ball.show_at((shown["to"] as Vector3) + (shown["velocity"] as Vector3) * past, turn)
+		# Where the host's ball has got to by now, going on as it was told, and
+		# the drawn ball closing on that smoothly. It used to slide along each
+		# update in turn and carry on past the end of it, which at a shot's pace
+		# put the ball a third of a metre ahead or behind from one frame to the
+		# next, and now and then back the way it had come, every time an update
+		# came a little early or late.
+		var target := (shown["to"] as Vector3) + (shown["velocity"] as Vector3) * minf(age, DRAW_AHEAD)
+		var closing := 1.0 - exp(-delta / DRAW_LAG)
+		ball.show_at(ball.position.lerp(target, closing), turn)
 
 ## The ball as this child's own kick sends it, under the same drag and gravity
 ## the host's physics gives it, and never through the grass.
@@ -731,10 +748,22 @@ func _draw_own_kick(ball: Ball, shown: Dictionary, delta: float) -> void:
 	v.y -= ball.gravity_strength() * delta
 	v *= maxf(0.0, 1.0 - ball.effective_linear_damp() * delta)
 	var at := ball.position + v * delta
-	at.y = maxf(at.y, _field.height_at(at.x, at.z) + Ball.RADIUS)
+	var grass := _field.height_at(at.x, at.z) + Ball.RADIUS
+	if at.y < grass:
+		# On the grass it does not go on falling: the speed it had piled up
+		# downward was handed to the host's picture along with the rest, which
+		# sank the ball into the ground for as long as it lasted.
+		at.y = grass
+		v.y = maxf(v.y, 0.0)
 	shown["guess"] = v
 	shown["predicting"] = float(shown["predicting"]) - delta
 	var turn := ball.basis.orthonormalized().get_rotation_quaternion()
+	# Turning over as the kick sends it, as the host's ball will be: a ball that
+	# flew straight for the first third of a second and then spun up to the
+	# host's turn was the one thing on the guest's screen that looked pasted on.
+	var spin: Vector3 = shown.get("spin", Vector3.ZERO)
+	if spin.length_squared() > 0.0001:
+		turn = (Quaternion(spin.normalized(), spin.length() * delta) * turn).normalized()
 	ball.show_at(at, turn)
 	if float(shown["predicting"]) <= 0.0:
 		# Handed back to the host's word: from here, going on the way it was.

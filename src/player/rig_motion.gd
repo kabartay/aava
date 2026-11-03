@@ -126,6 +126,9 @@ var _second_basis := Basis()
 ## How long the kick's follow-through takes to die away, in seconds, and how
 ## long a cheer lasts.
 const KICK_FOLLOW := 0.55
+## How far the body moves forward over the striking foot at the moment of the
+## kick, in metres: what makes the ball's reach (Ball.KICK_REACH) true.
+const KICK_LUNGE := 0.4
 const CHEER_FOR := 1.5
 
 ## How long a reach to an animal takes, from the turn to standing straight
@@ -293,6 +296,9 @@ func step(delta: float) -> void:
 	_hips.position.y = (
 		_hips_rest - 0.07 * amp * (1.0 - absf(c)) + 0.10 * hop * cheering - 0.03 * _squash
 	)
+	# The kick lunges into the ball: with a leg of 0.47 m the foot alone cannot
+	# get within a metre of it. The rig faces -Z.
+	_hips.position.z = -KICK_LUNGE * swing
 	_rig.scale = Vector3(1.0 + 0.08 * _squash, 1.0 - 0.15 * _squash, 1.0 + 0.08 * _squash)
 
 	for side in 2:
@@ -339,8 +345,8 @@ func step(delta: float) -> void:
 
 		# The kick is the right leg's, with the left arm across.
 		if side == 1:
-			thigh = lerpf(thigh, -0.75 * _wind + 1.4 * swing, kicking)
-			shin = lerpf(shin, -1.3 * _wind - 0.2 * swing, kicking)
+			thigh = lerpf(thigh, -0.75 * _wind + 1.6 * swing, kicking)
+			shin = lerpf(shin, -1.3 * _wind - 0.05 * swing, kicking)
 		else:
 			arm = lerpf(arm, 0.7 * _wind - 0.5 * swing, kicking)
 

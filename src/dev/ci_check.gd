@@ -226,6 +226,12 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_foot_is_where_the_ball_is_when_it_leaves()
+	_check_a_kick_goes_where_the_child_faces_from_beside_and_behind()
+	await _check_a_child_running_into_the_ball_pushes_it_ahead()
+	await _check_a_ball_passes_and_bounces_like_a_football()
+	await _check_posts_ring_and_the_net_is_dead()
+	await _check_the_guest_sees_the_same_kick()
 	_check_no_rock_or_find_lies_across_the_bridge()
 	await _check_counts_read_right_and_a_new_interface_keeps_the_cafe_choices()
 	_check_nobody_climbs_on_a_mount_from_a_ride_seat()
@@ -1305,7 +1311,8 @@ func _check_the_aim_shows_where_the_ball_goes() -> void:
 	var launch := Ball.launch_velocity(ball.position, striker, Vector3.FORWARD, false, 0.7, 0.6)
 	_expect(launch.x > 0.0 and absf(launch.z) < 0.01, "a kick goes along the line from the striker to the ball, not the way they face")
 	_expect(launch.y > 0.0, "and lofted, it rises")
-	var speed := ball.kick(striker, Vector3.FORWARD, false, 0.7, 0.6)
+	# The kick has to be within a foot's reach now, which two metres is not.
+	var speed := ball.kick(Vector3(3.2, 0.0, 0.0), Vector3.FORWARD, false, 0.7, 0.6)
 	_expect(is_equal_approx(speed, launch.length()), "the kick itself uses the same numbers (%.1f m/s)" % speed)
 	var ground := func(_x: float, _z: float) -> float:
 		return 0.0
@@ -17081,17 +17088,20 @@ func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
 	var at := Vector3(mouth.x - 10.0, surface + Ball.RADIUS, mouth.z)
 	var striker := at - Vector3(1.1, 0.0, 0.0)
 
+	# The child has walked at the ball from the west, so they face east: facing
+	# is where they walked (close in, the kick goes by where the child faces).
+	# These calls used to say LEFT, a child walking east but facing west.
 	# Straight ahead: look and run-up agree, and so does the kick.
-	var ahead := Ball.aim_direction(at, striker, Vector3.LEFT, Vector3.RIGHT)
+	var ahead := Ball.aim_direction(at, striker, Vector3.RIGHT, Vector3.RIGHT)
 	_expect(ahead.is_equal_approx(Vector3.RIGHT), "ball straight ahead of the view goes the way the view points")
 	# Looking well away from where they walked: the run-up wins past eighty degrees.
-	var sideways := Ball.aim_direction(at, striker, Vector3.LEFT, Vector3.BACK)
+	var sideways := Ball.aim_direction(at, striker, Vector3.RIGHT, Vector3.BACK)
 	_expect(sideways.is_equal_approx(Vector3.RIGHT), "a ball well off to the side of the view is kicked the way they walked")
 	# In between, a blend that lies between the two.
-	var between := Ball.aim_direction(at, striker, Vector3.LEFT, Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(40.0)))
+	var between := Ball.aim_direction(at, striker, Vector3.RIGHT, Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(40.0)))
 	var turned := Vector3.RIGHT.angle_to(between)
 	_expect(turned > deg_to_rad(2.0) and turned < deg_to_rad(40.0), "in between it blends: %.0f degrees off the run-up" % rad_to_deg(turned))
-	_expect(Ball.aim_direction(at, striker, Vector3.LEFT).is_equal_approx(Vector3.RIGHT), "with no look it is the run-up, as before")
+	_expect(Ball.aim_direction(at, striker, Vector3.RIGHT).is_equal_approx(Vector3.RIGHT), "with no look it is the run-up, as before")
 	# Standing on the ball, the look is all there is.
 	_expect(Ball.aim_direction(at, at, Vector3.LEFT, Vector3.FORWARD).is_equal_approx(Vector3.FORWARD), "on top of the ball it follows the view")
 
@@ -17104,14 +17114,14 @@ func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
 	for step in 21:
 		var loft := float(step) / 20.0
 		var look := Vector3.RIGHT
-		var launch := Ball.launch_velocity(at, striker, Vector3.LEFT, false, 0.8, loft, look)
+		var launch := Ball.launch_velocity(at, striker, Vector3.RIGHT, false, 0.8, loft, look)
 		var path := Ball.predict(at, launch, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
 		var flight := PackedVector3Array([at])
 		flight.append_array(path)
 		var on_target := Pitch.goal_ahead(flight, Ball.RADIUS, flat) == 1
 		found_on_target = found_on_target or on_target
 		ball.position = at
-		ball.kick(striker, Vector3.LEFT, false, 0.8, loft, look)
+		ball.kick(striker, Vector3.RIGHT, false, 0.8, loft, look)
 		if not ball.linear_velocity.is_equal_approx(launch):
 			kick_agrees = false
 		var preview := KickPreview.new()
@@ -17129,14 +17139,14 @@ func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
 	var wide_look := Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(-20.0))
 	var any_wide := false
 	for step in 21:
-		var launch := Ball.launch_velocity(at, striker, Vector3.LEFT, false, 0.8, float(step) / 20.0, wide_look)
+		var launch := Ball.launch_velocity(at, striker, Vector3.RIGHT, false, 0.8, float(step) / 20.0, wide_look)
 		var path := Ball.predict(at, launch, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
 		var flight := PackedVector3Array([at])
 		flight.append_array(path)
 		if Pitch.goal_ahead(flight, Ball.RADIUS, flat) >= 0:
 			any_wide = true
 	_expect(not any_wide, "turned twenty degrees off the goal, no loft is marked on target")
-	var over := Ball.launch_velocity(at, striker, Vector3.LEFT, true, 1.0, 1.0, Vector3.RIGHT)
+	var over := Ball.launch_velocity(at, striker, Vector3.RIGHT, true, 1.0, 1.0, Vector3.RIGHT)
 	var over_path := Ball.predict(at, over, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
 	var over_flight := PackedVector3Array([at])
 	over_flight.append_array(over_path)
@@ -23297,3 +23307,333 @@ func _check_no_rock_or_find_lies_across_the_bridge() -> void:
 	rocks.queue_free()
 	finds.queue_free()
 
+## A flat slab of ground for a football test to roll on, its top at y 0, in a
+## patch of nowhere of its own.
+##
+## Given a place, it lies under that place with its top at that height instead:
+## for a football ground, which fetches home any ball that strays from its pitch.
+func _football_floor(under := Vector3.INF) -> Array:
+	_banks += 1
+	var away := Vector3(900.0 + 400.0 * float(_banks), 0.0, 0.0)
+	if under != Vector3.INF:
+		away = under
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(300.0, 2.0, 300.0)
+	var shape := CollisionShape3D.new()
+	shape.shape = slab
+	var floor_body := StaticBody3D.new()
+	floor_body.collision_layer = TerrainSpec.LAYER_GROUND
+	floor_body.add_child(shape)
+	floor_body.position = away + Vector3(0.0, -1.0, 0.0)
+	get_root().add_child(floor_body)
+	return [floor_body, away]
+
+## The middle of the pitch, with the height of the grass there.
+func _pitch_spot(field: HeightField) -> Vector3:
+	var spot := Pitch.centre()
+	spot.y = field.height_at(spot.x, spot.z)
+	return spot
+
+## The ball must leave the foot when the foot is there. The leg is 47 cm, and the
+## ball used to be struck from 2.1 m away with the leg hardly moved. Measured on
+## the real rig: at the instant of the kick the toe is within a hand of the
+## ball's near side at the very edge of the reach, and a ball overhead or far
+## off cannot be struck at all.
+func _check_the_foot_is_where_the_ball_is_when_it_leaves() -> void:
+	print("the ball leaves the foot only when the foot is there")
+	# The rig on its own, facing -Z, stepped by hand: the animation runs in the
+	# game's frames, which a headless check does not reliably get.
+	var child := Character.build(0, 0, 0, Visitors.SHIRTS[2])
+	get_root().add_child(child)
+	var motion := RigMotion.new(child)
+	var foot := child.find_child("FootR", true, false) as Node3D
+	for i in 20:
+		motion.step(1.0 / 60.0)
+	var at_rest := -(foot.global_position - child.global_position).z
+	motion.kick()
+	var farthest := -10.0
+	for i in 3:
+		motion.step(1.0 / 60.0)
+		farthest = maxf(farthest, -(foot.global_position - child.global_position).z)
+	# The foot's own length ahead of the ankle, and the sweep of the swing.
+	const TOE := 0.12
+	const SWEEP := 0.12
+	_expect(
+		farthest + TOE >= Ball.KICK_REACH - SWEEP,
+		"at the kick the foot is %.2f m out (%.2f at rest), the ball can be struck from %.2f m" % [farthest, at_rest, Ball.KICK_REACH]
+	)
+	_expect(farthest > at_rest + 0.3, "the leg really has swung out for it (%.2f m further than standing)" % (farthest - at_rest))
+	var feet := Vector3(0.0, 0.0, 0.0)
+	_expect(Ball.within_reach(Vector3(0.7, Ball.RADIUS, 0.0), feet), "a ball at the toe is in reach")
+	_expect(not Ball.within_reach(Vector3(2.0, Ball.RADIUS, 0.0), feet), "one two metres off is not")
+	_expect(not Ball.within_reach(Vector3(0.3, 4.0, 0.0), feet), "nor one sailing past overhead")
+	child.queue_free()
+
+## Standing beside the ball, or a step past it, the kick goes where the child
+## faces and the camera looks — not sideways, nor back at the child.
+func _check_a_kick_goes_where_the_child_faces_from_beside_and_behind() -> void:
+	print("a kick goes where the child faces, from beside and from behind")
+	var look := Vector3.RIGHT
+	var facing := Vector3.RIGHT
+	var spots := {
+		"beside": Vector3(0.0, 0.0, 0.8),
+		"the other side": Vector3(0.0, 0.0, -0.8),
+		"slightly behind": Vector3(-0.35, 0.0, 0.85),
+		"a step past": Vector3(-0.7, 0.0, 0.3),
+	}
+	for name: String in spots:
+		var ball_at: Vector3 = spots[name]
+		# The child is at the origin, the ball at `ball_at` from them.
+		var aim := Ball.aim_direction(ball_at, Vector3.ZERO, facing, look)
+		_expect(aim.dot(Vector3.RIGHT) > 0.97, "a ball %s goes ahead (%.0f degrees off)" % [name, rad_to_deg(aim.angle_to(Vector3.RIGHT))])
+	# And turned to the side, facing and looking that way, it follows them.
+	var left := Ball.aim_direction(Vector3(0.0, 0.0, 0.9), Vector3.ZERO, Vector3.FORWARD, Vector3.FORWARD)
+	_expect(left.dot(Vector3.FORWARD) > 0.97, "and a child turned to the left kicks it to the left")
+
+## Running into a ball takes it along: it is pushed, not passed through, not
+## stood against like a wall (the old capsule stopped a running child dead and a
+## child who kept pushing climbed onto it), and never thrown into the air.
+func _check_a_child_running_into_the_ball_pushes_it_ahead() -> void:
+	print("a child running into the ball pushes it ahead")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	# On a line of its own, eight metres off the halfway line: earlier checks
+	# leave grounds standing, and their balls lie on the halfway line.
+	var away: Vector3 = (made[1] as Vector3) + Vector3(0.0, 0.0, 8.0)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	# The middle ball: the other two lie three metres to either side of the line.
+	var ball: Ball = ground._balls[1]
+	var child := Player.new()
+	get_root().add_child(child)
+	ground.let_pass(child)
+	child.global_position = away + Vector3(-3.5, 0.1, 0.0)
+	child.camera_yaw = -PI / 2.0
+	for i in 20:
+		await physics_frame
+
+	# Running flat out at a ball lying 3.5 m ahead. The ground is not the pitch
+	# here, so the ball is told where to lie.
+	ground._cooldown = 0.0
+	ball.reset_to(away)
+	await physics_frame
+	Input.action_press(InputActions.MOVE_FORWARD, 1.0)
+	var highest := 0.0
+	var closest := 99.0
+	var started := child.global_position.x
+	var clock := Time.get_ticks_usec()
+	for i in 90:
+		await physics_frame
+		# The frame's real length, as the game gives it: a slow one is a bigger step.
+		var took := float(Time.get_ticks_usec() - clock) / 1.0e6
+		clock = Time.get_ticks_usec()
+		ground.dribble(child.global_position, child.velocity, took)
+		highest = maxf(highest, ball.position.y - away.y)
+		closest = minf(closest, ball.position.x - child.global_position.x)
+	Input.action_release(InputActions.MOVE_FORWARD)
+	var gap := ball.position.x - child.global_position.x
+	var ran := child.global_position.x - started
+	_expect(ran > 8.0, "a child running at the ball is not stopped by it: %.1f m in 1.5 s" % ran)
+	_expect(gap > 0.3 and gap < 2.0, "the ball is out in front of them, %.2f m ahead" % gap)
+	_expect(closest > 0.3, "and was never inside them (closest %.2f m, the capsule alone is 0.34)" % closest)
+	_expect(highest < Ball.RADIUS + 0.05, "never lifted off the grass (%.2f m highest centre)" % highest)
+	_expect(ball.linear_velocity.x > 3.0, "and rolling on at %.1f m/s" % ball.linear_velocity.x)
+
+	# A standing child is a wall of sorts: a ball rolled at them comes back.
+	child.velocity = Vector3.ZERO
+	child.global_position = away + Vector3(20.0, 0.1, 0.0)
+	await physics_frame
+	ball.reset_to(away + Vector3(16.0, 0.0, 0.0))
+	await physics_frame
+	ball.linear_velocity = Vector3(6.0, 0.0, 0.0)
+	for i in 120:
+		await physics_frame
+		ground.dribble(child.global_position, Vector3.ZERO, 1.0 / 60.0)
+	_expect(ball.position.x < child.global_position.x - 0.3, "a ball rolled at a standing child does not pass through them (%.2f m short)" % (child.global_position.x - ball.position.x))
+	child.queue_free()
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## A pass on the grass: where it stops, how it spins, how it bounces, and that it
+## is still when it stops.
+func _check_a_ball_passes_and_bounces_like_a_football() -> void:
+	print("a ball passes and bounces like a football")
+	var made := _football_floor()
+	var away: Vector3 = made[1]
+	var ball := Ball.new(away + Vector3(0.0, 3.0, 0.0))
+	get_root().add_child(ball)
+
+	# Dropped from three metres: each bounce keeps about 0.55 of the speed.
+	var before := 0.0
+	var ratios: Array[float] = []
+	for i in 300:
+		await physics_frame
+		var vy := ball.linear_velocity.y
+		if before < -1.0 and vy > 0.0:
+			ratios.append(vy / -before)
+		before = vy
+	var worst := 0.0
+	for ratio in ratios:
+		worst = maxf(worst, absf(ratio - 0.55))
+	_expect(ratios.size() >= 2 and worst < 0.05, "a dropped ball keeps about 0.55 of its speed at each bounce: %s" % str(ratios))
+	_expect(absf(ball.position.y - away.y - Ball.RADIUS) < 0.03, "and rests on the grass, not in it (centre %.3f m, radius %.2f)" % [ball.position.y - away.y, Ball.RADIUS])
+
+	# A tap, a pass and a full shot along the ground, struck by the kick itself.
+	var runs: Array[float] = []
+	for strength: float in [0.12, 0.5, 1.0]:
+		ball.reset_to(away + Vector3(-20.0, 0.0, 0.0))
+		await physics_frame
+		var striker := ball.position + Vector3(-0.9, -Ball.RADIUS, 0.0)
+		ball.kick(striker, Vector3.RIGHT, false, strength, 0.0, Vector3.RIGHT)
+		# Rolling without sliding at the instant of the kick: the contact point
+		# on the grass is not moving.
+		var contact := ball.linear_velocity + ball.angular_velocity.cross(Vector3.DOWN * Ball.RADIUS)
+		_expect(contact.length() < 0.05 * ball.linear_velocity.length(), "at strength %.2f the ball leaves rolling, not skidding (%.2f m/s of slip at %.1f)" % [strength, contact.length(), ball.linear_velocity.length()])
+		var highest := 0.0
+		var start := ball.position.x
+		for i in 900:
+			await physics_frame
+			highest = maxf(highest, ball.position.y - away.y)
+			if i > 10 and ball.linear_velocity.length() < 0.05:
+				break
+		runs.append(ball.position.x - start)
+		_expect(highest < 0.35, "and stays on the ground (%.2f m highest)" % highest)
+	_expect(runs[0] > 2.0 and runs[0] < 7.0, "a tap is a short pass: %.1f m" % runs[0])
+	_expect(runs[1] > runs[0] * 1.8 and runs[1] < 18.0, "half a swing is a long pass: %.1f m" % runs[1])
+	_expect(runs[2] > runs[1] * 1.8 and runs[2] < 45.0, "a full swing is a shot down the field: %.1f m" % runs[2])
+
+	# At rest it is still and never sinks.
+	ball.reset_to(away + Vector3(0.0, 0.0, 10.0))
+	await physics_frame
+	ball.linear_velocity = Vector3(1.5, 0.0, 0.0)
+	for i in 600:
+		await physics_frame
+	var settled := ball.position
+	var wander := 0.0
+	for i in 120:
+		await physics_frame
+		wander = maxf(wander, ball.position.distance_to(settled))
+	_expect(wander < 0.001, "a ball at rest does not jitter (%.4f m in two seconds)" % wander)
+	_expect(ball.position.y - away.y > Ball.RADIUS - 0.03, "nor sink (%.3f m)" % (ball.position.y - away.y))
+
+	# A lofted shot does lift: a strong chip goes well above head height.
+	ball.reset_to(away + Vector3(-20.0, 0.0, -10.0))
+	await physics_frame
+	ball.kick(ball.position + Vector3(-0.9, -Ball.RADIUS, 0.0), Vector3.RIGHT, false, 1.0, 1.0, Vector3.RIGHT)
+	var peak := 0.0
+	for i in 60:
+		await physics_frame
+		peak = maxf(peak, ball.position.y - away.y)
+	_expect(peak > 3.0, "a charged shot aimed high lifts (%.1f m)" % peak)
+	ball.queue_free()
+	(made[0] as Node).queue_free()
+
+## The woodwork rings and the net catches the ball, at the fastest kick there is,
+## without the ball getting through either.
+func _check_posts_ring_and_the_net_is_dead() -> void:
+	print("posts ring and the net is dead")
+	var made := _football_floor()
+	var away: Vector3 = made[1]
+	var mouth := away + Vector3(60.0, 0.0, 0.0)
+	var goal := Goal.new(1, mouth)
+	get_root().add_child(goal)
+	var ball := Ball.new(mouth + Vector3(-5.0, 1.2, 0.0))
+	get_root().add_child(ball)
+	var half := Pitch.GOAL_WIDTH * 0.5
+	var fastest := Ball.KICK_SPEED_CEILING
+
+	# Straight at a post and the bar, flat, from a short way off so that it has
+	# not fallen: it comes back hard.
+	# Without gravity, so that the bar is hit where it was aimed and not under it.
+	ball.gravity_scale = 0.0
+	for target: Vector3 in [Vector3(0.0, 1.2, half), Vector3(0.0, Pitch.GOAL_HEIGHT, 0.0)]:
+		for speed: float in [12.0, fastest]:
+			ball.reset_to(mouth)
+			await physics_frame
+			var start := mouth + Vector3(-3.0, 0.0, 0.0) + target
+			start.y = mouth.y + target.y
+			ball.position = start
+			PhysicsServer3D.body_set_state(ball.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, Transform3D(Basis(), start))
+			ball.linear_velocity = Vector3(speed, 0.0, 0.0)
+			var back := 0.0
+			var through := -99.0
+			for i in 40:
+				await physics_frame
+				back = minf(back, ball.linear_velocity.x)
+				through = maxf(through, ball.position.x - mouth.x)
+			var what := "post" if target.z != 0.0 else "bar"
+			# The fastest ones keep about a third: the engine takes some of the
+			# bounce off a very fast hit (0.33 to 0.41 measured at 30 m/s, against
+			# 0.89 at 12), which is still 10 m/s straight back.
+			_expect(-back > speed * 0.3, "a shot at %.0f m/s off the %s comes back at %.1f m/s" % [speed, what, -back])
+			_expect(through < 0.5, "and does not get through it (%.2f m past the line)" % through)
+
+	ball.gravity_scale = 1.0
+	# Into the back of the net at the fastest there is: it drops dead inside.
+	for speed: float in [12.0, fastest]:
+		ball.reset_to(mouth)
+		await physics_frame
+		var start := mouth + Vector3(-1.0, 1.2, 0.0)
+		ball.position = start
+		PhysicsServer3D.body_set_state(ball.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, Transform3D(Basis(), start))
+		ball.linear_velocity = Vector3(speed, 0.0, 0.0)
+		var deepest := -99.0
+		for i in 60:
+			await physics_frame
+			deepest = maxf(deepest, ball.position.x - mouth.x)
+		_expect(deepest < Pitch.GOAL_DEPTH + 0.5, "a shot at %.0f m/s stays in the net (%.2f m deep of %.1f)" % [speed, deepest, Pitch.GOAL_DEPTH])
+		_expect(ball.linear_velocity.length() < 1.0, "and is dead there (%.2f m/s a second later)" % ball.linear_velocity.length())
+	ball.queue_free()
+	goal.queue_free()
+	(made[0] as Node).queue_free()
+
+## The other child's phone sees the kick: the host's ball goes where the guest
+## aimed, and the guest's own picture of it does not snap — it moves a ball's
+## worth each frame, and it turns over as it goes.
+func _check_the_guest_sees_the_same_kick() -> void:
+	print("the guest sees the same kick")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var away: Vector3 = made[1]
+	var pair := _football_pair(field)
+	var host_ground: FootballGround = pair[2]
+	var guest_ground: FootballGround = pair[3]
+	var mine: Ball = host_ground._balls[1]
+	var shown: Ball = guest_ground._balls[1]
+	var spot := away + Vector3(-8.0, 0.0, 8.0)
+	mine.reset_to(spot)
+	shown.show_at(spot + Vector3.UP * Ball.RADIUS, Quaternion())
+	# The guest's frames are driven by hand, one to each physics tick: a headless
+	# run lets several ticks pass between two frames and the other way about,
+	# which would look like the ball jumping when it is only the harness.
+	guest_ground.set_process(false)
+	for i in 30:
+		await physics_frame
+		guest_ground._process(1.0 / 60.0)
+	var strike_from := spot + Vector3(-0.9, 0.0, 0.0)
+	pair[0].guest_positions[pair[1]._link_id] = strike_from
+	var before := shown.basis.get_rotation_quaternion()
+	var asked := Ball.launch_velocity(mine.position, strike_from, Vector3.RIGHT, false, 0.5, 0.0, Vector3.RIGHT)
+	guest_ground.kick(shown, strike_from, Vector3.RIGHT, false, 0.5, 0.0, Vector3.RIGHT)
+	_expect(mine.linear_velocity.is_equal_approx(asked), "the host's ball leaves exactly as the guest's aim worked it out (%s)" % str(mine.linear_velocity))
+	var last := shown.position
+	var biggest := 0.0
+	var worst_frame := -1
+	var turned := 0.0
+	for i in 90:
+		await physics_frame
+		guest_ground._process(1.0 / 60.0)
+		# How far past what the ball's own speed explains it moved in a frame.
+		var excess := shown.position.distance_to(last) - asked.length() / 60.0
+		if excess > biggest:
+			biggest = excess
+			worst_frame = i
+		last = shown.position
+		if i == 8:
+			turned = rad_to_deg(before.angle_to(shown.basis.get_rotation_quaternion()))
+	_expect(biggest < 0.35, "the guest's ball never jumps: at most %.2f m past its own speed in a frame (frame %d, %.1f m/s)" % [biggest, worst_frame, asked.length()])
+	_expect(turned > 20.0, "and turns over as it goes (%.0f degrees in the first moments)" % turned)
+	var apart := shown.position.distance_to(mine.position)
+	_expect(apart < 1.5, "and ends where the host's ball is, within %.2f m" % apart)
+	_free_football_pair(pair)
+	(made[0] as Node).queue_free()

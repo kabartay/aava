@@ -424,6 +424,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# are standing on exists, or the game opens with a fall.
 	player.set_physics_process(false)
 	_waiting_for_ground = true
+	# The footballs and this child meet by a push the game works out, not by the
+	# capsule and the ball colliding; see FootballGround.let_pass.
+	world.football.let_pass(player)
 	player.moved.connect(world.follow)
 	player.jumped.connect(func() -> void: sounds.play(Sounds.Sound.JUMP))
 	player.landed.connect(func(speed: float) -> void:

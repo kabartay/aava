@@ -25,8 +25,16 @@ const SIDE_COLOURS: Array[Color] = [
 	Color(0.92, 0.22, 0.20),
 ]
 
-## How much of the ball's speed survives the netting. Almost none.
+## How much of the ball's speed survives the netting. Almost none — though the
+## physics server takes the larger of two bounciness values, so this alone
+## leaves the ball's own 0.55 and the net was as lively as grass. The walls are
+## also put in NET_GROUP, and the ball itself kills its speed on touching one.
 const NET_BOUNCE := 0.04
+const NET_GROUP := &"goal_net"
+
+## How much of the ball's speed survives a post or the bar: crisper than grass,
+## so that a shot off the woodwork comes back out hard and does not die.
+const POST_BOUNCE := 0.8
 
 ## How thick the walls behind the strings are.
 ##
@@ -220,7 +228,7 @@ func _post(at: Vector3, height: float, material: StandardMaterial3D) -> void:
 	_solid(
 		at + Vector3.UP * height * 0.5,
 		Vector3(Pitch.POST_RADIUS * 2.0, height, Pitch.POST_RADIUS * 2.0),
-		0.55
+		POST_BOUNCE
 	)
 
 func _crossbar(at: Vector3, width: float, _axis: Vector3, material: StandardMaterial3D) -> void:
@@ -239,7 +247,7 @@ func _crossbar(at: Vector3, width: float, _axis: Vector3, material: StandardMate
 	visual.position = at
 	add_child(visual)
 
-	_solid(at, Vector3(Pitch.POST_RADIUS * 2.0, Pitch.POST_RADIUS * 2.0, width), 0.55)
+	_solid(at, Vector3(Pitch.POST_RADIUS * 2.0, Pitch.POST_RADIUS * 2.0, width), POST_BOUNCE)
 
 ## One immovable slab of collision. Separate bodies per part rather than one
 ## compound shape, so the post can be springy and the net dead.
@@ -263,5 +271,7 @@ func _solid_turned(at: Vector3, size: Vector3, basis: Basis, bounce: float) -> v
 	material.bounce = bounce
 	material.friction = 0.7
 	body.physics_material_override = material
+	if bounce <= NET_BOUNCE:
+		body.add_to_group(NET_GROUP)
 	body.add_child(collider)
 	add_child(body)

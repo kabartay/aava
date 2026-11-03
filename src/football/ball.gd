@@ -17,8 +17,14 @@ const RADIUS := 0.24
 const MASS := 0.42
 
 ## How much speed survives a bounce. High enough to be fun, low enough that the
-## ball settles instead of pinging around the pitch forever.
-const BOUNCE := 0.62
+## ball settles instead of pinging around the pitch forever. A football dropped
+## on grass comes back to a third of its height or so, which is about 0.55.
+##
+## The physics server does not multiply the two bodies' bounciness: Jolt takes
+## the larger. So this is also the floor under every post and net — nothing the
+## ball hits can be deader than this — and the net is made dead in
+## `_integrate_forces` below rather than by its material.
+const BOUNCE := 0.55
 
 ## Rolling drag. Without it a ball on level ground never stops, and a pitch
 ## strewn with balls that will not settle is unplayable.
@@ -54,13 +60,21 @@ const SPRINT_BONUS := 4.5
 const LIFT_FLAT := 0.02
 const LIFT_HIGH := 1.35
 
-## How close the player must be to strike it.
+## How close the player must be to strike it: the ball's centre may be this far
+## plus its radius from the child, along the ground.
 ##
-## This has to exceed the distance at which the player's own capsule pushes the
-## ball away, or walking up to a ball shoves it just out of range and it can
-## never be kicked at all. Player radius 0.34 plus ball radius 0.24 is 0.58 of
-## contact, so a reach of 1.9 leaves real room to stand next to it and swing.
-const KICK_REACH := 1.9
+## It is what a foot can honestly reach. A child's leg is 0.47 m, so the toe is
+## about 0.4 m from the hip with the leg straight; the kick lunges 0.4 m forward
+## (RigMotion.KICK_LUNGE) and the ball's own radius is 0.24 m, which comes to
+## about a metre. At 1.9 the ball used to leave from two metres away while
+## the leg had barely moved. It still exceeds the 0.58 at which a child and a
+## ball touch (radius 0.34 plus 0.24), so there is room to stand beside it.
+const KICK_REACH := 0.86
+
+## How far above the child's feet a ball can be and still be struck: a
+## knee-high volley, but not a chip sailing overhead, which used to be kickable
+## from anywhere underneath it.
+const KICK_RISE := 1.0
 
 ## Below this speed the ball counts as at rest.
 const AT_REST_SPEED := 0.35
@@ -108,6 +122,9 @@ func _init(start: Vector3, which: Look = Look.FOOTBALL) -> void:
 	# ground layer shoved the camera in to nothing whenever it rolled between
 	# the two. The player still meets it, because the player's mask has props.
 	collision_layer = TerrainSpec.LAYER_PROPS
+	# Told what it has touched, so `_integrate_forces` can tell a net from a post.
+	contact_monitor = true
+	max_contacts_reported = 4
 	can_sleep = true
 	linear_damp = ROLL_DAMP
 	angular_damp = SPIN_DAMP
@@ -196,9 +213,7 @@ func _build_mesh(which: Look) -> Mesh:
 ## Returns the resulting speed in metres per second, or zero if the striker was
 ## not close enough to reach it.
 func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25, look := Vector3.ZERO) -> float:
-	var offset := position - from
-	offset.y = 0.0
-	if offset.length() > KICK_REACH + RADIUS:
+	if not within_reach(position, from):
 		return 0.0
 
 	var launch := launch_velocity(position, from, facing, sprinting, strength, loft, look)
@@ -206,11 +221,29 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft
 	strike(launch, strength, loft)
 	return speed
 
+## Whether a ball at `at` is where a child at `from` (their feet) can strike it.
+static func within_reach(at: Vector3, from: Vector3) -> bool:
+	var offset := at - from
+	var rise := offset.y
+	offset.y = 0.0
+	return offset.length() <= KICK_REACH + RADIUS and rise <= KICK_RISE
+
+## How much of its speed a ball keeps each tick it is touching netting. The
+## material cannot make the net dead (see BOUNCE), so this does: a shot that hits
+## the back of the goal drops where it hit.
+const NET_KEEPS := 0.12
+
+func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	for i in state.get_contact_count():
+		var other := state.get_contact_collider_object(i) as Node
+		if other != null and other.is_in_group(Goal.NET_GROUP):
+			state.linear_velocity *= NET_KEEPS
+			state.angular_velocity *= NET_KEEPS
+			return
+
 ## Give the ball a launch velocity, however it was worked out: by a kick on this
 ## phone, or by the host on behalf of a guest who asked for it.
 func strike(launch: Vector3, strength: float, loft: float) -> void:
-	var direction := Vector3(launch.x, 0.0, launch.z).normalized()
-	var speed := launch.length()
 	var charged := clampf(strength, 0.0, 1.0)
 
 	sleeping = false
@@ -221,12 +254,20 @@ func strike(launch: Vector3, strength: float, loft: float) -> void:
 	# truthful model here: a kick replaces the ball's motion, it does not add to
 	# whatever it was already doing.
 	linear_velocity = launch
-	# A little sidespin off the striking foot, so the ball visibly turns over.
-	# Backspin on a lofted chip, topspin on a flat drive, because that is what
-	# the striking foot would actually impart and it reads correctly in flight.
-	angular_velocity = direction.cross(Vector3.UP) * speed * lerpf(1.1, -0.7, clampf(loft, 0.0, 1.0))
+	angular_velocity = spin_of(launch, loft)
 
 	kicked.emit(charged, clampf(loft, 0.0, 1.0))
+
+## How a ball turns as it leaves the foot, in radians a second. A flat drive
+## leaves rolling over the way it is going, as fast as it would roll on the
+## grass (speed over radius), so it does not skid for the first metres; a chip
+## leaves with a gentler backspin, which is what a foot under the ball gives.
+## The sign was the wrong way round before, so that a drive visibly spun
+## backwards until the grass turned it, and at a quarter of the true rate.
+static func spin_of(launch: Vector3, loft: float) -> Vector3:
+	var direction := Vector3(launch.x, 0.0, launch.z).normalized()
+	var rolling := launch.length() / RADIUS
+	return direction.cross(Vector3.UP) * rolling * lerpf(-1.0, 0.35, clampf(loft, 0.0, 1.0))
 
 ## What a launch velocity says about the kick that made it, undoing
 ## launch_velocity: how hard the button was held, and how high it was aimed. For
@@ -276,6 +317,11 @@ func follow_the_host(on: bool) -> void:
 	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS | TerrainSpec.LAYER_VISITORS
 	sleeping = false
 
+## How far from the ball the run-up line stops counting and the child's own
+## facing takes over, and how far it has fully handed over.
+const RUN_UP_NEAR := 1.2
+const RUN_UP_FAR := 2.0
+
 ## Where the camera looking along `look` sends a kick from `from` at a ball at
 ## `at`, along the ground. The ball straight ahead of the view goes the way the
 ## view points. A child who walked at a ball that is off to one side of the view
@@ -287,6 +333,16 @@ static func aim_direction(at: Vector3, from: Vector3, facing: Vector3, look := V
 	offset.y = 0.0
 	var flat_look := Vector3(look.x, 0.0, look.z)
 	var run := offset.normalized() if offset.length_squared() > 0.02 else Vector3.ZERO
+	# Close in, the line from the child to the ball says nothing about where they
+	# mean it to go: a child standing beside the ball, or a step past it, would
+	# send it sideways or straight back at themselves. Within a stride of the
+	# ball it is the way the child faces that counts, fading to the line between
+	# them from a couple of metres out, where it really is the run-up.
+	var flat_facing := Vector3(facing.x, 0.0, facing.z)
+	if run != Vector3.ZERO and flat_facing.length_squared() > 0.0001:
+		var close := 1.0 - smoothstep(RUN_UP_NEAR, RUN_UP_FAR, offset.length())
+		var mixed := run.lerp(flat_facing.normalized(), close)
+		run = mixed.normalized() if mixed.length_squared() > 0.0001 else flat_facing.normalized()
 	if flat_look.length_squared() < 0.0001:
 		return run if run != Vector3.ZERO else facing
 	flat_look = flat_look.normalized()
@@ -329,12 +385,68 @@ const TOUCH_MIN_SPEED := 0.3
 const TOUCH_REACH := 1.25
 const TOUCH_AHEAD := 0.85
 
+## How much of a child's own pace a ball leaves their body with when they run
+## into it: a little more than they have, so it rolls on ahead and is caught up
+## with and pushed again rather than being carried stuck to the shins.
+const PUSH_BOUNCE := 0.25
+## How fast a ball is eased out from under a child who has stepped onto it.
+const PUSH_OUT := 1.0
+
+## What the child's body does to a ball it is touching, flat along the ground.
+## The ball and the child's capsule do not collide with one another in the
+## physics server (the capsule stopped dead against the ball, a running child
+## stood still, and one that kept going climbed onto it): this is the whole of
+## their meeting. A ball that the body is closing on leaves along the line
+## between them with the body's own pace and a little over; a ball coming at a
+## standing child bounces off; the ball's height is never touched, so a body
+## can neither pass through the ball nor launch it into the air.
+##
+## The body is taken to have swept the ground it covered in `delta`, not only to
+## stand where it ends: a frame that takes a tenth of a second (a chunk of
+## valley arriving) moves a running child most of a metre, and a ball in that
+## stride was stepped over.
+static func pushed_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v: Vector3, delta := 0.0) -> Vector3:
+	var rise := at.y - from.y
+	if rise > KICK_RISE or rise < -0.5:
+		return ball_v
+	var run := Vector3(foot_v.x, 0.0, foot_v.z)
+	var stride := run * clampf(delta, 0.0, 0.25)
+	var started := Vector3(from.x, 0.0, from.z) - stride
+	var along := 1.0
+	if stride.length_squared() > 0.000001:
+		along = clampf((Vector3(at.x, 0.0, at.z) - started).dot(stride) / stride.length_squared(), 0.0, 1.0)
+	var nearest := started + stride * along
+	var offset := Vector3(at.x, 0.0, at.z) - nearest
+	var contact := Player.RADIUS + RADIUS
+	var gap := offset.length()
+	if gap > contact:
+		return ball_v
+	var way := offset / gap if gap > 0.01 else Vector3.ZERO
+	# The body went over the ball in this very frame: it is pushed on ahead of
+	# them, along the way they were going.
+	if along < 1.0 and run.length_squared() > 0.01 and (at - from).dot(run) < 0.0:
+		way = run.normalized()
+	if way == Vector3.ZERO:
+		if run.length_squared() < 0.01:
+			return ball_v
+		way = run.normalized()
+	var body_n := foot_v.dot(way)
+	var ball_n := ball_v.dot(Vector3(way.x, 0.0, way.z))
+	var want := ball_n
+	if ball_n - body_n < 0.0:
+		# Closing: leave at the body's pace plus a rebound of what was closing.
+		want = body_n + (body_n - ball_n) * PUSH_BOUNCE
+	if gap < contact - 0.08:
+		want = maxf(want, PUSH_OUT)
+	return ball_v + way * (want - ball_n)
+
 ## What a ball at `at` moving at `ball_v` does in this step, for a child at
 ## `from` moving at `foot_v`. Pure, so the host can apply it for its own child
 ## and for each guest's body, and a guest's phone can show the same thing. The
 ## slower the child, the stronger the pull, fading to nothing at TOUCH_SPEED,
 ## and only for a ball that is in front of them and on the ground.
 static func touch_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v: Vector3, delta: float) -> Vector3:
+	ball_v = pushed_velocity(at, ball_v, from, foot_v, delta)
 	var run := Vector3(foot_v.x, 0.0, foot_v.z)
 	var pace := run.length()
 	if pace < TOUCH_MIN_SPEED or pace >= TOUCH_SPEED:
