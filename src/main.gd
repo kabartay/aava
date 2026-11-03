@@ -249,6 +249,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	add_child(session)
 	visitors = Visitors.new()
 	visitors.name = "Visitors"
+	visitors.seat_finder = _seat_at
 	add_child(visitors)
 
 	ambience = Ambience.new()
@@ -734,6 +735,21 @@ func _physics_process(delta: float) -> void:
 	if carried != Vector3.ZERO and not _riding_without_a_ticket:
 		player.global_position += carried
 
+## Whether somebody standing here is in the seat of a ride, and which: the
+## pose (see SeatPose) and where the seat is. The same question is asked for the
+## child's own body and for the other child's, from where each stands, so that
+## nothing about the ride has to be sent. Empty on foot and on the floor of a
+## ride.
+func _seat_at(at: Vector3) -> Dictionary:
+	if world == null or world.park == null:
+		return {}
+	var seat := world.park.seat_under(at)
+	if seat.is_empty() and world.places != null:
+		var swing := world.places.swing_seat_near(at)
+		if not is_nan(swing.origin.x):
+			return {"pose": &"swing", "place": swing}
+	return seat
+
 func _process(delta: float) -> void:
 	if player == null:
 		return
@@ -743,6 +759,11 @@ func _process(delta: float) -> void:
 			player.set_physics_process(true)
 			_waiting_for_ground = false
 		return
+
+	# Which seat the child is in, if they are in one, so that their body sits.
+	var seated := _seat_at(player.global_position)
+	player.seat_pose = seated.get("pose", &"")
+	player.seat_place = seated.get("place", Transform3D())
 
 	world.pickups.check_reach(player.global_position)
 	# The rocks watch the player rather than the player reporting to them, so
@@ -929,6 +950,9 @@ func _process(delta: float) -> void:
 		# Told after it is carried, so the seat follows the ground the horse is
 		# lying on this frame rather than the ground it was on last one.
 		player.set_seat_up(world.mounts.up_of(player.riding))
+		player.saddle_lift = world.mounts.saddle_lift()
+	else:
+		player.saddle_lift = 0.0
 	_watch_the_turnstile()
 	world.mounts.watch(player.global_position)
 	var offered := world.mounts.nearest(player.global_position)

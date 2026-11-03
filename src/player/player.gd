@@ -196,6 +196,9 @@ var _swim_sink := 0.0
 ## Which way up the thing being ridden is. Set by the game each frame while
 ## riding, and straight up the rest of the time.
 var _seat_up := Vector3.UP
+## How far the horse's stride has lifted the saddle this frame, which the game
+## says: a body sat on a saddle goes up and down with it and not through it.
+var saddle_lift := 0.0
 var _cloth: StandardMaterial3D = null
 ## The plain figure's own parts, kept so that a child who chooses one of the
 ## cartoon characters can have them put away and the rig shown instead.
@@ -403,6 +406,12 @@ var carried_facing := Basis()
 ## the shoulder bars are down on the coaster. See the note in _physics_process.
 var strapped_in := false
 
+## Set by the game while the child is in a ride's seat (the carousel's saddle, a
+## gondola, a car, the tower, the ship, the swing): the pose that seat is (see
+## SeatPose) and where it is in the world. The body is sat down on it.
+var seat_pose: StringName = &""
+var seat_place := Transform3D()
+
 ## How quickly a carried child (swing, slide, café chair) closes on the seat,
 ## per second: the 0.35 of the gap a tick that it used to be at sixty hertz,
 ## which is -ln(0.65) * 60.
@@ -419,7 +428,7 @@ func _process(delta: float) -> void:
 func _animate(delta: float) -> void:
 	if _motion == null:
 		return
-	var carried := strapped_in or riding != &""
+	var carried := strapped_in or riding != &"" or seat_pose != &""
 	# Airborne is "has not been on the floor for a moment", not "is not on it
 	# this frame": on a slope the floor test drops out now and then, and a
 	# child running downhill is not jumping every few steps.
@@ -432,6 +441,18 @@ func _animate(delta: float) -> void:
 	_motion.swimming = is_swimming and not strapped_in
 	_motion.diving = diving
 	_motion.riding = carried
+	# Sitting: on a mount the pose is the mount's, and the carrier's pace is the
+	# horse's stride and the pedals' turn; on a ride it is the ride's own seat,
+	# which the game names, and where it is.
+	if riding != &"":
+		_motion.seat = MountKinds.kind_of(riding)
+		_motion.seat_placed = false
+		_motion.gait = Vector2(velocity.x, velocity.z).length()
+	else:
+		_motion.seat = seat_pose
+		_motion.seat_placed = seat_pose != &""
+		_motion.seat_place = seat_place
+		_motion.gait = 0.0
 	_motion.winding = _charging and not bow_shown()
 	_motion.charge = kick_charge
 	_motion.step(delta)
@@ -855,7 +876,7 @@ func _physics_process(delta: float) -> void:
 	# over by whatever is carrying the rider, so the seat is where the saddle
 	# is by construction.
 	_visual.position = (
-		_seat_up * _ride_lift - Vector3(0.0, _swim_sink + _swim_bob(), 0.0)
+		_seat_up * (_ride_lift + saddle_lift) - Vector3(0.0, _swim_sink + _swim_bob(), 0.0)
 	)
 
 	# The world streams around wherever the player is, but only when they have

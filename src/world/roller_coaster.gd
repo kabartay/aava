@@ -1323,6 +1323,12 @@ func seat_under(at: Vector3) -> Transform3D:
 			)
 	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
 
+## The seat of one car, the way `seat_under` gives it. For the checks and the
+## viewer.
+func seat_of(index: int) -> Transform3D:
+	var frame := _cars[index].global_transform
+	return Transform3D(frame.basis * Basis(Vector3.UP, -PI * 0.5), frame * SEAT_SPOT)
+
 ## Where a child is put down if they have to leave a car: on the platform,
 ## level with its boards, beside the door they got in by.
 func platform_spot() -> Vector3:

@@ -532,7 +532,16 @@ var _paced_from := Vector3.ZERO
 const STRIDE_METRES := 2.6
 const LEG_SWING := deg_to_rad(32.0)
 
+## How far the ridden horse's body is lifted by its stride this frame, which is
+## how far its saddle is: the rider goes up with it, or the saddle rises into
+## them at every beat of a gallop.
+var _saddle_lift := 0.0
+
+func saddle_lift() -> float:
+	return _saddle_lift
+
 func _process(delta: float) -> void:
+	_saddle_lift = 0.0
 	_drift_the_boats(delta)
 	# Every horse nobody is riding grazes, whether or not one of them is being
 	# ridden: four horses frozen mid-mouthful while you ride the fifth is worse
@@ -590,6 +599,7 @@ func _process(delta: float) -> void:
 		var swing := lerpf(trot_swing, gallop_swing, gallop) * reach
 		leg.rotation.x = lerp_angle(leg.rotation.x, swing, 1.0 - exp(-14.0 * delta))
 	body.position.y = absf(sin(_stride)) * lerpf(0.07, 0.16, gallop) * effort
+	_saddle_lift = body.position.y
 	body.rotation.x = sin(_stride) * lerpf(0.02, 0.06, gallop) * effort
 	# The head nods with the stride and the tail swings behind; standing,
 	# both stir a little, because a horse is never quite still.

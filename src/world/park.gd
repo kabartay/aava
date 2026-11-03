@@ -202,6 +202,32 @@ func ride_under(at: Vector3) -> StringName:
 		return &"pirate_ship"
 	return &""
 
+## How a child on one of the rides is sitting, if they are in a seat: the name of
+## the pose (SeatPose) and where the seat is, in the world, as the ride stands
+## now. Empty for a child standing on a floor, a platform or a walkway. What a
+## ride is is already known from where a child is, which is why nothing about it
+## is sent to the other player: their phone asks the same question of the same
+## place.
+func seat_under(at: Vector3) -> Dictionary:
+	if not ParkSpec.inside(at.x, at.z):
+		return {}
+	var seat := carousel.seat_near(at)
+	if not is_nan(seat.origin.x):
+		return {"pose": &"carousel", "place": seat}
+	seat = wheel.seat_near(at)
+	if not is_nan(seat.origin.x):
+		return {"pose": &"wheel", "place": seat}
+	seat = coaster.seat_under(at)
+	if not is_nan(seat.origin.x):
+		return {"pose": &"coaster", "place": seat}
+	seat = drop_tower.seat_near(at)
+	if not is_nan(seat.origin.x):
+		return {"pose": &"drop_tower", "place": seat}
+	seat = pirate_ship.seat_near(at)
+	if not is_nan(seat.origin.x):
+		return {"pose": &"pirate_ship", "place": seat}
+	return {}
+
 ## Where the ticket kiosk stands.
 func booth_at() -> Vector3:
 	var gate := ParkSpec.gate()

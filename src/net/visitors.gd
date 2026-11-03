@@ -56,6 +56,11 @@ const SHIRT_NAMES: Array[StringName] = [
 
 var _visitors: Dictionary = {}
 
+## Asked where a visitor stands: is that a seat on a ride, and which (see
+## Main._seat_at). Left unset, nobody sits on a ride. Which ride a child is on is
+## known from where they are, so nothing about it is sent.
+var seat_finder := Callable()
+
 ## Where somebody was said to be before they had been announced. Positions are
 ## unreliable and names are reliable, so the first position can overtake the
 ## name that introduces it; dropped, a visitor who stands still (a host reading
@@ -368,7 +373,21 @@ func _animate(record: Dictionary, motion: RigMotion, node: Node3D, delta: float,
 	motion.speed = Session.motion_speed(code) if age < MOTION_FRESH else 0.0
 	motion.swimming = code & 32 != 0
 	motion.diving = code & 64 != 0
-	motion.riding = record.get("mount", &"") != &""
+	var mount: StringName = record.get("mount", &"")
+	motion.riding = mount != &""
+	# Sitting: on a mount as the child's own body does; on a ride's seat when the
+	# place they stand is one.
+	if mount != &"":
+		motion.seat = MountKinds.kind_of(mount)
+		motion.seat_placed = false
+		motion.gait = motion.speed
+	else:
+		var seated: Dictionary = seat_finder.call(node.global_position) if seat_finder.is_valid() else {}
+		motion.seat = seated.get("pose", &"")
+		motion.seat_placed = not seated.is_empty()
+		motion.seat_place = seated.get("place", motion.seat_place)
+		motion.gait = 0.0
+		motion.riding = motion.seat != &""
 	motion.step(minf(waited, 0.25))
 
 	# In the water they sit low and lean over, as the child's own body does

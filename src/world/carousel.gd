@@ -29,6 +29,10 @@ const CANOPY_B := Color(0.96, 0.92, 0.84)
 var _turntable: Node3D
 var _horses: AnimatableBody3D
 var _turned := 0.0
+## Where a child sits on each horse, in the turning horses' own frame: the
+## origin is the top of the saddle's centre, and the basis turns a child (who
+## faces -z) to face along the horse.
+var _saddles: Array[Transform3D] = []
 
 func _init(at: Vector3) -> void:
 	name = "Carousel"
@@ -199,6 +203,12 @@ func _init(at: Vector3) -> void:
 		# rather than riding it. Leather-coloured, like every other saddle in
 		# the game, and a child's own foot has somewhere to look for.
 		var saddle_top := ride_at.y + 0.35
+		# A child's -z is the horse's +x (its head), so the seat is the
+		# horse's own turn and a quarter more.
+		_saddles.append(Transform3D(
+			facing * Basis(Vector3.UP, -PI * 0.5),
+			Vector3(ride_at.x, saddle_top, ride_at.z)
+		))
 		var saddle := BoxMesh.new()
 		saddle.size = Vector3(0.5, 0.1, 0.4)
 		var saddle_at := Vector3(ride_at.x, saddle_top - 0.05, ride_at.z)
@@ -331,6 +341,26 @@ func carry(at: Vector3, delta: float) -> Vector3:
 		return Vector3.ZERO
 	var swept := out.rotated(-TURN_RATE * delta) - out
 	return Vector3(swept.x, 0.0, swept.y)
+
+## Every saddle, in the world as the ride stands now: the origin the top of its
+## centre, the basis the way a child on it faces. For the checks and the viewer.
+func saddles() -> Array[Transform3D]:
+	var out: Array[Transform3D] = []
+	for saddle in _saddles:
+		out.append(_horses.global_transform * saddle)
+	return out
+
+## The saddle a child is standing on the back of, or a transform of NANs if
+## they are not on a horse. The barrel they climb onto is 1.6 long and 0.5
+## wide and topped at the saddle, so anywhere on it is the saddle, to sit in
+## the middle of: the floor of the ride is not a seat, and nor is the air.
+func seat_near(at: Vector3) -> Transform3D:
+	for saddle in _saddles:
+		var here := _horses.global_transform * saddle
+		var local := here.affine_inverse() * at
+		if absf(local.z) < 0.85 and absf(local.x) < 0.35 and local.y > -0.25 and local.y < 0.4:
+			return here
+	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
 
 ## How far round it has turned. For the checks.
 func turned() -> float:

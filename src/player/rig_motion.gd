@@ -24,9 +24,22 @@ var speed := 0.0
 var airborne := false
 var swimming := false
 var diving := false
-## Held on a mount or a ride: the stride stops and the arms stay quiet. Sitting
-## properly is for a later pass.
+## Held on a mount or a ride: the stride stops and the arms stay quiet.
 var riding := false
+## How the child is carried, if they are sitting: the name of a pose in SeatPose
+## (a mount's kind, or a ride's name), or empty on foot. Blended in and out in a
+## fraction of a second, so getting on and off is a settling and not a jump.
+var seat: StringName = &""
+## How fast whatever carries the child is going, in metres a second: the horse's
+## stride, the bicycle's pedals and the boat's strokes keep time with it.
+var gait := 0.0
+## For a ride, where the seat is in the world: the place its pose is written
+## about (the origin is where the child's feet would stand on the footing, the
+## basis the way the seat faces and tips). The rig is moved and turned to it, so
+## that the hips are on the seat and not where the child happened to be
+## standing. A mount needs none: the rig is already at its saddle.
+var seat_placed := false
+var seat_place := Transform3D()
 ## Winding up a kick, and how far.
 var winding := false
 var charge := 0.0
@@ -40,7 +53,16 @@ var _fore: Array[Node3D] = []
 var _thigh: Array[Node3D] = []
 var _shin: Array[Node3D] = []
 var _foot: Array[Node3D] = []
+var _hand: Array[Node3D] = []
+## The meshes of the upper arms and forearms, left then right, which are drawn
+## longer when the seat is further off than an arm reaches.
+var _arm_mesh: Array[Node3D] = []
 var _hips_rest := 0.0
+## How far the hips hang below their joint, for this rig's own pelvis.
+var _pelvis := SeatPose.PELVIS
+## The arm's own lengths as built: shoulder to elbow, and elbow to wrist.
+var _arm_a := 0.16
+var _arm_b := 0.15
 
 ## Eased state.
 var _speed := 0.0
@@ -53,11 +75,29 @@ var _squash := 0.0
 var _wind := 0.0
 var _kick_age := -1.0
 var _cheer := 0.0
+## Sitting: how far into the pose (0 to 1), which pose it is, whether the limbs
+## have been left in it, and the clocks of what moves while it is held.
+var _sit := 0.0
+var _sat: StringName = &""
+var _posed := false
+var _bounce := 0.0
+var _pedal := 0.0
+var _stroke := 0.0
+## What the seat's place has added to the rig so far, taken off again as it goes.
+var _applied := Vector3.ZERO
+var _placed := false
+## What the limb solver hands back, so that a frame allocates nothing.
+var _first := Quaternion()
+var _second := Quaternion()
+var _second_basis := Basis()
 
 ## How long the kick's follow-through takes to die away, in seconds, and how
 ## long a cheer lasts.
 const KICK_FOLLOW := 0.55
 const CHEER_FOR := 1.5
+
+## How long it takes to settle into a seat or to climb out of one, in seconds.
+const SIT_TIME := 0.2
 
 func _init(rig: Node3D) -> void:
 	_rig = rig
@@ -70,7 +110,15 @@ func _init(rig: Node3D) -> void:
 		_thigh.append(rig.find_child("Thigh" + tag, true, false))
 		_shin.append(rig.find_child("Shin" + tag, true, false))
 		_foot.append(rig.find_child("Foot" + tag, true, false))
+		_hand.append(rig.find_child("Hand" + tag, true, false))
+		_arm_mesh.append(_upper[_upper.size() - 1].get_node("Mesh"))
+		_arm_mesh.append(_fore[_fore.size() - 1].get_node("Mesh"))
 	_hips_rest = _hips.position.y
+	_arm_a = -_fore[0].position.y
+	_arm_b = -_hand[0].position.y
+	var pelvis := _hips.get_node_or_null("Mesh") as MeshInstance3D
+	if pelvis != null and pelvis.mesh != null:
+		_pelvis = clampf(-pelvis.mesh.get_aabb().position.y, SeatPose.PELVIS, 0.12)
 	# Children out of step with one another, so that a row of them is not a
 	# chorus line: the clock starts at a place of its own.
 	_clock = float(rig.get_instance_id() % 997) * 0.01
@@ -108,10 +156,23 @@ func kick_swing() -> float:
 func step(delta: float) -> void:
 	if not is_instance_valid(_rig):
 		return
-	_speed = lerpf(_speed, 0.0 if riding else speed, 1.0 - exp(-8.0 * delta))
-	_air = move_toward(_air, 1.0 if airborne and not swimming else 0.0, 9.0 * delta)
-	_swim = move_toward(_swim, 1.0 if swimming else 0.0, 4.0 * delta)
-	_dive = move_toward(_dive, 1.0 if (swimming and diving) else 0.0, 3.0 * delta)
+	# A limb left in a seat's pose by the last frame is cleared first: the stride
+	# below writes only the angles it uses, and one left over from a quaternion
+	# would be a twist the walk knew nothing about.
+	if _posed:
+		for side in 2:
+			_thigh[side].rotation = Vector3.ZERO
+			_shin[side].rotation = Vector3.ZERO
+			_foot[side].rotation = Vector3.ZERO
+			_upper[side].rotation = Vector3.ZERO
+			_fore[side].rotation = Vector3.ZERO
+	# Sitting, nothing swims, jumps or strides: the pose is the whole of it.
+	var sitting := seat != &"" and SeatPose.POSES.has(seat)
+	var swimming_now := swimming and not sitting
+	_speed = lerpf(_speed, 0.0 if (riding or sitting) else speed, 1.0 - exp(-8.0 * delta))
+	_air = move_toward(_air, 1.0 if airborne and not swimming_now and not sitting else 0.0, 9.0 * delta)
+	_swim = move_toward(_swim, 1.0 if swimming_now else 0.0, 4.0 * delta)
+	_dive = move_toward(_dive, 1.0 if (swimming_now and diving) else 0.0, 3.0 * delta)
 	_squash = move_toward(_squash, 0.0, 4.5 * delta)
 	_cheer = maxf(_cheer - delta, 0.0)
 	_clock += delta
@@ -226,3 +287,162 @@ func step(delta: float) -> void:
 		_upper[side].rotation.x = arm
 		_upper[side].rotation.z = outward * flare
 		_fore[side].rotation.x = elbow
+
+	_seat_step(delta, sitting)
+
+## Settle the body into the seat, or out of it: the pose is solved from where the
+## hips, hands and feet go (see SeatPose), laid over what the stride and the
+## swim have just written by `_sit`, so there is never a frame in which the child
+## is in one and not the other.
+func _seat_step(delta: float, sitting: bool) -> void:
+	# Another pose is entered only from standing: one that is let go of first
+	# and a new one taken up after, so a mount stepped straight onto a ride is
+	# a settling and never a jump from one seat to the other.
+	if sitting and _sat != seat and _sit <= 0.0:
+		_sat = seat
+	_sit = move_toward(_sit, 1.0 if (sitting and seat == _sat) else 0.0, delta / SIT_TIME)
+	if _sit <= 0.0:
+		if _posed:
+			_rest_the_arms()
+			_hips.position.x = 0.0
+			_hips.position.z = 0.0
+			_posed = false
+		_place(0.0)
+		return
+	_posed = true
+	var pose: Dictionary = SeatPose.POSES[_sat]
+	var w := smoothstep(0.0, 1.0, _sit)
+	var style: StringName = pose.get("style", &"")
+
+	# What moves while it is held, keeping time with the carrier.
+	var carry := clampf(gait / 3.0, 0.0, 1.0)
+	_bounce += (4.0 + 0.8 * gait) * delta
+	_stroke += (1.5 + 0.4 * gait) * delta
+	if gait > 0.3:
+		_pedal += gait * 1.1 * delta
+	# A horse's stride rocks the body over the hips. The hips themselves stay on
+	# the seat, which the horse lifts and lowers and the rider's carrier goes
+	# with: a bob made here would be a bob against the saddle.
+	var pitch := 0.0
+	if style == &"rock":
+		pitch = 0.05 * carry * sin(_bounce)
+
+	var seat_at: Vector3 = pose["seat"]
+	var hips_at := Vector3(seat_at.x, seat_at.y + _pelvis, seat_at.z)
+	var reach: float = pose["reach"]
+	var grip: Vector3 = pose["hand"]
+	var lean: float = pose["lean"] + pitch
+	# A body is as long as it is: the clay toy's chest is half again as tall as
+	# the bear cub's, and the same lean that puts one's hands on the bars leaves
+	# the other's in the air. So the lean is taken as far further forward as the
+	# hands need, a tenth of a radian at a time, up to six tenths.
+	var shoulder_at := _upper[0].position
+	for _try in 7:
+		var to_grip := grip - (hips_at + _torso.position + Basis(Vector3.RIGHT, -lean) * shoulder_at)
+		if to_grip.length() <= (_arm_a + _arm_b) * reach * 0.96:
+			break
+		lean += 0.1
+	var torso_basis := Basis(Vector3.RIGHT, -lean)
+	var shoulder_origin := hips_at + _torso.position
+	_hips.position = Vector3(hips_at.x * w, lerpf(_hips.position.y, hips_at.y, w), hips_at.z * w)
+	_torso.rotation.x = lerpf(_torso.rotation.x, -lean, w)
+	_torso.rotation.y = lerpf(_torso.rotation.y, 0.0, w)
+	_head.rotation.x = lerpf(_head.rotation.x, float(pose["nod"]) + (lean - float(pose["lean"]) - pitch) * 0.8, w)
+
+	var stretch := lerpf(1.0, reach, w)
+	var ankle: Vector3 = pose["foot"]
+	var knee: Vector3 = pose["knee"]
+	var elbow: Vector3 = pose["elbow"]
+	var toe: float = pose["toe"]
+	var turn := _pedal
+	var radius: float = pose.get("pedal_radius", 0.0)
+	for side in 2:
+		var mirror := -1.0 if side == 0 else 1.0
+		# The left side is what the pose says, the right its mirror.
+		var hand_goal := Vector3(grip.x * -mirror, grip.y, grip.z)
+		var foot_goal := Vector3(ankle.x * -mirror, ankle.y, ankle.z)
+		if style == &"pedal":
+			# The right pedal is half a turn from the left, and the crank
+			# goes round in the plane of the bicycle.
+			var angle := turn + (0.0 if side == 0 else PI)
+			foot_goal += Vector3(0.0, radius * sin(angle), -radius * cos(angle))
+		elif style == &"paddle":
+			# A stroke each side, one half a turn behind the other, the hands
+			# going forward and back and a little up and down.
+			var angle := _stroke + (0.0 if side == 0 else PI)
+			hand_goal += Vector3(0.05 * carry * mirror, 0.05 * carry * sin(angle), 0.13 * carry * cos(angle))
+		# The arm, from the shoulder, to a hand's breadth short of the grip: the
+		# wrist is what is placed, and the hand is round it.
+		var shoulder := shoulder_origin + torso_basis * _upper[side].position
+		var aim := (hand_goal - shoulder).normalized()
+		_two_bones(torso_basis, shoulder, hand_goal - aim * 0.04, Vector3(elbow.x * -mirror, elbow.y, elbow.z), _arm_a * reach, _arm_b * reach)
+		_upper[side].quaternion = _upper[side].quaternion.slerp(_first, w)
+		_fore[side].quaternion = _fore[side].quaternion.slerp(_second, w)
+		_fore[side].position.y = -_arm_a * stretch
+		_hand[side].position.y = -_arm_b * stretch
+		_arm_mesh[side * 2].scale.y = stretch
+		_arm_mesh[side * 2 + 1].scale.y = stretch
+		# The leg, from the hip.
+		var hip := hips_at + _thigh[side].position
+		_two_bones(Basis.IDENTITY, hip, foot_goal, Vector3(knee.x * -mirror, knee.y, knee.z), -_shin[side].position.y, -_foot[side].position.y)
+		_thigh[side].quaternion = _thigh[side].quaternion.slerp(_first, w)
+		_shin[side].quaternion = _shin[side].quaternion.slerp(_second, w)
+		# The foot, turned to lie as the pose says whatever the leg above does.
+		var sole := Basis(Vector3.RIGHT, toe)
+		_foot[side].quaternion = _foot[side].quaternion.slerp((_second_basis.transposed() * sole).get_rotation_quaternion(), w)
+	_place(w)
+
+## Two bones of length `a` and `b` hanging from `root` (both hang down at rest,
+## which is the way the rig is built), reaching `goal`, with the middle joint
+## pushed towards `bend`: an arm from a shoulder, a leg from a hip. A place
+## further than the limb reaches is as far as it goes in that direction.
+## Everything is in the rig's own frame, `parent` being the way what the first
+## bone hangs from is turned in it. The answer is left in `_first` and
+## `_second`, the local rotations of the two joints, and in `_second_basis`,
+## which way the second bone is turned in the rig.
+func _two_bones(parent: Basis, root: Vector3, goal: Vector3, bend: Vector3, a: float, b: float) -> void:
+	var to := goal - root
+	var length := to.length()
+	var direction := to / length if length > 0.0001 else Vector3.DOWN
+	var far := clampf(length, absf(a - b) + 0.01, (a + b) * 0.999)
+	var along := (a * a - b * b + far * far) / (2.0 * far)
+	var out := sqrt(maxf(a * a - along * along, 0.0))
+	var side_way := bend - direction * bend.dot(direction)
+	if side_way.length_squared() < 0.0001:
+		side_way = Vector3.RIGHT - direction * Vector3.RIGHT.dot(direction)
+	var middle := root + direction * along + side_way.normalized() * out
+	var end := root + direction * far
+	var first_bone := (middle - root) / a
+	_first = Quaternion(Vector3.DOWN, parent.transposed() * first_bone)
+	var first_basis := parent * Basis(_first)
+	var second_bone := (end - middle) / b
+	_second = Quaternion(Vector3.DOWN, first_basis.transposed() * second_bone)
+	_second_basis = first_basis * Basis(_second)
+
+## Put the rig where the seat is, by `w` of the way: moved to it, and turned to
+## the way it faces and tips (the ship's seats swing, the swing's tilts). Only a
+## ride has a place; what was added is taken off again as the weight falls.
+func _place(w: float) -> void:
+	if not _placed and not (seat_placed and w > 0.0):
+		return
+	var parent := _rig.get_parent() as Node3D
+	if seat_placed and w > 0.0 and parent != null and parent.is_inside_tree():
+		var local := parent.global_transform.affine_inverse() * seat_place
+		var wanted := local.origin * w
+		_rig.position += wanted - _applied
+		_applied = wanted
+		_rig.quaternion = Quaternion().slerp(local.basis.orthonormalized().get_rotation_quaternion(), w)
+		_placed = true
+	elif _placed:
+		_rig.position -= _applied
+		_applied = Vector3.ZERO
+		_rig.quaternion = Quaternion()
+		_placed = false
+
+## Back to what the arms are as built, the sitting having stretched them.
+func _rest_the_arms() -> void:
+	for side in 2:
+		_fore[side].position.y = -_arm_a
+		_hand[side].position.y = -_arm_b
+		_arm_mesh[side * 2].scale.y = 1.0
+		_arm_mesh[side * 2 + 1].scale.y = 1.0

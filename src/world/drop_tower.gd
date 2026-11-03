@@ -103,6 +103,8 @@ var _moved := Vector3.ZERO
 var _harnesses: Array[Node3D] = []
 var _harness_closed := 0.0
 var _harness_shapes: Array[CollisionShape3D] = []
+## Every seat, in the ring's own frame: the top of the cushion, facing out.
+var _seats: Array[Transform3D] = []
 
 func _init(at: Vector3) -> void:
 	name = "DropTower"
@@ -267,6 +269,7 @@ func _build_ring(body: AnimatableBody3D) -> void:
 
 	_harnesses.clear()
 	_harness_shapes.clear()
+	_seats.clear()
 	for seat in SEATS:
 		var angle := TAU * float(seat) / float(SEATS)
 		var out := Vector3(cos(angle), 0.0, sin(angle))
@@ -283,6 +286,12 @@ func _build_ring(body: AnimatableBody3D) -> void:
 		# turned every seat sideways to the way it was drawn.
 		var facing := Basis(Vector3.UP, -angle)
 		var cushion_top := -SEAT_BELOW_RING + 0.55
+		# Where a child sits, on the ring's own frame: the top of the cushion,
+		# turned to face out (a child's -z is the seat's +x).
+		_seats.append(Transform3D(
+			facing * Basis(Vector3.UP, -PI * 0.5),
+			spot + facing * Vector3(0.02, cushion_top, 0.0)
+		))
 
 		# A stand-up seat, the way the real ones are: a tall back from the
 		# cushion to above a child's head, with a headrest and side bolsters.
@@ -536,6 +545,24 @@ func _on_the_ring(at: Vector3) -> bool:
 		absf(local.x) < SEAT_REACH and absf(local.z) < SEAT_REACH
 		and local.y > maxf(lowest, -SEAT_DROP) and local.y < 2.2
 	)
+
+## Every seat as the ring stands now, in the world. For the checks and the
+## viewer.
+func seats() -> Array[Transform3D]:
+	var out: Array[Transform3D] = []
+	for seat in _seats:
+		out.append(_ring.global_transform * seat)
+	return out
+
+## The seat a child is standing on, or a point of NANs. The footing under a seat
+## is 0.7 across, topped at the cushion; the platform and the deck are not seats.
+func seat_near(at: Vector3) -> Transform3D:
+	for seat in _seats:
+		var here := _ring.global_transform * seat
+		var local := here.affine_inverse() * at
+		if absf(local.x) < 0.4 and absf(local.z) < 0.4 and local.y > -0.2 and local.y < 0.4:
+			return here
+	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
 
 ## How high the ring has climbed right now. For the checks.
 func ring_height() -> float:

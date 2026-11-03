@@ -116,6 +116,9 @@ var _harnesses: Array[Node3D] = []
 ## the stern's, so a bar closes towards the middle on both.
 var _harness_ends: Array[float] = []
 var _harness_closed := 0.0
+## Every seat in the hull's own frame: the top of the cushion, turned to face
+## the middle.
+var _seats: Array[Transform3D] = []
 ## What a lowered bar holds: a solid across the front of each seat, switched
 ## on only once the bars are down.
 var _bar_shapes: Array[CollisionShape3D] = []
@@ -585,12 +588,16 @@ func _build_hull(body: AnimatableBody3D) -> void:
 	# through one, the way they could walk through the benches.
 	_harnesses.clear()
 	_harness_ends.clear()
+	_seats.clear()
 	_bar_shapes.clear()
 	for end: float in [-1.0, 1.0]:
 		for row: float in ROWS:
 			var x := end * row
 			for across: float in SEAT_ACROSS:
 				var seat_at := Vector3(x, SEAT_TOP, across)
+				# A child sits facing the middle, which is along the hull
+				# towards the other end: their -z is the hull's -end x.
+				_seats.append(Transform3D(Basis(Vector3.UP, end * PI * 0.5), seat_at))
 				var cushion := BoxMesh.new()
 				cushion.size = Vector3(SEAT_DEPTH, SEAT_TOP, SEAT_WIDTH)
 				var cushion_at := Transform3D(Basis(), Vector3(x, SEAT_TOP * 0.5, across))
@@ -798,6 +805,24 @@ func carry(at: Vector3, _delta: float) -> Vector3:
 	if not _inside_hull(at):
 		return Vector3.ZERO
 	return _swept * at - at
+
+## Every seat as the hull stands now, in the world: the top of the cushion,
+## facing the middle and tipping with the boat. For the checks and the viewer.
+func seats() -> Array[Transform3D]:
+	var out: Array[Transform3D] = []
+	for seat in _seats:
+		out.append(_hull.global_transform * seat)
+	return out
+
+## The seat a child is standing on, or a point of NANs: a cushion a small step
+## up from the deck, 0.6 deep and 0.8 across.
+func seat_near(at: Vector3) -> Transform3D:
+	for seat in _seats:
+		var here := _hull.global_transform * seat
+		var local := here.affine_inverse() * at
+		if absf(local.x) < 0.5 and absf(local.z) < 0.4 and local.y > -0.2 and local.y < 0.4:
+			return here
+	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
 
 ## Whether a point is aboard the hull at all, swinging or not.
 func aboard(at: Vector3) -> bool:

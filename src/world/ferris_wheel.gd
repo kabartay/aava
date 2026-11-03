@@ -796,6 +796,26 @@ static func inside_a_gondola(local: Vector3) -> bool:
 		and local.y > -0.4 and local.y < 2.2 * CAR_SCALE
 	)
 
+## Where a child sits in a gondola, in the world: on the floor, at the back of
+## the bench with the back of it behind them (the bench is 1.5 deep, 0.78 above
+## the floor, and its back's face is at 1.485 from the middle), facing the
+## doorway. The origin is on the floor under the hips, which is where the pose
+## is written from.
+func seat_of(index: int) -> Transform3D:
+	var car := _cars[index]
+	return Transform3D(
+		car.global_transform.basis * Basis(Vector3.UP, PI * 0.5),
+		car.global_transform * Vector3(1.35, 0.08 * CAR_SCALE, 0.0)
+	)
+
+## The seat of the gondola a child is in, once its bar is down, or a point of
+## NANs: with the bar up, at the boards, they are still getting in and stand.
+func seat_near(at: Vector3) -> Transform3D:
+	for index in _cars.size():
+		if inside_a_gondola(at - _cars[index].global_position) and bar_open(index) < 0.5:
+			return seat_of(index)
+	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
+
 ## How high the topmost gondola rides, and how far round the wheel has gone.
 ## For the checks.
 func top_of_the_ride() -> float:

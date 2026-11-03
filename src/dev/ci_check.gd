@@ -206,6 +206,7 @@ func _initialize() -> void:
 	_check_the_animals_keep_off_the_playing_places()
 	await _check_the_characters_build_fit_and_travel()
 	_check_the_characters_move_and_swim_the_right_way_up()
+	_check_a_child_sits_in_every_seat_they_are_carried_in()
 	_check_the_choice_screen_is_for_small_fingers()
 	await _check_a_stray_tap_loses_nothing()
 	_check_the_earning_is_balanced()
@@ -20065,5 +20066,273 @@ func _check_the_choice_screen_is_for_small_fingers() -> void:
 	picker._face_buttons[1].pressed.emit()
 	_expect(picker.look() == [1, 2, 3], "tapping what is chosen already changes nothing")
 	picker.queue_free()
+
+## Where a joint is in the rig's own frame, however far down the rig it hangs.
+## Walks up the parents instead of asking the tree, so it needs none.
+func _in_rig(joint: Node3D, rig: Node3D) -> Vector3:
+	var at := joint.position
+	var up := joint.get_parent() as Node3D
+	while up != rig:
+		at = up.transform * at
+		up = up.get_parent() as Node3D
+	return at
+
+## A rig driven in a seat for long enough to have settled into it.
+func _seated(which: int, pose: StringName, gait := 0.0) -> Array:
+	var parent := Node3D.new()
+	get_root().add_child(parent)
+	var rig := Character.build(which, 1, 1, Visitors.SHIRTS[2])
+	parent.add_child(rig)
+	var motion := RigMotion.new(rig)
+	motion.seat = pose
+	motion.gait = gait
+	for _frame in 80:
+		motion.step(1.0 / 60.0)
+	return [rig, motion, parent]
+
+## Every way a child is carried has a pose, written about the thing it is for:
+## the hips on the seat as it is drawn, the hands where the grips are, and the
+## body eased in and out in a fraction of a second rather than jumped.
+func _check_a_child_sits_in_every_seat_they_are_carried_in() -> void:
+	print("a child sits in every seat, hands on the grips, and settles into it rather than jumping")
+	var poses: Array[StringName] = []
+	poses.append_array(MountKinds.ALL)
+	poses.append_array([&"carousel", &"wheel", &"coaster", &"drop_tower", &"pirate_ship", &"swing"])
+	for pose in poses:
+		_expect(SeatPose.POSES.has(pose), "there is a pose for %s" % pose)
+	_expect(SeatPose.POSES.size() == poses.size(), "and none for anything that is not a way of being carried")
+
+	# The top of each seat as it is drawn, in the frame its pose is written in.
+	# Worked from the constants and the drawing of each, not from the pose.
+	var tops := {
+		&"horse": MountKinds.HORSE_SADDLE_Y + 0.14 * 1.2 * 0.5 - MountKinds.eye_lift(MountKinds.HORSE),
+		&"motorcycle": 1.06 + 0.12 * 0.5 - MountKinds.eye_lift(MountKinds.MOTORCYCLE),
+		&"quad": (0.76 + 0.2 * 0.5) * MountKinds.QUAD_SCALE - MountKinds.eye_lift(MountKinds.QUAD),
+		&"boat": 0.5 - MountKinds.BOAT_DRAFT - 0.12 + 0.03 - MountKinds.eye_lift(MountKinds.BOAT),
+		&"carousel": 0.0, &"drop_tower": 0.0, &"pirate_ship": 0.0, &"swing": 0.0,
+		&"wheel": (0.52 + 0.08 - 0.08) * FerrisWheel.CAR_SCALE,
+		&"coaster": 0.52 + 0.08 - RollerCoaster.SEAT_SPOT.y,
+	}
+	for pose: StringName in tops:
+		var seat: Vector3 = SeatPose.POSES[pose]["seat"]
+		_expect(absf(seat.y - float(tops[pose])) < 0.03, "%s: the pose sits on the seat as it is drawn (%.3f against %.3f)" % [pose, seat.y, float(tops[pose])])
+	# A bicycle is drawn for a grown rider, a metre from pedal to saddle: a child
+	# stands on the pedals, whose crank centre is where the pose puts the feet.
+	var crank: Vector3 = SeatPose.POSES[MountKinds.BICYCLE]["foot"]
+	_expect(absf(crank.y - (0.34 - MountKinds.eye_lift(MountKinds.BICYCLE) + 0.09 - 0.015)) < 0.03, "on a bicycle the feet are at the pedals' crank, where it is drawn")
+
+	for pose: StringName in SeatPose.POSES:
+		var spec: Dictionary = SeatPose.POSES[pose]
+		var seat: Vector3 = spec["seat"]
+		var grip: Vector3 = spec["hand"]
+		var worst_hand := 0.0
+		var worst_hips := 0.0
+		for which in Character.KEYS.size():
+			var made := _seated(which, pose)
+			var rig: Node3D = made[0]
+			var hips := rig.find_child("Hips", true, false) as Node3D
+			# The bottom of the pelvis, as the mesh is: it is on the seat.
+			var bottom := hips.position.y + (hips.get_node("Mesh") as MeshInstance3D).mesh.get_aabb().position.y
+			worst_hips = maxf(worst_hips, absf(bottom - seat.y))
+			for side in 2:
+				var hand := rig.find_child("Hand" + ("L" if side == 0 else "R"), true, false) as Node3D
+				var goal := Vector3(grip.x if side == 0 else -grip.x, grip.y, grip.z)
+				worst_hand = maxf(worst_hand, (_in_rig(hand, rig) - goal).length())
+			(made[2] as Node3D).queue_free()
+		_expect(worst_hips < 0.05, "%s: every character's hips are on the seat (%.3f m off at worst)" % [pose, worst_hips])
+		# The wrist stops a hand's breadth short of the grip, so the hand is
+		# round it; a place out of reach is as near as the arm gets.
+		_expect(worst_hand < 0.11, "%s: every character's hands are on the grips (%.3f m off at worst)" % [pose, worst_hand])
+
+	# Settling in and climbing out takes a fraction of a second, with no jump in
+	# between: nothing moves more than a few centimetres in a frame, and it is
+	# done in a quarter of a second.
+	for pose: StringName in [&"horse", &"drop_tower", &"swing"]:
+		var parent := Node3D.new()
+		get_root().add_child(parent)
+		var rig := Character.build(1, 0, 0, Visitors.SHIRTS[4])
+		parent.add_child(rig)
+		var motion := RigMotion.new(rig)
+		var hips := rig.find_child("Hips", true, false) as Node3D
+		var thigh := rig.find_child("ThighL", true, false) as Node3D
+		for _frame in 20:
+			motion.step(1.0 / 60.0)
+		var rest := hips.position.y
+		motion.seat = pose
+		var before := hips.position.y
+		var jump := 0.0
+		var turn := 0.0
+		var before_turn := thigh.quaternion
+		for _frame in 15:
+			motion.step(1.0 / 60.0)
+			jump = maxf(jump, absf(hips.position.y - before))
+			turn = maxf(turn, thigh.quaternion.angle_to(before_turn))
+			before = hips.position.y
+			before_turn = thigh.quaternion
+		_expect(jump < 0.06 and turn < 0.35, "%s: settling in moves the hips %.3f m and a thigh %.2f rad in a frame at most" % [pose, jump, turn])
+		_expect(motion._sit >= 1.0, "%s: and has settled in a quarter of a second" % pose)
+		var seat_y: float = (SeatPose.POSES[pose]["seat"] as Vector3).y
+		_expect(absf(hips.position.y - (seat_y + motion._pelvis)) < 0.01, "%s: where the pose puts the hips" % pose)
+		motion.seat = &""
+		jump = 0.0
+		before = hips.position.y
+		for _frame in 15:
+			motion.step(1.0 / 60.0)
+			jump = maxf(jump, absf(hips.position.y - before))
+			before = hips.position.y
+		_expect(jump < 0.06, "%s: climbing out moves the hips %.3f m in a frame at most" % [pose, jump])
+		_expect(absf(hips.position.y - rest) < 0.02 and hips.position.x == 0.0 and hips.position.z == 0.0, "%s: and they are back where they stood" % pose)
+		_expect((rig.find_child("UpperArmL", true, false) as Node3D).get_node("Mesh").scale.y == 1.0 and rig.position == Vector3.ZERO and rig.quaternion.is_equal_approx(Quaternion()), "%s: arms the length they were, and the rig where and as it was" % pose)
+		parent.queue_free()
+
+	# The pace of the carrier is the pace of the legs on a bicycle, and of nothing
+	# on a swing.
+	var pedals := _seated(1, MountKinds.BICYCLE, 0.0)
+	var pedalling: RigMotion = pedals[1]
+	var shin := (pedals[0] as Node3D).find_child("ShinL", true, false) as Node3D
+	var still_low := 1e9
+	var still_high := -1e9
+	for _frame in 120:
+		pedalling.step(1.0 / 60.0)
+		still_low = minf(still_low, shin.rotation.x)
+		still_high = maxf(still_high, shin.rotation.x)
+	_expect(still_high - still_low < 0.01, "a bicycle standing still has still pedals")
+	pedalling.gait = 5.0
+	var turning_low := 1e9
+	var turning_high := -1e9
+	for _frame in 120:
+		pedalling.step(1.0 / 60.0)
+		turning_low = minf(turning_low, shin.quaternion.get_euler().x)
+		turning_high = maxf(turning_high, shin.quaternion.get_euler().x)
+	_expect(turning_high - turning_low > 0.5, "and a moving one has the knees going up and down with the wheel (%.2f rad)" % (turning_high - turning_low))
+	(pedals[2] as Node3D).queue_free()
+
+	# Nothing is allocated drawing a seated frame either.
+	var made := _seated(2, MountKinds.HORSE, 4.0)
+	var count := int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	for frame in 300:
+		(made[1] as RigMotion).gait = float(frame % 9)
+		if frame == 100:
+			(made[1] as RigMotion).seat = &"swing"
+		if frame == 200:
+			(made[1] as RigMotion).seat = &""
+		(made[1] as RigMotion).step(1.0 / 60.0)
+	_expect(int(Performance.get_monitor(Performance.OBJECT_COUNT)) == count, "driving a child through a mount, a ride and off again creates no objects")
+	(made[2] as Node3D).queue_free()
+
+	# The seats are where the rides draw them, and the floor is not one.
+	var tower := DropTower.new(Vector3.ZERO)
+	get_root().add_child(tower)
+	var seats := tower.seats()
+	_expect(seats.size() == DropTower.SEATS, "the tower has a seat for every place on it")
+	var on_cushion := tower._ring.global_transform.affine_inverse() * seats[0].origin
+	_expect(absf(on_cushion.y + DropTower.SEAT_BELOW_RING) < 0.01, "a tower seat is at the cushion's height, %.2f below the ring" % DropTower.SEAT_BELOW_RING)
+	_expect(not is_nan(tower.seat_near(seats[0].origin + Vector3(0.05, 0.02, 0.0)).origin.x), "a child standing on a tower seat is in one")
+	_expect(is_nan(tower.seat_near(seats[0].origin + Vector3(0.0, -1.6, 0.0)).origin.x) and is_nan(tower.seat_near(Vector3(0.0, 0.0, 0.0)).origin.x), "and one on the platform or at the shaft is not")
+	var facing := tower.seat_near(seats[0].origin).basis * Vector3.FORWARD
+	var outward := (seats[0].origin - tower._ring.global_position)
+	outward.y = 0.0
+	_expect(facing.dot(outward.normalized()) > 0.99, "and they face out from the tower, as the seat does")
+	tower.queue_free()
+	var ship := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(ship)
+	var rows := ship.seats()
+	_expect(rows.size() == 8, "the ship has eight seats")
+	var hull_local := ship._hull.global_transform.affine_inverse() * rows[0].origin
+	_expect(absf(hull_local.y - PirateShip.SEAT_TOP) < 0.01, "a ship seat is the cushion's height")
+	var toward_middle := -(ship._hull.global_transform.affine_inverse() * rows[0].origin).x
+	var ahead := ship._hull.global_transform.basis.inverse() * (rows[0].basis * Vector3.FORWARD)
+	_expect(ahead.x * toward_middle > 0.0, "and they face the middle of the ship")
+	_expect(is_nan(ship.seat_near(Vector3(0.0, 0.2, 0.0)).origin.x), "the deck between the seats is not one")
+	ship.queue_free()
+	var carousel := Carousel.new(Vector3.ZERO)
+	get_root().add_child(carousel)
+	var saddle := carousel.saddles()[2]
+	_expect(absf(saddle.origin.y - (Carousel.FLOOR_HEIGHT + 1.5)) < 0.01, "a carousel seat is the saddle's top")
+	_expect(not is_nan(carousel.seat_near(saddle.origin + Vector3(0.0, 0.03, 0.0)).origin.x), "a child on the saddle is on a horse")
+	_expect(is_nan(carousel.seat_near(Vector3(Carousel.RADIUS * 0.3, Carousel.FLOOR_HEIGHT, 0.0)).origin.x), "and on the floor of the carousel is not")
+	carousel.queue_free()
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	var here := wheel.gondola(0).global_position + Vector3(0.0, 0.2, 0.0)
+	wheel.set_rider(0)
+	_expect(is_nan(wheel.seat_near(here).origin.x) == (wheel.bar_open(0) >= 0.5), "a gondola seats a child only once its bar is down")
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	var in_car := coaster.seat_of(0)
+	_expect(not is_nan(coaster.seat_under(in_car.origin).origin.x), "a child in a coaster car is in its seat")
+	coaster.queue_free()
+	wheel.queue_free()
+
+	# The other child is posed the same way, from where they are and what they
+	# ride: astride on a horse, sat on a ride's seat, nothing sent but what was.
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	visitors.add(61, "Mimi", 1, [1, 0, 0])
+	visitors.move(61, Vector3(3.0, 0.0, 3.0), 0.0)
+	var guest := visitors._visitors[61]["node"] as Node3D
+	var guest_rig := guest.get_node("Rig") as Node3D
+	var guest_hips := guest_rig.find_child("Hips", true, false) as Node3D
+	for _frame in 20:
+		visitors._process(1.0 / 60.0)
+	var standing := guest_hips.position.y
+	visitors.move(61, Vector3(3.0, 0.0, 3.0), 0.0, MountKinds.HORSE)
+	for _frame in 60:
+		visitors._process(1.0 / 60.0)
+	_expect(visitors.motion_of(61).seat == MountKinds.HORSE, "somebody on a horse is posed as on a horse")
+	_expect(guest_hips.position.y < standing - 0.2, "sitting in the saddle, not standing in it (%.2f against %.2f)" % [guest_hips.position.y, standing])
+	var foot_out := absf(_in_rig(guest_rig.find_child("FootL", true, false), guest_rig).x)
+	_expect(foot_out > 0.3 and _in_rig(guest_rig.find_child("FootL", true, false), guest_rig).x * _in_rig(guest_rig.find_child("FootR", true, false), guest_rig).x < 0.0, "with a leg down each side of the barrel, astride (%.2f m out)" % foot_out)
+	var grip_at: Vector3 = SeatPose.POSES[MountKinds.HORSE]["hand"]
+	var guest_hand := _in_rig(guest_rig.find_child("HandL", true, false), guest_rig)
+	_expect((guest_hand - grip_at).length() < 0.11, "and a hand at the pommel where the reins are")
+	visitors.move(61, Vector3(3.0, 0.0, 3.0), 0.0)
+	for _frame in 60:
+		visitors._process(1.0 / 60.0)
+	_expect(visitors.motion_of(61).seat == &"" and absf(guest_hips.position.y - standing) < 0.02, "and standing again when they get off")
+	# On a ride, from where they stand: the game's own question of the park.
+	var place := Transform3D(Basis(Vector3.UP, 0.7), Vector3(5.0, 1.0, 5.0))
+	visitors.seat_finder = func(_at: Vector3) -> Dictionary: return {"pose": &"drop_tower", "place": place}
+	for _frame in 60:
+		visitors._process(1.0 / 60.0)
+	_expect(visitors.motion_of(61).seat == &"drop_tower", "a visitor on a tower seat is seated on it, with nothing more sent than where they are")
+	_expect((guest.global_transform * guest_rig.position).distance_to(place.origin) < 0.05, "and drawn on the seat, not where they were standing")
+	visitors.seat_finder = Callable()
+	for _frame in 60:
+		visitors._process(1.0 / 60.0)
+	_expect(guest_rig.position.length() < 0.01 and guest_rig.quaternion.is_equal_approx(Quaternion()), "and put back when they leave it")
+	visitors.queue_free()
+
+	# The child's own body: a mount's pose from what it rides, a ride's from what
+	# the game says it sits in.
+	var kid := Player.new()
+	get_root().add_child(kid)
+	kid.riding = MountKinds.QUAD
+	for _frame in 30:
+		kid._animate(1.0 / 60.0)
+	_expect(kid.motion().seat == MountKinds.QUAD, "on a quad the child's body sits as on a quad")
+	kid.riding = &""
+	kid.seat_pose = &"swing"
+	kid.seat_place = Transform3D(Basis(), Vector3(0.0, 1.0, 0.0))
+	for _frame in 30:
+		kid._animate(1.0 / 60.0)
+	_expect(kid.motion().seat == &"swing" and kid.motion()._air == 0.0, "and on a swing, which is not a jump")
+	# The horse's stride lifts its saddle by up to sixteen centimetres; a rider
+	# who stayed where they were would have the saddle rise into them.
+	kid.seat_pose = &""
+	kid.riding = MountKinds.HORSE
+	kid.global_position = Vector3(0.0, 80.0, 0.0)
+	for _frame in 90:
+		kid._physics_process(1.0 / 60.0)
+	var level := kid._visual.position.y
+	kid.saddle_lift = 0.12
+	kid._physics_process(1.0 / 60.0)
+	_expect(absf(kid._visual.position.y - level - 0.12) < 0.01, "a rider goes up with the saddle when the horse's stride lifts it (%.3f m)" % (kid._visual.position.y - level))
+	kid.queue_free()
+	# And the game hands each body what it needs: the saddle's lift to the child,
+	# the question "is that a seat?" to the other child.
+	var main_source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(main_source.contains("player.saddle_lift = world.mounts.saddle_lift()"), "the game gives the child the saddle's lift")
+	_expect(main_source.contains("visitors.seat_finder = _seat_at") and main_source.contains("player.seat_pose = seated.get("), "and asks the same question of where each child stands")
 
 

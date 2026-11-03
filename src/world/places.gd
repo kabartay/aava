@@ -601,6 +601,23 @@ func swing_rider_at() -> Vector3:
 	var hang := Vector3(0.0, -SWING_ROPE, 0.0)
 	return pivot + hang.rotated(Vector3.RIGHT, _swing_angle(float(seat["arc"]), float(seat["phase"])))
 
+## Where a child on a swing sits, in the world, or a point of NANs if the point
+## is not on one: the top of the seat, tipped as far as the chains are, facing
+## along the swing. Worked from where the child is rather than from which seat is
+## moving, so that a visitor from another phone, whose swing is not stirring
+## here, is seated on it as well: a child is on a swing when they hang from its
+## bar by the length of its chains.
+func swing_seat_near(at: Vector3) -> Transform3D:
+	for seat in _seats:
+		var pivot: Vector3 = seat["pivot"]
+		var hung := at - pivot
+		if absf(hung.length() - SWING_ROPE) < 0.3 and hung.y < -SWING_ROPE * 0.5 and absf(hung.x) < 0.5:
+			# The same angle swing_rider_at turns the chains by: the seat
+			# swings about the bar and a child on it goes with it.
+			var tipped := Basis(Vector3.RIGHT, atan2(-hung.z, -hung.y))
+			return Transform3D(tipped, pivot + tipped * Vector3(0.0, -SWING_ROPE + 0.05, 0.0))
+	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
+
 ## Where each seat hangs at rest, in world space. For the checks, and for
 ## anything that wants to send a child to a swing.
 func seat_positions() -> Array[Vector3]:
