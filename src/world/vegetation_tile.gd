@@ -24,6 +24,10 @@ const MIN_TREE_GAP := 1.8
 const CONIFER_HEIGHT := 6.4
 const BROADLEAF_HEIGHT := 5.2
 
+## How far a tree's origin is sunk below the ground it stands on (see
+## generate_trees), so the ground cuts the trunk's flare a little above its middle.
+const ROOT_DEPTH := 0.15
+
 ## The thinnest a trunk is ever made solid, however stunted the tree.
 const MIN_TRUNK_RADIUS := 0.2
 
@@ -221,7 +225,7 @@ static func generate_trees(
 
 		# Every remaining draw happens whether or not the tree survives, so that
 		# rejecting one candidate never shifts the next.
-		local.y = field.height_at(world_x, world_z) - 0.15
+		local.y = field.height_at(world_x, world_z) - ROOT_DEPTH
 		var scale := rng.randf_range(0.78, 1.35)
 		var spin := rng.randf()
 		var stretch := rng.randf_range(0.9, 1.2)
@@ -267,10 +271,17 @@ static func generate_trees(
 		var vigour := HeightField.tree_vigour(local.y)
 		out.append({
 			"position": Vector3(world_x, local.y, world_z),
+			# One mesh per species, so the crown is made broader one way than the
+			# other: a tenth wider along one axis and as much narrower across it,
+			# so the trunk keeps its girth. Taken from the digits of `spin` that
+			# its turn does not notice, which costs no new draw and moves no tree.
+			# Scaled before it is turned, so it is the tree's own axes that differ.
 			"transform": Transform3D(
-				Basis(Vector3.UP, spin * TAU).scaled(
-					Vector3(scale * vigour, scale * stretch * vigour, scale * vigour)
-				),
+				Basis(Vector3.UP, spin * TAU) * Basis.from_scale(Vector3(
+					scale * vigour * lerpf(0.9, 1.1, fposmod(spin * 97.0, 1.0)),
+					scale * stretch * vigour,
+					scale * vigour / lerpf(0.9, 1.1, fposmod(spin * 97.0, 1.0))
+				)),
 				local
 			),
 			"conifer": species < conifer_bias,
@@ -288,7 +299,20 @@ static func trunk_radius(conifer: bool, horizontal_scale: float) -> float:
 	var top := 0.012 if conifer else 0.035
 	var long := 0.92 if conifer else 0.52
 	var drawn := lerpf(base, top, clampf(1.0 / (long * height), 0.0, 1.0)) * height
-	return maxf(drawn * horizontal_scale + 0.06, MIN_TRUNK_RADIUS)
+	# And the flare at the foot, which is wider than the trunk a metre up and is
+	# what a child's boots actually meet: measured where the ground cuts it, a
+	# little above the tree's sunken origin. Taken from the trunk alone, the solid
+	# trunk was narrower than the bark at the base and a child stood inside it. A
+	# flare is a six-sided prism, so its flat sides sit a tenth in from the
+	# corners the mesh's radius names.
+	var flare_foot := 0.09 if conifer else 0.12
+	var flare_span := 0.16 * height
+	var along := clampf((ROOT_DEPTH + flare_span * 0.5) / flare_span, 0.0, 1.0)
+	var at_ground := lerpf(flare_foot, base, along) * height
+	return maxf(
+		maxf(drawn * horizontal_scale + 0.06, at_ground * horizontal_scale * 0.9 + 0.04),
+		MIN_TRUNK_RADIUS
+	)
 
 func _add_layer(
 	mesh: Mesh,

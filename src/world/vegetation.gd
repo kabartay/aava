@@ -57,7 +57,8 @@ void vertex() {
 	vec3 origin = MODEL_MATRIX[3].xyz;
 	// Measured in the plant's own units: a tree grown half as tall again is
 	// still bent along its whole length, not rigidly shoved above 6.4 m.
-	float local_height = max(VERTEX.y - origin.y, 0.0) / max(length(MODEL_MATRIX[1].xyz), 0.001);
+	float size = max(length(MODEL_MATRIX[1].xyz), 0.001);
+	float local_height = max(VERTEX.y - origin.y, 0.0) / size;
 
 	// Deliberately nothing here reads the camera or the screen: in a shadow
 	// pass those describe the light instead, and the shadow would swing away
@@ -79,7 +80,10 @@ void vertex() {
 	// only the crown moves — the higher the stiffness the more the movement
 	// is confined to the thin end.
 	float along = clamp(local_height / max(plant_height, 0.001), 0.0, 1.0);
-	float bend = pow(along, stiffness) * sway_amplitude * gust;
+	// The amplitude is for a plant of the usual size: a stunted tree on the
+	// high slope is a third as tall, and swinging its crown the same quarter
+	// of a metre would lean it three times as far, as if it were pulled over.
+	float bend = pow(along, stiffness) * sway_amplitude * size * gust;
 	// Every plant leans downwind and flutters about that lean; only the
 	// flutter takes the plant's own phase. Across the wind it moves less.
 	vec2 across = vec2(-wind_direction.y, wind_direction.x);

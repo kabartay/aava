@@ -2736,11 +2736,18 @@ static func _along_rectangle(along: float, half_x: float, half_z: float) -> Vect
 	left -= edges[3]
 	return Vector3(half_x, 0.0, -half_z + left)
 
+## Which way the booth shows its window, counter and price: along x, away from
+## the fence. It stands outside the east fence with its wall a hand's breadth
+## from it, and all of those were on the side against the fence, so a child
+## coming for a ticket walked up to a blank back wall.
+const TICKET_BOOTH_FACING := 1.0
+
 ## The ticket booth: a little hut with a window, and a sign with a coin and
 ## as many pips as a ticket costs — a price a child who cannot read can read.
 func _build_ticket_booth(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void:
 	var wall := Color(0.92, 0.88, 0.78)
 	var timber := Color(0.54, 0.38, 0.24)
+	var face := TICKET_BOOTH_FACING
 	var hut := BoxMesh.new()
 	hut.size = Vector3(1.5, 2.3, 1.5)
 	_add(tool, hut, Transform3D(Basis(), local + Vector3(0.0, 1.15, 0.0)), wall)
@@ -2753,27 +2760,27 @@ func _build_ticket_booth(tool: SurfaceTool, local: Vector3, solid: StaticBody3D)
 	_add(tool, roof, Transform3D(Basis(Vector3.UP, PI * 0.25), local + Vector3(0.0, 2.55, 0.0)), Color(0.62, 0.30, 0.24))
 	var window := BoxMesh.new()
 	window.size = Vector3(0.06, 0.7, 0.9)
-	_add(tool, window, Transform3D(Basis(), local + Vector3(-0.76, 1.4, 0.0)), Color(0.70, 0.84, 0.92))
+	_add(tool, window, Transform3D(Basis(), local + Vector3(face * 0.76, 1.4, 0.0)), Color(0.70, 0.84, 0.92))
 	var counter := BoxMesh.new()
 	counter.size = Vector3(0.3, 0.06, 1.0)
-	_add(tool, counter, Transform3D(Basis(), local + Vector3(-0.85, 1.02, 0.0)), timber)
+	_add(tool, counter, Transform3D(Basis(), local + Vector3(face * 0.85, 1.02, 0.0)), timber)
 	var sign := BoxMesh.new()
 	sign.size = Vector3(0.06, 0.5, 1.2)
-	_add(tool, sign, Transform3D(Basis(), local + Vector3(-0.78, 2.0, 0.0)), Color(0.96, 0.94, 0.90))
+	_add(tool, sign, Transform3D(Basis(), local + Vector3(face * 0.78, 2.0, 0.0)), Color(0.96, 0.94, 0.90))
 	var coin := CylinderMesh.new()
 	coin.top_radius = 0.14
 	coin.bottom_radius = 0.14
 	coin.height = 0.03
 	coin.radial_segments = 12
 	coin.rings = 1
-	_add(tool, coin, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), local + Vector3(-0.82, 2.0, 0.38)), Color(0.96, 0.80, 0.24))
+	_add(tool, coin, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), local + Vector3(face * 0.82, 2.0, 0.38)), Color(0.96, 0.80, 0.24))
 	for i in POOL_TICKET:
 		var pip := SphereMesh.new()
 		pip.radius = 0.045
 		pip.height = 0.09
 		pip.radial_segments = 6
 		pip.rings = 3
-		_add(tool, pip, Transform3D(Basis(), local + Vector3(-0.82, 2.0, 0.1 - float(i) * 0.14)), Color(0.14, 0.16, 0.15))
+		_add(tool, pip, Transform3D(Basis(), local + Vector3(face * 0.82, 2.0, 0.1 - float(i) * 0.14)), Color(0.14, 0.16, 0.15))
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(1.6, 2.4, 1.6)
 	_collide(solid, shape, Transform3D(Basis(), local + Vector3(0.0, 1.2, 0.0)))
@@ -4197,7 +4204,10 @@ func _build_bench(at: Vector3, local: Vector3, solid: StaticBody3D) -> void:
 		leg.size = Vector3(0.06, 0.46, 0.40)
 		_add(tool, leg, Transform3D(Basis(), local + Vector3(side, 0.23, 0.0)), iron)
 		var upright := BoxMesh.new()
-		upright.size = Vector3(0.06, 0.44, 0.06)
+		# Deeper than the back it holds up (0.06): at the same depth and on the
+		# same plane its faces were coplanar with the back's, and the iron and the
+		# wood flickered over one another down both ends of the seat.
+		upright.size = Vector3(0.06, 0.44, 0.09)
 		_add(tool, upright, Transform3D(
 			Basis(Vector3.RIGHT, deg_to_rad(12.0)), local + Vector3(side, 0.70, 0.24)
 		), iron)

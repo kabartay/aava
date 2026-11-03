@@ -159,6 +159,14 @@ func afloat(kind: StringName, at: Vector3) -> bool:
 		> MountKinds.HORSE_SWIMS_AT
 	)
 
+## Whether a rider is held to the ground under their mount. Not in a boat: the
+## water is under the hull, and the ground under the water is the bed. A rider
+## held to the bed in anything shallower than about a metre sat below the
+## surface, wet to the chest in a boat that was floating, and the pond's wading
+## depth, where every boat waits, is exactly that.
+static func held_to_the_ground(kind: StringName) -> bool:
+	return not MountKinds.floats(kind)
+
 ## Where a rider *stands* while their mount swims — which is where the horse
 ## itself is, not where its saddle is.
 ##

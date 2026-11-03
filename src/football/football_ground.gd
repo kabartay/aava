@@ -123,14 +123,18 @@ func _physics_process(delta: float) -> void:
 	_share(delta)
 
 func _play(delta: float) -> void:
-	if _cooldown > 0.0:
+	# The celebration only holds off the next goal. The other balls are still
+	# physical things: one in the river keeps floating, and a stray one still
+	# goes home. Returning early here left a ball in the water with nothing
+	# holding it up for the two seconds of the cheer, so it sank to the bed.
+	var celebrating := _cooldown > 0.0
+	if celebrating:
 		_cooldown -= delta
-		return
 
 	for ball in _balls:
 		if _in_the_net.has(ball):
 			continue
-		if _check_goal(ball):
+		if not celebrating and _check_goal(ball):
 			return
 		if _float_in_the_river(ball, delta):
 			continue

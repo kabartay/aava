@@ -24,6 +24,7 @@ func _initialize() -> void:
 	_check_world_has_relief()
 	_check_the_great_mountain_stands()
 	_check_the_range_rises_gently_and_drains()
+	_check_the_slopes_are_painted_from_the_point_not_the_average()
 	_check_chunks_have_geometry()
 	_check_ground_rejects_what_it_cannot_touch()
 	_check_baking_on_threads_changes_nothing()
@@ -168,6 +169,7 @@ func _initialize() -> void:
 	_check_a_sheep_is_solid_as_wide_as_she_looks()
 	_check_the_camera_looks_past_the_signpost()
 	_check_a_rider_is_held_to_the_deck()
+	_check_a_boat_rider_is_not_held_to_the_bed()
 	_check_the_engine_does_not_whistle()
 	_check_a_stump_is_grubbed_out_by_a_new_tree()
 	_check_nothing_is_used_before_it_exists()
@@ -195,6 +197,10 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_a_ball_keeps_floating_while_the_goal_is_cheered()
+	_check_the_tails_are_joined_to_the_rump()
+	_check_the_ticket_booth_faces_the_queue()
+	_check_the_light_never_lies_flat()
 	_check_a_floor_a_storey_up_comes_down_with_its_walls()
 	_check_the_free_meal_wait_is_kept_between_visits()
 	_check_the_stairs_landing_is_drawn()
@@ -227,6 +233,7 @@ func _initialize() -> void:
 	_check_trees_keep_their_distance_across_tile_edges()
 	_check_one_wind_blows_over_the_valley()
 	_check_the_plants_sway_each_on_their_own_phase()
+	_check_small_trees_sway_less_and_the_wind_loop_joins()
 	_check_the_ride_dressing_stays_out_of_the_sweep()
 	_check_the_animals_come_in_several_coats()
 	_check_the_animals_have_heads_and_tails_that_move()
@@ -253,6 +260,7 @@ func _initialize() -> void:
 	_check_the_map_does_not_copy_the_buildings_every_frame()
 	_check_a_chunk_walked_towards_while_baking_gets_its_collision()
 	_check_a_felled_tree_stops_being_solid_where_you_stand()
+	_check_a_trunk_is_solid_to_its_foot_and_crowns_differ()
 	_check_a_goal_is_counted_once_and_only_inside()
 	_check_no_text_goes_unused()
 	await _check_the_care_button_is_centred_and_a_cancelled_touch_is_no_tap()
@@ -295,6 +303,7 @@ func _initialize() -> void:
 	await _check_a_jump_from_the_saddle_is_a_jump()
 	await _check_a_child_can_swim_down()
 	await _check_the_river_has_a_gentle_current()
+	_check_a_dammed_pond_has_no_current()
 	_check_the_river_surface_shows_its_flow_and_its_piers()
 	_check_the_streaks_travel_at_the_current_not_twice_it()
 	await _check_the_things_afloat_drift_in_the_river_only()
@@ -16718,6 +16727,23 @@ func _check_two_sides_keep_score_on_the_board() -> void:
 	_expect(told == [[1, 1, 0], [0, 1, 1], [0, 1, 2]], "each goal says which end and both scores: %s" % str(told))
 	_expect(ground.board_digits() == PackedStringArray(["1", "2"]), "the board reads the two scores: %s" % ", ".join(ground.board_digits()))
 
+## The cheer after a goal used to switch the whole football ground off, so a
+## second ball lying in the river lost its lift for those two seconds and sank.
+func _check_a_ball_keeps_floating_while_the_goal_is_cheered() -> void:
+	print("a ball in the river keeps floating through a goal's celebration")
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var z := 0.0
+	var x := field.river_centre_x(z)
+	var ball: Ball = ground._balls[1]
+	ball.position = Vector3(x, field.water_level_at(x, z) - 0.5, z)
+	ground._cooldown = FootballGround.CELEBRATION
+	ground._physics_process(0.016)
+	_expect(ground._afloat.has(ball), "a ball in the current is held up while the cheer runs")
+	_expect(ground._cooldown < FootballGround.CELEBRATION, "and the cheer still counts down")
+	ground.queue_free()
+
 	var west: Goal = null
 	var east: Goal = null
 	for child in ground.get_children():
@@ -17326,6 +17352,15 @@ func _node_has_body(node: Node) -> bool:
 			return true
 	return false
 
+## The seat holds a rider to the ground under a machine or a horse, and must
+## not hold one to the bed under a boat: the boat's own branch in the player
+## springs the rider to the waterline, and the hold overrode it wherever the
+## water was under a metre deep, which is where every boat is first boarded.
+func _check_a_boat_rider_is_not_held_to_the_bed() -> void:
+	print("a boat rider is not held to the bed")
+	_expect(not Mounts.held_to_the_ground(MountKinds.boat_id(0)), "a boat's rider is not held to the bed")
+	for kind: StringName in [MountKinds.HORSE, MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD]:
+		_expect(Mounts.held_to_the_ground(kind), "a %s's rider is held to the ground" % kind)
 ## A chair stands in its table's square, on the side a child walks up from, so
 ## a chair that stops a body stops the child on the way to the table.
 func _check_the_chair_does_not_snag() -> void:
@@ -17342,6 +17377,161 @@ func _check_the_chair_does_not_snag() -> void:
 	_expect(not structures.seat_near(Vector3(10.0, 4.0, 11.5)).is_empty(), "and a child at the table is still seated at it")
 	structures.free()
 
+## A tail turns about a point inside the animal's rump, and the tail is drawn
+## from that point: a cow's was rooted in the air behind her, so the whole tail
+## hung clear of the body, and swung from nothing.
+func _check_the_tails_are_joined_to_the_rump() -> void:
+	print("the tails are joined to the rump")
+	for kind in AnimalKinds.TAILS:
+		var shape := AnimalKinds._shape(kind)
+		var scale := AnimalKinds.size_of(kind)
+		var root := AnimalKinds.tail_pivot(kind) / scale
+		# The body's own ellipsoid, as `_build` lays it down.
+		var across := root.x / (float(shape["slim"]) * 0.92)
+		var up := (root.y - 1.05) / (float(shape["tall"]) * 0.94 * 0.85)
+		var along := root.z / (float(shape["long"]) * 0.98)
+		_expect(across * across + up * up + along * along < 1.0, "the %s's tail is rooted inside her body" % kind)
+		# And the tail itself starts there, not somewhere off along the way.
+		var nearest := INF
+		var points: PackedVector3Array = (AnimalKinds.tail_mesh(kind) as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		for point in points:
+			nearest = minf(nearest, point.length())
+		_expect(nearest < scale * 0.3, "the %s's tail is drawn from its root" % kind)
+## The pool's ticket booth shows its price to the people who queue for it, who
+## stand outside the east fence, not to the fence itself.
+func _check_the_ticket_booth_faces_the_queue() -> void:
+	print("the ticket booth faces the queue")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.POOL]
+	var coin := Color(0.96, 0.80, 0.24)
+	var sum := 0.0
+	var count := 0
+	for child in places.get_children():
+		var drawn := child as MeshInstance3D
+		if drawn == null or drawn.mesh == null:
+			continue
+		for surface in drawn.mesh.get_surface_count():
+			var arrays := drawn.mesh.surface_get_arrays(surface)
+			var colours = arrays[Mesh.ARRAY_COLOR]
+			if colours == null:
+				continue
+			var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			for index in points.size():
+				# Within a colour byte: a committed mesh keeps colours in eight bits.
+				var shade: Color = colours[index]
+				if absf(shade.r - coin.r) < 0.01 and absf(shade.g - coin.g) < 0.01 and absf(shade.b - coin.b) < 0.01:
+					sum += points[index].x + drawn.position.x
+					count += 1
+	_expect(count > 0, "the booth's coin is in the pool's mesh")
+	if count > 0:
+		var out := sum / float(count) - spot.x - Places.POOL_FENCE_X
+		_expect(out > 0.75, "and hangs on the booth's outer wall, %.2f m out from the fence" % out)
+	places.free()
+func _check_the_light_never_lies_flat() -> void:
+	print("the light never lies flat")
+	var sky := Atmosphere.new()
+	get_root().add_child(sky)
+	var worst := 1.0
+	for i in 200:
+		sky.set_time(float(i) / 200.0)
+		for child in sky.get_children():
+			if child is DirectionalLight3D:
+				worst = minf(worst, -child.rotation.x)
+	# At dusk and dawn the sun used to lie within two degrees of the ground,
+	# which smears the shadow map into streaks across every hillside.
+	_expect(worst >= Atmosphere.MIN_LIGHT_PITCH - 0.001, "the sun or moon is flatter than %.2f rad (%.3f)" % [Atmosphere.MIN_LIGHT_PITCH, worst])
+	sky.free()
+## Water held back by a beavers' dam is a pond, and a pond has no current.
+func _check_a_dammed_pond_has_no_current() -> void:
+	print("a dammed pond is still")
+	var field := HeightField.new(20260903)
+	var site: float = DamSpec.SITES[0]
+	var z := site + DamSpec.POND_LENGTH * 0.3
+	var x := field.river_centre_x(z)
+	_expect(field.river_current_at(x, z) != Vector2.ZERO, "the open river runs before the dam")
+	field.dams_built = [site]
+	_expect(field.river_current_at(x, z) == Vector2.ZERO, "the pond behind a finished dam is still")
+## A small tree sways in proportion to its size, and the wind loop's gusts
+## come round whole in one loop. (Registered beside the wind check.)
+func _check_small_trees_sway_less_and_the_wind_loop_joins() -> void:
+	print("small trees sway less and the wind loop joins")
+	var code := Vegetation.WIND_SHADER
+	_expect(code.contains("sway_amplitude * size * gust"), "the bend is scaled by the plant's own size, so a stunted tree is not pulled over")
+	var source := FileAccess.get_file_as_string("res://src/audio/ambience.gd")
+	_expect(not source.contains("sin(t * 0.41)") and source.contains("TAU * t / LOOP_SECONDS"), "the wind's gusts take whole cycles per loop, so the loop joins without a step")
+## A solid trunk has to be as wide as the bark a child's boots meet, and the
+## forest has to be more than one shape of tree turned about.
+func _check_a_trunk_is_solid_to_its_foot_and_crowns_differ() -> void:
+	print("trunks are solid to their feet and no two crowns are alike")
+	for conifer: bool in [true, false]:
+		var height := VegetationTile.CONIFER_HEIGHT if conifer else VegetationTile.BROADLEAF_HEIGHT
+		var mesh: ArrayMesh = PlantMeshes.conifer(height) if conifer else PlantMeshes.broadleaf(height)
+		var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		# The widest the mesh is where the ground cuts it, found along every
+		# triangle edge that crosses that height. Only the trunk and its flare
+		# reach down there; the crown starts well above a child's head.
+		var level := VegetationTile.ROOT_DEPTH
+		var widest := 0.0
+		for i in vertices.size():
+			var a := vertices[i]
+			var b := vertices[i - i % 3 + (i % 3 + 1) % 3]
+			if (a.y - level) * (b.y - level) > 0.0 or is_equal_approx(a.y, b.y):
+				continue
+			var cut := a.lerp(b, (level - a.y) / (b.y - a.y))
+			widest = maxf(widest, Vector2(cut.x, cut.z).length())
+		var solid := VegetationTile.trunk_radius(conifer, 1.0)
+		var kind := "spruce" if conifer else "broadleaf"
+		_expect(widest > 0.0, "the %s has bark at the ground" % kind)
+		# A six-sided prism's flat side is cos 30 degrees of its corner.
+		_expect(
+			solid >= widest * 0.87,
+			"the %s is solid to %.2f m and its flat side is %.2f m at the foot" % [kind, solid, widest * 0.87]
+		)
+
+	var field := HeightField.new(20260904)
+	var shapes := {}
+	for x in range(-4, 5):
+		for z in range(-4, 5):
+			for tree in VegetationTile.generate_trees(field, Vector2i(x, z), 32, 20260904, null):
+				var basis: Basis = (tree["transform"] as Transform3D).basis
+				shapes[snappedf(basis.x.length() / basis.z.length(), 0.05)] = true
+	_expect(shapes.size() > 3, "trees come in %d different breadths" % shapes.size())
+## The ground a child can climb to is coloured from the slope at each point, not
+## from a slope averaged over the mesh's spacing.
+##
+## Chunks of step 2 averaged the slope across four metres, which smooths a
+## terrace riser or a rib of rock into a gentle hillside: grass and snow were
+## painted on faces the next ring out (which asks the field) painted as crag,
+## and the colour jumped where the two rings met.
+func _check_the_slopes_are_painted_from_the_point_not_the_average() -> void:
+	print("the slopes are painted from the point, not the average")
+	var field := HeightField.new(20260903)
+	var wrong := 0
+	var seen := 0
+	for coord: Vector2i in [Vector2i(11, 0), Vector2i(0, 11), Vector2i(-11, 2), Vector2i(8, 8)]:
+		var baked := TerrainChunk.bake(field, coord, 2, false)
+		var arrays: Array = baked["arrays"]
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		var origin := Vector2(coord * TerrainSpec.CHUNK_SIZE)
+		for i in vertices.size():
+			var v := vertices[i]
+			if v.y < HeightField.TREELINE:
+				continue
+			var x := origin.x + v.x
+			var z := origin.y + v.z
+			var want := TerrainChunk._tint(
+				field, x, z, v.y, field.steepness_at(x, z), false, false, false
+			)
+			seen += 1
+			if absf(want.r - colors[i].r) + absf(want.g - colors[i].g) + absf(want.b - colors[i].b) > 0.05:
+				wrong += 1
+	print("  %d of %d high vertices differ" % [wrong, seen])
+	_expect(seen > 200, "the check reaches some mountainside (%d vertices)" % seen)
+	_expect(wrong == 0, "a step-2 chunk paints each vertex from its own slope (%d of %d differ)" % [wrong, seen])
 ## A floor laid a storey up is held up by the walls under it, as a roof is:
 ## taking the last of them down used to leave the boards, and the bed on them,
 ## floating over the empty ground.

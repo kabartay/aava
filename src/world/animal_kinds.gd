@@ -772,14 +772,14 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 			# other way it was a rod cocked up off the rump, and the tuft sat
 			# well clear of the end of it.
 			Basis(Vector3.RIGHT, deg_to_rad(-8.0)),
-			Vector3(0.0, scale * 1.1, scale * long * 0.98 + scale * 0.056)
+			Vector3(0.0, scale * COW_TAIL_ROOT.x - scale * 0.396, scale * long * COW_TAIL_ROOT.y + scale * 0.056)
 		), colour)
 		var tuft := SphereMesh.new()
 		tuft.radius = scale * 0.12
 		tuft.height = scale * 0.22
 		tuft.radial_segments = 6
 		tuft.rings = 3
-		_add(tool, tuft, Transform3D(Basis(), Vector3(0.0, scale * 0.66, scale * long * 0.98 + scale * 0.1)), patch_colour)
+		_add(tool, tuft, Transform3D(Basis(), Vector3(0.0, scale * (COW_TAIL_ROOT.x - 0.84), scale * long * COW_TAIL_ROOT.y + scale * 0.1)), patch_colour)
 		tool = body_tool
 
 	# A ginger cat is a tabby: bands over the back and rings down the tail,
@@ -926,11 +926,17 @@ static func _build(kind: StringName, with_legs: bool, variant := 0) -> Mesh:
 ## back along it, as a fraction of its length. Inside the rump, so that a tail
 ## swung about the point stays joined to her. Kinds not listed keep their tail
 ## baked into the body.
+## The cow's, named because the dock and the tuft are drawn from it too. It is
+## inside the barrel: at 1.5 high and 0.98 of her length back it was in the air
+## behind the rump, because the body narrows towards its top, and the tail
+## hung a third of a metre clear of her.
+const COW_TAIL_ROOT := Vector2(1.3, 0.88)
+
 const TAILS := {
 	CAT: Vector2(1.0, 0.82),
 	DOG: Vector2(1.15, 0.85),
 	SQUIRREL: Vector2(1.05, 0.9),
-	COW: Vector2(1.5, 0.98),
+	COW: COW_TAIL_ROOT,
 }
 
 ## Pivots of the head and tail pieces, by the same key as the meshes.
@@ -1204,7 +1210,9 @@ static func _add_tail(tool: SurfaceTool, kind: StringName, scale: float, colour:
 			paddle.rings = 5
 			_add(tool, paddle, Transform3D(
 				Basis(Vector3.RIGHT, deg_to_rad(10.0)) * Basis.from_scale(Vector3(0.95, 0.16, 1.3)),
-				Vector3(0.0, scale * 0.5, scale * long * 1.2)
+				# Its near edge is inside the rump: at 1.2 of her length back it
+				# was a flat line lying in the grass behind her.
+				Vector3(0.0, scale * 0.5, scale * long * 1.05)
 			), colour.darkened(0.45))
 		CAT:
 			# Starts inside the rump and curves up in three pieces, tip

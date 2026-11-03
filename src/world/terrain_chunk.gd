@@ -112,7 +112,9 @@ static func bake(
 			# colour jumped where a coarse ring met a fine one. The field is asked
 			# for the slope at the point itself instead, as the near ground sees it.
 			# Only for the coarse steps, which have few enough vertices to afford it.
-			if step >= 4:
+			# Step 2 as well, but only up on the mountainside, where a riser is what
+			# the average hides: the meadow is gentle enough to take from the grid.
+			if step >= 4 or (step == 2 and height >= HeightField.TREELINE):
 				slope = field.steepness_at(world_x, world_z)
 
 			var index := gz * grid + gx

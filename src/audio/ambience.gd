@@ -546,10 +546,12 @@ func _make_wind() -> AudioStreamWAV:
 		# Barely damped: the rustle, which is what carries the movement.
 		light = lerpf(light, source, 0.180)
 
-		# Gusts on three periods that do not divide into one another, so the
-		# loop never settles into a rhythm a child could count.
-		var gust := 0.45 + 0.32 * sin(t * 0.41) + 0.14 * sin(t * 1.07 + 2.2)
-		gust += 0.09 * sin(t * 2.63 + 0.6)
+		# Gusts on one, three and seven whole cycles per loop, so the loop joins
+		# without a step in loudness (the old rates fell part-way through a
+		# cycle at the seam, and the wind jumped every four seconds), and the
+		# numbers share no factor, so it never settles into a countable rhythm.
+		var gust := 0.45 + 0.32 * sin(TAU * t / LOOP_SECONDS) + 0.14 * sin(TAU * t * 3.0 / LOOP_SECONDS + 2.2)
+		gust += 0.09 * sin(TAU * t * 7.0 / LOOP_SECONDS + 0.6)
 		# The rustle rises with the gust much more than the body does, the way
 		# leaves answer a breeze the ground does not notice.
 		# Mostly the body of the air. The rustle used to be carried here too,

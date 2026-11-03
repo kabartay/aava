@@ -34,6 +34,8 @@ const FOG_END := 2200.0
 const FOG_CURVE := 1.35
 const FOG_SKY_AFFECT := 0.18
 const SATURATION := 1.12
+## The flattest the sun or moon is allowed to shine, in radians (about 9°).
+const MIN_LIGHT_PITCH := 0.16
 
 ## Under the surface.
 ##
@@ -193,7 +195,11 @@ func _apply_time() -> void:
 	# stands where the sun is not. Both lie flat at the horizon, so the hand-over
 	# is continuous. The moon used to take over only once the night had begun,
 	# and until then the dusk sun, still lit, pointed up out of the ground.
-	_sun.rotation = Vector3(-asin(clampf(absf(height), 0.0, 1.0)), deg_to_rad(-38.0) + sun_angle * 0.35, 0.0)
+	# It never lies flatter than MIN_LIGHT_PITCH, though: at two degrees the
+	# shadow map is stretched across thirty times its length, and every slope
+	# facing away from the light dissolves into diagonal streaks of acne.
+	var pitch := maxf(asin(clampf(absf(height), 0.0, 1.0)), MIN_LIGHT_PITCH)
+	_sun.rotation = Vector3(-pitch, deg_to_rad(-38.0) + sun_angle * 0.35, 0.0)
 
 	var day := clampf(height, 0.0, 1.0)
 	_sun.light_energy = lerpf(0.0, 1.05, smoothstep(-0.05, 0.30, height))

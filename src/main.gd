@@ -773,7 +773,7 @@ func _process(delta: float) -> void:
 		# few tenths of a second look like.
 		player.held_at_height = Player.NOT_HELD
 		_held_last = Player.NOT_HELD
-	elif riding != &"":
+	elif riding != &"" and Mounts.held_to_the_ground(riding):
 		# A rider follows the ground the horse is walking on. Left to
 		# ordinary physics, going downhill the child carried on in a straight
 		# line while the horse followed the slope down, and hung in the air

@@ -332,6 +332,9 @@ func river_current_at(x: float, z: float) -> Vector2:
 		return Vector2.ZERO
 	if PlaceSpec.excavation(x, z, camp_centre()) > 0.0:
 		return Vector2.ZERO
+	# Water held back by a finished dam is a pond, and ponds are still.
+	if not dams_built.is_empty() and DamSpec.fill(x, z, river_centre_x(z), dams_built) > 0.0:
+		return Vector2.ZERO
 	return Vector2(river_slope(z), 1.0).normalized() * (RIVER_CURRENT * strength)
 
 ## Where the river runs under the bridge. Worked out once: it never moves, and
