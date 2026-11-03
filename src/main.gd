@@ -2145,7 +2145,21 @@ func _on_remote_built(
 	_note_new_venues()
 	# A brother's building is heard where it goes up: close by it is a knock,
 	# across the valley nothing. Before this it went up in silence.
-	sounds.play_at(Sounds.Sound.PLACE, _metres_to_spot(at))
+	_hear_building(Sounds.Sound.PLACE, at)
+
+## How long after one knock from the other child's building the next is left
+## unheard. A plan arrives a piece at a time, twenty or thirty in one breath,
+## and a knock for each was thirty voices on one frame: a thud far louder than
+## the one tap that made it, where building it here is a single sound.
+const BUILDING_HEARD_EVERY := 0.25
+var _building_heard := -BUILDING_HEARD_EVERY
+
+func _hear_building(sound: Sounds.Sound, at: Vector3) -> void:
+	var now := Time.get_ticks_msec() * 0.001
+	if now - _building_heard < BUILDING_HEARD_EVERY:
+		return
+	_building_heard = now
+	sounds.play_at(sound, _metres_to_spot(at))
 
 ## Somebody in the other valley took something down.
 ##
@@ -2165,7 +2179,7 @@ func _on_remote_removed(at: Vector3, named := &"") -> void:
 		_refresh_fires()
 	_note_new_venues()
 	if kind != &"":
-		sounds.play_at(Sounds.Sound.REMOVE, _metres_to_spot(at))
+		_hear_building(Sounds.Sound.REMOVE, at)
 	# Not the seed of a tree that has already paid its reward: the other child
 	# took it down, so no coins are asked of this one, but the seed is not
 	# handed back on top of what the tree gave.

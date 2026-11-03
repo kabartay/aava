@@ -346,6 +346,15 @@ func ball_positions() -> Array[Vector3]:
 		out.append(ball.position)
 	return out
 
+## Is the ball over either goal line, between the posts and under the net?
+func _in_a_goal(ball: Ball) -> bool:
+	for index in 2:
+		var mouth := Pitch.goal_centre(index)
+		var grass := _field.height_at(mouth.x, mouth.z)
+		if Pitch.is_goal(index, ball.position, Ball.RADIUS, grass):
+			return true
+	return false
+
 func _check_goal(ball: Ball) -> bool:
 	for index in 2:
 		var mouth := Pitch.goal_centre(index)
@@ -551,6 +560,14 @@ func _sync_role() -> void:
 			# comes down rather than stopping in the air.
 			if _drawn[i]["known"]:
 				ball.linear_velocity = _drawn[i]["velocity"]
+			# One the host's game left lying in a net is not brought home to be
+			# counted: nothing here knows it is still being cheered, and the
+			# first physics tick gave this child's own score a goal nobody had
+			# kicked.
+			if _in_a_goal(ball):
+				var spot := ball.home
+				spot.y = _field.height_at(spot.x, spot.z)
+				ball.reset_to(spot)
 	_board.show_scores(blue, red)
 	scores_changed.emit(blue, red)
 

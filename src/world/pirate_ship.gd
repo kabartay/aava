@@ -423,6 +423,19 @@ func _build_hull(body: AnimatableBody3D) -> void:
 			tool, Vector2(end * DECK_HALF, 1.0), Vector2(end_x, g - 0.15), 0.0, HULL_HALF_WIDTH * 2.0 - 0.1,
 			0.12, DECK
 		)
+		# The deck is drawn over the raised end, so it is a floor too: a child who
+		# jumped onto the bulkhead (a metre up) and on over it came down through
+		# planking with nothing under it, and fell out of the boat.
+		var end_from := Vector2(end * DECK_HALF, 1.0)
+		var end_to := Vector2(end_x, g - 0.15)
+		var end_mid := (end_from + end_to) * 0.5
+		_hull_solid(
+			body, Vector3(end_from.distance_to(end_to) + 0.04, 0.12, HULL_HALF_WIDTH * 2.0 - 0.1),
+			Transform3D(
+				Basis(Vector3.BACK, atan2(end_to.y - end_from.y, end_to.x - end_from.x)),
+				Vector3(end_mid.x, end_mid.y, 0.0)
+			)
+		)
 
 		# A mast on each end deck, with a yard and a sail across the boat.
 		var mast_x := end * (DECK_HALF + 1.4)

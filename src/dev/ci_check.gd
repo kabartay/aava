@@ -227,6 +227,7 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_ships_end_decks_can_be_stood_on()
 	_check_mounting_widens_the_wood_at_once()
 	_check_a_wheeled_machine_is_collided_as_wide_as_it_is_drawn()
 	_check_every_key_the_code_asks_for_has_words()
@@ -296,6 +297,7 @@ func _initialize() -> void:
 	_check_a_standing_animal_does_not_read_the_ground_every_frame()
 	_check_far_animals_are_stepped_less_often_and_walk_as_far()
 	_check_a_piece_from_the_other_child_keeps_off_the_playing_places()
+	_check_the_other_childs_plan_is_one_knock_not_thirty()
 	_check_the_host_passes_a_guests_changes_to_the_other_guests()
 	_check_the_host_does_not_pass_on_what_the_network_already_relays()
 	_check_odd_numbers_and_names_in_saves_do_no_harm()
@@ -340,6 +342,7 @@ func _initialize() -> void:
 	_check_a_match_is_first_to_five()
 	_check_starting_again_ends_a_won_match()
 	_check_a_won_score_is_not_carried_through_a_visit()
+	_check_a_ball_left_in_the_hosts_net_is_not_a_goal_at_home()
 	_check_a_ball_that_goes_out_comes_back()
 	_check_a_gentle_touch_keeps_the_ball_at_the_feet()
 	_check_the_host_hears_a_guests_kick()
@@ -24392,4 +24395,68 @@ func _check_mounting_widens_the_wood_at_once() -> void:
 	_expect(trunks.solid_count() > on_foot, "mounting without moving reaches the further trunks (%d, was %d)" % [trunks.solid_count(), on_foot])
 	trunks.queue_free()
 	forest.queue_free()
+
+## A guest who goes home while the host's ball lies in a net took that ball with
+## them, and the first tick at home counted it as their own goal.
+func _check_a_ball_left_in_the_hosts_net_is_not_a_goal_at_home() -> void:
+	print("a ball left in the host's net is not a goal at home")
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var guest: Session = pair[1]
+	var ground: FootballGround = pair[3]
+	var mouth := Pitch.goal_centre(1)
+	var ball: Ball = ground._balls[0]
+	ball.show_at(Vector3(mouth.x + 0.8, field.height_at(mouth.x, mouth.z) + 0.3, mouth.z), Quaternion.IDENTITY)
+	guest.role = Session.Role.HOSTING
+	ground._process(0.0)
+	ground._physics_process(0.016)
+	_expect(ground.blue == 0 and ground.red == 0, "no goal is given at home for the host's ball (%d:%d)" % [ground.blue, ground.red])
+	_free_football_pair(pair)
+
+## A plan the other child builds arrives a piece at a time, and every piece used
+## to knock: thirty voices on one frame for what is one tap on the phone that
+## built it. The knock is rationed, and the removal of a plan with it.
+func _check_the_other_childs_plan_is_one_knock_not_thirty() -> void:
+	print("the other child's plan is one knock, not thirty")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	for named: String in ["func _on_remote_built", "func _on_remote_removed"]:
+		var body := game.substr(game.find(named))
+		body = body.substr(0, body.find("\nfunc ", 1))
+		_expect(
+			body.contains("_hear_building(") and not body.contains("sounds.play_at("),
+			"%s goes through the rationed knock" % named
+		)
+	var hear := game.substr(game.find("func _hear_building"))
+	hear = hear.substr(0, hear.find("\nfunc ", 1))
+	_expect(
+		hear.contains("BUILDING_HEARD_EVERY") and hear.contains("return"),
+		"the knock is left out when one was heard a moment ago"
+	)
+	var biggest := 0
+	for plan: StringName in Plans.ALL:
+		biggest = maxi(biggest, Plans.pieces(plan).size())
+	_expect(biggest > 10, "a plan really is many pieces (%d), which is why the knock is rationed" % biggest)
+
+## The planked ends of the pirate ship are drawn, so they must be stood on: a
+## child who jumped over the bulkhead came down through them and out of the boat.
+func _check_the_ships_end_decks_can_be_stood_on() -> void:
+	print("the pirate ship's end decks are solid")
+	var ship := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(ship)
+	for end: float in [-1.0, 1.0]:
+		# A point on the drawn deck's top, a third of the way along it.
+		var stern_or_bow := end * PirateShip.HULL_LENGTH * 0.5
+		var x := end * lerpf(PirateShip.DECK_HALF, PirateShip.HULL_LENGTH * 0.5, 0.33)
+		var line_y := lerpf(1.0, PirateShip._gunwale(stern_or_bow) - 0.15, 0.33)
+		var found := false
+		for child in ship._hull.get_children():
+			var shape := child as CollisionShape3D
+			if shape == null or not shape.shape is BoxShape3D:
+				continue
+			var local := shape.transform.affine_inverse() * Vector3(x, line_y + 0.03, 0.0)
+			var half := (shape.shape as BoxShape3D).size * 0.5
+			if absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z:
+				found = true
+		_expect(found, "the ship's %s deck has a floor under it" % ("bow" if end > 0.0 else "stern"))
+	ship.queue_free()
 
