@@ -15092,7 +15092,12 @@ func _check_the_range_shows_rock_among_the_snow() -> void:
 			if HeightField.rock_at(height, steep) > 0.5 and HeightField.snow_at(height, steep) < 0.3:
 				rocky += 1
 	var share := float(rocky) / maxf(float(above), 1.0)
-	_expect(share > 0.15, "%.0f%% of the high ground shows bare rock" % (share * 100.0))
+	# Some rock, but white first: at fifteen per cent and more the snow had let
+	# go of every face past forty-five degrees and the peaks read as grey.
+	_expect(
+		share > 0.05 and share < 0.15,
+		"%.0f%% of the high ground shows bare rock, the rest holds snow" % (share * 100.0)
+	)
 	_expect(HeightField.rock_at(HeightField.TREELINE + 30.0, 0.35) > 0.3, "stony slope above the trees is scree")
 	_expect(HeightField.rock_at(20.0, 0.1) < 0.02, "the valley floor is never rock")
 

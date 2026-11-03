@@ -89,13 +89,43 @@ const ELBRUS_AT := Vector2(-330.0, -1000.0)
 ## How far its skirts reach from the centre.
 const ELBRUS_REACH := 620.0
 
-## How high the western summit stands over the plain at its foot.
+## The scale the shape below is drawn in: the shield and the two cones are
+## fractions of this, and the western summit comes out a little under it.
 const ELBRUS_HEIGHT := 545.0
 
 ## The line through the two summits, west to east, the western the higher — as
 ## on the real one, where the difference is about twenty metres in five and a
-## half thousand. The relief is turned to lie along it.
+## half thousand.
 const ELBRUS_AXIS := Vector2(0.94, -0.34)
+
+## How far each summit stands from the centre, along the axis.
+##
+## The real summits are 1.5 km apart on a mountain 15 km across, with the saddle
+## 340 m under the western top in 5,642 m. Scaled down as it is, that is a
+## saddle of thirty metres between two tops 150 m apart, and the far ring that
+## draws the mountain from the valley samples every forty metres: the shape was
+## right and nobody could see it. So it is drawn the way a child would draw it,
+## and the way it reads from Nalchik: two tops 280 m apart with a saddle about a
+## quarter of the way down between them.
+const ELBRUS_SPLIT := 140.0
+
+## The shield: its height, as a share of ELBRUS_HEIGHT, and where its flat top
+## begins to fall away, as a share of the reach. A smoothstep from there to
+## the rim, so it is gentle on top where the snow is, steepest in the middle
+## and gentle again at the foot, instead of the concave volcano that stood at
+## sixty degrees just under its summits and so was bare rock where it should
+## be white.
+const ELBRUS_SHIELD := 0.68
+const ELBRUS_SHIELD_TOP := 0.1
+
+## The two cones on top, as shares of ELBRUS_HEIGHT, and how wide they are:
+## narrow on the side facing the saddle, so the saddle is deep, broad on the
+## outer side, so those faces hold their snow.
+const ELBRUS_WEST_CONE := 0.31
+const ELBRUS_EAST_CONE := 0.295
+const ELBRUS_CONE_INNER := 85.0
+const ELBRUS_CONE_OUTER := 150.0
+const ELBRUS_CONE_SIDE := 120.0
 
 ## Nothing grows above this. A bare treeline is what makes a mountain read as
 ## high rather than as a big green lump.
@@ -182,11 +212,15 @@ static func ice_at(height: float, steep: float) -> float:
 ## (about sixty and seventy-two degrees), because at the true fifty the
 ## shoulders came out half bare. Ice, which wants it gentler, lets go by
 ## about sixty degrees.
-## Brought in from 0.75 and 1.25 because from the valley the range read as
-## white with hardly any rock: snow now lets go of anything past about forty-five
-## degrees, so the steep faces and buttresses show.
-const SNOW_HOLDS_TO := 0.5
-const SNOW_SLIDES_AT := 1.0
+## Brought in from 0.75 and 1.25 once, because from the valley the range read
+## as white with hardly any rock, to 0.5 and 1.0 — and that took the snow off
+## nearly everything: at forty-five degrees every face of this range lets go,
+## and the peaks went grey with a dusting. Snow-capped peaks are what a child
+## remembers of these mountains. Out again, a little past where it was: snow
+## holds to about fifty-seven degrees and is gone by seventy-five, so only the
+## real crags and the terrace risers stand dark against it.
+const SNOW_HOLDS_TO := 0.85
+const SNOW_SLIDES_AT := 1.4
 ## Ice is painted over snow and rock alike, so letting it reach 0.9 washed the
 ## grey of every moderate face back to pale blue: it lets go sooner now.
 const ICE_GATHERS_TO := 0.2
@@ -659,7 +693,7 @@ func _raw_height(x: float, z: float) -> float:
 		# distance, these are the only relief inside the kilometre a child
 		# actually plays in — at 62 m the whole valley measured barely fifty
 		# metres of rise and fall across eight hundred, which is a field.
-		floor_height += pow(hill, 1.15) * 105.0 * hill_mask
+		floor_height += pow(hill, 1.15) * 105.0 * hill_mask * _clear_of_the_great_mountain(x, z, from_origin)
 
 	# Mountains ring the world. They are scenery first and a destination second:
 	# the ridge line is what tells a child the world continues past the horizon.
@@ -707,7 +741,14 @@ func _raw_height(x: float, z: float) -> float:
 	# and half a metre of wobble sampled three quarters of a metre apart is a
 	# steep slope however gentle the mountain underneath it really is. That is
 	# what put bare rock in patches all over a dome that should be white.
-	var smoothed := 1.0 - clampf(dome / 120.0, 0.0, 1.0)
+	#
+	# Measured from the mountain's centre rather than from how high it lifts the
+	# ground. From its height, the range came back at full strength half way down
+	# the skirts and was *added* to them, so a ridge three hundred metres tall
+	# stood on the mountain's shoulder as a hump the size of the mountain. Now
+	# the range fades out well before the skirts end and the two meet by the
+	# higher of them rather than their sum.
+	var smoothed := _clear_of_the_great_mountain(x, z, from_origin)
 	if mountain_mask > 0.0:
 		# The crest is not one level along its whole length, and the ridges are
 		# not drawn on a straight grid. A slow swell shifts the crest up and
@@ -761,11 +802,26 @@ func _raw_height(x: float, z: float) -> float:
 		var shelf := mountain_mask * smoothed * faces * beds
 		var tilt := _hills.get_noise_2d(x * 2.2 - 4000.0, z * 2.2 + 1500.0) * 38.0
 		floor_height = _terraced(floor_height + tilt, shelf) - tilt
-	floor_height += dome
+	if dome > 0.0:
+		floor_height = _higher_of(floor_height, dome, 40.0)
 
 	floor_height += _detail.get_noise_2d(x, z) * 0.5 * smoothed
 
 	return floor_height
+
+## How free of the great mountain this point is: 0 across its upper slopes,
+## where nothing else may lift the ground, rising to 1 a little past its foot.
+func _clear_of_the_great_mountain(x: float, z: float, from_origin: float) -> float:
+	if from_origin < 400.0:
+		return 1.0
+	var out := Vector2(x - ELBRUS_AT.x, z - ELBRUS_AT.y).length() / ELBRUS_REACH
+	return smoothstep(0.45, 1.15, out)
+
+## The higher of two heights, rounded over `blend` metres so that where the
+## range meets the mountain's skirts there is a valley floor, not a crease.
+static func _higher_of(a: float, b: float, blend: float) -> float:
+	var h := maxf(blend - absf(a - b), 0.0) / blend
+	return maxf(a, b) + h * h * blend * 0.25
 
 ## Level shelves with steep risers between them, the way bedded rock weathers.
 ##
@@ -787,26 +843,52 @@ func _terraced(height: float, amount: float) -> float:
 
 ## How much the twin-domed mountain lifts the ground here.
 ##
-## Taken from the real mountain rather than drawn by formula. Built by hand it
-## was a shield with two domes on it, and however the numbers went it was
-## either one lump or two sharp peaks, and the edge of its summit plateau stood
-## out in front of them like a hump. A terrain model of the real massif gives
-## the shape the eye knows: a broad volcano, concave on every side, with two
-## rounded summits close together on top and a shallow saddle between them.
-## See ElbrusRelief.
+## Drawn, not measured. It was taken from a terrain model of the real massif
+## for a while, and that was faithful and did not read: the saddle was too
+## shallow to survive the far ring's forty-metre samples, the two tops merged
+## into one, and a lava shoulder off the model's flank stood out beside them as
+## a hump. This is the likeness instead of the survey — a broad shield
+## stretched a little along the axis, with two rounded cones on it and a deep
+## saddle between — and every part of it is a constant above.
+##
+## A little ribbing on the middle flanks, so it is not a smooth blob: the
+## glaciers of the real one cut its sides into ribs and gullies, and dark rock
+## between white runs is what makes it look like a mountain at this distance.
 func _twin_domed_mountain(x: float, z: float) -> float:
 	var dx := x - ELBRUS_AT.x
 	var dz := z - ELBRUS_AT.y
 	if dx * dx + dz * dz > ELBRUS_REACH * ELBRUS_REACH:
 		return 0.0
-	return ELBRUS_HEIGHT * ElbrusRelief.height(dx, dz, ELBRUS_REACH)
+	var axis := ELBRUS_AXIS.normalized()
+	var u := dx * axis.x + dz * axis.y
+	var v := -dx * axis.y + dz * axis.x
+	var out := Vector2(u / 1.12, v / 0.92).length() / ELBRUS_REACH
+	if out >= 1.0:
+		return 0.0
+	var fall := smoothstep(ELBRUS_SHIELD_TOP, 1.0, out)
+	var shield := ELBRUS_SHIELD * (1.0 - fall)
+	var bearing := atan2(v, u)
+	var ribs := 1.0 + (0.05 * sin(bearing * 11.0) + 0.025 * sin(bearing * 23.0 + 1.3)) \
+		* smoothstep(0.22, 0.45, out) * (1.0 - smoothstep(0.75, 0.95, out))
+	var height := shield * ribs \
+		+ _cone(u + ELBRUS_SPLIT, v, 1.0, ELBRUS_WEST_CONE) \
+		+ _cone(u - ELBRUS_SPLIT, v, -1.0, ELBRUS_EAST_CONE)
+	return ELBRUS_HEIGHT * height
+
+## One of the two summit cones, `du` and `dv` from its top; `saddle_side` is the
+## sign of `du` on the side that faces the other summit.
+static func _cone(du: float, dv: float, saddle_side: float, rise: float) -> float:
+	var width := ELBRUS_CONE_INNER if du * saddle_side > 0.0 else ELBRUS_CONE_OUTER
+	var a := du / width
+	var b := dv / ELBRUS_CONE_SIDE
+	return rise * exp(-(a * a + b * b))
 
 ## Where the two summits stand in the world.
 static func elbrus_west_summit() -> Vector2:
-	return ELBRUS_AT + ElbrusRelief.WEST_SUMMIT
+	return ELBRUS_AT - ELBRUS_AXIS.normalized() * ELBRUS_SPLIT
 
 static func elbrus_east_summit() -> Vector2:
-	return ELBRUS_AT + ElbrusRelief.EAST_SUMMIT
+	return ELBRUS_AT + ELBRUS_AXIS.normalized() * ELBRUS_SPLIT
 
 ## Surface normal from the analytic gradient of the height function.
 ## Cheaper and smoother than averaging face normals, and it stays correct at
