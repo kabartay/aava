@@ -429,6 +429,15 @@ func book() -> void:
 		return
 	_called = true
 
+## The game says whether somebody in the gondola at the boards has not paid.
+## The wheel then stands there, bar up, rather than carrying them.
+func keep_at_boards(kept: bool) -> void:
+	_kept = kept
+
+var _kept := false
+## How much of the stand is left, in seconds, when a kept wheel is let go.
+const KEPT_LEAD := 3.0
+
 ## Who is riding, and how far the wheel has turned since they got in.
 ##
 ## A ride is one turn. At the end of it the wheel brings that gondola back to
@@ -722,7 +731,13 @@ func _physics_process(delta: float) -> void:
 	if _holding > 0.0:
 		# Standing at the boards. Nothing turns, which is the point: this is
 		# the only ten seconds in which a six-year-old can get into a gondola.
-		_holding = maxf(0.0, _holding - delta)
+		# Kept standing, with the bar up, while somebody in it has not paid:
+		# they are asked again and are free to step out, and nobody is carried
+		# round for nothing or shut in.
+		if _kept:
+			_holding = maxf(_holding - delta, minf(_holding, KEPT_LEAD))
+		else:
+			_holding = maxf(0.0, _holding - delta)
 	else:
 		# A rider is carried one whole turn and then set down. Asked for a
 		# little before the turn is up, because the wheel has to be told to

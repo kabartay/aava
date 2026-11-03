@@ -676,6 +676,9 @@ func _physics_process(delta: float) -> void:
 			_wheel_went_round = false
 			_wheel_rider_paid = false
 			_riding_without_a_ticket = true
+			# Asked again, as the tower and the ship ask: the wheel now stands
+			# at the boards while they are unpaid (see keep_at_boards below).
+			_offer_a_ride(&"wheel")
 	if _wheel_rider_paid and aboard != &"wheel" and (
 		not ParkSpec.inside(player.global_position.x, player.global_position.z)
 		or (not world.park.wheel.called() and world.park.wheel.waiting() <= 0.0)
@@ -741,6 +744,10 @@ func _physics_process(delta: float) -> void:
 		# stepping into one of those is not a second sale.
 		if aboard == &"wheel":
 			_riding_without_a_ticket = not _wheel_rider_paid
+			# Stepped into a gondola with nothing paid for it: asked, rather
+			# than carried round or left to find out.
+			if not _wheel_rider_paid:
+				_offer_a_ride(&"wheel")
 		elif aboard != &"" and aboard != &"coaster" and Park.charges_for(aboard):
 			# Nothing carries them until they say yes. Asked the same way the
 			# buttons ask — a ticket if there is one, coins if not — and about
@@ -782,6 +789,20 @@ func _physics_process(delta: float) -> void:
 	# The wheel is told who is riding, so it can bring them back down: a ride
 	# is one turn, and then it stands at the boards with the bar up.
 	wheel.set_rider(wheel.gondola_under(player.global_position))
+	# Anyone aboard who has not paid keeps the wheel, the tower and the ship
+	# standing where they are, bars up. These bodies are moved by hand but are
+	# solid, and the engine lifts a child standing on one whatever the game
+	# does about carrying them, so saying "no" and staying on was a free ride.
+	# Standing still is also the way off, so nobody is trapped by it.
+	wheel.keep_at_boards(
+		aboard == &"wheel" and not _wheel_rider_paid and wheel.waiting() > 0.0
+	)
+	world.park.drop_tower.hold_at_ground(
+		aboard == &"drop_tower" and _riding_without_a_ticket
+	)
+	world.park.pirate_ship.hold_still(
+		aboard == &"pirate_ship" and _riding_without_a_ticket
+	)
 	if wheel.waiting() > 0.0 and not _wheel_here_told:
 		_wheel_here_told = true
 		hud.announce(
@@ -2143,7 +2164,7 @@ func _on_remote_built(
 	)
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
-	_note_new_venues()
+	_note_venues_quietly()
 	# A brother's building is heard where it goes up: close by it is a knock,
 	# across the valley nothing. Before this it went up in silence.
 	_hear_building(Sounds.Sound.PLACE, at)
@@ -2178,7 +2199,7 @@ func _on_remote_removed(at: Vector3, named := &"") -> void:
 	var kind := structures.remove(record)
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
-	_note_new_venues()
+	_note_venues_quietly()
 	if kind != &"":
 		_hear_building(Sounds.Sound.REMOVE, at)
 	# Not the seed of a tree that has already paid its reward: the other child
@@ -2490,6 +2511,15 @@ func _note_new_venues() -> void:
 		hud.announce(Text.of("say_own_shop"), 4.0)
 	_known_cafe = cafe
 	_known_shop = shop
+
+## A cafe or a shop the other child built or took down is counted without a
+## word: "your cafe is open" is said to the child who built it, and said of
+## somebody else's it was a lie that sent them to a table in a valley that was
+## not theirs. Counting it still matters, so that this child's own first one
+## is announced once and a remote one does not swallow it.
+func _note_venues_quietly() -> void:
+	_known_cafe = structures.has_venue(&"cafe")
+	_known_shop = structures.has_venue(&"shop")
 
 func _finish_eating(seat: Dictionary) -> void:
 	_refresh_vitals()

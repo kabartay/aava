@@ -257,14 +257,19 @@ func _tick(delta: float) -> void:
 	# steps. Every animal in reach stepped every frame was 14-15 ms of a 30 ms
 	# frame on the phone, which made riding past them a jerky crawl; at forty
 	# metres and more a step a fifteenth of a second long cannot be told from
-	# sixty a second. Staggered by place in the list, so the far ones do not
-	# all come due on the same frame.
+	# sixty a second. Staggered by a number each animal keeps for life, so the
+	# far ones do not all come due on the same frame. Its place in the list was
+	# no good for that: a tile dropping or building shifts every place after it,
+	# and an animal whose turn had just passed found the next one up to six
+	# frames off instead of four.
 	_frame += 1
-	for index in _living.size():
-		var animal: Dictionary = _living[index]
+	for animal in _living:
+		if not animal.has("slot"):
+			animal["slot"] = _slots
+			_slots += 1
 		var owed := float(animal.get("owed", 0.0)) + delta
 		var every := _step_every(animal)
-		if every > 1 and (_frame + index) % every != 0:
+		if every > 1 and (_frame + int(animal["slot"])) % every != 0:
 			animal["owed"] = owed
 			continue
 		animal["owed"] = 0.0
@@ -275,6 +280,8 @@ func _tick(delta: float) -> void:
 const STEP_NEAR := 28.0
 const STEP_MID := 60.0
 var _frame := 0
+## The next stagger number to hand out: see `_tick`.
+var _slots := 0
 
 func _step_every(animal: Dictionary) -> int:
 	if not _has_player:

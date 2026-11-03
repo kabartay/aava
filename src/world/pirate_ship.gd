@@ -98,6 +98,8 @@ const HULL_DARK := Color(0.52, 0.16, 0.13)
 const TRIM := Color(0.94, 0.82, 0.40)
 const TIMBER := Color(0.52, 0.37, 0.22)
 const DECK := Color(0.66, 0.50, 0.32)
+## How far the side rails of the raised end decks stand above the gunwale.
+const BULWARK := 0.6
 const SEAT_COLOUR := Color(0.92, 0.84, 0.30)
 const SHIELD := Color(0.22, 0.38, 0.64)
 const STEEL := RollerCoaster.RAIL
@@ -119,6 +121,9 @@ var _swing_time := 0.0
 var _hull: AnimatableBody3D
 var _angle := 0.0
 var _moved := Vector3.ZERO
+var _held := false
+## How long before it goes a held boat is kept, in seconds.
+const HELD_LEAD := 3.0
 ## How the hull's own turn and shift this frame took every point of it: the
 ## world-space move from where a point was to where it is now.
 var _swept := Transform3D.IDENTITY
@@ -437,6 +442,35 @@ func _build_hull(body: AnimatableBody3D) -> void:
 			)
 		)
 
+		# A bulwark along each side of the raised deck, drawn and solid. The
+		# deck is a floor now, and its sides were only painted planking up to
+		# the gunwale, so a child could walk straight off the edge of it. It
+		# stands above the gunwale line, so it is a rail to the knee and a
+		# little over rather than a second hull.
+		for side: float in [-1.0, 1.0]:
+			var rail_from := Vector2(end * DECK_HALF, _gunwale(DECK_HALF))
+			var rail_to := Vector2(end_x, g)
+			var rail_z := side * HULL_HALF_WIDTH
+			_slab(
+				tool, rail_from + Vector2(0.0, BULWARK * 0.5), rail_to + Vector2(0.0, BULWARK * 0.5),
+				rail_z, 0.14, BULWARK,
+				HULL if end > 0.0 else HULL.darkened(0.07)
+			)
+			_slab(
+				tool, rail_from + Vector2(0.0, BULWARK), rail_to + Vector2(0.0, BULWARK),
+				rail_z, 0.3, 0.1, TRIM
+			)
+			# Solid from a little below the gunwale, hidden behind the painted
+			# side, to the top of the rail.
+			var rail_mid := (rail_from + rail_to) * 0.5 + Vector2(0.0, BULWARK * 0.5 - 0.15)
+			_hull_solid(
+				body, Vector3(rail_from.distance_to(rail_to) + 0.04, BULWARK + 0.3, 0.14),
+				Transform3D(
+					Basis(Vector3.BACK, atan2(rail_to.y - rail_from.y, rail_to.x - rail_from.x)),
+					Vector3(rail_mid.x, rail_mid.y, rail_z)
+				)
+			)
+
 		# A mast on each end deck, with a yard and a sail across the boat.
 		var mast_x := end * (DECK_HALF + 1.4)
 		var mast_foot := lerpf(1.0, g - 0.15, (absf(mast_x) - DECK_HALF) / (half - DECK_HALF))
@@ -471,7 +505,7 @@ func _build_hull(body: AnimatableBody3D) -> void:
 				var rail_x := mast_x + lean
 				_beam(
 					tool, mast_head,
-					Vector3(rail_x, _gunwale(clampf(rail_x, -half, half)), side * (HULL_HALF_WIDTH - 0.1)), 0.035, ROPE
+					Vector3(rail_x, _gunwale(clampf(rail_x, -half, half)) + BULWARK, side * (HULL_HALF_WIDTH - 0.1)), 0.035, ROPE
 				)
 		# A lookout's barrel on the bow mast, above the sail.
 		if end > 0.0:
@@ -771,6 +805,11 @@ func _place_hull() -> void:
 	_hull.position = Vector3(0.0, AXLE_HEIGHT, 0.0) + hung
 	_hull.rotation = Vector3(0.0, 0.0, _angle)
 
+## The game says whether somebody aboard has not paid for this swing. While
+## they have, the boat stays still with its bars up, so it never shuts anyone in.
+func hold_still(held: bool) -> void:
+	_held = held
+
 func _physics_process(delta: float) -> void:
 	var before := _hull.position
 	var before_at := _hull.transform
@@ -778,7 +817,12 @@ func _physics_process(delta: float) -> void:
 	match _phase:
 		Phase.STILL:
 			_angle = 0.0
-			if _phase_time >= STILL_HOLD:
+			# An unpaid child aboard keeps it still (see the drop tower's
+			# note): the solid hull lifts and swings them whether or not the
+			# game carries them, so answering "no" was a free ride.
+			if _held:
+				_phase_time = minf(_phase_time, STILL_HOLD - HELD_LEAD)
+			elif _phase_time >= STILL_HOLD:
 				_phase = Phase.SWINGING
 				_phase_time = 0.0
 				_swing_time = 0.0

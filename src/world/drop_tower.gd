@@ -112,6 +112,9 @@ var _phase_time := 0.0
 var _ring: AnimatableBody3D
 var _beacon_light: OmniLight3D
 var _moved := Vector3.ZERO
+var _held := false
+## How long before it goes a held ring is kept, in seconds.
+const HELD_LEAD := 3.0
 var _harnesses: Array[Node3D] = []
 var _harness_closed := 0.0
 var _harness_shapes: Array[CollisionShape3D] = []
@@ -464,12 +467,25 @@ func _build_ring(body: AnimatableBody3D) -> void:
 
 	Park.commit(tool, body, "Deck")
 
+## The game says whether somebody sits on the ring who has not paid for this
+## go. While they do, it stays at the ground with its harnesses up, which is
+## also the way off: nobody is ever shut in by it.
+func hold_at_ground(held: bool) -> void:
+	_held = held
+
 func _physics_process(delta: float) -> void:
 	var before := _ring.position.y
 	_phase_time += delta
 	match _phase:
 		Phase.GROUND:
-			if _phase_time >= GROUND_HOLD:
+			# Somebody is in a seat who has not paid: the ring waits for them
+			# rather than carrying them. It is moved by hand but its seats are
+			# solid, and the engine lifts a child standing on one whether or not
+			# the game carries them, so "no" was a free climb. Kept a few
+			# seconds short of going, so a yes is not then a quarter-minute wait.
+			if _held:
+				_phase_time = minf(_phase_time, GROUND_HOLD - HELD_LEAD)
+			elif _phase_time >= GROUND_HOLD:
 				_phase = Phase.ASCEND
 				_phase_time = 0.0
 		Phase.ASCEND:

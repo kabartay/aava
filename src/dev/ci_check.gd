@@ -236,6 +236,8 @@ func _initialize() -> void:
 	_check_one_stump_across_a_cell_edge()
 	_check_odd_saved_values_are_read_back_sanely()
 	_check_a_ticket_buys_one_go_of_a_ride()
+	_check_an_unpaid_child_aboard_keeps_a_ride_still()
+	_check_the_ships_raised_decks_have_side_rails()
 	_check_a_held_child_is_not_still_running()
 	_check_a_child_pushes_a_basketball_the_way_they_push_a_football()
 	_check_the_animals_near_a_guest_are_looked_after()
@@ -297,8 +299,11 @@ func _initialize() -> void:
 	_check_no_rock_stands_in_a_kept_place()
 	_check_a_standing_animal_does_not_read_the_ground_every_frame()
 	_check_far_animals_are_stepped_less_often_and_walk_as_far()
+	_check_a_grazing_horses_reins_follow_its_head()
+	_check_stepping_far_animals_less_often_loses_no_time()
 	_check_a_piece_from_the_other_child_keeps_off_the_playing_places()
 	_check_the_other_childs_plan_is_one_knock_not_thirty()
+	_check_the_other_childs_cafe_is_not_announced_as_mine()
 	_check_the_host_passes_a_guests_changes_to_the_other_guests()
 	_check_the_host_does_not_pass_on_what_the_network_already_relays()
 	_check_odd_numbers_and_names_in_saves_do_no_harm()
@@ -24507,4 +24512,220 @@ func _check_net_restart_and_kicks_in_the_cheer() -> void:
 	guest_ground._guest_cheer = 0.0
 	_expect(not guest_ground.in_the_net(gball), "and lets it go once the cheer is over")
 	_free_football_pair(pair)
+
+## A grazing horse's reins hung in the standing pose, floating in the air where
+## the head had been, while the head and the bit went down to the grass. The
+## bit end of the reins has to be at the muzzle, as it is on a ridden horse.
+func _check_a_grazing_horses_reins_follow_its_head() -> void:
+	print("a grazing horse's reins follow its lowered head")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var horse := MountKinds.horse_id(0)
+	mounts.place(horse, field.find_spawn_point() + Vector3(6.0, 0.0, 6.0))
+	# Long enough to be down for certain, and not in the look-up part of the cycle.
+	var down := false
+	for _frame in int(Mounts.GRAZE_LOOKS_UP_EVERY * 60.0) * 2:
+		mounts._process(1.0 / 60.0)
+		if mounts.head_angle(horse) > deg_to_rad(55.0):
+			down = true
+			break
+	_expect(down, "the horse puts its head down (%.0f degrees)" % rad_to_deg(mounts.head_angle(horse)))
+	var body := (mounts._nodes[horse] as Node3D).get_node("Body") as Node3D
+	var reins := body.get_node("Reins") as MeshInstance3D
+	var nose := mounts.nose_at(horse)
+	var vertices: PackedVector3Array = reins.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var nearest := INF
+	for point in vertices:
+		nearest = minf(nearest, (reins.global_transform * point).distance_to(nose))
+	_expect(nearest < 0.3, "the reins end at the muzzle, %.2f m from it" % nearest)
+	mounts.queue_free()
+
+## The far animals' owed time belongs to each animal, so an animal added or
+## removed (which moves everybody's place in the list) loses and repeats none of
+## it, and does not shift anybody's turn (it used to, to up to six frames
+## between steps); nobody waits longer than three frames for a step; and one that a child
+## stands beside is stepped every frame, including one beside a guest.
+func _check_stepping_far_animals_less_often_loses_no_time() -> void:
+	print("far animals owe their time to themselves, not to a place in the list")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	# Far from the child, and on dry ground, where nothing turns an animal back.
+	var far_spot := spot
+	for metres in range(200, 600, 20):
+		far_spot = spot + Vector3(float(metres), 0.0, 0.0)
+		if not field.is_pond(far_spot.x, far_spot.z) and field.height_at(far_spot.x, far_spot.z) > field.water_level_at(far_spot.x, far_spot.z) + 0.5:
+			break
+	far_spot.y = field.height_at(far_spot.x, far_spot.z)
+	var list: Array[Dictionary] = []
+	for i in 7:
+		var one := animals.put_one_at(AnimalKinds.SHEEP, far_spot + Vector3(float(i), 0.0, 0.0))
+		one["target"] = one["node"].position
+		one["rest"] = 1000.0
+		list.append(one)
+	animals.follow(spot)
+	# Only these animals: the tiles round the child would add their own.
+	animals._queue.clear()
+	var clock := {}
+	var longest_wait := 0
+	var waited := {}
+	for frame in 40:
+		if frame == 10:
+			# Somebody joins at the front and somebody goes: every index shifts.
+			var fresh := animals.put_one_at(AnimalKinds.COW, far_spot)
+			fresh["rest"] = 1000.0
+			animals._living.erase(list[3])
+			animals._living.erase(fresh)
+			animals._living.insert(0, fresh)
+		for animal in animals._living:
+			animal["rest_before"] = float(animal["rest"])
+		animals._tick(1.0 / 60.0)
+		for animal in animals._living:
+			var stepped := float(animal["rest"]) < float(animal["rest_before"])
+			var id: int = (animal["node"] as Node3D).get_instance_id()
+			waited[id] = 0 if stepped else int(waited.get(id, 0)) + 1
+			longest_wait = maxi(longest_wait, int(waited[id]))
+			clock[id] = float(clock.get(id, 0.0)) + float(animal["rest_before"]) - float(animal["rest"])
+	_expect(longest_wait <= 3, "no animal goes more than three frames unstepped (%d)" % longest_wait)
+	# After 40 frames each has been stepped for the 40 frames it lived through
+	# (less what it still owes, under a stride's worth).
+	for animal in animals._living:
+		var id: int = (animal["node"] as Node3D).get_instance_id()
+		var owes := float(animal.get("owed", 0.0))
+		var had := float(clock[id]) + owes
+		var born_late: bool = animal["kind"] == AnimalKinds.COW
+		var expected := (30.0 if born_late else 40.0) / 60.0
+		_expect(absf(had - expected) < 0.001, "%s has had all its time, stepped or owed (%.4f s of %.4f s)" % [animal["kind"], had, expected])
+	# Beside a guest, far from the host's own child, is near.
+	var one: Dictionary = animals._living[1]
+	(one["node"] as Node3D).position = far_spot
+	_expect(animals._step_every(one) == 4, "far from everybody is every fourth frame")
+	animals.companions.append(far_spot + Vector3(3.0, 0.0, 0.0))
+	_expect(animals._step_every(one) == 1, "beside a guest is every frame")
+	animals.queue_free()
+
+## A child who answers "no" and stays in a seat must not be lifted for nothing.
+## The rides are moved by hand but their seats are solid, and the engine lifts a
+## child standing on one whether or not the game carries them (shown with a real
+## Player on the tower's ring: it rose with it), so the game now keeps each ride
+## standing, bars up, while somebody unpaid is aboard.
+func _check_an_unpaid_child_aboard_keeps_a_ride_still() -> void:
+	print("an unpaid child aboard keeps the tower, the ship and the wheel standing")
+	var tick := 1.0 / 60.0
+
+	var tower := DropTower.new(Vector3.ZERO)
+	get_root().add_child(tower)
+	tower.hold_at_ground(true)
+	for _step in int(60.0 / tick):
+		tower._physics_process(tick)
+	_expect(tower.at_rest() and tower.ring_height() < DropTower.GROUND_Y + 0.01,
+		"a held tower stays on the ground past its whole wait, with nobody carried")
+	tower.hold_at_ground(false)
+	var tower_went := false
+	for _step in int(5.0 / tick):
+		tower._physics_process(tick)
+		tower_went = tower_went or not tower.at_rest()
+	_expect(tower_went, "let go, the tower goes within five seconds, so a yes is not a long wait")
+	tower.queue_free()
+
+	var ship := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(ship)
+	ship.hold_still(true)
+	for _step in int(60.0 / tick):
+		ship._physics_process(tick)
+	_expect(ship.at_rest(), "a held ship stays still past its whole wait")
+	ship.hold_still(false)
+	var ship_went := false
+	for _step in int(5.0 / tick):
+		ship._physics_process(tick)
+		ship_went = ship_went or not ship.at_rest()
+	_expect(ship_went, "let go, the ship swings within five seconds")
+	ship.queue_free()
+
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	wheel.book()
+	var arrived := false
+	for _step in int(200.0 / tick):
+		wheel._physics_process(tick)
+		if wheel.waiting() > 0.0:
+			arrived = true
+			break
+	_expect(arrived, "a booked gondola reaches the boards")
+	wheel.keep_at_boards(true)
+	var held_up := true
+	for _step in int(60.0 / tick):
+		wheel._physics_process(tick)
+		held_up = held_up and wheel.waiting() > 0.0
+	_expect(held_up, "a wheel kept for an unpaid child stands at the boards well past its ten seconds")
+	_expect(wheel.bar_open(0) + wheel.bar_open(1) + wheel.bar_open(2) + wheel.bar_open(3) + wheel.bar_open(4)
+		+ wheel.bar_open(5) + wheel.bar_open(6) + wheel.bar_open(7) + wheel.bar_open(8) + wheel.bar_open(9) > 0.9,
+		"and the bar stays up, so staying aboard never shuts a child in")
+	wheel.keep_at_boards(false)
+	var moved_on := false
+	for _step in int(6.0 / tick):
+		wheel._physics_process(tick)
+		moved_on = moved_on or wheel.waiting() <= 0.0
+	_expect(moved_on, "let go, the wheel turns on within six seconds")
+	wheel.queue_free()
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var body := game.substr(game.find("func _physics_process"))
+	body = body.substr(0, body.find("\nfunc ", 1))
+	_expect(body.contains("world.park.drop_tower.hold_at_ground(") and body.contains("world.park.pirate_ship.hold_still(")
+		and body.contains("wheel.keep_at_boards("),
+		"the game keeps all three standing while somebody aboard has not paid")
+	_expect(body.contains("_wheel_rider_paid = false\n\t\t\t_riding_without_a_ticket = true\n")
+		and body.contains("_offer_a_ride(&\"wheel\")"),
+		"a child set down from a paid turn of the wheel is asked again")
+
+## The raised end decks of the pirate ship have sides, drawn and solid, so a
+## child cannot walk off the edge of one.
+func _check_the_ships_raised_decks_have_side_rails() -> void:
+	print("the pirate ship's raised decks have side rails")
+	var ship := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(ship)
+	for end: float in [-1.0, 1.0]:
+		for side: float in [-1.0, 1.0]:
+			var x := end * lerpf(PirateShip.DECK_HALF, PirateShip.HULL_LENGTH * 0.5, 0.5)
+			# Half way up the rail above the gunwale: where a child's chest would be.
+			var at := Vector3(x, PirateShip._gunwale(x) + PirateShip.BULWARK * 0.5, side * PirateShip.HULL_HALF_WIDTH)
+			var found := false
+			for child in ship._hull.get_children():
+				var shape := child as CollisionShape3D
+				if shape == null or not shape.shape is BoxShape3D:
+					continue
+				var local := shape.transform.affine_inverse() * at
+				var half := (shape.shape as BoxShape3D).size * 0.5
+				if absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z:
+					found = true
+			_expect(found, "a rail stands on the %s side of the %s deck" % [
+				"port" if side < 0.0 else "starboard", "bow" if end > 0.0 else "stern"])
+	ship.queue_free()
+
+## "Your cafe is open — sit at a table" was said when the OTHER child finished a
+## cafe or a shop in the shared valley: the remote-built handler ran the same
+## announcer as the child's own building. A remote venue is now counted without
+## a word (so that it cannot be announced later, nor swallow this child's own
+## first one), and the announcer is left to the child's own placing and removing.
+func _check_the_other_childs_cafe_is_not_announced_as_mine() -> void:
+	print("the other child's cafe is not announced as the child's own")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	for named: String in ["func _on_remote_built", "func _on_remote_removed"]:
+		var body := game.substr(game.find(named))
+		body = body.substr(0, body.find("\nfunc ", 1))
+		_expect(not body.contains("_note_new_venues("), "%s does not say a venue is the child's own" % named)
+		_expect(body.contains("_note_venues_quietly("), "%s still counts the venue it changed" % named)
+	var quiet := game.substr(game.find("func _note_venues_quietly"))
+	quiet = quiet.substr(0, quiet.find("\nfunc ", 1))
+	_expect(
+		quiet.contains("_known_cafe = ") and quiet.contains("_known_shop = ") and not quiet.contains("announce("),
+		"counting a remote venue records it and announces nothing"
+	)
+	var own := game.substr(game.find("func _note_new_venues"))
+	own = own.substr(0, own.find("\nfunc ", 1))
+	_expect(own.contains("say_own_cafe") and own.contains("say_own_shop"), "the child's own venues are still announced")
+	_expect(game.count("_note_new_venues()") >= 3, "and still from the child's own placing and removing")
 

@@ -1179,9 +1179,33 @@ func _graze(delta: float) -> void:
 		if head != null:
 			var wanted := 0.0 if looking_up else -GRAZE_DOWN
 			head.rotation.x = lerp_angle(head.rotation.x, wanted, 1.0 - exp(-2.5 * delta))
+			# The reins hang from the bit, which goes down with the head. Left
+			# as they were made they floated in the air where the head had been.
+			var reins := body.get_node_or_null("Reins") as MeshInstance3D
+			if reins != null:
+				var drawn := _reins_for_head(head.rotation.x)
+				if reins.mesh != drawn:
+					reins.mesh = drawn
 		var tail := body.get_node_or_null("Tail") as Node3D
 		if tail != null:
 			tail.rotation.y = sin((_grazing_time + offset) * 1.3) * 0.14
+
+## One drawing of the reins for each few hundredths of a radian of head turn,
+## shared by every grazing horse: twenty horses each building a new mesh as
+## their heads sank would be a hitch for nothing, and nobody can see a rein
+## that is out by a hair at the bit.
+const GRAZE_REINS_STEP := 0.05
+var _graze_reins: Dictionary = {}
+
+func _reins_for_head(turn: float) -> Mesh:
+	var step := roundi(turn / GRAZE_REINS_STEP)
+	if not _graze_reins.has(step):
+		# Head level is the horse as it was made, which is the standing mesh.
+		_graze_reins[step] = (
+			MountKinds.horse_part("reins") if step == 0
+			else MountKinds.horse_reins_mesh(float(step) * GRAZE_REINS_STEP, Vector3.ZERO)
+		)
+	return _graze_reins[step]
 
 ## How far a horse's nose is dropped from level, in radians: positive when it
 ## is down where the grass is. For the checks.
