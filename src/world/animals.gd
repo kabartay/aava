@@ -1266,6 +1266,12 @@ func is_thirsty(animal: Dictionary) -> bool:
 	var kind: StringName = animal["kind"]
 	if kind == AnimalKinds.BEAVER:
 		return false
+	# Nor livestock, which already has its own errand. A meadow cow far from the
+	# river was "thirsty", so a child with a bottle who came to milk her or
+	# shear a sheep poured water over her instead — no coins, no milk, no wool,
+	# the bottle emptied and the hundred-second cooldown spent.
+	if AnimalKinds.gives(kind) != &"":
+		return false
 	var node: Node3D = animal["node"]
 	if not is_instance_valid(node):
 		return false

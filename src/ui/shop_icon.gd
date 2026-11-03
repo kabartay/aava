@@ -44,6 +44,8 @@ func _draw() -> void:
 			_bicycle(box)
 		ShopStock.MOTORCYCLE:
 			_motorcycle(box)
+		ShopStock.QUAD:
+			_quad(box)
 		ShopStock.SADDLE:
 			_saddle(box)
 		ShopStock.SHEARS:
@@ -150,6 +152,36 @@ func _motorcycle(box: Rect2) -> void:
 	for puff in 3:
 		var at := centre + Vector2(axle + unit * (0.14 + 0.1 * float(puff)), unit * (0.02 - 0.06 * float(puff)))
 		draw_circle(at, unit * (0.05 + 0.02 * float(puff)), Color(0.78, 0.78, 0.80, 0.5 - 0.12 * float(puff)))
+
+## A quad: four fat wheels, which is what sets it apart from the motorcycle
+## beside it on the shelf. Drawn side on with the far pair peeping out behind
+## and above the near pair, so it reads as four rather than as two big ones.
+func _quad(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var wheel := unit * 0.16
+	var axle := unit * 0.3
+	for side: float in [-1.0, 1.0]:
+		# The far wheel first, so the near one is drawn over it.
+		draw_circle(centre + Vector2(side * axle + unit * 0.1, unit * 0.12), wheel * 0.9, DARK.lightened(0.18))
+		draw_circle(centre + Vector2(side * axle, unit * 0.24), wheel, DARK)
+		draw_circle(centre + Vector2(side * axle, unit * 0.24), wheel * 0.4, METAL)
+	# The body: a low slab between the axles with the seat and bars above it.
+	var body := PackedVector2Array([
+		centre + Vector2(-axle - unit * 0.04, unit * 0.12),
+		centre + Vector2(-axle * 0.5, -unit * 0.06),
+		centre + Vector2(axle * 0.7, -unit * 0.06),
+		centre + Vector2(axle + unit * 0.06, unit * 0.12),
+	])
+	draw_colored_polygon(body, ShopStock.colour(ShopStock.QUAD))
+	draw_line(
+		centre + Vector2(axle * 0.5, -unit * 0.06),
+		centre + Vector2(axle * 0.4, -unit * 0.26), DARK, maxf(2.5, unit * 0.07)
+	)
+	draw_line(
+		centre + Vector2(axle * 0.2, -unit * 0.26),
+		centre + Vector2(axle * 0.6, -unit * 0.26), DARK, maxf(2.5, unit * 0.07)
+	)
 
 ## A bottle reads by its neck and its waterline — the two things that say
 ## "this holds a drink" rather than "this is a box".

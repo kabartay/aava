@@ -189,6 +189,11 @@ func _on_ground_changed() -> void:
 		var at := Vector3(field.river_centre_x(float(site)), 0.0, float(site))
 		terrain.rebuild_near(at, DamSpec.POND_LENGTH + 20.0)
 	vegetation.rebuild_all()
+	# What lay on the old bed is laid again on the new ground, and the rocks,
+	# which stand at the height the ground had when their tile was drawn,
+	# follow it too; they return when the child next streams.
+	pickups.regrow()
+	boulders.rebuild_all()
 
 var _last_centre := Vector3.ZERO
 

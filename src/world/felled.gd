@@ -26,6 +26,13 @@ const MATCH_RADIUS := 0.6
 ## felled tree in the world.
 const CELL := 4.0
 
+## How close two positions are to be the same stump when it is a grubbing-out
+## that is being matched. Much tighter than MATCH_RADIUS: that one asks "is this
+## generated tree the one that was cut", this one asks "is this the very stump
+## that was cleared", and a neighbour half a metre off is not. Wider than the
+## decimetre a saved position is snapped to, so a reloaded record still matches.
+const CLEARED_MATCH := 0.15
+
 var _stumps: Dictionary = {}
 var _count := 0
 
@@ -101,7 +108,7 @@ func _uncheck_cleared(world_x: float, world_z: float) -> void:
 				continue
 			var kept := PackedVector2Array()
 			for stump in _cleared[key] as PackedVector2Array:
-				if Vector2(world_x, world_z).distance_to(stump) > MATCH_RADIUS:
+				if Vector2(world_x, world_z).distance_to(stump) > CLEARED_MATCH:
 					kept.append(stump)
 			_cleared[key] = kept
 
@@ -115,7 +122,7 @@ func _is_cleared(world_x: float, world_z: float) -> bool:
 			if not _cleared.has(key):
 				continue
 			for stump in _cleared[key] as PackedVector2Array:
-				if Vector2(world_x, world_z).distance_to(stump) <= MATCH_RADIUS:
+				if Vector2(world_x, world_z).distance_to(stump) <= CLEARED_MATCH:
 					return true
 	return false
 

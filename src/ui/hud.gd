@@ -1278,6 +1278,10 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 		_shop_name.text = ""
 		_shop_note.text = ""
 		_shop_mark_chosen()
+		# Over the map, as the settings are: the map is added last so that it
+		# draws above everything, and its corner sat across the first picture
+		# on the shelf, the chocolate, taking the taps meant for it.
+		_shop.move_to_front()
 	if open:
 		_shop_coins = coins
 		# Just the name. What is in the purse is on the screen at all times now,
@@ -1612,6 +1616,13 @@ func _show_group(group: StringName) -> void:
 	build_tab.emit(group)
 	_layout()
 
+## Open the palette on the group a piece is in, without choosing anything. A
+## new interface opens on "things", and the game builds one while a child is
+## in the middle of building (a change of language does), so it has to be told
+## which tab their piece is on or the tab it lands on takes their choice away.
+func show_group_of(kind: StringName) -> void:
+	_group = group_of(kind)
+
 ## The house or the things, for callers that only know the two — the
 ## screenshot tool, and the layout check. The house opens on its walls, which
 ## is where a house starts.
@@ -1707,9 +1718,12 @@ func _build_mic_notice() -> void:
 	_mic_notice.add_theme_stylebox_override("panel", style)
 	_mic_notice.visible = false
 	# A tap puts it away, so it never sits over the game for somebody who has
-	# read it.
+	# read it. A touch as well as a click: emulate_mouse_from_touch is off, so
+	# on a phone only the touch arrives, and the notice sat there for fourteen
+	# seconds under a finger that had already tapped it.
 	_mic_notice.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed:
+		if (event is InputEventMouseButton and event.pressed) or (
+				event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed):
 			hide_mic_refused())
 	add_child(_mic_notice)
 
@@ -2004,6 +2018,13 @@ func set_shirt(which: int) -> void:
 	if _offer_picker != null:
 		_offer_picker.set_shirt(which)
 
+## The colour this child's body really is, for the faces in the pickers to wear
+## when no shirt has been picked.
+func set_worn_shirt(colour: Color) -> void:
+	_menu_picker.set_worn(colour)
+	if _offer_picker != null:
+		_offer_picker.set_worn(colour)
+
 ## Ring who this child is drawn as, in the settings and in the first-run panel.
 func set_look(look: Array) -> void:
 	_menu_picker.set_look(look)
@@ -2040,6 +2061,7 @@ func offer_look() -> void:
 	column.add_child(_offer_picker)
 	_offer_picker.set_look(_menu_picker.look())
 	_offer_picker.set_shirt(_menu_picker.shirt())
+	_offer_picker.set_worn(_menu_picker.worn())
 	var go := _answer_button("✓", Color(0.42, 0.82, 0.46), close_look_offer)
 	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(go)

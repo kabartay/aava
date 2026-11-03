@@ -306,6 +306,10 @@ func _init() -> void:
 	slide_on_ceiling = false
 	# The ground, and the thin props the camera is allowed to see through.
 	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+	# The child sits on the ground layer, which the animals' feelers stop for,
+	# so an animal coming to be fed took the child for a wall, swung round them
+	# and never arrived. The child is somebody to walk up to, not a fence.
+	set_meta(TerrainSpec.ANIMALS_IGNORE, true)
 
 	var shape := CapsuleShape3D.new()
 	shape.height = HEIGHT

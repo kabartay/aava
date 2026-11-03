@@ -156,6 +156,7 @@ func _initialize() -> void:
 	await _check_the_together_pages_fit_the_screen()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
+	_check_the_microphone_closes_when_the_last_visitor_goes()
 	_check_the_microphone_closes_when_the_app_is_taken_away()
 	_check_a_host_with_nobody_there_cannot_open_the_microphone()
 	_check_a_voice_keeps_its_pitch()
@@ -213,11 +214,27 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_rocks_and_finds_follow_the_ground_when_a_dam_lifts_it()
+	_check_no_french_article_is_put_before_a_machine_whatever_its_gender()
+	_check_every_thing_on_the_shelf_has_a_picture_and_the_shelf_is_above_the_map()
+	_check_a_guest_cannot_reset_the_valley_they_are_visiting()
+	_check_what_was_built_on_the_pitch_is_moved_off_it()
+	await _check_a_host_who_becomes_a_guest_leaves_no_bodies_behind()
+	_check_a_ridden_horses_reins_are_not_remade_every_frame()
+	_check_a_dam_does_not_reshuffle_what_lies_about()
+	_check_livestock_far_from_the_river_is_sheared_not_watered()
+	_check_the_faces_wear_the_shirt_the_child_is_really_in()
+	await _check_a_new_interface_opens_on_the_piece_in_hand()
+	_check_no_engine_drones_while_waiting_for_ground()
+	_check_livestock_is_milked_not_watered()
 	_check_a_child_reaches_to_an_animal_and_it_answers()
 	_check_two_horses_coming_to_rest_both_settle()
+	_check_getting_on_a_second_horse_does_not_freeze_the_first()
 	_check_a_guest_is_not_charged_for_the_hosts_trees()
 	_check_names_in_french_and_russian_are_names()
 	_check_a_guest_cannot_sell_a_machine_in_the_hosts_valley()
+	_check_a_guest_set_down_beside_the_host_is_let_go_by_the_rides()
+	_check_a_machine_in_use_is_not_paid_for()
 	_check_a_ball_given_back_by_the_host_is_not_still_rolling()
 	_check_a_rider_is_not_sat_in_a_chair_or_sent_down_a_slide()
 	await _check_a_far_sound_does_not_silence_a_near_one()
@@ -227,6 +244,7 @@ func _initialize() -> void:
 	_check_a_standing_animal_does_not_read_the_ground_every_frame()
 	_check_a_piece_from_the_other_child_keeps_off_the_playing_places()
 	_check_the_host_passes_a_guests_changes_to_the_other_guests()
+	_check_the_host_does_not_pass_on_what_the_network_already_relays()
 	_check_odd_numbers_and_names_in_saves_do_no_harm()
 	_check_a_held_sidestep_keeps_its_side()
 	await _check_the_characters_build_fit_and_travel()
@@ -248,6 +266,7 @@ func _initialize() -> void:
 	_check_the_tails_are_joined_to_the_rump()
 	_check_the_ticket_booth_faces_the_queue()
 	_check_a_paid_coaster_ride_is_not_sold_twice()
+	_check_a_ticket_for_a_waiting_tower_or_ship_comes_back()
 	_check_the_light_never_lies_flat()
 	_check_a_floor_a_storey_up_comes_down_with_its_walls()
 	_check_the_free_meal_wait_is_kept_between_visits()
@@ -264,6 +283,7 @@ func _initialize() -> void:
 	_check_the_board_follows_a_change_of_language()
 	_check_a_goal_is_a_moment()
 	_check_a_match_is_first_to_five()
+	_check_a_won_score_is_not_carried_through_a_visit()
 	_check_a_ball_that_goes_out_comes_back()
 	_check_a_gentle_touch_keeps_the_ball_at_the_feet()
 	_check_the_host_hears_a_guests_kick()
@@ -320,8 +340,11 @@ func _initialize() -> void:
 	_check_a_felled_tree_stops_being_solid_where_you_stand()
 	_check_a_trunk_is_solid_to_its_foot_and_crowns_differ()
 	_check_a_felled_planted_tree_leaves_its_stump()
+	_check_grubbing_out_one_stump_spares_its_neighbour()
 	_check_a_goal_is_counted_once_and_only_inside()
 	_check_no_text_goes_unused()
+	_check_every_kind_has_its_words_in_every_language()
+	_check_a_tap_puts_the_microphone_notice_away()
 	await _check_the_care_button_is_centred_and_a_cancelled_touch_is_no_tap()
 	await _check_the_name_the_words_and_the_shop_note_hold_up()
 	_check_the_network_keeps_its_promises()
@@ -339,6 +362,7 @@ func _initialize() -> void:
 	_check_animals_cannot_walk_through_the_shop_or_the_hedge()
 	_check_a_bake_finished_out_of_range_is_dropped()
 	await _check_an_animal_walks_round_a_fence()
+	await _check_an_animal_does_not_take_the_child_for_a_wall()
 	await _check_the_feelers_are_cheap_and_steady()
 	await _check_a_broad_animal_does_not_clip_a_post()
 	_check_a_sidestep_does_not_outlast_the_errand()
@@ -20165,6 +20189,22 @@ func _check_the_choice_screen_is_for_small_fingers() -> void:
 	_expect(picker.look() == [1, 2, 3], "tapping what is chosen already changes nothing")
 	picker.queue_free()
 
+## A child who has picked no shirt wears one from the palette, worked out from
+## their network id. The settings faces drew them in a blue-grey that is in no
+## palette, so the face meant to look like them did not.
+func _check_the_faces_wear_the_shirt_the_child_is_really_in() -> void:
+	print("the choice faces wear the fallback shirt when none is picked")
+	var picker := LookPicker.new(Hud.BUTTON * 0.8)
+	get_root().add_child(picker)
+	var fallback := Visitors.SHIRTS[7]
+	picker.set_worn(fallback)
+	_expect(picker._faces[0].cloth == fallback, "with no shirt picked the faces wear the colour the body has")
+	picker.set_shirt(2)
+	_expect(picker._faces[0].cloth == Visitors.SHIRTS[2], "a picked shirt wins over the fallback")
+	picker.set_shirt(-1)
+	_expect(picker._faces[3].cloth == fallback, "and unpicked, it is the fallback again")
+	picker.queue_free()
+
 ## Where a joint is in the rig's own frame, however far down the rig it hangs.
 ## Walks up the parents instead of asking the tree, so it needs none.
 func _in_rig(joint: Node3D, rig: Node3D) -> Vector3:
@@ -21623,8 +21663,543 @@ func _check_a_child_reaches_to_an_animal_and_it_answers() -> void:
 	_expect(gap < 1.2, "a cat that is asked comes to meet the hand (%.2f m off)" % gap)
 	animals.queue_free()
 
+## A host whose only visitor leaves is still connected, but the talk button is
+## taken away with them, and a hidden button never says it was let go. The
+## microphone has to close of its own accord.
+func _check_the_microphone_closes_when_the_last_visitor_goes() -> void:
+	print("the microphone closes when the last visitor goes")
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	host.role = Session.Role.HOSTING
+	host._link = guest
+	host.guests[2] = "Amir"
+	var voice := Voice.new()
+	get_root().add_child(voice)
+	voice.attach(host)
+	voice._capture = AudioEffectCapture.new()
+	voice._talking = true
+	voice._process(0.0)
+	_expect(voice.is_talking(), "with a visitor present, holding talk goes on")
+	host.guests.clear()
+	voice._process(0.0)
+	_expect(not voice.is_talking(), "with nobody left, the microphone is closed")
+	voice.queue_free()
+	host.queue_free()
+	guest.queue_free()
+## The words built from a kind's name — "item_" + kind, "shop_%s_what" — are
+## invisible to the check that reads literal keys, and to the one for unused
+## ones, which waves whole prefixes through. A new kind with no words would
+## show "?item_x" on a child's screen, in whichever language nobody looked at.
+func _check_every_kind_has_its_words_in_every_language() -> void:
+	print("every kind has its words in every language")
+	var asked := PackedStringArray()
+	for kind in ItemKinds.ALL:
+		asked.append("item_%s" % kind)
+		asked.append("item_%s_object" % kind)
+	for item in ShopStock.ALL:
+		asked.append("shop_%s" % item)
+		asked.append("shop_%s_what" % item)
+	for kind in MountKinds.ALL:
+		asked.append("mount_%s" % kind)
+		asked.append("mount_%s_on" % kind)
+	for kind in AnimalKinds.ALL:
+		asked.append("animal_%s" % kind)
+	for kind in Today.KINDS:
+		asked.append("today_%s" % kind)
+	for kind in Journal.ALL:
+		asked.append("back_%s" % kind)
+	for kind in BuildKinds.ALL:
+		asked.append("build_%s" % kind)
+	for kind in HouseParts.ALL:
+		asked.append("part_%s" % kind)
+	for key in Hud.HOUSE_HINTS.values():
+		asked.append(String(key))
+	for entry: Dictionary in Hud.BUILD_GROUPS:
+		asked.append(String(entry["text"]))
+	for key in BuildMode.PLAN_WHY:
+		asked.append(String(key))
+	for key in Character.LABELS:
+		asked.append(String(key))
+	var missing := PackedStringArray()
+	for key in asked:
+		var entry = Text.STRINGS.get(key)
+		if entry == null:
+			missing.append(key)
+			continue
+		for code in Text.FINISHED_LANGUAGES:
+			if not entry.has(code):
+				missing.append("%s/%s" % [key, code])
+	_expect(missing.is_empty(), "all %d words a kind's name builds are written" % asked.size())
+	for entry in missing:
+		_fail("no words for %s" % entry)
+
+## A tap on the refused-microphone notice puts it away — a touch, since the
+## project turns off mouse emulation from touch and a phone sends nothing else.
+func _check_a_tap_puts_the_microphone_notice_away() -> void:
+	print("a tap puts the microphone notice away")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.show_mic_refused()
+	var touch := InputEventScreenTouch.new()
+	touch.pressed = true
+	hud._mic_notice.gui_input.emit(touch)
+	_expect(not hud.is_mic_refused_shown(), "a touch on the notice puts it away")
+	hud.show_mic_refused()
+	var lift := InputEventScreenTouch.new()
+	lift.pressed = false
+	hud._mic_notice.gui_input.emit(lift)
+	_expect(hud.is_mic_refused_shown(), "a finger lifting does not")
+	hud.queue_free()
+## Grubbing out one stump hid its neighbours' too. A cleared stump was matched
+## to a position within MATCH_RADIUS (0.6 m), so a tree felled half a metre from
+## a tidied stump was counted as cleared and left no stump, and felling it also
+## withdrew the first one's clearing so that came back.
+func _check_grubbing_out_one_stump_spares_its_neighbour() -> void:
+	print("grubbing out one stump spares its neighbour")
+	var stumps := Felled.new()
+	stumps.fell(Vector3(10.0, 0.0, 10.0))
+	stumps.clear_stumps_near(Vector3(10.0, 0.0, 10.0), 0.1)
+	stumps.fell(Vector3(10.4, 0.0, 10.0))
+	_expect(not stumps.shows_stump(10.0, 10.0), "a stump felled beside a cleared one does not bring it back")
+	_expect(stumps.shows_stump(10.4, 10.0), "and the new stump shows, though a cleared one is half a metre off")
+	var again := Felled.new()
+	again.from_data(stumps.to_data())
+	_expect(not again.shows_stump(10.0, 10.0) and again.shows_stump(10.4, 10.0), "and both survive a save")
+func _check_a_guest_set_down_beside_the_host_is_let_go_by_the_rides() -> void:
+	print("a guest set down beside the host is let go by the rides")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var placing := game.substr(game.find("func _place_beside_host"))
+	placing = placing.substr(0, placing.find("\nfunc ", 1))
+	_expect(placing.contains("_let_the_rides_go()"), "arriving lets go of a ride")
+	var letting := game.substr(game.find("func _let_the_rides_go"))
+	letting = letting.substr(0, letting.find("\nfunc ", 1))
+	for held: String in ["_carousel_seated = false", "step_off_swing()", "_sliding = -1.0", "_dining = 0.0", "player.is_carried = false"]:
+		_expect(letting.contains(held), "and each hold on the body is undone (%s)" % held)
+## Holding "start again" in a host's valley emptied the guest's own bag (and
+## saved it) while only wiping the host's valley from the guest's screen.
+func _check_a_guest_cannot_reset_the_valley_they_are_visiting() -> void:
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var at := game.find("func _on_reset() -> void:")
+	var wipe := game.find("inventory.from_data({})", at)
+	var gate := game.find("if _visiting:", at)
+	_expect(at >= 0 and gate > at and gate < wipe, "a guest cannot reset the valley they are visiting")
+	var strings: Dictionary = Text.STRINGS["say_reset_visiting"]
+	for language in Text.FINISHED_LANGUAGES:
+		_expect(strings.has(language), "the visiting-reset line exists in %s" % language)
+## A ticket taken on the tower or the ship while it stands waiting to go has
+## bought nothing yet: a child who steps off gets it back, as on the carousel,
+## wheel and coaster, and is not asked for a second for the same departure.
+func _check_a_ticket_for_a_waiting_tower_or_ship_comes_back() -> void:
+	print("a ticket paid on a tower or ship that has not gone comes back")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var body := game.substr(game.find("func _physics_process"))
+	body = body.substr(0, body.find("\nfunc ", 1))
+	var back := body.find("_ride_waiting_paid != &\"\" and aboard != _ride_waiting_paid")
+	_expect(
+		back >= 0 and body.find("wallet.return_ticket()", back) > back
+		and body.find("wallet.return_ticket()", back) < body.find("_aboard = aboard"),
+		"stepping off a ride that has not gone hands the ticket back"
+	)
+	_expect(
+		body.contains("not world.park.drop_tower.at_rest()")
+		and body.contains("not world.park.pirate_ship.at_rest()"),
+		"and once the ride has gone the ticket is spent"
+	)
+	var answer := game.substr(game.find("func _on_answered"))
+	_expect(answer.contains("_ride_waiting_paid = _asked_ride"), "the answer marks the ticket as waiting")
+	var tower := DropTower.new(Vector3.ZERO)
+	var ship := PirateShip.new(Vector3.ZERO)
+	_expect(tower.at_rest() and ship.at_rest(), "both stand at rest before they go")
+	tower.free()
+	ship.free()
+## Get off one horse mid-stride and straight onto the next: the first was still
+## easing back to standing, and the one settling slot was cleared by the second
+## mounting, so its legs stayed cocked for good.
+func _check_getting_on_a_second_horse_does_not_freeze_the_first() -> void:
+	print("getting on a second horse does not freeze the first")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var camp := field.camp_centre()
+	mounts.place(&"horse:0", camp + Vector3(3.0, 0.0, 0.0))
+	mounts.place(&"horse:1", camp + Vector3(-3.0, 0.0, 0.0))
+	mounts.mount(&"horse:0")
+	var leg := mounts.node_of(&"horse:0").get_node("Body/Leg2") as Node3D
+	leg.rotation.x = 0.8
+	mounts.dismount(camp, 0.0)
+	mounts.mount(&"horse:1")
+	for _i in 120:
+		mounts._process(0.05)
+	_expect(
+		absf(leg.rotation.x) < 0.02,
+		"a horse got off and left for another stands straight (%.2f rad)" % leg.rotation.x
+	)
+	mounts.queue_free()
+## A tree saved on the football pitch used to stay there: the rule that tidies
+## a loaded valley knew every kept ground but the pitch's own.
+func _check_what_was_built_on_the_pitch_is_moved_off_it() -> void:
+	print("what was built on the pitch is moved off it")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	var stuck := 0
+	for spot: Vector2 in [
+		Vector2(Pitch.CENTRE.x, Pitch.CENTRE.z),
+		Vector2(Pitch.CENTRE.x + 10.0, Pitch.CENTRE.z + 3.0),
+		Vector2(Pitch.CENTRE.x - 24.0, Pitch.CENTRE.z - 1.0),
+		Vector2(Pitch.CENTRE.x + 3.0, Pitch.CENTRE.z + 16.0),
+	]:
+		_expect(KeepOut.kept(spot.x, spot.y, camp, river_x), "the pitch is kept at (%.0f, %.0f)" % [spot.x, spot.y])
+		var free := KeepOut.nearest_free(spot.x, spot.y, camp, river_x)
+		if KeepOut.kept(free.x, free.y, camp, river_x):
+			stuck += 1
+	_expect(stuck == 0, "and whatever stands on it is set down on free ground (%d still kept)" % stuck)
+## A child who hosted, and then went to visit somebody else, is not left with
+## invisible solid capsules where their own guests last stood: the bodies are
+## only looked after by whoever plays the game.
+func _check_a_host_who_becomes_a_guest_leaves_no_bodies_behind() -> void:
+	print("a host who becomes a guest leaves no guest bodies behind")
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var host: Session = pair[0]
+	var guest: Session = pair[1]
+	var host_ground: FootballGround = pair[2]
+	var centre := Pitch.centre()
+	host.guest_positions[guest._link_id] = Vector3(centre.x, field.height_at(centre.x, centre.z), centre.z)
+	await get_root().get_tree().physics_frame
+	await get_root().get_tree().physics_frame
+	_expect(host_ground.body_count() == 1, "a guest on the pitch has a body")
+	host.role = Session.Role.VISITING
+	await get_root().get_tree().physics_frame
+	await get_root().get_tree().physics_frame
+	_expect(host_ground.body_count() == 0, "none is kept once this child is the visitor")
+	var standing := 0
+	for child in host_ground.get_children():
+		if child.name == "GuestBody" and not child.is_queued_for_deletion():
+			standing += 1
+	_expect(standing == 0, "and none is left standing in the tree")
+	_free_football_pair(pair)
+## The ridden horse's reins were a new mesh at every frame, even standing still.
+func _check_a_ridden_horses_reins_are_not_remade_every_frame() -> void:
+	print("a ridden horse's reins are redrawn when they move, not every frame")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var horse := MountKinds.horse_id(0)
+	var spot := Vector3(60.0, field.height_at(60.0, -150.0), -150.0)
+	mounts.place(horse, spot)
+	mounts.mount(horse)
+	var reins := (mounts._nodes[horse] as Node3D).get_node_or_null("Body/Reins") as MeshInstance3D
+	_expect(reins != null, "the ridden horse has reins")
+	if reins != null:
+		var redrawn := 0
+		var was: Mesh = null
+		for _frame in 120:
+			mounts.carry(spot, 0.0)
+			mounts._process(1.0 / 60.0)
+			if reins.mesh != was:
+				redrawn += 1
+				was = reins.mesh
+		_expect(redrawn <= 40, "a horse standing for two seconds has its reins made %d times, not 120" % redrawn)
+	mounts.queue_free()
+## With Godot's server relay on, which is its default, a guest's rpc reaches the
+## other guests itself; the host passing it on too gave them every dam stick twice.
+func _check_the_host_does_not_pass_on_what_the_network_already_relays() -> void:
+	var host := Session.new()
+	get_root().add_child(host)
+	host.role = Session.Role.HOSTING
+	host.guests = {2: "Amir", 3: "Bo", 4: "Cy"}
+	var scene := host.multiplayer as SceneMultiplayer
+	_expect(scene != null, "a session in the tree has the scene multiplayer")
+	if scene != null:
+		scene.server_relay = true
+		_expect(host.others_than(3).is_empty(), "the host does not repeat what the network relays")
+		scene.server_relay = false
+		_expect(host.others_than(3).size() == 2, "the host passes it on where the network does not relay")
+		scene.server_relay = true
+	host.role = Session.Role.ALONE
+	host.free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("session.peer_gone.connect(visitors.remove)"),
+		"a peer that drops before it is named does not leave its early position behind"
+	)
+## A finished dam raises the river bed, and what lies about the banks changes with
+## it. It must change only there: the rest of the tile is the same sticks in the
+## same places, or what a child had already taken comes back as something else.
+func _check_a_dam_does_not_reshuffle_what_lies_about() -> void:
+	print("a dam does not reshuffle the pickups")
+	var seed_value := 20260903
+	var dry := HeightField.new(seed_value)
+	var dammed := HeightField.new(seed_value)
+	dammed.dams_built = [DamSpec.SITES[0]]
+	var site_x := dry.river_centre_x(DamSpec.SITES[0])
+	var centre := Vector3(site_x, 0.0, DamSpec.SITES[0])
+	var before := Pickups.new(dry, seed_value)
+	var after := Pickups.new(dammed, seed_value)
+	get_root().add_child(before)
+	get_root().add_child(after)
+	for pickups: Pickups in [before, after]:
+		pickups.follow(centre)
+		for _i in 200:
+			pickups._process(0.016)
+			if pickups.is_idle():
+				break
+	var kinds := {}
+	for record in before._active:
+		kinds[record["id"]] = record["kind"]
+	var compared := 0
+	var changed := 0
+	for record in after._active:
+		if not kinds.has(record["id"]):
+			continue
+		var at: Vector3 = record["position"]
+		# Where the pond is the ground itself differs, and so may the kind.
+		if DamSpec.fill(at.x, at.z, site_x, dammed.dams_built) > 0.0:
+			continue
+		compared += 1
+		if kinds[record["id"]] != record["kind"]:
+			changed += 1
+	_expect(compared > 20, "there are pickups beyond the pond to compare (%d)" % compared)
+	_expect(changed == 0, "%d of %d pickups beyond the pond became something else under a dam" % [changed, compared])
+
+	# And tiles built before the dam are laid again, with what was taken still gone.
+	var some_id: String = after._active[0]["id"]
+	after.taken_elsewhere(some_id)
+	after.regrow()
+	for _i in 200:
+		after._process(0.016)
+		if after.is_idle():
+			break
+	var back := false
+	for record in after._active:
+		if record["id"] == some_id:
+			back = true
+	_expect(not back, "regrowing the pickups does not bring a taken one back")
+	_expect(after.count_active() > 20, "regrowing the pickups lays them again")
+	before.queue_free()
+	after.queue_free()
+## A machine that every one of is being ridden by a visitor cannot be taken out
+## of the valley, and the shop must not pay for it: the coins went, the machine
+## stayed standing, was saved, and the child rode a bicycle they no longer owned.
+func _check_a_machine_in_use_is_not_paid_for() -> void:
+	print("a machine in use is not paid for")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var here := Vector3(30.0, field.height_at(30.0, 30.0), 30.0)
+	var only := mounts.free_id(MountKinds.BICYCLE)
+	mounts.place(only, here)
+	_expect(mounts.can_sell_one(MountKinds.BICYCLE), "a bicycle standing still can be sold")
+	mounts.ride_remote(only, here, 0.0)
+	_expect(not mounts.can_sell_one(MountKinds.BICYCLE), "the only bicycle, with a visitor on it, cannot")
+	_expect(not mounts.sell_one(MountKinds.BICYCLE, here), "and selling it takes nothing away")
+	var spare := mounts.free_id(MountKinds.BICYCLE)
+	mounts.place(spare, here + Vector3(2.0, 0.0, 0.0))
+	_expect(mounts.can_sell_one(MountKinds.BICYCLE), "a spare one that nobody is on can")
+	mounts.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var sale := game.substr(game.find("func _on_sell_back"))
+	sale = sale.substr(0, sale.find("\nfunc ", 1))
+	_expect(
+		sale.find("_machine_can_go(item)") >= 0
+		and sale.find("_machine_can_go(item)") < sale.find("wallet.sell_back"),
+		"the game asks whether the machine can go before it pays for it"
+	)
+	for code in Text.LANGUAGES:
+		Text.set_language(code)
+		_expect(Text.of("say_machine_in_use") != "say_machine_in_use", "the refusal is worded in %s" % code)
+	Text.set_language(Text.EN)
+	# And a bar of chocolate is not eaten by a child whose energy is full.
+	var snack := game.substr(game.find("func _on_snack"))
+	snack = snack.substr(0, snack.find("\nfunc ", 1))
+	_expect(
+		snack.find("MAX_ENERGY - 0.01") >= 0
+		and snack.find("MAX_ENERGY - 0.01") < snack.find("inventory.spend"),
+		"a full child keeps the chocolate rather than wasting it"
+	)
+## A child who wins a match and joins a brother's valley during the pause must
+## not come home to a won score that nothing will start again.
+func _check_a_won_score_is_not_carried_through_a_visit() -> void:
+	print("a won score is not carried through a visit")
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var guest: Session = pair[1]
+	var ground: FootballGround = pair[3]
+	# Back to being at home, to win a match there.
+	guest.role = Session.Role.HOSTING
+	ground._process(0.0)
+	for n in 5:
+		_goal_now(ground, field, n % 3, 1)
+	_expect(ground.winner() == 0 and ground.blue == 5, "five goals win it at home")
+	# Now in the pause, the child joins somebody's valley and goes home again.
+	guest.role = Session.Role.VISITING
+	ground._process(0.0)
+	_expect(ground.is_following(), "the child is a guest")
+	var saved := ground.to_data()
+	_expect(int(saved["blue"]) == 0 and int(saved["red"]) == 0, "a won score is not saved as the child's own")
+	guest.role = Session.Role.HOSTING
+	ground._process(0.0)
+	_expect(ground.blue == 0 and ground.red == 0, "at home again the board is not left at a won 5:0 (%d:%d)" % [ground.blue, ground.red])
+	_free_football_pair(pair)
+## A sheep or a cow in a dry meadow is shorn or milked, never watered: watering
+## paid nothing, spent the bottle and started the cooldown with no fleece.
+func _check_livestock_far_from_the_river_is_sheared_not_watered() -> void:
+	print("livestock far from the river is sheared, not watered")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	var dry := spot
+	for step in 400:
+		dry = spot + Vector3(float(step) * 5.0, 0.0, 0.0)
+		if field.distance_to_river(dry.x, dry.z) > Animals.THIRSTY_DISTANCE + 5.0:
+			break
+	var sheep := animals.put_one_at(AnimalKinds.SHEEP, dry)
+	var cow := animals.put_one_at(AnimalKinds.COW, dry + Vector3(2.0, 0.0, 0.0))
+	var cat := animals.put_one_at(AnimalKinds.CAT, dry + Vector3(4.0, 0.0, 0.0))
+	_expect(animals.is_thirsty(cat), "a cat far from the river is thirsty")
+	_expect(not animals.is_thirsty(sheep), "a sheep far from the river is not offered water")
+	_expect(not animals.is_thirsty(cow), "nor a cow")
+	animals.queue_free()
 	# Another child's reach is one bit more in what is already sent.
 	var code := Session.motion_code(1.5, false, false, true)
 	_expect(code & 128 != 0 and Session.motion_speed(code) == 1.5 and code & 96 == 0, "a reach is a bit in the motion code, beside the pace")
+
+## A new interface opened while a child is building (a change of language
+## builds one) opened on the things tab, which the wiring answers by swapping
+## the wall in their hand for a sapling.
+func _check_a_new_interface_opens_on_the_piece_in_hand() -> void:
+	print("a new interface opens on the tab of the piece in hand")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var tabs: Array[StringName] = []
+	hud.build_tab.connect(func(group: StringName) -> void: tabs.append(group))
+	hud.show_group_of(HouseParts.ROOF_PEAK)
+	hud.set_building(true)
+	_expect(not tabs.is_empty() and tabs.back() == &"roof", "it opens on the roof tab, not the things")
+	hud.queue_free()
+## A guest got off a machine to be put beside the host stays free of its engine
+## while the ground arrives: the waiting branch of _process returns before the
+## engine is told anything, so it must tell it itself.
+func _check_no_engine_drones_while_waiting_for_ground() -> void:
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var waiting := game.find("if _waiting_for_ground:", game.find("func _process("))
+	var branch := game.substr(waiting, game.find("return", waiting) - waiting)
+	_expect(branch.contains("ambience.engine(-1.0)"), "the engine is silenced while a rider waits for ground")
+## The player's body is on the ground layer, which the animals' feelers stop
+## for, so a cow coming to be fed saw the child as a fence and sidestepped.
+func _check_an_animal_does_not_take_the_child_for_a_wall() -> void:
+	print("an animal does not take the child for a wall")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+	var player := Player.new()
+	get_root().add_child(player)
+	player.global_position = spot + Vector3(0.0, 0.05, -1.4)
+	await physics_frame
+	await physics_frame
+	var cow := animals.put_one_at(AnimalKinds.COW, spot)
+	(cow["node"] as Node3D).global_position = spot
+	_expect(
+		not animals._solid_ahead(cow, spot, Vector3(0.0, 0.0, -1.0)),
+		"a child standing in front of a cow is not in her way"
+	)
+	player.queue_free()
+	animals.queue_free()
+## A cow far from the river used to count as thirsty, and the care button gave
+## her water — no milk, no coins, and her cooldown spent — to a child with a
+## bottle who had come to milk her. Livestock is never thirsty; a dog is.
+func _check_livestock_is_milked_not_watered() -> void:
+	print("livestock is milked, not watered")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	# Somewhere well off the river, found by walking away from the spawn point.
+	for step in 400:
+		if field.distance_to_river(spot.x, spot.z) > Animals.THIRSTY_DISTANCE + 5.0:
+			break
+		spot.x += 10.0
+	_expect(field.distance_to_river(spot.x, spot.z) > Animals.THIRSTY_DISTANCE, "a spot far from the river was found")
+	var dog := animals.put_one_at(AnimalKinds.DOG, spot)
+	var cow := animals.put_one_at(AnimalKinds.COW, spot + Vector3(2.0, 0.0, 0.0))
+	var sheep := animals.put_one_at(AnimalKinds.SHEEP, spot + Vector3(-2.0, 0.0, 0.0))
+	_expect(animals.is_thirsty(dog), "a dog far from the river is thirsty")
+	_expect(not animals.is_thirsty(cow), "a cow is not, she is milked")
+	_expect(not animals.is_thirsty(sheep), "nor a sheep, she is shorn")
+	animals.queue_free()
+
+func _check_every_thing_on_the_shelf_has_a_picture_and_the_shelf_is_above_the_map() -> void:
+	print("every thing for sale is drawn on the shelf, and the shelf is not under the map")
+	# The shop is pictures and prices with no words, so a thing with no drawing
+	# is a blank tile: the quad, second dearest, was exactly that.
+	var source := FileAccess.get_file_as_string("res://src/ui/shop_icon.gd")
+	for item in ShopStock.ALL:
+		_expect(
+			source.contains("ShopStock.%s:" % String(item).to_upper()),
+			"the shop icon draws a %s" % item
+		)
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	var map := Minimap.new(HeightField.new(20260903))
+	hud.attach_minimap(map)
+	hud.set_shop_open(true, 500, {})
+	_expect(
+		hud._shop.get_index() > map.get_index(),
+		"the open shop is drawn over the map, which sat across its first picture"
+	)
+	hud.queue_free()
+
+## The machines are named in one place and put into sentences in three, and
+## French gives "moto" and "barque" the other article from "vélo": "tu montes le
+## moto". The sentences must not carry an article the label cannot agree with.
+func _check_no_french_article_is_put_before_a_machine_whatever_its_gender() -> void:
+	print("no French sentence puts a gendered article before a machine")
+	Text.set_language(Text.FR)
+	for key: String in ["say_mounted", "say_not_ridden_here", "say_waiting_outside"]:
+		var line := Text.of(key)
+		for article: String in ["le %s", "la %s", "ton %s", "ta %s", "un %s", "une %s"]:
+			_expect(not line.contains(article), "%s has no '%s' in French" % [key, article])
+	Text.set_language(Text.EN)
+
+func _check_rocks_and_finds_follow_the_ground_when_a_dam_lifts_it() -> void:
+	print("rocks and finds follow a dam's ground")
+	var field := HeightField.new(20260903)
+	var site: float = DamSpec.SITES[0]
+	var centre := Vector3(field.river_centre_x(site), 0.0, site + DamSpec.POND_LENGTH * 0.4)
+	var rocks := Boulders.new(field, 20260903)
+	get_root().add_child(rocks)
+	rocks.follow(centre)
+	while not rocks.is_idle():
+		rocks._process(0.0)
+	var before := rocks.count_active()
+	field.dams_built = [site]
+	rocks.rebuild_all()
+	_expect(rocks.count_active() == 0, "the old rocks are gone when the ground changes")
+	rocks.follow(centre)
+	while not rocks.is_idle():
+		rocks._process(0.0)
+	var level := true
+	for record in rocks._active:
+		var at: Vector3 = record["position"]
+		if absf(at.y - field.height_at(at.x, at.z)) > 0.01:
+			level = false
+	_expect(level and rocks.count_active() > 0 and before > 0, "every rock stands on the ground as it now is")
+	rocks.queue_free()
+	var finds := Pickups.new(field, 20260903)
+	get_root().add_child(finds)
+	finds.follow(centre)
+	while not finds.is_idle():
+		finds._process(0.0)
+	finds.rebuild_all()
+	_expect(finds.count_active() == 0 and finds.is_idle(), "the finds are drawn afresh too")
+	finds.queue_free()
+
 
 

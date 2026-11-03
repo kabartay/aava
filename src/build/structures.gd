@@ -455,6 +455,10 @@ const LAMP_ENERGY := 1.3
 const LAMPS_LIT := 4
 const LAMP_SHOWN_WITHIN := 45.0
 
+## The records that carry a lamp's light, found again whenever `revision` moves.
+var _lamps: Array[Dictionary] = []
+var _lamps_revision := -1
+
 func _add_lamp_light(record: Dictionary, node: Node3D) -> void:
 	var light := OmniLight3D.new()
 	light.position = Vector3(0.0, 1.56, 0.0)
@@ -477,8 +481,18 @@ func lamps_lit() -> int:
 
 ## Called every frame with how dark it is and where the child is.
 func light_lamps(darkness: float, near: Vector3) -> void:
+	# Only the lamps are walked. A house is hundreds of pieces and nearly none
+	# of them is a lamp, yet every one was asked for its light sixty times a
+	# second; the lamps are found again only when something is built or taken
+	# down.
+	if _lamps_revision != revision:
+		_lamps.clear()
+		for record in _records:
+			if record.get("light") != null:
+				_lamps.append(record)
+		_lamps_revision = revision
 	var candidates: Array[Dictionary] = []
-	for record in _records:
+	for record in _lamps:
 		var light: OmniLight3D = record.get("light")
 		if light == null or not is_instance_valid(light):
 			continue

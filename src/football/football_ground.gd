@@ -504,9 +504,18 @@ func _sync_role() -> void:
 	_out_for.clear()
 	_board.show_winner(-1, 0.0)
 	if now:
+		# Bodies kept for this valley's own guests would stay behind otherwise,
+		# because _carry_guests only runs for whoever plays the game: invisible
+		# solid capsules left standing on the pitch, in this child's way.
+		for id: int in _bodies.keys():
+			(_bodies[id] as Node).queue_free()
+		_bodies.clear()
 		# What is on the board is the host's from here, until the host says.
-		_own_blue = blue
-		_own_red = red
+		# A match won a moment ago is not carried home as it stood: its pause
+		# is cancelled here, and nothing would begin the next game.
+		var own := unfinished(blue, red)
+		_own_blue = own.x
+		_own_red = own.y
 		blue = 0
 		red = 0
 		for i in _balls.size():

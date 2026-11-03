@@ -271,6 +271,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.guest_left.connect(_on_guest_left)
 	session.peer_gone.connect(voice.forget)
 	session.peer_gone.connect(_let_go_of_their_mounts)
+	# Also for one who dropped before saying who they were: a position that
+	# arrived ahead of their name is kept for them, and would hold a place in
+	# the few there are for good.
+	session.peer_gone.connect(visitors.remove)
 	voice.someone_spoke.connect(visitors.speaking)
 	session.guest_renamed.connect(_on_guest_renamed)
 	session.guest_moved.connect(_on_guest_moved)
@@ -531,6 +535,9 @@ var _asked_ride: StringName = &""
 ## answer, and the ride is the one it bought.
 var _carousel_paid := false
 var _carousel_seated := false
+## The tower or the ship, when its ticket was taken while it stood waiting to
+## go: the ride has not begun, so a child who steps off gets the ticket back.
+var _ride_waiting_paid: StringName = &""
 
 ## Offer a ride at a ride's own button: use a ticket if there is one, buy one
 ## with coins if there is not, and say so plainly if neither.
@@ -658,7 +665,19 @@ func _physics_process(delta: float) -> void:
 	elif not coaster.boarding() or aboard == &"":
 		_coaster_rider_paid = false
 
+	# The tower and the ship run on their own clocks. Once one has gone, the
+	# ticket has bought its ride; until then it is only a place in the queue.
+	if _ride_waiting_paid == &"drop_tower" and not world.park.drop_tower.at_rest():
+		_ride_waiting_paid = &""
+	elif _ride_waiting_paid == &"pirate_ship" and not world.park.pirate_ship.at_rest():
+		_ride_waiting_paid = &""
 	if aboard != _aboard:
+		# Paid on the tower or the ship and stepped off before it went: the
+		# ticket comes back, as the carousel's does, or the child's next step
+		# aboard would be asked for a second one for the same departure.
+		if _ride_waiting_paid != &"" and aboard != _ride_waiting_paid:
+			wallet.return_ticket()
+			_ride_waiting_paid = &""
 		# Stepping out of a gondola spends the ride that was paid for at the
 		# button: the next one is a new ride and a new ticket.
 		if _aboard == &"wheel" and aboard != &"wheel":
@@ -813,6 +832,12 @@ func _process(delta: float) -> void:
 		return
 
 	if _waiting_for_ground:
+		# The engine is let go of here as well as in the ordinary path below,
+		# which this early return skips: a guest put down beside the host
+		# while riding was got off quietly, and the machine they had left
+		# went on droning at its last pitch until the ground under them
+		# had arrived.
+		ambience.engine(-1.0)
 		if world.terrain.has_ground_at(player.global_position):
 			player.set_physics_process(true)
 			_waiting_for_ground = false
@@ -1249,6 +1274,15 @@ func _on_language(code: StringName) -> void:
 ## pickups they had taken, the score. The seed stays because "start again"
 ## should mean a clean morning in the valley you know, not exile to a new one.
 func _on_reset() -> void:
+	# Not in somebody else's valley. A guest holds the host's structures in the
+	# place of their own, so the hold wiped the host's valley from this screen
+	# and emptied the guest's own bag, which the save then wrote down: a child
+	# visiting a brother lost their own things to a button meant for their own
+	# valley, and nothing of the brother's changed at all.
+	if _visiting:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_reset_visiting"), 3.0)
+		return
 	if structures != null:
 		structures.from_data([])
 		# Its campfires are gone, so no fire can go on burning without one.
@@ -1292,6 +1326,7 @@ func _connect_the_rest_of_the_hud() -> void:
 	hud.set_player_name(profiles.current_player)
 	hud.set_shirt(_shirt)
 	player.set_shirt(_own_shirt_color())
+	hud.set_worn_shirt(_own_shirt_color())
 	player.set_look(_look)
 	hud.set_look(_look)
 	hud.look_chosen.connect(_on_look_chosen)
@@ -1319,7 +1354,11 @@ func _rebuild_hud() -> void:
 	_connect_the_rest_of_the_hud()
 	_show_the_state()
 	if was_building:
+		# On the tab the piece in hand is on, or the new interface opens on the
+		# things and swaps the wall a child was laying for a sapling.
+		hud.show_group_of(build_mode.selected)
 		hud.set_building(true)
+		build_mode.say_again()
 
 ## Everything the interface shows that it cannot work out for itself, read from
 ## the game as it is right now.
@@ -1570,6 +1609,8 @@ func _own_shirt_color() -> Color:
 ## child's colour is worked out from it.
 func _refresh_own_shirt() -> void:
 	player.set_shirt(_own_shirt_color())
+	if hud != null:
+		hud.set_worn_shirt(_own_shirt_color())
 
 ## A child picked a shirt in the settings.
 ##
@@ -1580,6 +1621,7 @@ func _on_shirt_chosen(which: int) -> void:
 	_shirt = which
 	player.set_shirt(_own_shirt_color())
 	hud.set_shirt(which)
+	hud.set_worn_shirt(_own_shirt_color())
 	sounds.play(Sounds.Sound.CHIME, 1.35)
 	_write_save()
 	if session.is_connected_to_anyone():
@@ -1899,6 +1941,7 @@ func _spot_beside(host: Vector3) -> Vector3:
 
 func _place_beside_host() -> void:
 	_get_off_quietly()
+	_let_the_rides_go()
 	var spot := _spot_beside(_host_at)
 	player.velocity = Vector3.ZERO
 	player.global_position = spot + Vector3.UP * SPAWN_CLEARANCE
@@ -1906,6 +1949,24 @@ func _place_beside_host() -> void:
 	# As on first arrival: no physics until the ground under them exists.
 	player.set_physics_process(false)
 	_waiting_for_ground = true
+
+## A child set down in somebody else's valley is not still on a ride of their
+## own. The carousel, the swing, the slide and a café chair each take hold of
+## the body and put it where their seat is, so a child who asked to join while
+## on one was carried to the host's side and then pulled straight back to a
+## saddle or a swing that is not in this valley at all.
+func _let_the_rides_go() -> void:
+	if _carousel_seated:
+		world.park.carousel.step_off()
+		_carousel_seated = false
+	if world.places.swinging():
+		world.places.step_off_swing()
+	_sliding = -1.0
+	_slid = 0.0
+	_dining = 0.0
+	player.is_carried = false
+	player.strapped_in = false
+	player.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
 
 ## The connection is over. A guest goes home: the world is read back from disk,
 ## where their own valley has been kept all along.
@@ -2309,6 +2370,11 @@ func _on_shoot_start() -> void:
 	player.start_charging()
 
 func _on_shoot_release() -> void:
+	# No draw, no arrow: the wind-up is dropped when the child steps off the
+	# line or the button is hidden under a finger, and a late release then
+	# loosed a weakest-pull arrow from nowhere.
+	if not player.is_charging():
+		return
 	var charge := player.release_charge()
 	world.archery.loose(
 		_arrow_from(), _arrow_aim(), charge, camera_rig.aim_height()
@@ -2716,6 +2782,13 @@ func _on_sell_back(item: StringName) -> void:
 			and world.mounts.count_of_kind(machine[1]) <= 1
 		):
 			_on_ride()
+	# A machine that is all being ridden (by a visitor, say) cannot be taken
+	# away, so it is not paid for either. One that is nowhere in the valley is
+	# sold regardless: it is the purse that is wrong then, and selling mends it.
+	if _is_a_machine(item) and not _machine_can_go(item):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_machine_in_use"), 3.0)
+		return
 	var paid := wallet.sell_back(item, ShopStock.sells_back(item))
 	if paid <= 0:
 		return
@@ -2734,6 +2807,16 @@ func _on_sell_back(item: StringName) -> void:
 	hud.announce(Text.format("say_sold_back", [ShopStock.label(item), paid]), 2.6)
 	hud.set_owned(wallet.owned)
 	hud.set_shop_open(true, wallet.coins, wallet.owned)
+
+## Whether the shop could take one of this machine away: there is one not being
+## ridden, or none standing at all.
+func _machine_can_go(item: StringName) -> bool:
+	var kind := MountKinds.BICYCLE
+	if item == ShopStock.MOTORCYCLE:
+		kind = MountKinds.MOTORCYCLE
+	elif item == ShopStock.QUAD:
+		kind = MountKinds.QUAD
+	return world.mounts.count_of_kind(kind) == 0 or world.mounts.can_sell_one(kind)
 
 ## Whether the shop's thing is one of the machines left standing in the valley.
 func _is_a_machine(item: StringName) -> bool:
@@ -3044,6 +3127,8 @@ func _on_answered(yes: bool) -> void:
 					world.park.wheel.book()
 					hud.announce(Text.of("say_wheel_called"), 2.2)
 				_:
+					if _asked_ride == &"drop_tower" or _asked_ride == &"pirate_ship":
+						_ride_waiting_paid = _asked_ride
 					hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
 
 ## The pool's turnstile: a child outside is offered a ticket and told the
@@ -3094,6 +3179,12 @@ func _on_lantern() -> void:
 ## it, and the only way to get energy back without walking to the café.
 func _on_snack() -> void:
 	if inventory.count(ItemKinds.CHOCOLATE) <= 0:
+		return
+	# Not for a child who is already full, as at the cafe: the bar cannot rise,
+	# and a coin's worth of chocolate would be gone for nothing.
+	if vitals.energy >= Vitals.MAX_ENERGY - 0.01:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_not_hungry"), 2.0)
 		return
 	if not inventory.spend({ItemKinds.CHOCOLATE: 1}):
 		return
@@ -3266,7 +3357,9 @@ func _on_groves_changed(centres: Array) -> void:
 	if birds != null:
 		birds.set_points(structures.attract_points())
 	# Only a grove standing counts: this also fires when the last one is felled.
-	if not centres.is_empty():
+	# And not the host's: a grove standing in the valley a guest has walked into
+	# was planted by somebody else, and finished the guest's "plant 3 saplings".
+	if not centres.is_empty() and not _visiting:
 		tasks.on_grove()
 	if centres.is_empty():
 		return

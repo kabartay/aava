@@ -110,6 +110,14 @@ func follow(world_position: Vector3) -> void:
 	_centre = tile
 	_rebuild_queue()
 
+## Draw every tile again, for the same reason as the boulders: a finished dam
+## lifts the ground, and finds drawn before it would stand buried in it.
+func rebuild_all() -> void:
+	for coord in _tiles.keys():
+		_drop_tile(coord)
+	_queue.clear()
+	_centre = Vector2i(9999, 9999)
+
 func is_idle() -> bool:
 	return _queue.is_empty()
 
@@ -135,6 +143,14 @@ func _rebuild_queue() -> void:
 	pending.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return (a - _centre).length_squared() < (b - _centre).length_squared())
 	_queue = pending
+
+## The ground has changed under the tiles already built — a dam has been
+## finished — so what lay on it is laid again. What has been taken stays taken.
+func regrow() -> void:
+	for coord in _tiles.keys():
+		_drop_tile(coord)
+	_queue.clear()
+	_rebuild_queue()
 
 func _drop_tile(coord: Vector2i) -> void:
 	var node = _tiles.get(coord)
@@ -206,7 +222,12 @@ func _build_tile(coord: Vector2i) -> void:
 		# things in different places.
 		var world_x := origin_x + local_x
 		var world_z := origin_z + local_z
-		var kind := _kind_at(world_x, world_z, rng)
+		# One draw for the kind, taken here whatever the ground is: _kind_at
+		# used to leave early over water without drawing, so a dam that put dry
+		# ground where there had been river shifted every later candidate in the
+		# tile, and sticks already taken came back as other things.
+		var roll := rng.randf()
+		var kind := _kind_at(world_x, world_z, roll)
 		if taken.has(id):
 			continue
 		if kind == &"":
@@ -234,7 +255,7 @@ func _build_tile(coord: Vector2i) -> void:
 ## What, if anything, is found at this spot. Each material comes from the place
 ## it would actually come from, so a child learns where to look: sticks under
 ## trees, reeds at the water, stone on bare ground.
-func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
+func _kind_at(x: float, z: float, roll: float) -> StringName:
 	var height := field.height_at(x, z)
 	if height < HeightField.WATER_LEVEL + 0.1:
 		return &""
@@ -251,11 +272,10 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 
 	var to_river := field.distance_to_river(x, z)
 	if to_river < REED_BANK and height < HeightField.WATER_LEVEL + REED_HEIGHT:
-		return ItemKinds.REED if rng.randf() < 0.5 else &""
+		return ItemKinds.REED if roll < 0.5 else &""
 
 	var forest := field.forest_density_at(x, z)
 	if forest > 0.22:
-		var roll := rng.randf()
 		if roll < STICK_SHARE:
 			return ItemKinds.STICK
 		# Cones lie under the conifers, which grow higher up — so climbing into
@@ -268,10 +288,9 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 
 	var steep := field.steepness_at(x, z)
 	if steep > 0.22 or height > 40.0:
-		return ItemKinds.STONE if rng.randf() < 0.38 else &""
+		return ItemKinds.STONE if roll < 0.38 else &""
 
 	# Open meadow: mostly empty, which is what makes a find feel like a find.
-	var roll := rng.randf()
 	if roll < 0.10:
 		return ItemKinds.SEED
 	if roll < 0.16:

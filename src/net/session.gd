@@ -638,14 +638,26 @@ static func mount_named(text: String) -> StringName:
 		return &""
 	return StringName(text)
 
-## A guest only ever talks to the host: guests are not connected to each other.
-## So when one guest builds, fells or picks something up, the host is the only
+## Does the network itself carry a guest's message to the other guests? Godot's
+## multiplayer relays through the server by default (`server_relay`): each guest
+## is told of the others and an rpc to everyone reaches them directly. Where that
+## is so, the host passing a message on as well delivers it twice, and a stick
+## for the beavers counted twice is a dam finished one stick early.
+func _network_relays() -> bool:
+	if not is_inside_tree() or multiplayer == null:
+		return false
+	var scene := multiplayer as SceneMultiplayer
+	return scene != null and scene.server_relay
+
+## Where the network does not relay, a guest only ever talks to the host. So
+## when one guest builds, fells or picks something up, the host is the only
 ## phone that hears, and a second guest in the valley never sees it unless the
 ## host passes it on. Who the host should pass a message to: every other guest
-## who has said who they are, and nobody at all for a guest or a linked check.
+## who has said who they are, and nobody at all for a guest or a linked check,
+## nor where the network has already delivered it to them.
 func others_than(from: int) -> Array[int]:
 	var out: Array[int] = []
-	if role != Role.HOSTING or _link != null:
+	if role != Role.HOSTING or _link != null or _network_relays():
 		return out
 	for id: int in guests:
 		if id != from:

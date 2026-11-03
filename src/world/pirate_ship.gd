@@ -835,6 +835,12 @@ func seat_near(at: Vector3) -> Transform3D:
 			return here
 	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
 
+## Whether the boat is standing still, waiting for its next swing. A ticket
+## paid before it goes has bought nothing yet, so the game gives it back to a
+## child who steps off.
+func at_rest() -> bool:
+	return _phase == Phase.STILL
+
 ## Whether a point is aboard the hull at all, swinging or not.
 func aboard(at: Vector3) -> bool:
 	return _inside_hull(at)

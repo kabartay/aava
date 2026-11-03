@@ -577,6 +577,12 @@ func seat_near(at: Vector3) -> Transform3D:
 			return here
 	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
 
+## Whether the ring is standing at the ground waiting for its next climb. A
+## ticket paid on a ring that has not yet gone has bought nothing yet, so the
+## game gives it back to a child who steps off.
+func at_rest() -> bool:
+	return _phase == Phase.GROUND
+
 ## How high the ring has climbed right now. For the checks.
 func ring_height() -> float:
 	return _ring.position.y

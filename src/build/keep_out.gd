@@ -57,9 +57,25 @@ static func inside_the_park(x: float, z: float) -> bool:
 ## closest to and for a levelled place is the bearing it stands on.
 static func nearest_free(x: float, z: float, camp: Vector3, river_x: float) -> Vector2:
 	var at := Vector2(x, z)
-	if PlaceSpec.reserved(x, z, camp):
-		var free := PlaceSpec.nearest_free(x, z, camp)
+	# Each rule pushes straight out of its own ground, and the ground just
+	# outside one can be another's, so go round again until nothing keeps it.
+	# A few rounds are plenty: the grounds are far apart, and the last answer
+	# stands if they somehow never settle.
+	for _round in 4:
+		at = _pushed_out(at, camp, river_x)
+		if not kept(at.x, at.y, camp, river_x):
+			break
+	return at
+
+## One push out of each rule in turn.
+static func _pushed_out(at: Vector2, camp: Vector3, river_x: float) -> Vector2:
+	if PlaceSpec.reserved(at.x, at.y, camp):
+		var free := PlaceSpec.nearest_free(at.x, at.y, camp)
 		at = Vector2(free.x, free.z)
+	# The pitch and its apron, which were kept from building but never moved
+	# out of: a tree saved on the pitch stayed in the middle of the game.
+	if Pitch.is_levelled(at.x, at.y):
+		at = out_of_the_pitch(at)
 	if inside_the_park(at.x, at.y):
 		at = out_of_the_park(at)
 	# The scoreboard: out by whichever of its ends or its back is nearest. Its
@@ -93,6 +109,19 @@ static func nearest_free(x: float, z: float, camp: Vector3, river_x: float) -> V
 			away = Vector2(1.0, 0.0)
 		at = post + away.normalized() * clear
 	return at
+
+## Straight out of the levelled pitch by the nearest side of its apron.
+static func out_of_the_pitch(at: Vector2) -> Vector2:
+	var margin := 0.5
+	var reach_x := Pitch.HALF_LENGTH + Pitch.APRON
+	var reach_z := Pitch.HALF_WIDTH + Pitch.APRON
+	var dx := at.x - Pitch.CENTRE.x
+	var dz := at.y - Pitch.CENTRE.z
+	if reach_x - absf(dx) < reach_z - absf(dz):
+		var end := 1.0 if dx >= 0.0 else -1.0
+		return Vector2(Pitch.CENTRE.x + end * (reach_x + margin), at.y)
+	var side := 1.0 if dz >= 0.0 else -1.0
+	return Vector2(at.x, Pitch.CENTRE.z + side * (reach_z + margin))
 
 ## Straight out of the fairground by the nearest side of it.
 static func out_of_the_park(at: Vector2) -> Vector2:

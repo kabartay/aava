@@ -438,6 +438,11 @@ const STRINGS := {
 		FR: "ta vallée est ouverte — ton numéro est %d",
 		RU: "твоя долина открыта — твой номер %d",
 	},
+	"say_reset_visiting": {
+		EN: "you can only start again in your own valley",
+		FR: "tu ne peux recommencer que dans ta propre vallée",
+		RU: "начать заново можно только в своей долине",
+	},
 	"say_alone_again": {
 		EN: "playing alone again", FR: "de nouveau tout seul",
 		RU: "снова играешь один",
@@ -512,7 +517,7 @@ const STRINGS := {
 	},
 	"say_waiting_outside": {
 		EN: "your %s is waiting outside the door",
-		FR: "ton %s t'attend devant la porte",
+		FR: "%s : ton engin t'attend devant la porte",
 		RU: "твой %s ждёт снаружи у двери",
 	},
 	"say_sold": {
@@ -567,7 +572,9 @@ const STRINGS := {
 	"mount_quad_on": {EN: "quad bike", FR: "quad", RU: "на квадроцикле"},
 	"mount_boat_on": {EN: "boat", FR: "barque", RU: "на лодке"},
 	"say_mounted": {
-		EN: "you are riding the %s", FR: "tu montes le %s", RU: "ты едешь %s",
+		# No article in French: the moto and the barque are feminine, and the
+		# label is all the sentence has to go on.
+		EN: "you are riding the %s", FR: "en route : %s", RU: "ты едешь %s",
 	},
 	"ui_chop": {
 		EN: "chop", FR: "couper", RU: "срубить",
@@ -624,7 +631,7 @@ const STRINGS := {
 	# stride afterwards.
 	"say_not_ridden_here": {
 		EN: "the %s cannot go from here — push it clear first",
-		FR: "le %s ne part pas d'ici — pousse-le au clair",
+		FR: "%s : on ne part pas d'ici — pousse l'engin au clair",
 		RU: "отсюда на нём не проехать: откати %s в сторону",
 	},
 	# Said to a guest who tries to sell a machine in somebody else's valley.
@@ -632,6 +639,12 @@ const STRINGS := {
 		EN: "sell it in your own valley",
 		FR: "vends-le dans ta propre vallée",
 		RU: "продай его в своей долине",
+	},
+	# Said when every one of the machine is being ridden, so none can be taken.
+	"say_machine_in_use": {
+		EN: "somebody is riding it — sell it when they get off",
+		FR: "quelqu'un le monte — vends-le quand il sera descendu",
+		RU: "на нём сейчас едут — продай, когда слезут",
 	},
 	"say_too_dear": {
 		EN: "not enough coins yet",

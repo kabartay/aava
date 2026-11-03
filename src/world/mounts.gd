@@ -234,10 +234,7 @@ func sell_one(kind: StringName, from: Vector3) -> bool:
 	for id in _nodes:
 		if MountKinds.kind_of(id) != kind or not is_instance_valid(_nodes[id]):
 			continue
-		# Nor one a visitor is riding: it is hidden here and sits wherever they
-		# are, which may well be the furthest, and the shop took the other
-		# child's ride out from under them and left the one for sale standing.
-		if id == riding or _remote.has(id):
+		if _in_use(id):
 			continue
 		var node: Node3D = _nodes[id]
 		var distance := node.global_position.distance_to(from)
@@ -248,6 +245,23 @@ func sell_one(kind: StringName, from: Vector3) -> bool:
 		return false
 	_forget(chosen)
 	return true
+
+## Being ridden, by this child or by a visitor. A visitor's is hidden here and
+## sits wherever they are, which may well be the furthest, and the shop took
+## the other child's ride out from under them and left the one for sale
+## standing.
+func _in_use(id: StringName) -> bool:
+	return id == riding or _remote.has(id)
+
+## Whether the shop could take one of this kind away right now. The game asks
+## before it pays: when every one of them is being ridden none can be sold, and
+## the coins were paid all the same with the machine left standing, to be saved
+## and ridden by a child who no longer owned it.
+func can_sell_one(kind: StringName) -> bool:
+	for id in _nodes:
+		if MountKinds.kind_of(id) == kind and is_instance_valid(_nodes[id]) and not _in_use(id):
+			return true
+	return false
 
 ## Everything this node knows about one mount, gone.
 ##
@@ -402,6 +416,12 @@ func mount(kind: StringName) -> bool:
 	if riding != &"" or not exists(kind):
 		return false
 	riding = kind
+	# A horse the child has only just got off is still easing back to standing,
+	# and there is one slot for that: cleared here, its legs stayed wherever
+	# the last stride had put them for as long as the game was open. It is put
+	# straight, then, not forgotten.
+	if _settling != &"" and _settling != kind:
+		_stand_at_ease(_settling)
 	_settling = &""
 	_set_solid(kind, false)
 	_waiting_to_be_solid.erase(kind)
@@ -542,6 +562,13 @@ func stride() -> float:
 	return _stride
 
 var _idle := 0.0
+
+## What the ridden horse's reins were last drawn for, and how far either may
+## move before they are drawn again: five millimetres at the bit.
+var _reins_drawn_on: MeshInstance3D = null
+var _reins_turn := 0.0
+var _reins_sway := Vector3.ZERO
+const REINS_TOLERANCE := 0.005
 ## Where `carry` last put the ridden mount, and where it was the frame
 ## before: the two and the frame's own delta are what its speed is.
 var _carried_to := Vector3.ZERO
@@ -637,6 +664,13 @@ var _glide_id := &""
 const GLIDE_TIME := 0.35
 
 func _glide(id: StringName, from: Vector3) -> void:
+	# One slot, as with settling: a second horse gliding takes it from the
+	# first, which would be left drawn off to one side of where it stands.
+	if _glide_id != &"" and _glide_id != id and exists(_glide_id):
+		var old := (_nodes[_glide_id] as Node3D).get_node_or_null("Body") as Node3D
+		if old != null:
+			old.position.x = 0.0
+			old.position.z = 0.0
 	_glide_from = from
 	_glide_k = 0.0
 	_glide_id = id
@@ -737,7 +771,20 @@ func _process(delta: float) -> void:
 	# give and take with it (RigMotion moves them by the same sway).
 	var reins := body.get_node_or_null("Reins") as MeshInstance3D
 	if reins != null:
-		reins.mesh = MountKinds.horse_reins_mesh(head.rotation.x if head != null else 0.0, hand_sway(_stride, _pace))
+		var turn := head.rotation.x if head != null else 0.0
+		var sway := hand_sway(_stride, _pace)
+		# A whole new mesh — a dozen cylinders, normals, an upload — is only
+		# worth its cost when the rein has moved by enough to be seen. It was
+		# made afresh every frame, standing still included, where the head's
+		# idle nod alone moves it a few millimetres a second.
+		if (
+			reins != _reins_drawn_on or absf(turn - _reins_turn) > REINS_TOLERANCE
+			or sway.distance_to(_reins_sway) > REINS_TOLERANCE
+		):
+			reins.mesh = MountKinds.horse_reins_mesh(turn, sway)
+			_reins_drawn_on = reins
+			_reins_turn = turn
+			_reins_sway = sway
 	_idle += delta
 
 ## A boat nobody is in goes with the river, as anything left on water would.
@@ -1008,6 +1055,30 @@ func watch(player_position: Vector3) -> void:
 			_set_solid(kind, true)
 			_waiting_to_be_solid.erase(kind)
 
+## The same, all at once, for a horse whose turn at settling is being taken.
+func _stand_at_ease(id: StringName) -> void:
+	if not exists(id):
+		return
+	var body := (_nodes[id] as Node3D).get_node_or_null("Body") as Node3D
+	if body == null:
+		return
+	for i in MountKinds.HORSE_HIPS.size():
+		var leg := body.get_node_or_null("Leg%d" % i) as Node3D
+		if leg != null:
+			leg.rotation.x = 0.0
+	body.position.y = 0.0
+	body.rotation.x = 0.0
+	var reins := body.get_node_or_null("Reins") as MeshInstance3D
+	if reins != null:
+		reins.mesh = MountKinds.horse_part("reins")
+	var head := body.get_node_or_null("Head") as Node3D
+	if head != null:
+		head.rotation.x = 0.0
+	var tail := body.get_node_or_null("Tail") as Node3D
+	if tail != null:
+		tail.rotation.x = 0.0
+		tail.rotation.y = 0.0
+
 ## Bring a mount that has just been got off back to standing: legs straight,
 ## body level, head and tail still. Eased rather than snapped, so a horse
 ## that stops reads as one settling rather than one switching off.
@@ -1036,6 +1107,10 @@ func _settle_the_last_one(delta: float) -> void:
 	var reins := body.get_node_or_null("Reins") as MeshInstance3D
 	if reins != null:
 		reins.mesh = MountKinds.horse_part("reins")
+		# So the next ride draws them for its own hands rather than trusting
+		# the picture remembered from the last.
+		if _reins_drawn_on == reins:
+			_reins_drawn_on = null
 	var head := body.get_node_or_null("Head") as Node3D
 	if head != null:
 		head.rotation.x = lerp_angle(head.rotation.x, 0.0, weight)

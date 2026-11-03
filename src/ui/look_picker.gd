@@ -26,6 +26,9 @@ const DOT := 0.62
 var _unit: float
 var _look: Array = [Character.SIMPLE, 0, 0]
 var _shirt := -1
+## What a child who has picked no shirt is actually wearing: the palette's
+## fallback for them, which the game works out. Empty until it has been told.
+var _worn := Color(0.0, 0.0, 0.0, 0.0)
 var _faces: Array[CharacterIcon] = []
 var _face_buttons: Array[Button] = []
 var _skin_buttons: Array[Button] = []
@@ -124,6 +127,16 @@ func set_shirt(which: int) -> void:
 	_shirt = which
 	_refresh()
 
+## The colour the child's own body is really drawn in. With no shirt picked the
+## faces showed the old default, a colour the child is not wearing, so the face
+## that was meant to look like them did not.
+func set_worn(colour: Color) -> void:
+	_worn = colour
+	_refresh()
+
+func worn() -> Color:
+	return _worn
+
 ## What is shown as chosen, for a second picker to start from and for the checks.
 func look() -> Array:
 	return _look
@@ -133,6 +146,8 @@ func shirt() -> int:
 
 func _refresh() -> void:
 	var cloth: Color = Visitors.SHIRTS[_shirt] if _shirt >= 0 else Player.DEFAULT_SHIRT
+	if _shirt < 0 and _worn.a > 0.0:
+		cloth = _worn
 	for i in _faces.size():
 		_faces[i].dress(Character.SKINS[_look[1]], Character.HAIRS[_look[2]], cloth)
 		_ring(_face_buttons[i], i == _look[0])

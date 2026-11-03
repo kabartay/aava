@@ -107,6 +107,15 @@ func follow(world_position: Vector3) -> void:
 	_centre = tile
 	_rebuild_queue()
 
+## Draw every tile again. A finished dam raises the riverbed and the banks
+## beside it by up to a metre, and a tile built before that kept the heights it
+## was built at: rocks stood buried in the new ground, or in the new pond.
+func rebuild_all() -> void:
+	for coord in _tiles.keys():
+		_drop_tile(coord)
+	_queue.clear()
+	_centre = Vector2i(9999, 9999)
+
 func is_idle() -> bool:
 	return _queue.is_empty()
 

@@ -304,6 +304,11 @@ func set_active(enabled: bool) -> void:
 			marker.visible = false
 	_last_signature = ""
 
+## Say what is being aimed at again, to an interface that is new and has not
+## heard it: the preview only speaks when it changes.
+func say_again() -> void:
+	_last_signature = ""
+
 func select(kind: StringName) -> void:
 	var known := BuildKinds.INFO.has(kind) or HouseParts.is_house_part(kind) or Plans.is_plan(kind)
 	if not known or kind == selected:

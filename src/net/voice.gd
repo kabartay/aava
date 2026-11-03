@@ -322,6 +322,13 @@ func _process(delta: float) -> void:
 	if not _session.is_connected_to_anyone():
 		stop_talking()
 		return
+	# Nor into a valley whose last visitor has gone while the line stays up: a
+	# host is still connected then, but the talk button is taken away (see
+	# main.gd) and a hidden button never delivers its release, so the
+	# microphone and the hush on the valley's sounds stayed on for good.
+	if not _session.has_company():
+		stop_talking()
+		return
 
 	var step := ratio()
 	var wanted := frames_for(step, _phase)
