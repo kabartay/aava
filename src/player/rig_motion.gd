@@ -53,6 +53,19 @@ func stride_phase() -> float:
 ## standing. A mount needs none: the rig is already at its saddle.
 var seat_placed := false
 var seat_place := Transform3D()
+## Reaching out to an animal, when the child feeds, strokes, milks or shears
+## one: where in the world its head is, whether the hand strokes (and not holds
+## something out), and how far through the action it is (negative when idle).
+var _tend_age := -1.0
+var _tend_head: Node3D = null
+var _tend_local := Vector3.ZERO
+var _tend_at := Vector3.ZERO
+var _tend_strokes := false
+## Whether the arm, the turn and the stoop were written last frame, so that they
+## are cleared before the stride writes again, and how far the whole child was
+## stepped towards the animal (taken off again as it goes, as a seat's is).
+var _tended := false
+var _tend_applied := Vector3.ZERO
 ## Winding up a kick, and how far.
 var winding := false
 var charge := 0.0
@@ -115,6 +128,15 @@ var _second_basis := Basis()
 const KICK_FOLLOW := 0.55
 const CHEER_FOR := 1.5
 
+## How long a reach to an animal takes, from the turn to standing straight
+## again: about a second, as a child does it.
+const TEND_FOR := 1.1
+## The furthest the child steps in towards the animal, in metres. An animal may
+## be anywhere inside the care button's reach, and arms are short.
+const TEND_STEP := 0.55
+## How far the knees may bend to stoop to a cat, in radians.
+const TEND_KNEES := 1.4
+
 ## How long it takes to settle into a seat or to climb out of one, in seconds.
 const SIT_TIME := 0.2
 
@@ -170,6 +192,27 @@ func cheer() -> void:
 func land(impact: float) -> void:
 	_squash = clampf(impact / 10.0, 0.35, 1.0)
 
+## The child reaches out to something in the world at `at` (an animal's head):
+## turns to it, stoops or reaches up, and holds a hand out to it, or strokes
+## with it, then stands straight again. It is laid over the walk and fades if
+## the child sets off, so nothing here ever stops them moving.
+func tend(head: Node3D, strokes: bool) -> void:
+	_tend_head = head
+	# The crown of the head, not the neck it turns on: the middle of what is
+	# drawn, taken up to the top of it.
+	_tend_local = Vector3.ZERO
+	var drawn := head as MeshInstance3D
+	if drawn != null and drawn.mesh != null:
+		var box := drawn.mesh.get_aabb()
+		_tend_local = box.get_center() + Vector3(0.0, box.size.y * 0.4, 0.0)
+	_tend_at = head.global_transform * _tend_local if head.is_inside_tree() else head.position
+	_tend_strokes = strokes
+	_tend_age = 0.0
+
+## Whether a reach is under way. For the checks.
+func tending() -> bool:
+	return _tend_age >= 0.0
+
 ## How far through the kick the foot is now. For the checks.
 func kick_swing() -> float:
 	return kick_swing_at(_kick_age) if _kick_age >= 0.0 else 0.0
@@ -180,6 +223,12 @@ func step(delta: float) -> void:
 	# A limb left in a seat's pose by the last frame is cleared first: the stride
 	# below writes only the angles it uses, and one left over from a quaternion
 	# would be a twist the walk knew nothing about.
+	if _tended:
+		_tended = false
+		_hips.rotation = Vector3.ZERO
+		for side in 2:
+			_upper[side].rotation = Vector3.ZERO
+			_fore[side].rotation = Vector3.ZERO
 	if _posed:
 		for side in 2:
 			_thigh[side].rotation = Vector3.ZERO
@@ -310,6 +359,100 @@ func step(delta: float) -> void:
 		_fore[side].rotation.x = elbow
 
 	_seat_step(delta, sitting)
+	_tend_step(delta, sitting)
+
+## The reach to an animal, laid over what the stride has just written by how far
+## through it the child is. The body turns to the animal at the hips, stoops
+## (knees and a lean forward) as far as its head is below the shoulder, and
+## steps in as far as the arm falls short; the right arm is then solved to the
+## head, to rest on it and stroke or to be held a little short of it.
+func _tend_step(delta: float, sitting: bool) -> void:
+	# The step in is taken off first, so that where the animal is, from here, is
+	# where it is from where the child was standing and not from half way.
+	if _tend_applied != Vector3.ZERO:
+		_rig.position -= _tend_applied
+		_tend_applied = Vector3.ZERO
+	if _tend_age < 0.0:
+		return
+	_tend_age += delta
+	if _tend_age >= TEND_FOR or sitting or not _rig.is_inside_tree():
+		_tend_age = -1.0
+		_tend_head = null
+		return
+	# The head is followed: an animal that has stepped up to be touched is still
+	# walking for the first part of it.
+	if is_instance_valid(_tend_head) and _tend_head.is_inside_tree():
+		_tend_at = _tend_head.global_transform * _tend_local
+	var t := _tend_age / TEND_FOR
+	# In, hold, out; and a child who has set off is let go of at once.
+	var w := smoothstep(0.0, 0.25, t) * (1.0 - smoothstep(0.72, 1.0, t))
+	w *= 1.0 - clampf(_speed / 1.5, 0.0, 1.0)
+	_tended = true
+
+	var to := _rig.global_transform.affine_inverse() * _tend_at
+	var flat := Vector2(to.x, to.z).length()
+	var yaw := clampf(atan2(-to.x, -to.z), -1.6, 1.6) if flat > 0.05 else 0.0
+
+	# How far the head is below the shoulder decides the stoop: a little is
+	# only the arm lowered, more is the knees, and the rest is a lean.
+	var shoulder_rest := _hips_rest + _torso.position.y + _upper[0].position.y
+	var below := shoulder_rest - to.y - 0.18
+	var thigh_len := -_shin[0].position.y
+	var shin_len := -_foot[0].position.y
+	var drop := clampf(below * 0.7, 0.0, (thigh_len + shin_len) * 0.62)
+	var crouch := 0.0
+	if drop > 0.0:
+		# The knee angle that lowers the hips by `drop` with the feet kept under
+		# them: the thigh forward by `crouch`, the shin back to meet the floor.
+		var low := 0.0
+		var high := TEND_KNEES
+		for _try in 8:
+			crouch = (low + high) * 0.5
+			var shank_try := asin(minf(thigh_len * sin(crouch) / shin_len, 1.0))
+			var lowered := thigh_len + shin_len - thigh_len * cos(crouch) - shin_len * cos(shank_try)
+			if lowered < drop:
+				low = crouch
+			else:
+				high = crouch
+	var shank := asin(minf(thigh_len * sin(crouch) / shin_len, 1.0))
+	var lean := asin(clampf((below - drop) / maxf(_torso.position.y + _upper[0].position.y, 0.2), 0.0, 0.95))
+	lean = maxf(lean, 0.12 * clampf(below / 0.3, 0.0, 1.0))
+	var torso_basis := Basis(Vector3.RIGHT, -lean)
+	var shoulder := Vector3(0.0, _hips_rest - drop, 0.0) + _torso.position + torso_basis * _upper[1].position
+
+	# Stepping in: what the arm cannot cover of the way to the head, up to a
+	# stride's worth. Held out short of the head for a gift, on it for a stroke.
+	var standoff := 0.02 if _tend_strokes else 0.14
+	var along := flat + shoulder.z - standoff
+	var rise := to.y - shoulder.y
+	var arm_reach := (_arm_a + _arm_b) * 0.92
+	var arm_h := sqrt(maxf(arm_reach * arm_reach - rise * rise, 0.0))
+	var step_in := clampf(along - arm_h, 0.0, TEND_STEP)
+	var goal := Vector3(0.1, to.y, -(flat - step_in - standoff))
+	if _tend_strokes:
+		# Over the head and back, and a little along it.
+		var swing := sin(_tend_age * TAU * 2.2)
+		goal += Vector3(0.04 * swing, 0.02 + 0.015 * cos(_tend_age * TAU * 2.2), 0.05 * swing)
+
+	# The turn, the knees and the stoop, by how far in.
+	_hips.rotation.y = yaw * w
+	_hips.position.y -= drop * w
+	_torso.rotation.x -= lean * w
+	_head.rotation.x += (clampf(atan2(to.y - (shoulder.y + 0.2), maxf(flat, 0.1)), -0.7, 0.7) + lean * 0.7) * w
+	_head.rotation.y = lerpf(_head.rotation.y, 0.0, w)
+	for side in 2:
+		_thigh[side].rotation.x = lerpf(_thigh[side].rotation.x, crouch, w)
+		_shin[side].rotation.x = lerpf(_shin[side].rotation.x, -crouch - shank, w)
+		_foot[side].rotation.x = lerpf(_foot[side].rotation.x, shank, w)
+	var aim := (goal - shoulder).normalized()
+	_two_bones(torso_basis, shoulder, goal - aim * 0.04, Vector3(0.5, -0.5, 0.4), _arm_a, _arm_b)
+	_upper[1].quaternion = _upper[1].quaternion.slerp(_first, w)
+	_fore[1].quaternion = _fore[1].quaternion.slerp(_second, w)
+	# The step in is the whole child moving, the way they face.
+	if flat > 0.05:
+		var wanted := _rig.basis * Vector3(to.x, 0.0, to.z) / flat * (step_in * w)
+		_rig.position += wanted
+		_tend_applied = wanted
 
 ## Settle the body into the seat, or out of it: the pose is solved from where the
 ## hips, hands and feet go (see SeatPose), laid over what the stride and the

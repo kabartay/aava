@@ -382,9 +382,14 @@ func report_position(at: Vector3, facing: float, mount := &"", motion := 0) -> v
 
 ## How a child is moving, in one small number: their speed in half metres a
 ## second (to 15 m/s, a motorcycle) in the low five bits, and 32 for swimming
-## and 64 for diving. A child on foot at a standstill is zero.
-static func motion_code(speed: float, swimming: bool, diving: bool) -> int:
+## and 64 for diving, and 128 for reaching out to an animal (feeding, stroking,
+## milking), which the other phone draws as the same reach to the nearest one.
+## A child on foot at a standstill is zero. A phone that has not been updated
+## masks the top bit off and sees an ordinary pace.
+static func motion_code(speed: float, swimming: bool, diving: bool, tending := false) -> int:
 	var code := clampi(int(roundf(maxf(speed, 0.0) * 2.0)), 0, 31)
+	if tending:
+		code += 128
 	if swimming:
 		code += 32
 		if diving:
@@ -615,8 +620,8 @@ func _send_position(at: Vector3, facing: float, mount := "", motion := 0) -> voi
 		return
 	var from := multiplayer.get_remote_sender_id()
 	guest_positions[from] = at
-	# Seven bits and no more: anything else a stranger sends is not a pace.
-	guest_moving.emit(from, motion & 127)
+	# Eight bits and no more: anything else a stranger sends is not a pace.
+	guest_moving.emit(from, motion & 255)
 	guest_moved.emit(from, at, facing, mount_named(mount))
 
 ## What somebody says they are riding, or nothing. An id is "horse:3" or

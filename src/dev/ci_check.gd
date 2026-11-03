@@ -204,6 +204,7 @@ func _initialize() -> void:
 	_check_the_coaster_stands_on_the_ground()
 	await _check_the_rides_are_solid()
 	_check_a_carousel_horse_seats_where_its_saddle_is()
+	await _check_the_carousel_is_a_ride_like_the_others()
 	_check_ride_decks_are_collided_as_drawn()
 	_check_the_pirate_ship_swings()
 	_check_the_drop_tower_climbs_and_falls()
@@ -212,6 +213,7 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_a_child_reaches_to_an_animal_and_it_answers()
 	_check_two_horses_coming_to_rest_both_settle()
 	_check_a_guest_is_not_charged_for_the_hosts_trees()
 	_check_names_in_french_and_russian_are_names()
@@ -10346,7 +10348,11 @@ func _check_the_fairground() -> void:
 	# bottom, which is the whole feeling of a coaster.
 	var before := park.carousel.turned()
 	park.carousel._physics_process(1.0)
-	_expect(park.carousel.turned() > before, "the carousel goes round")
+	_expect(park.carousel.turned() == before, "the carousel stands still until somebody has paid")
+	park.carousel.board(Vector3.ZERO)
+	park.carousel._physics_process(1.0)
+	_expect(park.carousel.turned() > before, "and goes round once somebody is aboard")
+	park.carousel.step_off()
 	var wheel_before := park.wheel.turned()
 	park.wheel._physics_process(1.0)
 	_expect(park.wheel.turned() > wheel_before, "the wheel goes round")
@@ -10418,6 +10424,10 @@ func _check_the_rides_carry_a_child() -> void:
 		3.0, Carousel.FLOOR_HEIGHT + 0.7, 0.0
 	)
 	rider.global_position = deck
+	# A ride is only turning for somebody who has paid and been seated, so it
+	# is started the way the game starts it. The passenger here is not that
+	# somebody: a child standing on the floor of a ride in motion goes round.
+	park.carousel.board(deck)
 	var turned_before := park.carousel.turned()
 	for step in 90:
 		rider.velocity.y -= 24.0 * (1.0 / 60.0)
@@ -15690,14 +15700,22 @@ func _check_the_carousel_is_drawn_once_with_its_poles_and_bulbs_on_the_canopy() 
 	print("the carousel is drawn once, its bulbs on the eave and its poles up to the canopy")
 	var carousel := Carousel.new(Vector3.ZERO)
 	get_root().add_child(carousel)
+	# The animals rise and fall on their poles, so each is a mesh of its own, and
+	# the bulbs' glow, the sign and the ramps are others: what must be one is
+	# the turning drawing, which is where the canopy, the bulbs and the poles go.
 	var drawn: Array[MeshInstance3D] = []
 	var stack: Array[Node] = [carousel]
+	var turning_meshes := 0
 	while not stack.is_empty():
 		var node: Node = stack.pop_back()
 		if node is MeshInstance3D:
-			drawn.append(node)
+			if node.name == &"Turning":
+				drawn.append(node)
+				turning_meshes += 1
+			elif not (node.name == &"Glow" or node.name == &"Still" or str(node.name).begins_with("Animal")):
+				turning_meshes += 100
 		stack.append_array(node.get_children())
-	_expect(drawn.size() == 1, "one mesh holds the carousel, not %d" % drawn.size())
+	_expect(turning_meshes == 1, "one mesh holds the carousel's turning parts (%d)" % turning_meshes)
 	if drawn.is_empty():
 		return
 	var arrays := drawn[0].mesh.surface_get_arrays(0)
@@ -16617,6 +16635,10 @@ func _check_far_chunks_paint_the_slopes_as_near_ones_do() -> void:
 func _check_ride_decks_are_collided_as_drawn() -> void:
 	print("the carousel and drop tower decks are collided exactly as thick as they are drawn")
 	var carousel := Carousel.new(Vector3.ZERO)
+	# In the tree and freed at the end of the frame, not at once: its tune is
+	# being baked on a worker thread, and an object a worker is calling into
+	# cannot be freed from under it.
+	get_root().add_child(carousel)
 	var floor_shape := carousel.get_node("Floor").get_child(0) as CollisionShape3D
 	var floor_top: float = floor_shape.position.y + (floor_shape.shape as CylinderShape3D).height * 0.5
 	var floor_drawn := Carousel.FLOOR_HEIGHT + Carousel.DECK_THICKNESS * 0.5
@@ -16624,7 +16646,7 @@ func _check_ride_decks_are_collided_as_drawn() -> void:
 		is_equal_approx(floor_top, floor_drawn),
 		"the carousel floor collides up to %.3f m but is drawn up to %.3f m" % [floor_top, floor_drawn]
 	)
-	carousel.free()
+	carousel.queue_free()
 	var tower := DropTower.new(Vector3.ZERO)
 	var ring_shape := tower._ring.get_child(0) as CollisionShape3D
 	var ring_top: float = ring_shape.position.y + (ring_shape.shape as CylinderShape3D).height * 0.5
@@ -21317,4 +21339,292 @@ func _check_a_standing_animal_does_not_read_the_ground_every_frame() -> void:
 	var ground := maxf(field.height_at(spot.x, spot.z), field.water_level_at(spot.x, spot.z) - Animals.MAX_WADE_DEPTH)
 	_expect(absf(node.position.y - ground) < 0.1, "still standing on the ground")
 	animals.queue_free()
+
+## The carousel is a ride like the tower and the ship: a child steps on, is
+## asked, pays, is seated on the nearest animal, goes round for about a minute,
+## is slowed, stopped and let off.
+##
+## It used to be a turning floor with horses a metre and a half above it and
+## nothing to climb either by: a deck two thirds of a metre up that a body
+## cannot step onto, and a saddle only a jump landed exactly on a half-metre
+## barrel reached. A child on a thumb-stick could not get on, still less sit,
+## and one who did land on a saddle without paying was posed seated on a horse
+## that was going nowhere with them.
+func _check_the_carousel_is_a_ride_like_the_others() -> void:
+	print("the carousel takes a ticket, seats the child, turns for a minute and lets them off")
+	var park := Park.new(HeightField.new(20260903))
+	get_root().add_child(park)
+	var sand := StaticBody3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(400.0, 2.0, 400.0)
+	var slab_shape := CollisionShape3D.new()
+	slab_shape.shape = slab
+	slab_shape.position = Vector3(ParkSpec.centre().x, ParkSpec.LEVEL - 1.0, ParkSpec.centre().z)
+	sand.add_child(slab_shape)
+	get_root().add_child(sand)
+	var carousel := park.carousel
+	var centre := carousel.global_position
+	# On foot, from the sand: up a ramp, onto the deck. A child cannot step up
+	# a wall two thirds of a metre high.
+	var walker := CharacterBody3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = Player.RADIUS
+	capsule.height = Player.HEIGHT
+	var body_shape := CollisionShape3D.new()
+	body_shape.shape = capsule
+	body_shape.position = Vector3(0.0, Player.HEIGHT * 0.5, 0.0)
+	walker.add_child(body_shape)
+	walker.floor_max_angle = Player.CLIMBS_TO
+	walker.floor_snap_length = 0.5
+	walker.safe_margin = 0.02
+	get_root().add_child(walker)
+	var ramp_out := Vector3(cos(TAU / 16.0), 0.0, sin(TAU / 16.0))
+	walker.global_position = centre + ramp_out * (Carousel.RADIUS + Carousel.RAMP_RUN + 1.0) + Vector3(0.0, 0.05, 0.0)
+	var on_the_ramp := false
+	for _frame in 150:
+		walker.velocity = Vector3(-ramp_out.x * 3.0, walker.velocity.y - 24.0 / 60.0, -ramp_out.z * 3.0)
+		walker.move_and_slide()
+		if park.ride_under(walker.global_position) == &"" and walker.global_position.y > centre.y + 0.2:
+			on_the_ramp = true
+		await physics_frame
+	var deck_top := centre.y + Carousel.FLOOR_HEIGHT + Carousel.DECK_THICKNESS * 0.5
+	_expect(
+		walker.global_position.y > deck_top - 0.05
+			and Vector2(walker.global_position.x - centre.x, walker.global_position.z - centre.z).length() < Carousel.RADIUS,
+		"a child walks up a ramp onto the deck (at %.2f of %.2f m)" % [walker.global_position.y - centre.y, deck_top - centre.y]
+	)
+	_expect(on_the_ramp, "and is not on the ride while still on the ramp")
+	_expect(park.ride_under(walker.global_position) == &"carousel", "on the deck they are on the carousel, which is where the question comes")
+	_expect(Park.charges_for(&"carousel"), "and the carousel takes a ticket")
+	walker.queue_free()
+
+	# Unpaid, it does not go and nobody is seated by standing there.
+	_expect(carousel.free_to_board() and not carousel.has_rider(), "unpaid, it is free to board and has nobody in it")
+	var stood := centre + Vector3(3.0, Carousel.FLOOR_HEIGHT + 0.2, 0.0)
+	for _frame in 120:
+		await physics_frame
+	_expect(carousel.turned() == 0.0 and carousel.speed() == 0.0, "and it stands still")
+	_expect(park.seat_under(stood).is_empty(), "a child on its floor is not seated")
+
+	# Paying: the nearest animal takes them, at the saddle's height, facing the way round.
+	var near := 0
+	var least := INF
+	var seats := carousel.saddles()
+	var arrival := centre + Vector3(3.0, 0.0, 3.2)
+	for index in seats.size():
+		var apart := Vector2(seats[index].origin.x - arrival.x, seats[index].origin.z - arrival.z).length()
+		if apart < least:
+			least = apart
+			near = index
+	_expect(carousel.board(arrival), "a child who has paid is put on")
+	_expect(carousel.rider_horse() == near, "on the animal nearest them (%d)" % near)
+	_expect(not carousel.board(arrival) and not carousel.free_to_board(), "and nobody else is put on while it is taken: no second ticket for it")
+	var seat := carousel.rider_seat()
+	_expect(absf(seat.origin.y - (centre.y + Carousel.SADDLE_TOP)) < Carousel.BOB + 0.01, "the seat is the saddle's top, %.2f m up" % (seat.origin.y - centre.y))
+	var drawn := park.carousel.get_node("Turntable/Animal%d" % near) as MeshInstance3D
+	var arrays := drawn.mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var saddle_top := -INF
+	for i in vertices.size():
+		if _colour_near(colours[i], ShopStock.colour(ShopStock.SADDLE)):
+			saddle_top = maxf(saddle_top, vertices[i].y)
+	_expect(absf(saddle_top - Carousel.SADDLE_TOP) < 0.01, "which is where the saddle is drawn (%.3f against %.3f)" % [saddle_top, Carousel.SADDLE_TOP])
+	var ahead := seat.basis * Vector3.FORWARD
+	var round_it := seat.origin - centre
+	_expect(absf(ahead.dot(Vector3(round_it.x, 0.0, round_it.z).normalized())) < 0.05, "facing the way round, not out at the trees")
+	_expect(park.seat_under(seat.origin).get("pose", &"") == &"carousel", "and the game poses them as on the carousel")
+
+	# The ride: a child strapped in by the game's own means is carried with the
+	# animal, up and down, round and round, to the centimetre.
+	var kid := Player.new()
+	get_root().add_child(kid)
+	var rest := carousel._saddles[near].origin
+	var slipped := 0.0
+	var highest := -INF
+	var lowest := INF
+	var went_round := 0.0
+	var seen: Array[int] = []
+	var ticks := 0
+	while carousel.has_rider() and not carousel.ride_is_over() and ticks < 60 * 90:
+		await physics_frame
+		ticks += 1
+		var here := carousel.rider_seat()
+		kid.strapped_in = true
+		kid.carried_to = here.origin
+		kid.carried_facing = here.basis
+		kid._physics_process(1.0 / 60.0)
+		slipped = maxf(slipped, kid.global_position.distance_to(here.origin))
+		# In the carousel's own turning frame the saddle never leaves its pole.
+		var local := Basis(Vector3.UP, carousel.turned()).inverse() * (here.origin - centre)
+		slipped = maxf(slipped, Vector2(local.x - rest.x, local.z - rest.z).length())
+		highest = maxf(highest, local.y - rest.y)
+		lowest = minf(lowest, local.y - rest.y)
+		went_round = carousel.turned() if carousel.turned() > went_round else went_round
+		if seen.is_empty() or seen[seen.size() - 1] != int(carousel.phase()):
+			seen.append(int(carousel.phase()))
+	_expect(slipped < 0.001, "the rider is on their saddle all the way round (off by %.4f m)" % slipped)
+	_expect(highest > 0.1 and lowest < -0.1, "which rises and falls on its pole (%.2f to %.2f)" % [lowest, highest])
+	_expect(
+		seen == [Carousel.Phase.SPIN_UP, Carousel.Phase.RIDING, Carousel.Phase.SLOWING, Carousel.Phase.STILL],
+		"it spins up, runs, slows and stops"
+	)
+	var minutes := float(ticks) / 60.0
+	_expect(absf(minutes - (Carousel.SPIN_UP_TIME + Carousel.RIDE_TIME + Carousel.SLOW_TIME)) < 2.0, "a ride of %.0f seconds" % minutes)
+	_expect(carousel.ride_is_over() and carousel.speed() == 0.0, "it stops, with the rider still in the saddle")
+	_expect(absf(carousel.rider_seat().origin.y - (centre.y + Carousel.SADDLE_TOP)) < 0.001, "at the saddle's resting height")
+	kid.queue_free()
+
+	# Let off: onto the deck, clear of every animal, and free again.
+	for horse in Carousel.HORSES:
+		carousel._phase = Carousel.Phase.STILL
+		carousel._rider = -1
+		var board_at := carousel.saddles()[horse].origin
+		carousel.board(board_at)
+		carousel._phase = Carousel.Phase.STILL
+		var off := carousel.step_off()
+		var radial := Vector2(off.x - centre.x, off.z - centre.z).length()
+		var clear := radial < Carousel.RADIUS - 0.4 and absf(off.y - deck_top) < 0.06
+		for barrel in carousel._barrels:
+			var inside := barrel.global_transform.affine_inverse() * (off + Vector3(0.0, 0.5, 0.0))
+			var box := barrel.shape as BoxShape3D
+			if absf(inside.x) < box.size.x * 0.5 + Player.RADIUS and absf(inside.z) < box.size.z * 0.5 + Player.RADIUS:
+				clear = false
+		_expect(clear, "let off from animal %d onto the deck and clear of every animal" % horse)
+	_expect(carousel.free_to_board() and not carousel.has_rider(), "and the ride is free for the next ticket")
+
+	# What moves is collided where it is drawn.
+	carousel._phase = Carousel.Phase.RIDING
+	carousel._phase_time = 0.0
+	carousel._bob_clock = 1.3
+	carousel._physics_process(0.0)
+	var worst := 0.0
+	for horse in Carousel.HORSES:
+		var shifted: float = carousel._barrels[horse].transform.origin.y - carousel._barrel_rest[horse].origin.y
+		worst = maxf(worst, absf(shifted - carousel._figures[horse].position.y))
+	_expect(worst < 0.0001 and absf(carousel._figures[0].position.y) > 0.01, "each animal's barrel moves with it up the pole (off by %.4f)" % worst)
+	var drum_shape: CylinderShape3D = null
+	for shape in carousel.get_node("Floor").get_children():
+		var cylinder := (shape as CollisionShape3D).shape as CylinderShape3D
+		if cylinder != null and cylinder.radius > 0.9 and cylinder.radius < 1.5:
+			drum_shape = cylinder
+	_expect(drum_shape != null and drum_shape.radius >= Carousel.DRUM_RADIUS + 0.03 - 0.0001,"the drum is solid out to its widest paint")
+
+	# The other child, whose own ride stands at some other turn, sees them
+	# seated all the same: a child at saddle height on the ring is on a saddle.
+	var theirs := Carousel.new(Vector3.ZERO)
+	get_root().add_child(theirs)
+	theirs._turned = 2.1
+	var shown := theirs.seat_near(seat.origin - centre)
+	_expect(not is_nan(shown.origin.x), "the other child sees a rider seated, wherever their own carousel has turned")
+	_expect(absf((shown.basis * Vector3.FORWARD).dot(ahead)) > 0.99, "facing the way the rider faces")
+	_expect(is_nan(theirs.seat_near(Vector3(3.0, Carousel.FLOOR_HEIGHT + 0.1, 0.0)).origin.x), "and a child on the floor is not seated")
+	_expect(is_nan(theirs.seat_near(Vector3(0.0, Carousel.SADDLE_TOP, 0.0)).origin.x), "nor one in the drum's place")
+
+	# The music: quiet while it stands, louder going, loudest close.
+	theirs._physics_process(0.0)
+	var quiet := theirs._music.volume_db
+	theirs._phase = Carousel.Phase.RIDING
+	theirs._phase_time = 0.0
+	theirs._physics_process(0.0)
+	_expect(theirs._music.volume_db > quiet + 6.0, "the tune is louder when it is going (%.0f against %.0f dB)" % [theirs._music.volume_db, quiet])
+	_expect(theirs._music.unit_size <= 4.0 and theirs._music.max_distance >= 30.0, "and falls off with distance")
+	# The bulbs come up at dusk.
+	theirs.glow(0.0)
+	var day := theirs._glow_material.emission_energy_multiplier
+	theirs.glow(1.0)
+	_expect(theirs._glow_material.emission_energy_multiplier > day * 4.0 and theirs._glow_light.visible, "the bulbs and the light under the canopy come up at dusk")
+	theirs.queue_free()
+
+	# The game's half of it, which needs the whole game to run: the question is
+	# not withdrawn on the deck, a ticket is taken once, at the answer, and the
+	# rider is held in the saddle.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(game.contains("var asked_on_board := aboard != &\"\" and Park.charges_for(aboard)"), "the question stays while the child is on the deck")
+	_expect(game.contains("which == &\"carousel\" and (_carousel_paid or _carousel_seated)"), "a ride that is paid for does not ask again")
+	_expect(game.contains("_carousel_paid = true") and game.contains("carousel.board(player.global_position)"), "paying seats the child on the nearest animal")
+	_expect(game.contains("player.strapped_in = strapped or on_horse"), "and holds them in the saddle")
+	_expect(game.contains("carousel.step_off()") and game.contains("wallet.return_ticket()"), "lets them off at the end, and gives the ticket back if they walked away unseated")
+	park.queue_free()
+	sand.queue_free()
+
+## Feeding, stroking, milking: the child turns to the animal, reaches its head
+## with a hand whichever of the five they are, straightens up afterwards, and
+## does it all without making an object; and the animal answers by turning its
+## head to the child and coming to meet the hand.
+func _check_a_child_reaches_to_an_animal_and_it_answers() -> void:
+	print("a child reaches to an animal's head, and the animal turns to the child")
+	for which in Character.KEYS.size():
+		for kind: StringName in AnimalKinds.ALL:
+			var label := "%s to the %s" % [Character.KEYS[which], kind]
+			var rig := Character.build(which, 1, 1, Visitors.SHIRTS[2])
+			get_root().add_child(rig)
+			var beast := AnimalKinds.build_node(kind, 0)
+			get_root().add_child(beast)
+			# Where the animal stands once it has come to meet the child
+			# (Animals.answer), side on to the way the child faces, and the
+			# head to the child.
+			var meet := clampf(AnimalKinds.body_size(kind).z * 0.3 + 0.5, 0.8, 1.4)
+			beast.position = Vector3(-0.6 * meet, 0.0, -0.8 * meet)
+			beast.rotation.y = atan2(-beast.position.x, -beast.position.z) + PI
+			var head := beast.get_node("Head") as MeshInstance3D
+			var motion := RigMotion.new(rig)
+			var hand := rig.find_child("HandR", true, false) as Node3D
+			motion.tend(head, true)
+			_expect(motion.tending(), "%s: a reach begins" % label)
+			var nearest := INF
+			var before := int(Performance.get_monitor(Performance.OBJECT_COUNT))
+			for _frame in 66:
+				motion.step(1.0 / 60.0)
+				var seen := head.global_transform.affine_inverse() * hand.global_position
+				var box := head.mesh.get_aabb()
+				nearest = minf(nearest, (seen - seen.clamp(box.position, box.end)).length())
+			_expect(int(Performance.get_monitor(Performance.OBJECT_COUNT)) == before, "%s: reaching allocates nothing per frame" % label)
+			_expect(nearest < 0.2, "%s: the hand gets to the head (%.2f m off)" % [label, nearest])
+			# And the child is standing straight again, where they were.
+			for _frame in 12:
+				motion.step(1.0 / 60.0)
+			_expect(not motion.tending(), "%s: the reach ends" % label)
+			var hips := rig.find_child("Hips", true, false) as Node3D
+			_expect(hips.rotation.length() < 0.01 and rig.position.length() < 0.01, "%s: and the child is square again (%.3f)" % [label, rig.position.length()])
+			rig.queue_free()
+			beast.queue_free()
+	# The animal: its head comes round to a child standing at its side, a dog's
+	# tail goes harder than it did, and it ends up near enough to be touched.
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	var dog := animals.put_one_at(AnimalKinds.DOG, spot)
+	var cat_at := spot + Vector3(6.0, 0.0, 0.0)
+	var cat := animals.put_one_at(AnimalKinds.CAT, cat_at)
+	var child := spot + Vector3(0.7, 0.0, 0.0)
+	animals.follow(child)
+	for _frame in 5:
+		animals._tick(0.016)
+	var dog_node := dog["node"] as Node3D
+	animals.answer(dog, child)
+	var hopped := 0.0
+	var head_yaw := 0.0
+	for _frame in 40:
+		animals._tick(0.016)
+		hopped = maxf(hopped, dog_node.position.y - field.height_at(dog_node.position.x, dog_node.position.z))
+		if absf((dog_node.get_node("Head") as Node3D).rotation.y) > absf(head_yaw):
+			head_yaw = (dog_node.get_node("Head") as Node3D).rotation.y
+	_expect(float(dog.get("wag_reach", 0.0)) > 0.6, "a dog that is fussed wags hard (%.2f)" % float(dog.get("wag_reach", 0.0)))
+	_expect(hopped > 0.02, "and hops (%.3f m)" % hopped)
+	_expect(absf(head_yaw) > 0.3, "and its head is turned to the child (%.2f rad)" % head_yaw)
+	var cat_child := cat_at + Vector3(3.0, 0.0, 0.0)
+	animals.answer(cat, cat_child)
+	for _frame in 150:
+		animals._tick(0.016)
+	var cat_node := cat["node"] as Node3D
+	var gap := Vector2(cat_node.position.x - cat_child.x, cat_node.position.z - cat_child.z).length()
+	_expect(gap < 1.2, "a cat that is asked comes to meet the hand (%.2f m off)" % gap)
+	animals.queue_free()
+
+	# Another child's reach is one bit more in what is already sent.
+	var code := Session.motion_code(1.5, false, false, true)
+	_expect(code & 128 != 0 and Session.motion_speed(code) == 1.5 and code & 96 == 0, "a reach is a bit in the motion code, beside the pace")
+
 

@@ -480,6 +480,16 @@ func cheer() -> void:
 	if _motion != null:
 		_motion.cheer()
 
+## The child reaches out to an animal's head: see RigMotion.tend.
+func tend(head: Node3D, strokes: bool) -> void:
+	if _motion != null and is_instance_valid(head):
+		_motion.tend(head, strokes)
+
+## Whether the child is mid-way through reaching out to an animal, for the
+## position report to say so (the other phone draws the same reach).
+func is_tending() -> bool:
+	return _motion != null and _motion.tending()
+
 ## How the rig is moving, or null. For the checks.
 func motion() -> RigMotion:
 	return _motion

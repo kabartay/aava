@@ -250,6 +250,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	visitors = Visitors.new()
 	visitors.name = "Visitors"
 	visitors.seat_finder = _seat_at
+	visitors.animal_finder = _animal_head_near
 	add_child(visitors)
 
 	ambience = Ambience.new()
@@ -525,6 +526,11 @@ var _wheel_rider_paid := false
 var _wheel_boarded := false
 ## Which ride the question on screen is about.
 var _asked_ride: StringName = &""
+## The carousel: whether the child has paid and is waiting to be put on a
+## horse, and whether they are now in a saddle. A ticket is taken once, at the
+## answer, and the ride is the one it bought.
+var _carousel_paid := false
+var _carousel_seated := false
 
 ## Offer a ride at a ride's own button: use a ticket if there is one, buy one
 ## with coins if there is not, and say so plainly if neither.
@@ -535,6 +541,10 @@ var _asked_ride: StringName = &""
 ## asking until they walk away and come back.
 func _offer_a_ride(which: StringName) -> bool:
 	if _asked != &"":
+		return true
+	# Paid for, or already in the saddle: that ride has its ticket, and asking
+	# again would take a second one for it.
+	if which == &"carousel" and (_carousel_paid or _carousel_seated):
 		return true
 	# A coaster ticket stays good until the child leaves the park, but the
 	# booking it bought does not: the train pulls up, stands its ten seconds and
@@ -702,6 +712,32 @@ func _physics_process(delta: float) -> void:
 	elif wheel.waiting() <= 0.0:
 		_wheel_here_told = false
 
+	# The carousel seats whoever has paid on the nearest animal and turns for
+	# its minute; the child is held in the saddle, as in a coaster's car, and
+	# put down beside it when it has stopped.
+	var carousel := world.park.carousel
+	if _carousel_paid and aboard != &"carousel":
+		# Paid and walked off before it took them: the ticket comes back.
+		_carousel_paid = false
+		wallet.return_ticket()
+	elif _carousel_paid and carousel.free_to_board():
+		if player.riding != &"":
+			_on_ride()
+		if carousel.board(player.global_position):
+			_carousel_paid = false
+			_carousel_seated = true
+	var on_horse := false
+	if _carousel_seated:
+		if carousel.ride_is_over() or not carousel.has_rider():
+			player.global_position = carousel.step_off()
+			player.velocity = Vector3.ZERO
+			_carousel_seated = false
+			sounds.play(Sounds.Sound.CHIME, 0.9)
+		else:
+			on_horse = true
+			var saddle := carousel.rider_seat()
+			player.carried_to = saddle.origin
+			player.carried_facing = saddle.basis
 	var seat := coaster.seat_under(player.global_position)
 	# Held from the moment it pulls out, not from the moment the bars finish
 	# coming down, and never while it is standing at the platform — a child at
@@ -718,10 +754,10 @@ func _physics_process(delta: float) -> void:
 			_on_ride()
 		player.carried_to = seat.origin
 		player.carried_facing = seat.basis
-	player.strapped_in = strapped
+	player.strapped_in = strapped or on_horse
 	# And the camera stops being shoved into the seat back by the car it is
-	# riding in.
-	camera_rig.set_riding(strapped)
+	# riding in — or into the carousel's drum and canopy.
+	camera_rig.set_riding(strapped or on_horse)
 	if strapped:
 		# Which way the car is pointed: its own forward, turned into the yaw
 		# the camera is steered by.
@@ -740,14 +776,21 @@ func _physics_process(delta: float) -> void:
 		hud.announce(Text.of("say_park_put_off"), 2.4)
 		return
 
-	if strapped:
+	if strapped or on_horse:
 		return
 
 	var carried := world.park.carry(player.global_position, delta)
 	# A ride nobody has paid for does not carry them. It still turns: what a
 	# child sees is the roundabout going round under their feet while they
 	# stand still on it, which is exactly what happens when you have not paid.
-	if carried != Vector3.ZERO and not _riding_without_a_ticket:
+	#
+	# The carousel is the exception: it only goes round for somebody who has
+	# paid and is in a saddle, so a child on its floor while it turns is one
+	# who is standing still on a moving floor, and is carried with it rather
+	# than left to be swept off.
+	if carried != Vector3.ZERO and (
+		not _riding_without_a_ticket or world.park.carrier() == &"carousel"
+	):
 		player.global_position += carried
 
 ## Whether somebody standing here is in the seat of a ride, and which: the
@@ -820,6 +863,7 @@ func _process(delta: float) -> void:
 	_footsteps(delta)
 	lantern.follow(world.atmosphere.darkness(), delta)
 	world.places.light_lamps(world.atmosphere.evening(), delta)
+	world.park.carousel.glow(world.atmosphere.darkness())
 	ambience.follow(
 		player.global_position, world.field, world.places,
 		world.atmosphere.darkness(), delta,
@@ -843,7 +887,8 @@ func _process(delta: float) -> void:
 	session.report_position(
 		player.global_position, player.facing_angle(), &"" if _arriving else player.riding,
 		Session.motion_code(
-			Vector2(player.velocity.x, player.velocity.z).length(), player.is_swimming, player.diving
+			Vector2(player.velocity.x, player.velocity.z).length(), player.is_swimming, player.diving,
+			player.is_tending()
 		)
 	)
 	_share_the_animals(delta)
@@ -2466,6 +2511,49 @@ func _on_drink() -> void:
 		sounds.play(Sounds.Sound.PICKUP)
 	_refresh_vitals()
 
+## The head of the animal nearest a place, within a child's reach of it, or
+## null: what another child reaching out is reaching to.
+func _animal_head_near(at: Vector3) -> Node3D:
+	var best: Node3D = null
+	var best_distance := Animals.REACH
+	for animal in world.animals.living_near(at, Animals.REACH):
+		var node := animal["node"] as Node3D
+		var distance := node.global_position.distance_to(at)
+		if distance <= best_distance:
+			var head := node.get_node_or_null("Head") as Node3D
+			if head != null:
+				best_distance = distance
+				best = head
+	return best
+
+## How far a beaver carries a stick towards its dam before it sets it down.
+const BEAVER_ERRAND := 25.0
+
+## The child reaches out to an animal they are caring for and the animal
+## answers: the one place that does both, whatever the care was (food, water,
+## wool, milk or a stroke), so the two never disagree about whether it happened.
+func _tend(animal: Dictionary) -> void:
+	var node = animal.get("node")
+	if node == null or not is_instance_valid(node):
+		return
+	var kind: StringName = animal["kind"]
+	# Stroked, and not held out to, when nothing is handed over: a pat, the
+	# shears, the milking.
+	var strokes := AnimalKinds.want(kind) == &"" or AnimalKinds.gives(kind) != &""
+	var head := (node as Node3D).get_node_or_null("Head") as Node3D
+	if head != null:
+		player.tend(head, strokes)
+	var errand := Vector3.INF
+	if kind == AnimalKinds.BEAVER:
+		# The stick goes to the dam: part of the way, along the bank.
+		var site := DamSpec.nearest_site((node as Node3D).position.z, 60.0)
+		if not is_nan(site):
+			var dam := Vector3(world.field.river_centre_x(site), 0.0, site)
+			var way := dam - (node as Node3D).position
+			way.y = 0.0
+			errand = (node as Node3D).position + way.limit_length(BEAVER_ERRAND)
+	world.animals.answer(animal, player.global_position, errand)
+
 func _on_care() -> void:
 	var animal := world.animals.nearest_caring(player.global_position, inventory)
 	if animal.is_empty():
@@ -2475,6 +2563,7 @@ func _on_care() -> void:
 	if world.animals.is_thirsty(animal) and vitals.has_bottle and vitals.water >= Vitals.DRINK:
 		if vitals.pour():
 			var reward := world.animals.water_for(animal)
+			_tend(animal)
 			wallet.earn(reward)
 			journal.record(Journal.CARED)
 			journal.record(Journal.COINS, reward)
@@ -2490,6 +2579,7 @@ func _on_care() -> void:
 	var gift := world.animals.last_gift
 	if gift != &"":
 		world.animals.last_gift = &""
+		_tend(animal)
 		if gift == ItemKinds.WOOL:
 			inventory.add(ItemKinds.WOOL, WOOL_PER_SHEEP)
 			sounds.play(Sounds.Sound.PICKUP, 1.1)
@@ -2514,6 +2604,7 @@ func _on_care() -> void:
 		return
 	if coins <= 0:
 		return
+	_tend(animal)
 	# The one voice that is never automatic: a cat purrs because it is being
 	# stroked, which is the whole reason a cat purrs.
 	var node = animal.get("node")
@@ -2942,6 +3033,11 @@ func _on_answered(yes: bool) -> void:
 					_coaster_paid = true
 					world.park.coaster.book()
 					hud.announce(Text.of("say_coaster_booked"), 2.4)
+				&"carousel":
+					# Seated on the nearest animal by the physics tick, which
+					# takes it from here (see _physics_process).
+					_carousel_paid = true
+					hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
 				&"wheel":
 					_wheel_rider_paid = true
 					_wheel_boarded = false

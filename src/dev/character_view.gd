@@ -35,6 +35,10 @@ var _seat_no := 0
 ## `--lift=` raises the camera above what it looks at, to see over a wall.
 var _lift := 0.35
 var _extra := 0
+## `--pose=tend` reaches to this animal (`--animal=cat|dog|...`), `--animalat=`
+## metres away.
+var _animal := "cat"
+var _animal_at := 1.0
 var _frames := 0
 ## `--closed=1` shuts the ride's harness or bar, as it is while it is going.
 var _closed := false
@@ -60,6 +64,8 @@ func _initialize() -> void:
 			"seatno": _seat_no = parts[1].to_int()
 			"lift": _lift = parts[1].to_float()
 			"extra": _extra = parts[1].to_int()
+			"animal": _animal = parts[1]
+			"animalat": _animal_at = parts[1].to_float()
 			"closed": _closed = parts[1] != "0"
 
 ## Built on the first frame and not in `_initialize`, where the root is not yet
@@ -246,6 +252,18 @@ func _strike(figure: Node3D) -> void:
 			motion.charge = 1.0
 	for _step in 70 + _extra:
 		motion.step(frame)
+	if _pose == "tend":
+		# An animal of the game's own making, a little in front and to the left,
+		# turned to face the child, and the child reaching to its head: stopped
+		# half way through the reach, where the hand is on it.
+		var beast := AnimalKinds.build_node(StringName(_animal), 0)
+		var at := Vector3(figure.position.x - _animal_at * 0.8, 0.0, figure.position.z - _animal_at * 0.6)
+		beast.position = at
+		beast.rotation.y = atan2(figure.position.x - at.x, figure.position.z - at.z) + PI
+		figure.get_parent().add_child(beast)
+		motion.tend(beast.get_node("Head") as Node3D, _animal != "squirrel" and _animal != "beaver")
+		for _step in 33 + _extra:
+			motion.step(frame)
 	if _pose == "kick":
 		# The release, and then a few frames on: the foot at the peak, and just past.
 		motion.winding = false

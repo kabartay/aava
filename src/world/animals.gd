@@ -599,6 +599,8 @@ func _step(animal: Dictionary, delta: float) -> void:
 		+ float(animal.get("lift", 0.0))
 		+ sin(bob) * 0.02 * (1.0 - trot)
 		+ absf(sin(bob)) * (0.02 + minf(moving, 2.5) * (0.05 if hops else 0.02)) * trot * (1.0 + 0.5 * run_of(kind, moving))
+		# A dog that is being fussed hops on the spot.
+		+ (absf(sin(float(animal.get("answer_t", 0.0)) * 13.0)) * 0.1 * float(animal.get("thrill", 0.0)) if kind == AnimalKinds.DOG else 0.0)
 	)
 	_stride(animal, node, kind, bob, trot, delta)
 	_head_and_tail(animal, node, kind, bob, moving, trot, delta)
@@ -676,6 +678,14 @@ func _stride(animal: Dictionary, node: Node3D, kind: StringName, bob: float, tro
 	body.scale.y = 1.0 + 0.015 * sin(bob * 0.5) * (1.0 - trot)
 	# The back flexes in a run, and the squirrel's whole body in its hop.
 	body.rotation.x = (sin(bob) * 0.04 if hops else sin(bob + 1.0) * 0.05 * run) * trot
+	# Being touched: a cat arches its back into the hand, and a squirrel sits
+	# up straighter to take what it is given.
+	var thrill := float(animal.get("thrill", 0.0))
+	if thrill > 0.0:
+		if kind == AnimalKinds.CAT:
+			body.scale.y += 0.14 * thrill
+		elif hops:
+			body.rotation.x += 0.25 * thrill
 
 ## Where in its stride each leg is when running, front-left first: the fronts
 ## land together and the hinds follow them, rather than the walk's diagonals.
@@ -737,6 +747,8 @@ func _head_and_tail(
 	var tail := animal["tail"] as Node3D
 	var near_you := false
 	var toward_you := 0.0
+	# Being cared for: how far through its answer it is (0 to 1 and back).
+	var thrill := _answering(animal, delta)
 	if _has_player:
 		var to_player := _player - node.position
 		to_player.y = 0.0
@@ -787,6 +799,22 @@ func _head_and_tail(
 			else:
 				yaw = float(animal.get("look_yaw", 0.0))
 				pitch = -float(animal.get("look_pitch", 0.0))
+		if thrill > 0.0:
+			# It has been touched: the head comes up and round to the child,
+			# and then does what its kind does with a hand. A cat rubs its
+			# head against it, a squirrel nods as it takes the cone.
+			graze = false
+			animal["look_t"] = 0.0
+			var t := float(animal["answer_t"])
+			pitch = lerpf(pitch, -0.3, thrill)
+			match kind:
+				AnimalKinds.CAT:
+					pitch = lerpf(pitch, 0.25, thrill)
+					yaw += sin(t * 11.0) * 0.3 * thrill
+				AnimalKinds.SQUIRREL:
+					pitch = lerpf(pitch, -0.15 + 0.3 * sin(t * 9.0), thrill)
+				AnimalKinds.DOG:
+					pitch = lerpf(pitch, -0.2 + 0.1 * sin(t * 12.0), thrill)
 		animal["graze"] = graze
 		# `pitch` is how far down; down is a negative turn about X, since a
 		# positive angle lifts what is at -Z, which is the nose.
@@ -805,6 +833,9 @@ func _head_and_tail(
 				# easy sway when it is only walking.
 				rate = 11.0 if glad else 4.0
 				reach = 0.6 if glad else (0.3 if moving > 0.25 else 0.12)
+				# Touched, it wags with the whole hind end, hard.
+				rate = lerpf(rate, 17.0, thrill)
+				reach = lerpf(reach, 1.0, thrill)
 			AnimalKinds.CAT:
 				rate = 2.0 + moving
 				reach = 0.28
@@ -824,6 +855,67 @@ func _head_and_tail(
 			# A squirrel's flicks up and down, not side to side.
 			tail.rotation.x = sin(wag) * amount
 			tail.rotation.y = 0.0
+		elif kind == AnimalKinds.CAT:
+			# A cat being stroked puts its tail straight up.
+			tail.rotation.x = -0.9 * thrill
+
+## How long an animal that has been cared for answers, in seconds: a little
+## longer than the child's own reach to it, which takes about a second.
+const ANSWER_FOR := 1.5
+
+## The child has just fed, stroked, milked or shorn this animal, reaching out
+## from `from`. It stops what it was doing, comes to meet the hand if it is
+## further off than a short step, and answers in its own way for a moment (see
+## `_head_and_tail`, `_stride` and the hop in `_step`). A beaver that has been
+## given a stick takes it off towards `errand`, the dam, when it is done.
+func answer(animal: Dictionary, from: Vector3, errand := Vector3.INF) -> void:
+	var node: Node3D = animal["node"]
+	if not is_instance_valid(node):
+		return
+	animal["answer"] = ANSWER_FOR
+	animal["answer_t"] = 0.0
+	animal["errand"] = errand
+	if following:
+		return
+	var kind: StringName = animal["kind"]
+	var gap := from - node.position
+	gap.y = 0.0
+	var meet := clampf(AnimalKinds.body_size(kind).z * 0.3 + 0.5, 0.8, 1.4)
+	var stand := node.position
+	if gap.length() > meet:
+		# Near enough to be touched by a child's short arm, and no nearer than
+		# the animal's own length allows. An animal stops within 0.4 of its
+		# mark, so the mark is that much nearer than `meet`.
+		stand = from - gap.normalized() * (meet - 0.3)
+		stand.y = _footing(stand.x, stand.z)
+	animal["target"] = stand
+	animal["speed"] = SPEED * 1.3
+	animal["rest"] = ANSWER_FOR
+
+## Where in its answer an animal is, as a weight that rises, holds and falls
+## (0 when it is not answering). Run each frame by `_head_and_tail`; the clock
+## it keeps is what the tail, the hop and the arch read.
+func _answering(animal: Dictionary, delta: float) -> float:
+	var left := float(animal.get("answer", 0.0))
+	if left <= 0.0:
+		animal["thrill"] = 0.0
+		return 0.0
+	left = maxf(left - delta, 0.0)
+	animal["answer"] = left
+	var t := ANSWER_FOR - left
+	animal["answer_t"] = t
+	var f := t / ANSWER_FOR
+	var thrill := smoothstep(0.0, 0.2, f) * (1.0 - smoothstep(0.7, 1.0, f))
+	animal["thrill"] = thrill
+	if left <= 0.0:
+		var errand: Vector3 = animal.get("errand", Vector3.INF)
+		if errand.is_finite() and not following:
+			errand.y = _footing(errand.x, errand.z)
+			animal["target"] = errand
+			animal["speed"] = SPEED
+			animal["rest"] = randf_range(2.0, 4.0)
+		animal["errand"] = Vector3.INF
+	return thrill
 
 ## Tip an animal to the ground under it, front to back.
 ##

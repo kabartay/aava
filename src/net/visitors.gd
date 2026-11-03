@@ -60,6 +60,9 @@ var _visitors: Dictionary = {}
 ## Main._seat_at). Left unset, nobody sits on a ride. Which ride a child is on is
 ## known from where they are, so nothing about it is sent.
 var seat_finder := Callable()
+## Asked for the head of the animal nearest a place (a Node3D, or null): the one
+## a child reaching out is reaching to.
+var animal_finder := Callable()
 
 ## Where somebody was said to be before they had been announced. Positions are
 ## unreliable and names are reliable, so the first position can overtake the
@@ -173,7 +176,7 @@ func _motion_for(body: Node3D) -> RigMotion:
 ## position, and is trusted for a second at most (see MOTION_FRESH).
 func moving(id: int, code: int) -> void:
 	if _visitors.has(id):
-		_visitors[id]["code"] = code & 127
+		_visitors[id]["code"] = code & 255
 		_visitors[id]["code_age"] = 0.0
 
 ## How somebody is being drawn moving. For the checks.
@@ -408,6 +411,14 @@ func _animate(record: Dictionary, motion: RigMotion, node: Node3D, delta: float,
 	motion.speed = Session.motion_speed(code) if age < MOTION_FRESH else 0.0
 	motion.swimming = code & 32 != 0
 	motion.diving = code & 64 != 0
+	# Reaching out to an animal: drawn once, as the flag goes up, towards the
+	# nearest animal to them, which is the one they are feeding.
+	var tending := code & 128 != 0 and age < MOTION_FRESH
+	if tending and not record.get("tending", false) and animal_finder.is_valid():
+		var head := animal_finder.call(node.global_position) as Node3D
+		if head != null:
+			motion.tend(head, true)
+	record["tending"] = tending
 	var mount: StringName = record.get("mount", &"")
 	motion.riding = mount != &""
 	# Sitting: on a mount as the child's own body does; on a ride's seat when the
