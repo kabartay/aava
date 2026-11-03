@@ -198,7 +198,6 @@ const STRINGS := {
 	# for one: "Игрок" above a brother tells you nothing you did not know.
 	"ui_your_name": {EN: "your name", FR: "ton prénom", RU: "твоё имя"},
 	"ui_name_hint": {EN: "tap to type it", FR: "appuie pour écrire", RU: "нажми и напиши"},
-	"ui_your_colour": {EN: "your colour", FR: "ta couleur", RU: "твой цвет"},
 	# Said when the phone will not let the game use its microphone. Where to go
 	# is spelt out because after two refusals Android stops asking, and the
 	# only way back is the phone's own settings.
@@ -207,6 +206,15 @@ const STRINGS := {
 		FR: "Je ne t'entends pas : le micro est coupé. Pour l'autoriser, ouvre les Réglages du téléphone, puis Applications, Aava, Autorisations, Micro.",
 		RU: "Тебя не слышно: микрофон выключен. Чтобы разрешить, открой Настройки телефона, потом Приложения, Aava, Разрешения, Микрофон.",
 	},
+	# Who a child is drawn as. Every choice is a picture; these words are for the
+	# grown-up reading over a shoulder and for the one title of the panel that a
+	# first run opens, which a child understands from the faces on it.
+	"ui_who_are_you": {EN: "who are you?", FR: "qui es-tu ?", RU: "кто ты?"},
+	"ui_char_simple": {EN: "round friend", FR: "petit rond", RU: "круглый друг"},
+	"ui_char_boy": {EN: "boy", FR: "garçon", RU: "мальчик"},
+	"ui_char_girl": {EN: "girl with pigtails", FR: "fille aux couettes", RU: "девочка с хвостиками"},
+	"ui_char_cap": {EN: "cap and dungarees", FR: "casquette et salopette", RU: "кепка и комбинезон"},
+	"ui_char_bear": {EN: "little bear", FR: "petit ours", RU: "медвежонок"},
 	"say_name_set": {
 		EN: "hello, %s — that is the name they will see",
 		FR: "bonjour %s — c'est le nom qu'ils verront",

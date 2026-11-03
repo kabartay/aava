@@ -100,6 +100,16 @@ var who := ""
 ## or -1 for whoever has not picked one.
 var shirt := -1
 
+## Who this child chose to be drawn as: [character, skin, hair], see
+## Character.clean. The plain figure for a child who never chose.
+var look: Array = [0, 0, 0]
+
+## Who each guest said they are, by peer id, for the guests whose version
+## said so. A guest missing from here is the plain figure. Kept beside
+## `guests` and not inside the arrival signal, which has three values and is
+## listened to as such.
+var guest_looks: Dictionary = {}
+
 ## Everyone else currently in the valley, by peer id.
 var guests: Dictionary = {}
 
@@ -170,12 +180,13 @@ func is_following() -> bool:
 
 ## Open this valley to the other device. Returns false if the port is busy,
 ## which on a family network almost always means the game is already running.
-func host(display_name: String, wearing := -1) -> bool:
+func host(display_name: String, wearing := -1, looking := []) -> bool:
 	if not _ready_to_connect():
 		return false
 	close()
 	who = display_name
 	shirt = wearing
+	look = Character.clean(looking)
 	_peer = ENetMultiplayerPeer.new()
 	var error := _peer.create_server(PORT, MAX_GUESTS)
 	if error != OK:
@@ -191,7 +202,7 @@ func host(display_name: String, wearing := -1) -> bool:
 	return true
 
 ## Walk into somebody else's valley.
-func join(address: String, display_name: String, wearing := -1) -> bool:
+func join(address: String, display_name: String, wearing := -1, looking := []) -> bool:
 	if not _ready_to_connect():
 		return false
 	if address.strip_edges().is_empty():
@@ -200,6 +211,7 @@ func join(address: String, display_name: String, wearing := -1) -> bool:
 	close()
 	who = display_name
 	shirt = wearing
+	look = Character.clean(looking)
 	_peer = ENetMultiplayerPeer.new()
 	var error := _peer.create_client(address, PORT)
 	if error != OK:
@@ -235,6 +247,7 @@ func close() -> void:
 	if not is_inside_tree() or multiplayer == null:
 		role = Role.ALONE
 		guests.clear()
+		guest_looks.clear()
 		guest_positions.clear()
 		return
 	if multiplayer.multiplayer_peer != null:
@@ -248,6 +261,7 @@ func close() -> void:
 	var was := role
 	role = Role.ALONE
 	guests.clear()
+	guest_looks.clear()
 	guest_positions.clear()
 	if was != Role.ALONE:
 		closed.emit()
@@ -440,11 +454,12 @@ func report_new_game() -> void:
 ## This child has renamed themselves, or changed their shirt. Sent to everyone
 ## already here, so what is over their head changes where it is being read
 ## rather than at the next time somebody joins.
-func report_name(display_name: String, chose: int) -> void:
+func report_name(display_name: String, chose: int, looking := []) -> void:
 	who = display_name
 	shirt = chose
+	look = Character.clean(looking)
 	if is_connected_to_anyone():
-		_send_name.rpc(display_name, chose)
+		_send_name.rpc(display_name, chose, look)
 
 ## The sky, which is one sky for everyone in the valley.
 ##
@@ -853,8 +868,14 @@ func _send_time_of_day(fraction: float) -> void:
 
 ## Names are exchanged once on arrival rather than sent with every message.
 @rpc("any_peer", "call_remote", "reliable")
-func _send_name(display_name: String, chose: int) -> void:
-	var from := multiplayer.get_remote_sender_id()
+func _send_name(display_name: String, chose: int, looking := []) -> void:
+	_take_name(multiplayer.get_remote_sender_id(), display_name, chose, looking)
+
+## What a name message says, whoever it came from. Apart from the rpc so that
+## it can be tried without a second machine. `looking` is optional because a
+## message from before there were characters has only the name and the shirt,
+## and is still a good one: it is the plain figure.
+func _take_name(from: int, display_name: String, chose: int, looking: Variant = []) -> void:
 	# Validated on arrival: a name becomes a label on screen, and this is the
 	# one piece of data that comes from another machine and is shown to a child.
 	var safe := display_name.strip_edges()
@@ -869,6 +890,8 @@ func _send_name(display_name: String, chose: int) -> void:
 	# to change the label over his head is the worst of both.
 	var known := guests.has(from)
 	guests[from] = safe
+	# Three small numbers, each made to fit its list: the same care as the shirt.
+	guest_looks[from] = Character.clean(looking)
 	if known:
 		guest_renamed.emit(from, safe, wearing)
 	else:
@@ -876,7 +899,7 @@ func _send_name(display_name: String, chose: int) -> void:
 
 func _on_peer_connected(id: int) -> void:
 	# Our name and shirt go to them; theirs come back the same way.
-	_send_name.rpc_id(id, who, shirt)
+	_send_name.rpc_id(id, who, shirt, look)
 	# And where we are goes with it. Positions are only sent when somebody has
 	# actually moved, which is the right rule for traffic and the wrong one for
 	# somebody who has just arrived: a new visitor is drawn at the world origin
@@ -897,6 +920,7 @@ func _on_peer_disconnected(id: int) -> void:
 		return
 	var name: String = guests[id]
 	guests.erase(id)
+	guest_looks.erase(id)
 	guest_left.emit(id, name)
 
 func _on_connected() -> void:

@@ -133,6 +133,12 @@ signal name_chosen(name: String)
 
 ## A child picked a shirt in the settings, as an index into Visitors.SHIRTS.
 signal shirt_chosen(which: int)
+
+## A child picked who they are in the settings: [character, skin, hair].
+signal look_chosen(look: Array)
+
+## The panel a first run opens on was closed.
+signal look_offer_closed()
 signal talk_started()
 signal talk_released()
 
@@ -169,7 +175,11 @@ var _view_button: Button
 var _voice_button: Button
 var _together_button: Button
 var _name_field: LineEdit
-var _shirt_swatches: Array[Button] = []
+## The faces, colour dots and clothes of the settings panel, and of the panel a
+## first run opens on while it is open.
+var _menu_picker: LookPicker
+var _offer: PanelContainer
+var _offer_picker: LookPicker
 var _player_name := ""
 ## How long the reset must be held. Long enough that a child cannot do it by
 ## accident or by curiosity, short enough that a parent does not wonder whether
@@ -895,36 +905,13 @@ func _build_menu() -> VBoxContainer:
 	# The shirt, under the name, because the two together are the answer to
 	# "which one is you" — the name floats over the head and the colour is what
 	# carries across a valley, where the name is a smudge.
-	var shirt_label := Label.new()
-	shirt_label.text = Text.of("ui_your_colour")
-	shirt_label.add_theme_font_size_override("font_size", 20)
-	shirt_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.55))
-	column.add_child(shirt_label)
-
-	_shirt_swatches.clear()
-	var swatches := GridContainer.new()
-	swatches.columns = 6
-	swatches.add_theme_constant_override("h_separation", 6)
-	swatches.add_theme_constant_override("v_separation", 6)
-	for i in Visitors.SHIRTS.size():
-		var swatch := Button.new()
-		swatch.focus_mode = Control.FOCUS_NONE
-		swatch.custom_minimum_size = Vector2(BUTTON * 0.52, BUTTON * 0.52)
-		swatch.tooltip_text = String(Visitors.SHIRT_NAMES[i])
-		var face := StyleBoxFlat.new()
-		face.bg_color = Visitors.SHIRTS[i]
-		face.set_corner_radius_all(8)
-		# The ring round the chosen one is drawn in the border, which is the
-		# only part of a swatch that is not the colour itself.
-		face.border_color = Color(1.0, 1.0, 1.0, 0.9)
-		face.set_border_width_all(0)
-		swatch.add_theme_stylebox_override("normal", face)
-		swatch.add_theme_stylebox_override("hover", face)
-		swatch.add_theme_stylebox_override("pressed", face)
-		swatch.pressed.connect(func() -> void: shirt_chosen.emit(i))
-		swatches.add_child(swatch)
-		_shirt_swatches.append(swatch)
-	column.add_child(swatches)
+	# Who they are is picked below it, by pictures: five faces, skin and hair
+	# as dots, and the colour of the clothes. No words, because the children
+	# choosing cannot yet read them.
+	_menu_picker = LookPicker.new(BUTTON * 0.8)
+	_menu_picker.look_chosen.connect(func(look: Array) -> void: look_chosen.emit(look))
+	_menu_picker.shirt_chosen.connect(func(which: int) -> void: shirt_chosen.emit(which))
+	column.add_child(_menu_picker)
 
 	var heading := Label.new()
 	heading.text = Text.of("ui_language")
@@ -2013,9 +2000,63 @@ func set_player_name(name: String) -> void:
 
 ## Ring the shirt this child is wearing, and unring the rest.
 func set_shirt(which: int) -> void:
-	for i in _shirt_swatches.size():
-		var face: StyleBoxFlat = _shirt_swatches[i].get_theme_stylebox("normal")
-		face.set_border_width_all(4 if i == which else 0)
+	_menu_picker.set_shirt(which)
+	if _offer_picker != null:
+		_offer_picker.set_shirt(which)
+
+## Ring who this child is drawn as, in the settings and in the first-run panel.
+func set_look(look: Array) -> void:
+	_menu_picker.set_look(look)
+	if _offer_picker != null:
+		_offer_picker.set_look(look)
+
+## The panel a first run opens on, before the child plays: who to be, by
+## pictures, with a tick to go on. Nothing in it has to be touched, which is how
+## it is skipped: the tick alone keeps the defaults.
+func offer_look() -> void:
+	if _offer != null:
+		return
+	_offer = PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.07, 0.09, 0.12, 0.92)
+	style.set_corner_radius_all(16)
+	style.set_content_margin_all(18.0)
+	style.border_color = Color(1.0, 1.0, 1.0, 0.18)
+	style.set_border_width_all(1)
+	_offer.add_theme_stylebox_override("panel", style)
+	add_child(_offer)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 12)
+	_offer.add_child(column)
+	var title := Label.new()
+	title.text = Text.of("ui_who_are_you")
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color(1.0, 0.97, 0.90))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(title)
+	_offer_picker = LookPicker.new(BUTTON * 1.0)
+	_offer_picker.look_chosen.connect(func(look: Array) -> void: look_chosen.emit(look))
+	_offer_picker.shirt_chosen.connect(func(which: int) -> void: shirt_chosen.emit(which))
+	column.add_child(_offer_picker)
+	_offer_picker.set_look(_menu_picker.look())
+	_offer_picker.set_shirt(_menu_picker.shirt())
+	var go := _answer_button("✓", Color(0.42, 0.82, 0.46), close_look_offer)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(go)
+	_layout()
+
+## Put the first-run panel away. A child who has seen it has been asked.
+func close_look_offer() -> void:
+	if _offer == null:
+		return
+	_offer.queue_free()
+	_offer = null
+	_offer_picker = null
+	look_offer_closed.emit()
+
+## Is the first-run panel open? For the checks.
+func look_offer_open() -> bool:
+	return _offer != null
 
 func player_name() -> String:
 	return _player_name
@@ -2203,6 +2244,13 @@ func _layout() -> void:
 
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
 	_danger.position = _menu.position
+	if _offer != null:
+		_offer.size = Vector2.ZERO
+		_offer.size = _offer.get_combined_minimum_size()
+		_offer.position = Vector2(
+			safe.position.x + (safe.size.x - _offer.size.x) * 0.5,
+			safe.position.y + (safe.size.y - _offer.size.y) * 0.5
+		)
 
 	# The corner opposite the menu: how you are, then what you have, on the one
 	# line and level with the buttons on the left. These used to run down the

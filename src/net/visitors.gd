@@ -65,32 +65,21 @@ const MAX_EARLY := 8
 var _early: Dictionary = {}
 
 ## `chose` is the shirt that child picked for themselves, or -1 if they are
-## playing on a version that never asked them.
-func add(id: int, who: String, chose := -1) -> void:
+## playing on a version that never asked them. `look` is who they chose to be,
+## [character, skin, hair] (see Character.clean), or empty for a version that
+## never asked that either: those children are the simple figure.
+func add(id: int, who: String, chose := -1, look := []) -> void:
 	if _visitors.has(id):
 		return
 	var shirt := shirt_for(id, chose)
+	var wearing := Character.clean(look)
 
-	var body := MeshInstance3D.new()
-	body.mesh = _build_body(shirt)
+	var body := _make_body(who, shirt, wearing)
 	add_child(body)
-
-	var label := Label3D.new()
-	label.text = who
-	label.font_size = 96
-	label.pixel_size = 0.0022
-	label.position = Vector3(0.0, 2.15, 0.0)
-	# Always facing the reader, and drawn over the world: a name hidden behind a
-	# tree is worse than no name, because it tells a child nobody is there.
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.no_depth_test = true
-	label.outline_size = 18
-	label.outline_modulate = Color(0.06, 0.08, 0.11, 0.85)
-	body.add_child(label)
 
 	_visitors[id] = {
 		"node": body, "wanted": Vector3.ZERO, "facing": 0.0, "seen": false,
-		"shirt": shirt,
+		"shirt": shirt, "look": wearing,
 	}
 	if _early.has(id):
 		var told: Array = _early[id]
@@ -132,16 +121,47 @@ func shirt_of(id: int) -> Color:
 	return _visitors[id]["shirt"]
 
 ## Somebody changed their name, or their shirt, while standing in the valley.
+## Whoever they are drawn as stays as it was.
 func reshirt(id: int, chose: int) -> void:
+	if _visitors.has(id):
+		relook(id, chose, _visitors[id]["look"])
+
+## Somebody changed their shirt, or who they are, while standing in the valley.
+## The body is made again and put where the old one stood: a rig is a tree of
+## joints and the simple figure is one mesh, so changing between the two means
+## a different kind of node, not a different mesh on the same one.
+func relook(id: int, chose: int, look: Array) -> void:
 	if not _visitors.has(id):
 		return
 	var record: Dictionary = _visitors[id]
-	var node: Node3D = record["node"]
-	if not is_instance_valid(node) or not (node is MeshInstance3D):
+	var old: Node3D = record["node"]
+	if not is_instance_valid(old):
 		return
 	var shirt := shirt_for(id, chose)
+	var wearing := Character.clean(look)
+	var who := ""
+	for child in old.get_children():
+		if child is Label3D:
+			who = (child as Label3D).text
+	var fresh := _make_body(who, shirt, wearing)
+	fresh.position = old.position
+	fresh.rotation = old.rotation
+	add_child(fresh)
+	old.queue_free()
+	record["node"] = fresh
 	record["shirt"] = shirt
-	(node as MeshInstance3D).mesh = _build_body(shirt, _lift_of(record))
+	record["look"] = wearing
+	# Still in the saddle if they were riding when they changed.
+	var riding: StringName = record.get("mount", &"")
+	if riding != &"":
+		record["mount"] = &""
+		_ride(record, riding)
+
+## Who somebody is drawn as, as the three numbers they chose. For the checks.
+func look_of(id: int) -> Array:
+	if not _visitors.has(id):
+		return Character.clean([])
+	return _visitors[id]["look"]
 
 ## How far above their own spot somebody sits: a rider in the saddle, as the
 ## player's own body is drawn, and a child on foot not at all.
@@ -157,7 +177,8 @@ func mount_of(id: int) -> StringName:
 ## valley draws it as, and the rider is lifted into its saddle, so a child on a
 ## horse across the valley is on a horse and not running at sixteen metres a
 ## second. Nothing is rebuilt when it has not changed: this is asked of every
-## position that arrives.
+## position that arrives. Whoever they are drawn as is lifted: the simple
+## figure's mesh is made again at the saddle's height, a rig is raised whole.
 func _ride(record: Dictionary, mount: StringName) -> void:
 	if record.get("mount", &"") == mount:
 		return
@@ -174,11 +195,44 @@ func _ride(record: Dictionary, mount: StringName) -> void:
 		var steed := MountKinds.build_node(mount)
 		steed.name = "Mount"
 		node.add_child(steed)
+	var look: Array = record.get("look", Character.clean([]))
 	if node is MeshInstance3D:
-		(node as MeshInstance3D).mesh = _build_body(record["shirt"], lift)
+		(node as MeshInstance3D).mesh = _build_body(record["shirt"], Character.SKINS[look[1]], lift)
+	else:
+		var rig := node.get_node_or_null("Rig") as Node3D
+		if rig != null:
+			rig.position.y = lift
 	for child in node.get_children():
 		if child is Label3D:
 			(child as Label3D).position.y = 2.15 + lift
+
+## The body: the simple figure is one mesh with the name on it; the others are
+## a rig, with the name on a node that carries it.
+func _make_body(who: String, shirt: Color, look: Array) -> Node3D:
+	var body: Node3D
+	if Character.is_rigged(look[0]):
+		body = Node3D.new()
+		var rig := Character.build(look[0], look[1], look[2], shirt)
+		rig.name = "Rig"
+		body.add_child(rig)
+	else:
+		var simple := MeshInstance3D.new()
+		simple.mesh = _build_body(shirt, Character.SKINS[look[1]])
+		body = simple
+
+	var label := Label3D.new()
+	label.text = who
+	label.font_size = 96
+	label.pixel_size = 0.0022
+	label.position = Vector3(0.0, 2.15, 0.0)
+	# Always facing the reader, and drawn over the world: a name hidden behind a
+	# tree is worse than no name, because it tells a child nobody is there.
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.outline_size = 18
+	label.outline_modulate = Color(0.06, 0.08, 0.11, 0.85)
+	body.add_child(label)
+	return body
 
 ## Somebody changed their name while standing in the valley.
 func rename(id: int, who: String) -> void:
@@ -261,7 +315,7 @@ func _process(delta: float) -> void:
 ## The same shape as the player, in a different shirt, so that seeing someone
 ## across the valley reads as "another child" and not as a different kind of
 ## creature.
-func _build_body(shirt: Color, lift := 0.0) -> Mesh:
+func _build_body(shirt: Color, skin := Character.SKINS[0], lift := 0.0) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
@@ -286,7 +340,7 @@ func _build_body(shirt: Color, lift := 0.0) -> Mesh:
 	_add(
 		tool, head,
 		Transform3D(Basis(), Vector3(0.0, Player.HEIGHT * 0.79 + lift, 0.0)),
-		Color(0.93, 0.78, 0.62)
+		skin
 	)
 
 	var nose := CylinderMesh.new()
@@ -300,7 +354,7 @@ func _build_body(shirt: Color, lift := 0.0) -> Mesh:
 			Basis(Vector3.RIGHT, deg_to_rad(-90.0)),
 			Vector3(0.0, Player.HEIGHT * 0.79 + lift, -0.20)
 		),
-		Color(0.93, 0.78, 0.62)
+		skin
 	)
 
 	tool.generate_normals()

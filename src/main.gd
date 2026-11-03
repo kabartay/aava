@@ -131,6 +131,15 @@ func _ready() -> void:
 	_shirt = int(save.get("shirt", -1))
 	if _shirt < -1 or _shirt >= Visitors.SHIRTS.size():
 		_shirt = -1
+	# Who this child is drawn as. A save from before there were characters has
+	# no such key and is the plain figure in today's colours; one that has the
+	# key but with rubbish in it is the same, by Character.clean.
+	var kept: Variant = save.get("look", {})
+	_look = Character.from_data(kept if kept is Dictionary else {})
+	# Offered once, to a child with nothing saved yet. A child who has been
+	# playing for weeks is not stopped in front of a panel they have no reason
+	# to expect; they find it in the settings.
+	_look_offered = bool(save.get("look_offered", save.has("player")))
 
 	# The world's map decides the seed, not the save: everyone in one copy of the
 	# valley must get the same ground, even though their own progress is in
@@ -1193,6 +1202,12 @@ func _connect_the_rest_of_the_hud() -> void:
 	hud.set_player_name(profiles.current_player)
 	hud.set_shirt(_shirt)
 	player.set_shirt(_own_shirt_color())
+	player.set_look(_look)
+	hud.set_look(_look)
+	hud.look_chosen.connect(_on_look_chosen)
+	hud.look_offer_closed.connect(_on_look_offer_closed)
+	if not _look_offered:
+		hud.offer_look()
 	hud.together.host_requested.connect(_on_host_requested)
 	hud.together.join_requested.connect(_on_join_requested)
 	hud.together.leave_requested.connect(_on_leave_requested)
@@ -1466,7 +1481,25 @@ func _on_shirt_chosen(which: int) -> void:
 	sounds.play(Sounds.Sound.CHIME, 1.35)
 	_write_save()
 	if session.is_connected_to_anyone():
-		session.report_name(_display_name(), _shirt)
+		session.report_name(_display_name(), _shirt, _look)
+
+## A child picked who they are in the settings, or in the panel a first run
+## opens on: a character, a skin tone and a hair colour. As with the shirt, their
+## own body changes at once and everybody already here is told.
+func _on_look_chosen(look: Array) -> void:
+	_look = Character.clean(look)
+	player.set_look(_look)
+	hud.set_look(_look)
+	sounds.play(Sounds.Sound.CHIME, 1.35)
+	_write_save()
+	if session.is_connected_to_anyone():
+		session.report_name(_display_name(), _shirt, _look)
+
+## The first-run panel was closed, by the tick or by the cross: either way the
+## child has been asked, and is not asked again.
+func _on_look_offer_closed() -> void:
+	_look_offered = true
+	_write_save()
 
 ## A child named themselves in the settings.
 ##
@@ -1517,7 +1550,7 @@ func _on_name_chosen(typed: String) -> void:
 	# Anybody already in the valley is told, so the label over this child
 	# changes there and then rather than at the next join.
 	if session.is_connected_to_anyone():
-		session.report_name(name, _shirt)
+		session.report_name(name, _shirt, _look)
 
 ## Hand the game to another child on this phone.
 ##
@@ -1552,7 +1585,7 @@ func _on_together_opened() -> void:
 		hud.together.open()
 
 func _on_host_requested() -> void:
-	if session.host(_display_name(), _shirt):
+	if session.host(_display_name(), _shirt, _look):
 		hud.together.show_hosting()
 
 func _on_join_requested(code: int) -> void:
@@ -1561,7 +1594,7 @@ func _on_join_requested(code: int) -> void:
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.of("say_no_network"), 3.0)
 		return
-	if session.join(address, _display_name(), _shirt):
+	if session.join(address, _display_name(), _shirt, _look):
 		_arriving = true
 		_host_at = Vector3.INF
 		_placed = false
@@ -1586,7 +1619,7 @@ func _on_session_joined() -> void:
 	hud.announce(Text.of("say_visiting"), 3.0)
 
 func _on_guest_arrived(id: int, name: String, shirt: int) -> void:
-	visitors.add(id, name, shirt)
+	visitors.add(id, name, shirt, session.guest_looks.get(id, []))
 	sounds.play(Sounds.Sound.CHIME, 1.4)
 	# A guest meets the host, who has not "come to your valley": it is the
 	# guest who has come to theirs.
@@ -1769,7 +1802,7 @@ func _tell_everyone_the_time() -> void:
 ## Somebody already here renamed themselves: their label changes, quietly.
 func _on_guest_renamed(id: int, name: String, shirt: int) -> void:
 	visitors.rename(id, name)
-	visitors.reshirt(id, shirt)
+	visitors.relook(id, shirt, session.guest_looks.get(id, []))
 
 func _on_guest_left(id: int, name: String) -> void:
 	visitors.remove(id)
@@ -2450,6 +2483,11 @@ var _first_person := false
 ## a child who has not been asked yet.
 var _shirt := -1
 
+## Who this child is drawn as: [character, skin, hair] (see Character), and
+## whether the panel that offers the choice has been put in front of them yet.
+var _look: Array = [Character.SIMPLE, 0, 0]
+var _look_offered := true
+
 func _on_sell_back(item: StringName) -> void:
 	if not wallet.has(item):
 		return
@@ -3052,6 +3090,8 @@ func _save_data() -> Dictionary:
 		"voice_allowed": _voice_allowed,
 		"first_person": _first_person,
 		"shirt": _shirt,
+		"look": Character.to_data(_look),
+		"look_offered": _look_offered,
 		"player": {"x": at.x, "y": at.y, "z": at.z},
 		"camera_yaw": camera_rig.yaw,
 		"inventory": inventory.to_data(),

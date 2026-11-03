@@ -197,6 +197,17 @@ var _swim_sink := 0.0
 ## riding, and straight up the rest of the time.
 var _seat_up := Vector3.UP
 var _cloth: StandardMaterial3D = null
+## The plain figure's own parts, kept so that a child who chooses one of the
+## cartoon characters can have them put away and the rig shown instead.
+var _skin: StandardMaterial3D = null
+var _simple_parts: Array[Node3D] = []
+## The rig of a cartoon character, or null while the plain figure is worn.
+var _rig: Node3D = null
+## Who this child is drawn as, [character, skin, hair] (see Character.clean),
+## and the colour of the clothes the rig is made in: its colours are on its
+## vertices, so a new shirt means building it again.
+var _look: Array = [Character.SIMPLE, 0, 0]
+var _shirt := DEFAULT_SHIRT
 var _band: MeshInstance3D = null
 var _swim_lean := 0.0
 var _ride_lean := 0.0
@@ -316,6 +327,7 @@ func _build_visual() -> Node3D:
 	body.material_override = cloth
 	_cloth = cloth
 	root.add_child(body)
+	_simple_parts.append(body)
 
 	# A band of the football side's colour round the chest, shown only while
 	# two children are playing: a shirt may be any colour, and the side is not
@@ -348,10 +360,12 @@ func _build_visual() -> Node3D:
 	head.mesh = sphere
 	head.position.y = HEIGHT * 0.79
 	var skin := StandardMaterial3D.new()
-	skin.albedo_color = Color(0.93, 0.78, 0.62)
+	skin.albedo_color = Character.SKINS[0]
 	skin.roughness = 0.85
 	head.material_override = skin
+	_skin = skin
 	root.add_child(head)
+	_simple_parts.append(head)
 
 	# A nose, purely so that which way the character is facing is unmistakable
 	# while the controller is being tuned.
@@ -365,6 +379,7 @@ func _build_visual() -> Node3D:
 	nose.position = Vector3(0.0, HEIGHT * 0.79, -0.20)
 	nose.material_override = skin
 	root.add_child(nose)
+	_simple_parts.append(nose)
 
 	return root
 
@@ -1070,8 +1085,56 @@ func face(direction: Vector3, delta: float) -> void:
 ## The shirt this child picked for themselves. Their own body, not just the one
 ## the others see: "I am the blue one" has to be true on their own screen.
 func set_shirt(colour: Color) -> void:
+	_shirt = colour
 	if _cloth != null:
 		_cloth.albedo_color = colour
+	if _rig != null:
+		_dress()
+
+## Who this child is: a character, a skin tone and a hair colour, as chosen in
+## the settings. The plain figure takes the skin tone and ignores the hair; the
+## others are a rig (Character) standing where the plain figure stands, feet at
+## the bottom of the collision capsule, which is not touched.
+func set_look(look: Array) -> void:
+	_look = Character.clean(look)
+	if _visual == null:
+		_visual = _build_visual()
+		add_child(_visual)
+	_dress()
+
+## Put on whatever _look says, taking off whatever was worn.
+func _dress() -> void:
+	if _rig != null:
+		# Out of the tree before it is freed, so that nothing finds two bodies
+		# in the one frame.
+		_visual.remove_child(_rig)
+		_rig.queue_free()
+		_rig = null
+	_skin.albedo_color = Character.SKINS[_look[1]]
+	var rigged := Character.is_rigged(_look[0])
+	for part in _simple_parts:
+		part.visible = not rigged
+	if rigged:
+		_rig = Character.build(_look[0], _look[1], _look[2], _shirt)
+		_visual.add_child(_rig)
+	# The side band hugs whichever chest there is: the plain figure's is wider
+	# than the whole of a cartoon child.
+	var ring := _band.mesh as CylinderMesh
+	if rigged:
+		ring.top_radius = float(_rig.get_meta("chest_radius")) + 0.015
+		_band.position.y = float(_rig.get_meta("chest_y"))
+	else:
+		ring.top_radius = RADIUS + 0.015
+		_band.position.y = HEIGHT * 0.42
+	ring.bottom_radius = ring.top_radius
+
+## Who this child is drawn as. For the checks.
+func look() -> Array:
+	return _look
+
+## The cartoon rig being worn, or null. For the checks.
+func rig() -> Node3D:
+	return _rig
 
 ## Wear a band in the colour of a football side, or take it off. Transparent
 ## (alpha 0) takes it off.

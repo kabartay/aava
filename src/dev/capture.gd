@@ -26,6 +26,8 @@ extends Node3D
 ##   --shop=1  open the shop panel, with coins to spend
 ##   --dam=1  finish the first dam before the shot, to show the pond
 ##   --mounts=1  put a horse and a bicycle in front of the camera
+##   --character=C,SKIN,HAIR  with --player=1, dress the player as that
+##                  character (0 plain, 1 boy, 2 girl, 3 cap, 4 bear)
 ##   --chop=N  fell the N nearest trees before the shot, to show a clearing
 ##   --energy=N  draw the energy bar at this fraction (0..1)
 ##   --water=N  draw the bottle at this fraction, and carry one
@@ -89,6 +91,8 @@ var _together := ""
 var _energy := 1.0
 var _chop := 0
 var _mounts := false
+## --character=C,SKIN,HAIR: dress the player as this character.
+var _look: Array = []
 var _dam := false
 var _lantern: Lantern = null
 var _water := -1.0
@@ -220,6 +224,8 @@ func _spawn_player() -> void:
 	_player.position = spawn + Vector3.UP * 1.2
 	_player.set_physics_process(false)
 	add_child(_player)
+	if not _look.is_empty():
+		_player.set_look(_look)
 
 	_rig = CameraRig.new(_player)
 	_rig.yaw = deg_to_rad(_yaw)
@@ -732,6 +738,8 @@ func _parse_arguments() -> void:
 				_chop = value.to_int()
 			"mounts":
 				_mounts = value.to_int() != 0
+			"character":
+				_look = Array(value.split(",")).map(func(part: String) -> int: return part.to_int())
 			"dam":
 				_dam = value.to_int() != 0
 			"water":

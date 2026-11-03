@@ -204,6 +204,7 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	await _check_the_characters_build_fit_and_travel()
 	await _check_a_stray_tap_loses_nothing()
 	_check_the_earning_is_balanced()
 	_check_the_economy_has_no_free_coins()
@@ -19687,4 +19688,185 @@ func _check_a_big_valley_arrives_in_parts_and_the_panel_offers_both_ways() -> vo
 		_expect(Text.of("say_same_wifi").contains("Wi-Fi"), "and so does the note on the panel in %s" % code)
 		_expect(not Text.of("fail_too_big").is_empty(), "the valley too big has words in %s" % code)
 	Text.set_language(Text.EN)
+
+## Every point of a rig's meshes, in the rig's own space. The joints are at rest
+## (no rotation), so a point is the sum of the joint offsets above it.
+func _rig_points(node: Node3D, offset := Vector3.ZERO) -> PackedVector3Array:
+	var points := PackedVector3Array()
+	var here := offset + node.position
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		for point in ((node as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array:
+			points.append(here + point)
+	for child in node.get_children():
+		if child is Node3D:
+			points.append_array(_rig_points(child, here))
+	return points
+func _check_the_characters_build_fit_and_travel() -> void:
+	print("the five characters build, fit the capsule, and travel with the child")
+	var joints: Array[String] = ["Hips", "Torso", "Head"]
+	for side: String in ["L", "R"]:
+		for part: String in ["UpperArm", "Forearm", "Hand", "Thigh", "Shin", "Foot"]:
+			joints.append(part + side)
+
+	_expect(Character.KEYS.size() == 5 and not Character.is_rigged(Character.SIMPLE), "there are five characters, the first being the plain figure")
+	_expect(Character.SKINS.size() == 5 and Character.HAIRS.size() == 5, "five skin tones and five hair colours")
+	_expect(Character.SKINS[0] == Color(0.93, 0.78, 0.62), "the first skin tone is the colour the plain figure has always had")
+
+	for which in range(1, Character.KEYS.size()):
+		var key: StringName = Character.KEYS[which]
+		var rig := Character.build(which, 2, 1, Visitors.SHIRTS[3])
+		for joint in joints:
+			var found: Node3D = rig.find_child(joint, true, false)
+			_expect(found != null and found.rotation == Vector3.ZERO and found.get_node_or_null("Mesh") != null, "%s has its %s, at rest, carrying a mesh" % [key, joint])
+		var low := 1e9
+		var high := -1e9
+		var wide := 0.0
+		var wide_low := 0.0
+		for point in _rig_points(rig):
+			low = minf(low, point.y)
+			high = maxf(high, point.y)
+			wide = maxf(wide, Vector2(point.x, point.z).length())
+			if point.y < 0.3:
+				wide_low = maxf(wide_low, Vector2(point.x, point.z).length())
+		_expect(low > -0.005 and low < 0.02, "%s stands on the bottom of the capsule (feet %.3f m)" % [key, low])
+		_expect(high < Player.HEIGHT and high > Player.HEIGHT * 0.85, "%s's head is near the top of the capsule, inside it (%.2f of %.2f m)" % [key, high, Player.HEIGHT])
+		_expect(wide < Player.RADIUS, "%s is inside the capsule's width (%.2f of %.2f m)" % [key, wide, Player.RADIUS])
+		# The plain figure is a capsule of the same radius resting on the ground;
+		# a rig that reaches no further out down by the feet meets a seat or a
+		# saddle no sooner than it does, and stands on the ground as it does.
+		_expect(wide_low <= Player.RADIUS, "%s's legs and feet are no wider than the plain figure's body (%.2f m)" % [key, wide_low])
+		var triangles := 0
+		var stack: Array[Node] = [rig]
+		while not stack.is_empty():
+			var node: Node = stack.pop_back()
+			stack.append_array(node.get_children())
+			if node is MeshInstance3D:
+				triangles += ((node as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() / 3
+		_expect(triangles < 8000, "%s is %d triangles" % [key, triangles])
+		# The clothes colour is on the vertices: a different shirt, a different rig.
+		var shirt := Visitors.SHIRTS[3]
+		var shirt_seen := false
+		var torso: MeshInstance3D = rig.find_child("Torso", true, false).get_node("Mesh")
+		for tint in (torso.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_COLOR] as PackedColorArray:
+			if tint.is_equal_approx(shirt) or tint.is_equal_approx(shirt.srgb_to_linear()):
+				shirt_seen = true
+		_expect(shirt_seen, "%s's body carries the colour that was chosen for its clothes" % key)
+		rig.free()
+
+	# What is chosen is kept as three numbers and comes back as the same three.
+	for which in Character.KEYS.size():
+		var look := [which, (which + 2) % 5, (which + 3) % 5]
+		_expect(Character.from_data(Character.to_data(look)) == look, "character %d, with its skin and hair, survives a save" % which)
+		_expect(Character.from_data(JSON.parse_string(JSON.stringify(Character.to_data(look)))) == look, "and the trip through the save file's JSON")
+	_expect(Character.from_data({}) == [0, 0, 0], "a save from before characters is the plain figure in today's colours")
+	_expect(Character.clean([9, -1, "x"]) == [0, 0, 0] and Character.clean("nonsense") == [0, 0, 0] and Character.clean([2]) == [2, 0, 0], "a look that is rubbish, or short, mends to the plain choice for each part")
+	_expect(Character.clean([2.0, 4.0, 1.0]) == [2, 4, 1], "numbers that arrive as floats are still numbers")
+
+	# On the player: the rig stands where the plain figure does, and the capsule is as it was.
+	var player := Player.new()
+	get_root().add_child(player)
+	var capsule: CapsuleShape3D = null
+	for child in player.get_children():
+		if child is CollisionShape3D:
+			capsule = (child as CollisionShape3D).shape
+	_expect(capsule != null and is_equal_approx(capsule.height, Player.HEIGHT) and is_equal_approx(capsule.radius, Player.RADIUS), "the player's collision capsule is unchanged")
+	_expect(player.look() == [0, 0, 0] and player.rig() == null, "a player starts as the plain figure")
+	player.set_look([2, 3, 4])
+	_expect(player.rig() != null and player.rig().get_parent() == player._visual, "choosing a girl puts a rig on the visual node, which the rides and the swimming move")
+	_expect(not player._simple_parts[0].visible and not player._simple_parts[1].visible, "and puts the plain figure away")
+	var before := player.rig()
+	player.set_shirt(Visitors.SHIRTS[6])
+	_expect(player.rig() != before and player.rig() != null, "a new shirt makes the rig again, since its colours are on its vertices")
+	player.set_band(Color(1.0, 0.2, 0.2))
+	_expect(float(player.rig().get_meta("chest_radius")) + 0.015 <= (player._band.mesh as CylinderMesh).top_radius + 0.0001, "the football band wraps the cartoon chest, not the plain figure's wide one")
+	player.set_look([0, 3, 0])
+	_expect(player.rig() == null and player._simple_parts[0].visible, "choosing the plain figure again brings it back")
+	_expect(player._skin.albedo_color == Character.SKINS[3], "and it takes the chosen skin tone")
+	player.set_look([0, 0, 0])
+	_expect(player._skin.albedo_color == Color(0.93, 0.78, 0.62), "with the first skin tone it is exactly the colour it was")
+	player.queue_free()
+
+	# Over the network, the same three numbers; an old message is the plain figure.
+	var session := Session.new()
+	get_root().add_child(session)
+	var arrivals: Array = []
+	session.guest_arrived.connect(func(id: int, who: String, shirt: int) -> void: arrivals.append([id, who, shirt]))
+	session._take_name(5, "Amir", 3, [3, 1, 4])
+	_expect(session.guest_looks.get(5) == [3, 1, 4] and arrivals == [[5, "Amir", 3]], "a guest's choice arrives with their name and shirt")
+	session._take_name(5, "Amir", 3, [1, 2, 3])
+	_expect(session.guest_looks.get(5) == [1, 2, 3], "and a change of mind replaces it")
+	session._take_name(6, "Aida", 2)
+	_expect(session.guest_looks.get(6) == [0, 0, 0], "a message from before characters, with no choice in it, is the plain figure")
+	session._take_name(7, "Murat", 2, [77, 77, 77])
+	_expect(session.guest_looks.get(7) == [0, 0, 0], "and one with numbers off the end of the lists cannot index off them")
+	session._take_name(8, "Mila", 2, "not an array")
+	_expect(session.guest_looks.get(8) == [0, 0, 0], "or with the wrong kind of thing in it")
+	session.report_name("Me", 1, [4, 4, 4])
+	_expect(session.look == [4, 4, 4], "what this child sends is what they chose")
+	session.queue_free()
+
+	# And a guest is drawn as chosen: a rig for a character, one mesh for the plain figure.
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	visitors.add(21, "Amir", 4, [1, 0, 0])
+	visitors.add(22, "Aida", 4, [0, 3, 0])
+	visitors.add(23, "Old", 4)
+	_expect(visitors._visitors[21]["node"].find_child("Head", true, false) != null, "a guest who chose the boy is drawn as the boy")
+	_expect(visitors._visitors[22]["node"] is MeshInstance3D and visitors.look_of(22) == [0, 3, 0], "a guest who chose the plain figure is the plain figure, in their skin tone")
+	_expect(visitors._visitors[23]["node"] is MeshInstance3D and visitors.look_of(23) == [0, 0, 0], "and a guest from an older version is too")
+	var old_node: Node3D = visitors._visitors[22]["node"]
+	old_node.position = Vector3(3.0, 1.0, 2.0)
+	visitors.relook(22, 4, [2, 1, 1])
+	var new_node: Node3D = visitors._visitors[22]["node"]
+	_expect(new_node != old_node and new_node.position == Vector3(3.0, 1.0, 2.0) and new_node.find_child("ThighL", true, false) != null, "a guest who changes who they are is redrawn where they stand")
+	var label_text := ""
+	for child in new_node.get_children():
+		if child is Label3D:
+			label_text = (child as Label3D).text
+	_expect(label_text == "Aida", "and keeps their name")
+	visitors.reshirt(22, 7)
+	_expect(visitors.look_of(22) == [2, 1, 1], "changing only the shirt leaves them who they were")
+	visitors.queue_free()
+
+	# The settings panel and the first-run panel.
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var chosen: Array = []
+	hud.look_chosen.connect(func(look: Array) -> void: chosen.append(look))
+	hud.set_look([1, 2, 3])
+	hud._menu_picker._skin_buttons[4].pressed.emit()
+	_expect(chosen == [[1, 4, 3]], "tapping a skin tone sends the whole choice with that one part changed")
+	hud._menu_picker._face_buttons[3].pressed.emit()
+	_expect(chosen.back() == [3, 2, 3], "tapping a face picks that character")
+	hud._menu_picker._hair_buttons[0].pressed.emit()
+	_expect(chosen.back() == [1, 2, 0], "tapping a hair colour picks it")
+	var rung := 0
+	for button in hud._menu_picker._face_buttons:
+		if (button.get_theme_stylebox("normal") as StyleBoxFlat).border_width_left > 0:
+			rung += 1
+	_expect(rung == 1 and (hud._menu_picker._face_buttons[1].get_theme_stylebox("normal") as StyleBoxFlat).border_width_left > 0, "exactly the chosen face is ringed")
+	var shirts: Array = []
+	hud.shirt_chosen.connect(func(which: int) -> void: shirts.append(which))
+	hud._menu_picker._shirt_buttons[5].pressed.emit()
+	_expect(shirts == [5], "the clothes colour is still chosen in the settings")
+	_expect(not hud.look_offer_open(), "the first-run panel is not open until it is offered")
+	var closed := [0]
+	hud.look_offer_closed.connect(func() -> void: closed[0] += 1)
+	hud.offer_look()
+	hud.offer_look()
+	await process_frame
+	_expect(hud.look_offer_open() and hud._offer.get_child_count() == 1, "offered, it opens once")
+	var view := hud.get_viewport().get_visible_rect().size
+	var panel := Rect2(hud._offer.position, hud._offer.size)
+	_expect(Rect2(Vector2.ZERO, view).encloses(panel), "and is on the screen (%v in %v)" % [panel, view])
+	_expect(hud._offer_picker.look() == [1, 2, 3], "it starts from what is already chosen")
+	hud.close_look_offer()
+	_expect(not hud.look_offer_open() and closed[0] == 1, "the tick closes it and says so")
+	hud._toggle_menu()
+	await process_frame
+	var menu_box := Rect2(hud._menu.position, hud._menu.get_combined_minimum_size())
+	_expect(Rect2(Vector2.ZERO, view).encloses(menu_box), "the settings panel with its new rows still fits the screen (%v in %v)" % [menu_box, view])
+	hud.queue_free()
+
 
