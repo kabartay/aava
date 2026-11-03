@@ -271,6 +271,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	voice.someone_spoke.connect(visitors.speaking)
 	session.guest_renamed.connect(_on_guest_renamed)
 	session.guest_moved.connect(_on_guest_moved)
+	session.guest_moving.connect(visitors.moving)
 	session.failed.connect(_on_session_failed)
 	session.closed.connect(visitors.clear)
 	session.closed.connect(_on_session_closed)
@@ -804,7 +805,10 @@ func _process(delta: float) -> void:
 	# On foot while still arriving: what a guest is riding then is a machine of
 	# their own valley, and the host has no such thing to put them on.
 	session.report_position(
-		player.global_position, player.facing_angle(), &"" if _arriving else player.riding
+		player.global_position, player.facing_angle(), &"" if _arriving else player.riding,
+		Session.motion_code(
+			Vector2(player.velocity.x, player.velocity.z).length(), player.is_swimming, player.diving
+		)
 	)
 	_share_the_animals(delta)
 	# Offered only when there is somebody in the valley to talk to.
@@ -2718,6 +2722,9 @@ func _on_kick_release() -> void:
 	var ball := _ball_near()
 	if ball == null:
 		return
+	# The foot is at the top of its swing in this very frame, the one in which
+	# the ball leaves it.
+	player.swing_kick()
 	if _can_throw(ball):
 		# At the playground a basketball near the hoop is thrown at the ring,
 		# not kicked along the ground — the ring is what it is for. Holding
@@ -2941,6 +2948,7 @@ func _on_goal(index: int, _blue: int, _red: int) -> void:
 	if world.football.scored_for_me(index):
 		journal.record(Journal.GOALS)
 		today.record(Today.SCORE)
+		player.cheer()
 	# As loud as the pitch is near: a goal scored at the far end of the valley
 	# was a fanfare and a crowd in the ear of a child nowhere near it.
 	var away := _metres_to_play()

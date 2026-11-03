@@ -205,6 +205,8 @@ func _initialize() -> void:
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
 	await _check_the_characters_build_fit_and_travel()
+	_check_the_characters_move_and_swim_the_right_way_up()
+	_check_the_choice_screen_is_for_small_fingers()
 	await _check_a_stray_tap_loses_nothing()
 	_check_the_earning_is_balanced()
 	_check_the_economy_has_no_free_coins()
@@ -8109,14 +8111,15 @@ func _check_playing_together() -> void:
 	# whole: reported live as "red, no head, wrong size". Caught here by
 	# insisting the drawn body actually stands shorter than the head it wears.
 	visitors.add(4, "Aida")
-	var body_mesh: Mesh = (visitors._visitors[4]["node"] as MeshInstance3D).mesh
-	var aabb := body_mesh.get_aabb()
+	var body_top := 0.0
+	for point in _rig_points((visitors._visitors[4]["node"] as Node3D).get_node("Rig") as Node3D):
+		body_top = maxf(body_top, point.y)
 	_expect(
-		aabb.size.y < Player.HEIGHT,
+		body_top < Player.HEIGHT,
 		"a visitor's whole body doesn't stand as tall as the player's collision shape"
 	)
 	_expect(
-		aabb.position.y + aabb.size.y > Player.HEIGHT * 0.79,
+		body_top > Player.HEIGHT * 0.79,
 		"a visitor's head clears the top of their own torso"
 	)
 
@@ -19404,8 +19407,9 @@ func _check_the_other_child_is_drawn_on_what_they_ride() -> void:
 	var visitors := Visitors.new()
 	get_root().add_child(visitors)
 	visitors.add(5, "Amir")
-	var body := visitors._visitors[5]["node"] as MeshInstance3D
-	var on_foot_top := body.mesh.get_aabb().end.y
+	var body := visitors._visitors[5]["node"] as Node3D
+	var rig := body.get_node("Rig") as Node3D
+	_expect(is_zero_approx(rig.position.y), "on foot the child stands on their own spot")
 	for id: StringName in [&"horse:3", &"bicycle:0", &"motorcycle:1", &"quad:0", &"boat:2"]:
 		visitors.move(5, Vector3(3.0, 1.0, 4.0), 0.0, id)
 		var mount := body.get_node_or_null("Mount")
@@ -19413,12 +19417,12 @@ func _check_the_other_child_is_drawn_on_what_they_ride() -> void:
 		if mount != null:
 			_expect(mount.get_node_or_null("Body") != null, "%s: with the machine's own body" % id)
 		_expect(
-			body.mesh.get_aabb().end.y > on_foot_top + MountKinds.eye_lift(id) - 0.01,
+			is_equal_approx(rig.position.y, MountKinds.eye_lift(id)),
 			"%s: and sits in the saddle, not inside it" % id
 		)
 	visitors.move(5, Vector3(3.0, 1.0, 4.0), 0.0)
 	_expect(body.get_node_or_null("Mount") == null, "getting off takes the machine away")
-	_expect(is_equal_approx(body.mesh.get_aabb().end.y, on_foot_top), "and puts the child back on the ground")
+	_expect(is_zero_approx(rig.position.y), "and puts the child back on the ground")
 	# A position that overtakes the name that introduces it keeps its mount.
 	visitors.move(9, Vector3.ONE, 0.0, &"quad:0")
 	visitors.add(9, "Mia")
@@ -19708,11 +19712,11 @@ func _check_the_characters_build_fit_and_travel() -> void:
 		for part: String in ["UpperArm", "Forearm", "Hand", "Thigh", "Shin", "Foot"]:
 			joints.append(part + side)
 
-	_expect(Character.KEYS.size() == 5 and not Character.is_rigged(Character.SIMPLE), "there are five characters, the first being the plain figure")
+	_expect(Character.KEYS.size() == 5 and Character.is_rigged(Character.SIMPLE), "there are five characters, the first being the plain figure, now a clay toy on the rig like the rest")
 	_expect(Character.SKINS.size() == 5 and Character.HAIRS.size() == 5, "five skin tones and five hair colours")
 	_expect(Character.SKINS[0] == Color(0.93, 0.78, 0.62), "the first skin tone is the colour the plain figure has always had")
 
-	for which in range(1, Character.KEYS.size()):
+	for which in range(0, Character.KEYS.size()):
 		var key: StringName = Character.KEYS[which]
 		var rig := Character.build(which, 2, 1, Visitors.SHIRTS[3])
 		for joint in joints:
@@ -19770,20 +19774,24 @@ func _check_the_characters_build_fit_and_travel() -> void:
 		if child is CollisionShape3D:
 			capsule = (child as CollisionShape3D).shape
 	_expect(capsule != null and is_equal_approx(capsule.height, Player.HEIGHT) and is_equal_approx(capsule.radius, Player.RADIUS), "the player's collision capsule is unchanged")
-	_expect(player.look() == [0, 0, 0] and player.rig() == null, "a player starts as the plain figure")
+	_expect(player.look() == [0, 0, 0] and player.rig() != null and player.rig().get_meta("character") == &"simple", "a player starts as the plain figure, which is the clay toy on the rig from the first frame")
+	_expect(not player._simple_parts[0].visible and not player._simple_parts[1].visible, "and the old limbless parts are put away")
 	player.set_look([2, 3, 4])
 	_expect(player.rig() != null and player.rig().get_parent() == player._visual, "choosing a girl puts a rig on the visual node, which the rides and the swimming move")
-	_expect(not player._simple_parts[0].visible and not player._simple_parts[1].visible, "and puts the plain figure away")
 	var before := player.rig()
 	player.set_shirt(Visitors.SHIRTS[6])
 	_expect(player.rig() != before and player.rig() != null, "a new shirt makes the rig again, since its colours are on its vertices")
 	player.set_band(Color(1.0, 0.2, 0.2))
 	_expect(float(player.rig().get_meta("chest_radius")) + 0.015 <= (player._band.mesh as CylinderMesh).top_radius + 0.0001, "the football band wraps the cartoon chest, not the plain figure's wide one")
 	player.set_look([0, 3, 0])
-	_expect(player.rig() == null and player._simple_parts[0].visible, "choosing the plain figure again brings it back")
-	_expect(player._skin.albedo_color == Character.SKINS[3], "and it takes the chosen skin tone")
-	player.set_look([0, 0, 0])
-	_expect(player._skin.albedo_color == Color(0.93, 0.78, 0.62), "with the first skin tone it is exactly the colour it was")
+	_expect(player.rig() != null and player.rig().get_meta("character") == &"simple", "choosing the plain figure again brings back the clay toy")
+	var toy_head: MeshInstance3D = player.rig().find_child("Head", true, false).get_node("Mesh")
+	var toy_skin := false
+	for tint in (toy_head.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_COLOR] as PackedColorArray:
+		# Vertex colours are kept in eight bits, so close and not equal.
+		if absf(tint.r - Character.SKINS[3].r) < 0.01 and absf(tint.g - Character.SKINS[3].g) < 0.01 and absf(tint.b - Character.SKINS[3].b) < 0.01:
+			toy_skin = true
+	_expect(toy_skin, "and its head takes the chosen skin tone")
 	player.queue_free()
 
 	# Over the network, the same three numbers; an old message is the plain figure.
@@ -19812,8 +19820,8 @@ func _check_the_characters_build_fit_and_travel() -> void:
 	visitors.add(22, "Aida", 4, [0, 3, 0])
 	visitors.add(23, "Old", 4)
 	_expect(visitors._visitors[21]["node"].find_child("Head", true, false) != null, "a guest who chose the boy is drawn as the boy")
-	_expect(visitors._visitors[22]["node"] is MeshInstance3D and visitors.look_of(22) == [0, 3, 0], "a guest who chose the plain figure is the plain figure, in their skin tone")
-	_expect(visitors._visitors[23]["node"] is MeshInstance3D and visitors.look_of(23) == [0, 0, 0], "and a guest from an older version is too")
+	_expect(visitors._visitors[22]["node"].find_child("ThighL", true, false) != null and visitors.look_of(22) == [0, 3, 0], "a guest who chose the plain figure is the clay toy, in their skin tone")
+	_expect(visitors._visitors[23]["node"].find_child("ThighL", true, false) != null and visitors.look_of(23) == [0, 0, 0], "and a guest from an older version is too")
 	var old_node: Node3D = visitors._visitors[22]["node"]
 	old_node.position = Vector3(3.0, 1.0, 2.0)
 	visitors.relook(22, 4, [2, 1, 1])
@@ -19868,5 +19876,194 @@ func _check_the_characters_build_fit_and_travel() -> void:
 	var menu_box := Rect2(hud._menu.position, hud._menu.get_combined_minimum_size())
 	_expect(Rect2(Vector2.ZERO, view).encloses(menu_box), "the settings panel with its new rows still fits the screen (%v in %v)" % [menu_box, view])
 	hud.queue_free()
+
+## How far the right thigh swings over a whole stride, with the rig driven at a
+## steady speed.
+func _thigh_swing(motion: RigMotion, rig: Node3D, pace: float) -> float:
+	motion.speed = pace
+	for _frame in 120:
+		motion.step(1.0 / 60.0)
+	var thigh := rig.find_child("ThighR", true, false) as Node3D
+	var widest := 0.0
+	for _frame in 90:
+		motion.step(1.0 / 60.0)
+		widest = maxf(widest, absf(thigh.rotation.x))
+	return widest
+
+func _check_the_characters_move_and_swim_the_right_way_up() -> void:
+	print("the characters walk, kick and swim, and the other child moves by what is sent")
+	# Every character: the foot swing grows with speed and stops when still.
+	for which in Character.KEYS.size():
+		var rig := Character.build(which, 1, 1, Visitors.SHIRTS[2])
+		var motion := RigMotion.new(rig)
+		var still := _thigh_swing(motion, rig, 0.0)
+		var stroll := _thigh_swing(motion, rig, 1.0)
+		var walk := _thigh_swing(motion, rig, Player.WALK_SPEED)
+		var run := _thigh_swing(motion, rig, Player.RUN_SPEED)
+		_expect(still < 0.01, "%s: standing still the legs do not swing (%.3f rad)" % [Character.KEYS[which], still])
+		_expect(stroll > 0.1 and walk > stroll + 0.1 and run > walk + 0.1, "%s: the swing grows with speed: %.2f, %.2f, %.2f rad" % [Character.KEYS[which], stroll, walk, run])
+		var stopped := _thigh_swing(motion, rig, 0.0)
+		_expect(stopped < 0.01, "%s: and stops again when the child does (%.3f rad)" % [Character.KEYS[which], stopped])
+		rig.free()
+
+	# The kick: wound back while held, and at its peak in the frame the ball leaves.
+	var kicker := Character.build(0, 0, 0, Visitors.SHIRTS[2])
+	var kick := RigMotion.new(kicker)
+	var leg := kicker.find_child("ThighR", true, false) as Node3D
+	kick.winding = true
+	kick.charge = 1.0
+	for _frame in 40:
+		kick.step(1.0 / 60.0)
+	_expect(leg.rotation.x < -0.5, "holding the kick draws the leg back (%.2f rad)" % leg.rotation.x)
+	kick.winding = false
+	kick.kick()
+	_expect(is_equal_approx(kick.kick_swing(), 1.0), "the swing is at its peak the moment the ball leaves")
+	var swings: Array[float] = []
+	for _frame in 40:
+		kick.step(1.0 / 60.0)
+		swings.append(leg.rotation.x)
+	var highest: float = swings.max()
+	_expect(is_equal_approx(swings[0], highest) and swings[0] > 1.0, "and the first frame drawn after it is the foot at its furthest (%.2f rad)" % swings[0])
+	_expect(swings[10] < swings[0] - 0.3 and absf(swings[39]) < 0.1, "from where it follows through and comes back")
+	for second in 8:
+		_expect(RigMotion.kick_swing_at(float(second) * 0.05) >= RigMotion.kick_swing_at(float(second + 1) * 0.05), "the swing never rises after the release (%d)" % second)
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var release := game.substr(game.find("func _on_kick_release()"))
+	release = release.substr(0, release.find("\nfunc ", 10))
+	_expect(release.contains("player.swing_kick()"), "the game swings the foot where it releases the ball")
+
+	# Nothing is allocated drawing a frame, in any of the motions.
+	var before := int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	var nodes := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	for frame in 900:
+		kick.speed = float(frame % 7)
+		kick.swimming = frame % 300 > 200
+		kick.diving = frame % 300 > 250
+		kick.airborne = frame % 200 > 150
+		kick.winding = frame % 90 > 70
+		if frame % 100 == 0:
+			kick.kick()
+			kick.cheer()
+			kick.land(8.0)
+		kick.step(1.0 / 60.0)
+	_expect(int(Performance.get_monitor(Performance.OBJECT_COUNT)) == before and int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)) == nodes, "driving the joints creates no objects, in a walk, a swim, a jump, a kick or a cheer")
+	kicker.free()
+
+	# Jump, landing and cheer reach the joints.
+	var hopper := Character.build(2, 0, 0, Visitors.SHIRTS[2])
+	var jump := RigMotion.new(hopper)
+	jump.airborne = true
+	for _frame in 30:
+		jump.step(1.0 / 60.0)
+	_expect((hopper.find_child("ShinL", true, false) as Node3D).rotation.x < -1.0 and (hopper.find_child("ThighL", true, false) as Node3D).rotation.x > 0.5, "in the air the knees are up")
+	jump.airborne = false
+	jump.land(10.0)
+	jump.step(1.0 / 60.0)
+	_expect(hopper.scale.y < 0.9 and hopper.scale.x > 1.0, "landing squashes the child, and")
+	for _frame in 60:
+		jump.step(1.0 / 60.0)
+	_expect(is_equal_approx(hopper.scale.y, 1.0), "they spring back")
+	jump.cheer()
+	for _frame in 20:
+		jump.step(1.0 / 60.0)
+	_expect((hopper.find_child("UpperArmL", true, false) as Node3D).rotation.x > 2.0 and (hopper.find_child("UpperArmR", true, false) as Node3D).rotation.x > 2.0, "a cheer throws both arms up")
+	hopper.free()
+
+	# Swimming leans the way the child is going, and the strokes are made in it.
+	var swimmer := Player.new()
+	get_root().add_child(swimmer)
+	swimmer.is_swimming = true
+	for _frame in 90:
+		swimmer._settle_in_water(1.0 / 60.0)
+	var heading := swimmer.facing()
+	var head_over := swimmer._visual.global_transform.basis.y.dot(heading)
+	_expect(head_over > sin(Player.SWIM_LEAN) * 0.8, "a swimmer's head is tipped forward, the way they face (%.2f)" % head_over)
+	swimmer.diving = true
+	for _frame in 120:
+		swimmer._settle_in_water(1.0 / 60.0)
+	head_over = swimmer._visual.global_transform.basis.y.dot(heading)
+	_expect(head_over > sin(Player.DIVE_LEAN) * 0.8, "and a diver goes in head first, not head up (%.2f)" % head_over)
+	swimmer.diving = false
+	swimmer.is_swimming = false
+	swimmer._ride_lean = 0.3
+	swimmer._settle_in_water(1.0 / 60.0)
+	_expect(is_equal_approx(swimmer._visual.rotation.x, 0.3 - swimmer._swim_lean), "the ride lean and the swim lean add as they did, in their own directions")
+	swimmer.queue_free()
+
+	# The other child moves by what the phone sends.
+	_expect(Session.motion_code(0.0, false, false) == 0, "standing still is zero, which an old phone also says by saying nothing")
+	_expect(absf(Session.motion_speed(Session.motion_code(Player.RUN_SPEED, false, false)) - Player.RUN_SPEED) <= 0.25, "a speed comes back within a quarter of a metre a second")
+	var code := Session.motion_code(2.0, true, true)
+	_expect(code < 128 and Session.motion_speed(code) == 2.0 and code & 32 != 0 and code & 64 != 0, "swimming and diving are two more bits, in one small number")
+	_expect(Session.motion_code(500.0, false, false) == 31 and Session.motion_code(-3.0, false, false) == 0, "and a speed off either end of the range is clamped")
+	var session := Session.new()
+	get_root().add_child(session)
+	var heard: Array = []
+	var moved: Array = []
+	session.guest_moving.connect(func(_id: int, got: int) -> void: heard.append(got))
+	session.guest_moved.connect(func(_id: int, _at: Vector3, _facing: float, mount: StringName) -> void: moved.append(mount))
+	session._send_position(Vector3(1.0, 0.0, 2.0), 0.5)
+	session._send_position(Vector3(1.0, 0.0, 2.0), 0.5, "horse:2")
+	session._send_position(Vector3(1.0, 0.0, 2.0), 0.5, "", 13)
+	session._send_position(Vector3(1.0, 0.0, 2.0), 0.5, "", 9999)
+	_expect(heard == [0, 0, 13, 9999 & 127] and moved == [&"", &"horse:2", &"", &""], "old two- and three-value messages are still read, as standing still; a pace is read and cannot be more than seven bits")
+	session.queue_free()
+
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	visitors.add(41, "Amir", 2, [1, 0, 0])
+	visitors.move(41, Vector3(4.0, 0.0, 4.0), 0.0)
+	var guest_leg := visitors._visitors[41]["node"].find_child("ThighR", true, false) as Node3D
+	visitors.moving(41, Session.motion_code(Player.RUN_SPEED, false, false))
+	var swung := 0.0
+	for frame in 150:
+		visitors.moving(41, Session.motion_code(Player.RUN_SPEED, false, false))
+		visitors._process(1.0 / 60.0)
+		if frame > 60:
+			swung = maxf(swung, absf(guest_leg.rotation.x))
+	_expect(swung > 0.6, "a guest who is told they are running is drawn running (%.2f rad)" % swung)
+	# No more is sent: a lost "now stop" must not leave them running for ever.
+	for _frame in 240:
+		visitors._process(1.0 / 60.0)
+	_expect(absf(guest_leg.rotation.x) < 0.05, "and one who has not been heard from for a second stands still")
+	visitors.moving(41, Session.motion_code(2.0, true, false))
+	for _frame in 120:
+		visitors.moving(41, Session.motion_code(2.0, true, false))
+		visitors._process(1.0 / 60.0)
+	var guest_rig := visitors._visitors[41]["node"].get_node("Rig") as Node3D
+	_expect(guest_rig.position.y < -0.3 and guest_rig.rotation.x < -0.2, "a swimming guest sits low in the water and leans forward, as the child's own body does")
+	visitors.relook(41, 2, [3, 0, 0])
+	_expect(visitors.motion_of(41) != null and visitors._visitors[41]["node"].get_node("Rig").find_child("ThighL", true, false) != null, "a guest redrawn keeps being animated")
+	visitors.queue_free()
+
+## The choice screen is for a three-year-old tapping at random as much as for a
+## twelve-year-old choosing: big targets, the chosen one unmistakable, and any
+## tap undone by one tap.
+func _check_the_choice_screen_is_for_small_fingers() -> void:
+	print("the choice screen has big targets and a plain mark on the chosen one")
+	var picker := LookPicker.new(Hud.BUTTON * 0.8)
+	get_root().add_child(picker)
+	var changes: Array = []
+	picker.look_chosen.connect(func(look: Array) -> void:
+		changes.append(look)
+		picker.set_look(look))
+	var smallest := 1e9
+	for group: Array in [picker._face_buttons, picker._skin_buttons, picker._hair_buttons, picker._shirt_buttons]:
+		for button: Button in group:
+			smallest = minf(smallest, minf(button.custom_minimum_size.x, button.custom_minimum_size.y))
+	_expect(smallest >= 44.0, "every target is at least 44 pixels across, in the smallest panel (%.0f)" % smallest)
+	for button in picker._face_buttons:
+		_expect(button.custom_minimum_size.x >= 64.0, "and a face is bigger still")
+	picker.set_look([1, 2, 3])
+	var halo := picker._face_buttons[1].get_theme_stylebox("normal") as StyleBoxFlat
+	var plain := picker._face_buttons[2].get_theme_stylebox("normal") as StyleBoxFlat
+	_expect(halo.border_width_left >= 4 and halo.shadow_size > 0 and plain.border_width_left == 0 and plain.shadow_size == 0, "the chosen face is ringed and haloed, and no other")
+	# A stray tap on another face, then a tap on the old one, is back where it was.
+	picker._face_buttons[4].pressed.emit()
+	picker._face_buttons[1].pressed.emit()
+	_expect(changes == [[4, 2, 3], [1, 2, 3]] and picker.look() == [1, 2, 3], "one tap undoes a stray one, and skin and hair were kept through it")
+	picker._face_buttons[1].pressed.emit()
+	_expect(picker.look() == [1, 2, 3], "tapping what is chosen already changes nothing")
+	picker.queue_free()
 
 

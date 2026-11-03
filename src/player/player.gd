@@ -203,6 +203,9 @@ var _skin: StandardMaterial3D = null
 var _simple_parts: Array[Node3D] = []
 ## The rig of a cartoon character, or null while the plain figure is worn.
 var _rig: Node3D = null
+## What moves the rig's joints, made with it.
+var _motion: RigMotion = null
+var _air_time := 0.0
 ## Who this child is drawn as, [character, skin, hair] (see Character.clean),
 ## and the colour of the clothes the rig is made in: its colours are on its
 ## vertices, so a new shirt means building it again.
@@ -299,6 +302,9 @@ func _init() -> void:
 	collider.shape = shape
 	collider.position.y = HEIGHT * 0.5
 	add_child(collider)
+	landed.connect(func(impact: float) -> void:
+		if _motion != null:
+			_motion.land(impact))
 
 func _ready() -> void:
 	# Only if nothing has needed it sooner. Handing the child something to
@@ -381,6 +387,11 @@ func _build_visual() -> Node3D:
 	root.add_child(nose)
 	_simple_parts.append(nose)
 
+	# Nobody is drawn as the old limbless figure: whoever has not chosen is the
+	# clay toy, from the first frame. The parts above stay, hidden, because
+	# they are what the side band and the bow hang beside.
+	_visual = root
+	_dress()
 	return root
 
 var _was_strapped := false
@@ -400,6 +411,45 @@ const CARRY_FOLLOW := 25.8
 func _process(delta: float) -> void:
 	if _charging:
 		kick_charge = minf(kick_charge + delta / Ball.CHARGE_TIME, 1.0)
+	_animate(delta)
+
+## Tell the body's joints what the child is doing. Strapped in or on a mount the
+## legs do not run, whatever the velocity says: a coaster car is going at
+## fourteen metres a second and the child in it is sitting still.
+func _animate(delta: float) -> void:
+	if _motion == null:
+		return
+	var carried := strapped_in or riding != &""
+	# Airborne is "has not been on the floor for a moment", not "is not on it
+	# this frame": on a slope the floor test drops out now and then, and a
+	# child running downhill is not jumping every few steps.
+	if is_on_floor() or is_swimming or carried:
+		_air_time = 0.0
+	else:
+		_air_time += delta
+	_motion.speed = 0.0 if carried else Vector2(velocity.x, velocity.z).length()
+	_motion.airborne = _air_time > 0.12
+	_motion.swimming = is_swimming and not strapped_in
+	_motion.diving = diving
+	_motion.riding = carried
+	_motion.winding = _charging and not bow_shown()
+	_motion.charge = kick_charge
+	_motion.step(delta)
+
+## The ball has just left the child's foot (or a ball has just been thrown):
+## the swing is at its peak now.
+func swing_kick() -> void:
+	if _motion != null:
+		_motion.kick()
+
+## The child's side has scored: a small cheer.
+func cheer() -> void:
+	if _motion != null:
+		_motion.cheer()
+
+## How the rig is moving, or null. For the checks.
+func motion() -> RigMotion:
+	return _motion
 
 func _physics_process(delta: float) -> void:
 	if strapped_in:
@@ -882,7 +932,16 @@ func _settle_in_water(delta: float) -> void:
 	# rider upright again on every physics tick — on a 120 Hz screen that is
 	# every other drawn frame, which is a judder down the length of any slope
 	# taken on a horse.
-	_visual.rotation.x = _swim_lean + _ride_lean
+	_visual.rotation.x = _tilt()
+
+## The body's turn about its own X axis. The figure faces -Z, and a positive
+## turn about X takes the head towards +Z, which is backwards: the ride lean is
+## measured that way round (its "up" tipped towards +Z is a lean back), but the
+## swim lean is a size, "how far forward", so it goes in negatively. Added as it
+## was, a swimmer lay back looking at the sky and a diver went in head first
+## with the head pointing up out of the water.
+func _tilt() -> float:
+	return _ride_lean - _swim_lean
 
 ## Riding the surface, which is what tells a child the water is water. An
 ## offset worked out fresh each frame, never added into `_swim_sink`: added
@@ -959,7 +1018,7 @@ func lean_with_the_ground(riding_now: bool, _field: HeightField, delta: float) -
 		wanted_roll = clampf(-atan2(local_up.x, upright), -RIDE_LEAN_LIMIT, RIDE_LEAN_LIMIT) * SITS_WITH
 	_ride_lean = lerpf(_ride_lean, wanted, 1.0 - exp(-9.0 * delta))
 	_ride_roll = lerpf(_ride_roll, wanted_roll, 1.0 - exp(-9.0 * delta))
-	_visual.rotation.x = _swim_lean + _ride_lean
+	_visual.rotation.x = _tilt()
 	_visual.rotation.z = _ride_bank + _ride_roll
 
 ## How far the rider is leaning with the slope. For the checks.
@@ -1110,6 +1169,7 @@ func _dress() -> void:
 		_visual.remove_child(_rig)
 		_rig.queue_free()
 		_rig = null
+		_motion = null
 	_skin.albedo_color = Character.SKINS[_look[1]]
 	var rigged := Character.is_rigged(_look[0])
 	for part in _simple_parts:
@@ -1117,6 +1177,7 @@ func _dress() -> void:
 	if rigged:
 		_rig = Character.build(_look[0], _look[1], _look[2], _shirt)
 		_visual.add_child(_rig)
+		_motion = RigMotion.new(_rig)
 	# The side band hugs whichever chest there is: the plain figure's is wider
 	# than the whole of a cartoon child.
 	var ring := _band.mesh as CylinderMesh

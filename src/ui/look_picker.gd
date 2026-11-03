@@ -19,6 +19,10 @@ signal shirt_chosen(which: int)
 
 const RING := Color(1.0, 1.0, 1.0, 0.95)
 
+## The side of a colour dot, as a share of the unit: a thumb's width for a
+## six-year-old, and a target a three-year-old tapping at random can hit.
+const DOT := 0.62
+
 var _unit: float
 var _look: Array = [Character.SIMPLE, 0, 0]
 var _shirt := -1
@@ -36,7 +40,7 @@ func _init(unit := 96.0) -> void:
 	var faces := HBoxContainer.new()
 	faces.add_theme_constant_override("separation", 6)
 	for i in Character.KEYS.size():
-		var button := _button(Vector2(_unit * 0.9, _unit * 0.9), Color(1.0, 1.0, 1.0, 0.16), 12)
+		var button := _button(Vector2(_unit * 1.0, _unit * 1.0), Color(1.0, 1.0, 1.0, 0.16), 12)
 		button.tooltip_text = Text.of(Character.LABELS[i])
 		var face := CharacterIcon.new(i)
 		face.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -57,7 +61,7 @@ func _init(unit := 96.0) -> void:
 	var tones := HBoxContainer.new()
 	tones.add_theme_constant_override("separation", 6)
 	for i in Character.SKINS.size():
-		var dot := _button(Vector2(_unit * 0.5, _unit * 0.5), Character.SKINS[i], 100)
+		var dot := _button(Vector2(_unit * DOT, _unit * DOT), Character.SKINS[i], 100)
 		dot.tooltip_text = String(Character.SKIN_NAMES[i])
 		dot.pressed.connect(func() -> void: _pick(1, i))
 		tones.add_child(dot)
@@ -66,17 +70,22 @@ func _init(unit := 96.0) -> void:
 	gap.custom_minimum_size = Vector2(_unit * 0.4, 1.0)
 	tones.add_child(gap)
 	for i in Character.HAIRS.size():
-		var dot := _button(Vector2(_unit * 0.5, _unit * 0.5), Character.HAIRS[i], 6)
+		var dot := _button(Vector2(_unit * DOT, _unit * DOT), Character.HAIRS[i], 6)
 		dot.tooltip_text = String(Character.HAIR_NAMES[i])
 		dot.pressed.connect(func() -> void: _pick(2, i))
 		tones.add_child(dot)
 		_hair_buttons.append(dot)
 	add_child(tones)
 
-	var shirts := HBoxContainer.new()
-	shirts.add_theme_constant_override("separation", 6)
+	# Twelve colours in two rows of six rather than one of twelve: each is as big
+	# as a skin dot, which a small finger can hit, and the panel does not grow
+	# wider than the faces above it to make room.
+	var shirts := GridContainer.new()
+	shirts.columns = 6
+	shirts.add_theme_constant_override("h_separation", 6)
+	shirts.add_theme_constant_override("v_separation", 6)
 	for i in Visitors.SHIRTS.size():
-		var swatch := _button(Vector2(_unit * 0.5, _unit * 0.5), Visitors.SHIRTS[i], 8)
+		var swatch := _button(Vector2(_unit * DOT, _unit * DOT), Visitors.SHIRTS[i], 8)
 		swatch.tooltip_text = String(Visitors.SHIRT_NAMES[i])
 		swatch.pressed.connect(func() -> void: shirt_chosen.emit(i))
 		shirts.add_child(swatch)
@@ -134,5 +143,11 @@ func _refresh() -> void:
 	for i in _shirt_buttons.size():
 		_ring(_shirt_buttons[i], i == _shirt)
 
+## The chosen one is ringed in white and haloed in dark, so that it stands out
+## from the others whatever it is itself the colour of: a white ring alone is
+## lost on the white shirt and the palest skin.
 static func _ring(button: Button, chosen: bool) -> void:
-	(button.get_theme_stylebox("normal") as StyleBoxFlat).set_border_width_all(4 if chosen else 0)
+	var face := button.get_theme_stylebox("normal") as StyleBoxFlat
+	face.set_border_width_all(5 if chosen else 0)
+	face.shadow_color = Color(0.0, 0.0, 0.0, 0.75) if chosen else Color(0.0, 0.0, 0.0, 0.0)
+	face.shadow_size = 5 if chosen else 0

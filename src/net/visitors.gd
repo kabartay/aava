@@ -79,7 +79,8 @@ func add(id: int, who: String, chose := -1, look := []) -> void:
 
 	_visitors[id] = {
 		"node": body, "wanted": Vector3.ZERO, "facing": 0.0, "seen": false,
-		"shirt": shirt, "look": wearing,
+		"shirt": shirt, "look": wearing, "motion": _motion_for(body),
+		"code": 0, "code_age": 0.0, "idle": 0.0, "swim_w": 0.0, "swim_tip": 0.0,
 	}
 	if _early.has(id):
 		var told: Array = _early[id]
@@ -149,6 +150,7 @@ func relook(id: int, chose: int, look: Array) -> void:
 	add_child(fresh)
 	old.queue_free()
 	record["node"] = fresh
+	record["motion"] = _motion_for(fresh)
 	record["shirt"] = shirt
 	record["look"] = wearing
 	# Still in the saddle if they were riding when they changed.
@@ -156,6 +158,22 @@ func relook(id: int, chose: int, look: Array) -> void:
 	if riding != &"":
 		record["mount"] = &""
 		_ride(record, riding)
+
+## What moves a body's joints, or null for a body that has none.
+func _motion_for(body: Node3D) -> RigMotion:
+	var rig := body.get_node_or_null("Rig") as Node3D
+	return RigMotion.new(rig) if rig != null else null
+
+## How somebody is moving, as Session.motion_code packs it: arrives with every
+## position, and is trusted for a second at most (see MOTION_FRESH).
+func moving(id: int, code: int) -> void:
+	if _visitors.has(id):
+		_visitors[id]["code"] = code & 127
+		_visitors[id]["code_age"] = 0.0
+
+## How somebody is being drawn moving. For the checks.
+func motion_of(id: int) -> RigMotion:
+	return _visitors[id].get("motion") if _visitors.has(id) else null
 
 ## Who somebody is drawn as, as the three numbers they chose. For the checks.
 func look_of(id: int) -> Array:
@@ -298,6 +316,10 @@ func move(id: int, at: Vector3, facing: float, mount := &"") -> void:
 
 func _process(delta: float) -> void:
 	var weight := 1.0 - exp(-SMOOTHING * delta)
+	# Where the camera is, for how often to animate. Infinite when there is
+	# none (a headless check), which animates everybody every frame.
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	var eye := camera.global_position if camera != null else Vector3(INF, INF, INF)
 	for id in _visitors:
 		var record: Dictionary = _visitors[id]
 		var node: Node3D = record["node"]
@@ -311,6 +333,59 @@ func _process(delta: float) -> void:
 				(child as Label3D).scale = Vector3.ONE * (1.3 if lit else 1.0)
 		node.position = node.position.lerp(record["wanted"], weight)
 		node.rotation.y = lerp_angle(node.rotation.y, float(record["facing"]), weight)
+		var motion: RigMotion = record["motion"]
+		if motion != null:
+			_animate(record, motion, node, delta, eye)
+
+## How often somebody is animated, by how far they are from the camera: every
+## frame close by, and further off only as often as a stride can be told from
+## the next. A far figure is a few pixels and a pose a tenth of a second old is
+## the same pixels.
+const NEAR_SQ := 25.0 * 25.0
+const FAR_SQ := 60.0 * 60.0
+const FAR_EVERY := 0.2
+const MID_EVERY := 0.07
+
+## How long a pace is believed without another message to say it still holds.
+## A position is sent at least every twelfth of a second while moving, and the
+## packets are unreliable: this rides over a few lost ones, and a pace whose
+## "now stop" was the packet that was lost does not run on for ever.
+const MOTION_FRESH := 1.0
+
+func _animate(record: Dictionary, motion: RigMotion, node: Node3D, delta: float, eye: Vector3) -> void:
+	var age: float = record["code_age"] + delta
+	record["code_age"] = age
+	var waited: float = record["idle"] + delta
+	var gap := 0.0
+	if eye.is_finite():
+		var away := node.global_position.distance_squared_to(eye)
+		gap = FAR_EVERY if away > FAR_SQ else (MID_EVERY if away > NEAR_SQ else 0.0)
+	if waited < gap:
+		record["idle"] = waited
+		return
+	record["idle"] = 0.0
+	var code: int = record["code"]
+	motion.speed = Session.motion_speed(code) if age < MOTION_FRESH else 0.0
+	motion.swimming = code & 32 != 0
+	motion.diving = code & 64 != 0
+	motion.riding = record.get("mount", &"") != &""
+	motion.step(minf(waited, 0.25))
+
+	# In the water they sit low and lean over, as the child's own body does
+	# (Player._settle_in_water): a position is where their collider is, and a
+	# swimmer's is at the surface with the body drawn dropped to the chest.
+	var before: float = record["swim_w"]
+	var wanted := 1.0 if (motion.swimming and not motion.riding) else 0.0
+	var now := move_toward(before, wanted, Player.SWIM_SETTLE * 0.5 * waited)
+	if now > 0.0 or before > 0.0:
+		record["swim_w"] = now
+		var tip: float = record["swim_tip"]
+		tip = lerpf(tip, (Player.DIVE_LEAN if motion.diving else Player.SWIM_LEAN) * now, 1.0 - exp(-Player.SWIM_SETTLE * waited))
+		record["swim_tip"] = tip
+		var rig := node.get_node_or_null("Rig") as Node3D
+		if rig != null:
+			rig.position.y = _lift_of(record) - Player.SWIM_SINK * now
+			rig.rotation.x = -tip
 
 ## The same shape as the player, in a different shirt, so that seeing someone
 ## across the valley reads as "another child" and not as a different kind of

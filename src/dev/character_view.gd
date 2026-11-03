@@ -4,7 +4,11 @@ extends SceneTree
 ##
 ##   godot --path . --resolution 1280x720 --script src/dev/character_view.gd -- \
 ##         --out=row.png [--from=5] [--yaw=0] [--skin=0] [--hair=1] [--shirt=2] \
-##         [--focus=1] [--lean=1]
+##         [--focus=1] [--lean=1] [--pose=walk|run|kick|swim|dive|jump|cheer]
+##
+## `--pose` drives each figure through RigMotion and stops it mid-motion (the
+## kick is shown just after the ball leaves, at the peak of the swing);
+## `--extra=N` runs N more frames first, to catch another moment of a stride.
 ##
 ## `--from` is the camera's distance in metres (5 is the distance a child is
 ## judged from); `--yaw` turns the row about the vertical (180 shows the
@@ -18,6 +22,8 @@ var _skin := 0
 var _hair := 1
 var _shirt := 2
 var _focus := -1
+var _pose := ""
+var _extra := 0
 var _frames := 0
 
 func _initialize() -> void:
@@ -33,6 +39,8 @@ func _initialize() -> void:
 			"hair": _hair = parts[1].to_int()
 			"shirt": _shirt = parts[1].to_int()
 			"focus": _focus = parts[1].to_int()
+			"pose": _pose = parts[1]
+			"extra": _extra = parts[1].to_int()
 	var root := get_root()
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
@@ -74,6 +82,8 @@ func _initialize() -> void:
 		else:
 			figure = MeshInstance3D.new()
 			(figure as MeshInstance3D).mesh = tool._build_body(shirt, Character.SKINS[_skin])
+		if _pose != "":
+			_strike(figure)
 		# Negative: the camera looks along +Z, so +X is on its left.
 		figure.position.x = (float(shown.size() - 1) * 0.5 - float(i)) * 1.1
 		row.add_child(figure)
@@ -92,6 +102,37 @@ func _initialize() -> void:
 	if _focus >= 0:
 		aim = Vector3(0.0, 0.95, 0.0)
 	camera.look_at_from_position(aim + Vector3(0.0, 0.35, -_from), aim)
+
+## Put a figure in the middle of a motion: it is driven for a second of
+## frames, as the game would, and stopped where the pose is interesting.
+func _strike(figure: Node3D) -> void:
+	var motion := RigMotion.new(figure)
+	var frame := 1.0 / 60.0
+	match _pose:
+		"walk": motion.speed = 3.4
+		"run": motion.speed = 6.6
+		"swim":
+			motion.swimming = true
+			motion.speed = 2.0
+		"dive":
+			motion.swimming = true
+			motion.diving = true
+		"jump": motion.airborne = true
+		"cheer": motion.cheer()
+		"kick":
+			motion.winding = true
+			motion.charge = 1.0
+	for _step in 70 + _extra:
+		motion.step(frame)
+	if _pose == "kick":
+		# The release, and then a few frames on: the foot at the peak, and just past.
+		motion.winding = false
+		motion.kick()
+		for _step in 4:
+			motion.step(frame)
+	if _pose == "swim" or _pose == "dive":
+		figure.rotation.x = -(Player.DIVE_LEAN if _pose == "dive" else Player.SWIM_LEAN)
+		figure.position.y = 0.5
 
 func _process(_delta: float) -> bool:
 	_frames += 1

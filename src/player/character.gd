@@ -33,7 +33,7 @@ extends RefCounted
 ## smooth lofts (AnimalLoft, which made the animals) with the colour on the
 ## vertex: skin, hair and clothes are one material.
 
-## The simple figure.
+## The simple figure, now a clay toy: see `_clay`.
 const SIMPLE := 0
 
 ## What each character is called, in the order a child's choice is saved as an
@@ -125,9 +125,11 @@ var _head_lift := 0.0
 var _torso_height := 0.4
 var _head: AnimalLoft
 
-## Is this a character built here, and not the simple figure?
+## Is this a character built here? All five are: the plain figure became a clay
+## toy on the same rig, so that it walks, kicks and swims by the same code as
+## the others, and there is no limbless one left for a body to be drawn as.
 static func is_rigged(which: int) -> bool:
-	return which > SIMPLE and which < KEYS.size()
+	return which >= SIMPLE and which < KEYS.size()
 
 ## A choice as it is kept, saved and sent: [character, skin, hair]. Anything out
 ## of range, missing or of the wrong kind becomes the plain choice for that
@@ -155,12 +157,14 @@ static func from_data(data: Dictionary) -> Array:
 
 ## The rig for a character, standing at the origin.
 static func build(which: int, skin: int, hair: int, cloth: Color) -> Node3D:
-	var key := KEYS[clampi(which, 1, KEYS.size() - 1)]
+	var key := KEYS[clampi(which, 0, KEYS.size() - 1)]
 	var builder := Character.new()
-	builder._def = DEFS[key]
 	builder._skin = SKINS[clampi(skin, 0, SKINS.size() - 1)]
 	builder._hair = HAIRS[clampi(hair, 0, HAIRS.size() - 1)]
 	builder._cloth = cloth
+	if key == &"simple":
+		return builder._clay()
+	builder._def = DEFS[key]
 	return builder._rig(key)
 
 func _rig(key: StringName) -> Node3D:
@@ -566,3 +570,120 @@ static func _tilted_ball(tool: SurfaceTool, centre: Vector3, radii: Vector3, col
 	AnimalLoft.ball(piece, Vector3.ZERO, radii, colour, 6)
 	piece.generate_normals()
 	tool.append_from(piece.commit(), 0, Transform3D(Basis(Vector3(0.0, 0.0, 1.0), roll), centre))
+
+# ---------------------------------------------------------------- the clay toy
+
+## The plain figure the game began with, as a toy modelled in clay in the manner
+## of Fall Guys: the same round head with its cone of a nose, the same rounded
+## body in the colour of the shirt, and now stubby arms and peg legs hung on the
+## joints every other character has, so that it walks, kicks and swims by the
+## same code and tumbles as comically. It wears no hair (the choice is kept, and
+## simply not worn): a toy has a skin and a shirt.
+##
+## Measured against the old figure, a capsule 1.02 m tall under a head of radius
+## 0.21 centred at 1.22 m: the head is where it was, the body is a little
+## narrower so that the arms fit inside the collision capsule, and the legs are
+## what the body's lower third used to be.
+func _clay() -> Node3D:
+	_material = StandardMaterial3D.new()
+	_material.vertex_color_use_as_albedo = true
+	_material.vertex_color_is_srgb = true
+	_material.roughness = 0.82
+	var trousers := Color(0.29, 0.31, 0.40)
+
+	var root := Node3D.new()
+	root.name = "Rig"
+	root.set_meta("character", &"simple")
+	root.set_meta("chest_radius", 0.27)
+	root.set_meta("chest_y", 0.78)
+
+	var hips := _joint(root, "Hips", Vector3(0.0, 0.40, 0.0))
+	var pelvis := _tool()
+	_solid(pelvis, SphereMesh.new(), Vector3(0.0, 0.03, 0.0), Vector3(0.21, 0.15, 0.20), trousers)
+	_part(hips, pelvis)
+
+	var torso := _joint(hips, "Torso", Vector3(0.0, 0.06, 0.0))
+	var body := _tool()
+	var capsule := CapsuleMesh.new()
+	capsule.radius = 1.0
+	capsule.height = 2.37
+	capsule.radial_segments = 24
+	capsule.rings = 6
+	_solid(body, capsule, Vector3(0.0, 0.30, 0.0), Vector3(0.27, 0.27, 0.27), _cloth)
+	_part(torso, body)
+
+	var neck := _joint(torso, "Head", Vector3(0.0, 0.60, 0.0))
+	var head := _tool()
+	_solid(head, SphereMesh.new(), Vector3(0.0, 0.17, 0.0), Vector3(0.21, 0.21, 0.21), _skin)
+	# The nose, which says which way the child is facing from any distance.
+	var nose := CylinderMesh.new()
+	nose.top_radius = 0.0
+	nose.bottom_radius = 1.0
+	nose.height = 2.0
+	_solid(head, nose, Vector3(0.0, 0.17, -0.20), Vector3(0.06, 0.07, 0.06), _skin, Basis(Vector3.RIGHT, deg_to_rad(-90.0)))
+	for side: float in [-1.0, 1.0]:
+		_solid(head, SphereMesh.new(), Vector3(side * 0.08, 0.22, -0.185), Vector3(0.032, 0.040, 0.025), Color(0.10, 0.08, 0.09))
+	_part(neck, head)
+
+	# Stubby arms: the hand ends level with the belly.
+	for side: int in [-1, 1]:
+		var tag := "L" if side < 0 else "R"
+		var shoulder := _joint(torso, "UpperArm" + tag, Vector3(side * 0.25, 0.46, 0.0))
+		var upper := _tool()
+		_peg(upper, 0.14, 0.062, _cloth)
+		_part(shoulder, upper)
+		var elbow := _joint(shoulder, "Forearm" + tag, Vector3(0.0, -0.13, 0.0))
+		var lower := _tool()
+		_peg(lower, 0.10, 0.056, _skin)
+		_part(elbow, lower)
+		var wrist := _joint(elbow, "Hand" + tag, Vector3(0.0, -0.10, 0.0))
+		var hand := _tool()
+		_solid(hand, SphereMesh.new(), Vector3(0.0, -0.025, 0.0), Vector3(0.068, 0.068, 0.068), _skin)
+		_part(wrist, hand)
+
+	# Peg legs: a thigh, a shin and a round foot, thick and short. The hip is at
+	# 0.38 m, the knee 0.17 below it and the ankle 0.14 below that.
+	for side: int in [-1, 1]:
+		var tag := "L" if side < 0 else "R"
+		var hip := _joint(hips, "Thigh" + tag, Vector3(side * 0.12, -0.02, 0.0))
+		var thigh := _tool()
+		_peg(thigh, 0.17, 0.085, trousers)
+		_part(hip, thigh)
+		var knee := _joint(hip, "Shin" + tag, Vector3(0.0, -0.17, 0.0))
+		var shin := _tool()
+		_peg(shin, 0.14, 0.078, trousers)
+		_part(knee, shin)
+		var ankle := _joint(knee, "Foot" + tag, Vector3(0.0, -0.14, 0.0))
+		var foot := _tool()
+		_solid(foot, SphereMesh.new(), Vector3(0.0, 0.0, -0.035), Vector3(0.095, 0.07, 0.125), _skin.darkened(0.25))
+		_part(ankle, foot)
+	return root
+
+## A short rounded peg hanging from its joint, `length` down and `radius` across:
+## a capsule with a little straight in it, squashed to fit.
+static func _peg(tool: SurfaceTool, length: float, radius: float, colour: Color) -> void:
+	var peg := CapsuleMesh.new()
+	peg.radius = 1.0
+	peg.height = 2.6
+	peg.radial_segments = 12
+	peg.rings = 3
+	_solid(tool, peg, Vector3(0.0, -length * 0.5, 0.0), Vector3(radius, length / 2.6, radius), colour)
+
+## A primitive baked into a tool: scaled by `radii`, turned, moved to `centre`,
+## in one colour. The vertices are in the default smoothing group, which is what
+## makes it clay and not a die.
+static func _solid(tool: SurfaceTool, source: PrimitiveMesh, centre: Vector3, radii: Vector3, colour: Color, turn := Basis()) -> void:
+	if source is SphereMesh:
+		(source as SphereMesh).radius = 1.0
+		(source as SphereMesh).height = 2.0
+		(source as SphereMesh).radial_segments = 16
+		(source as SphereMesh).rings = 8
+	elif source is CylinderMesh:
+		(source as CylinderMesh).radial_segments = 8
+	var arrays := source.get_mesh_arrays()
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var placed := Transform3D(turn * Basis.from_scale(radii), centre)
+	for i in indices.size():
+		tool.set_color(colour)
+		tool.add_vertex(placed * vertices[indices[i]])

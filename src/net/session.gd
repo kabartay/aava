@@ -57,6 +57,11 @@ signal remote_valley(pieces: Array, stumps: Array)
 ## are riding, or empty on foot.
 signal guest_moved(id: int, position: Vector3, facing: float, mount: StringName)
 
+## How somebody is moving, as `motion_code` packs it, so that they can be drawn
+## walking, running or swimming and not gliding. A signal of its own, sent just
+## before guest_moved, so that what listens to that is as it was.
+signal guest_moving(id: int, code: int)
+
 ## What the host's valley holds besides the things built, told to a guest on
 ## arrival: the pickups already taken, the dams (finished, and sticks so far)
 ## and where every mount stands — `{id: [x, y, z, facing]}`.
@@ -138,6 +143,7 @@ var _since_move := 0.0
 var _last_sent := Vector3(1e9, 1e9, 1e9)
 var _last_facing := 0.0
 var _last_mount := &""
+var _last_motion := 0
 
 ## The valley as it arrives in parts, kept until the last part is in.
 var _part_pieces: Array = []
@@ -346,25 +352,48 @@ func _process(delta: float) -> void:
 ## child on a horse and not one running at sixteen metres a second. It is a
 ## third value that is only sent when there is one: a phone that has not been
 ## updated reads the two it has always read, and sends none.
-func report_position(at: Vector3, facing: float, mount := &"") -> void:
+##
+## `motion` (see motion_code) is a fourth, under the same rule: zero, which is
+## standing still on foot, is not sent, and a receiver that is not told reads
+## it as zero. So a child who stops sends one more message to say so.
+func report_position(at: Vector3, facing: float, mount := &"", motion := 0) -> void:
 	if not is_connected_to_anyone() or _since_move < MOVE_INTERVAL:
 		return
 	# A child turning on the spot is changing what the other phone draws too,
-	# and so is one getting on or off at a standstill.
+	# and so is one getting on or off at a standstill, or starting to run.
 	if (
 		at.distance_squared_to(_last_sent) < 0.01
 		and absf(angle_difference(facing, _last_facing)) < 0.1
 		and mount == _last_mount
+		and motion == _last_motion
 	):
 		return
 	_since_move = 0.0
 	_last_sent = at
 	_last_facing = facing
 	_last_mount = mount
-	if mount == &"":
+	_last_motion = motion
+	if motion != 0:
+		_send_position.rpc(at, facing, String(mount), motion)
+	elif mount == &"":
 		_send_position.rpc(at, facing)
 	else:
 		_send_position.rpc(at, facing, String(mount))
+
+## How a child is moving, in one small number: their speed in half metres a
+## second (to 15 m/s, a motorcycle) in the low five bits, and 32 for swimming
+## and 64 for diving. A child on foot at a standstill is zero.
+static func motion_code(speed: float, swimming: bool, diving: bool) -> int:
+	var code := clampi(int(roundf(maxf(speed, 0.0) * 2.0)), 0, 31)
+	if swimming:
+		code += 32
+		if diving:
+			code += 64
+	return code
+
+## The speed in metres a second that a code says.
+static func motion_speed(code: int) -> float:
+	return float(code & 31) * 0.5
 
 ## The four things that change a valley. Each is sent as it happens.
 ##
@@ -581,11 +610,13 @@ static func believable(at: Vector3) -> bool:
 	)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
-func _send_position(at: Vector3, facing: float, mount := "") -> void:
+func _send_position(at: Vector3, facing: float, mount := "", motion := 0) -> void:
 	if not believable(at) or not is_finite(facing):
 		return
 	var from := multiplayer.get_remote_sender_id()
 	guest_positions[from] = at
+	# Seven bits and no more: anything else a stranger sends is not a pace.
+	guest_moving.emit(from, motion & 127)
 	guest_moved.emit(from, at, facing, mount_named(mount))
 
 ## What somebody says they are riding, or nothing. An id is "horse:3" or

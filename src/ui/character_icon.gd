@@ -43,6 +43,12 @@ func _draw() -> void:
 	for step in 13:
 		var angle := PI + PI * float(step) / 12.0
 		body.append(middle + Vector2(cos(angle) * unit * 0.40, unit * 0.46 + sin(angle) * unit * 0.26))
+	if which == 0:
+		# The clay toy's stubby arms, a hand each in the skin's colour, standing
+		# out from the body at the sides.
+		for side: float in [-1.0, 1.0]:
+			draw_circle(middle + Vector2(side * unit * 0.40, unit * 0.30), unit * 0.085, cloth)
+			draw_circle(middle + Vector2(side * unit * 0.43, unit * 0.39), unit * 0.075, skin)
 	if which == 3:
 		# Dungarees: straps over the shoulders and a bib, in the colour chosen,
 		# on a white T-shirt.
@@ -74,6 +80,9 @@ func _draw() -> void:
 	draw_circle(head_at, head, skin)
 
 	match which:
+		0:
+			# The cone of a nose, which is what the toy has in place of hair.
+			draw_circle(head_at + Vector2(0.0, head * 0.15), head * 0.10, skin.darkened(0.12))
 		1, 2:
 			_hair_cap(head_at, head, 0.50 if which == 1 else 0.40)
 		3:
