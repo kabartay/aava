@@ -57,6 +57,7 @@ func _initialize() -> void:
 	await _check_the_indoor_camera_cannot_reach_outside()
 	_check_a_house_can_be_built_and_unbuilt()
 	_check_a_guest_is_not_marked_as_having_built_the_hosts_house()
+	_check_a_sale_into_a_full_purse_loses_nothing()
 	_check_a_new_day_and_a_borrowed_tree_pay_what_they_should()
 	_check_every_language_is_complete()
 	_check_a_strapped_in_child_sits_in_the_seat_not_above_it()
@@ -494,9 +495,13 @@ func _initialize() -> void:
 	await _check_a_stray_tap_does_not_fell_a_planted_tree()
 	_check_nothing_is_built_on_a_trunk()
 	_check_the_looks_of_the_pony_rider_neck_and_carousel_pink()
+	_check_the_other_childs_work_is_not_this_childs_lesson_and_a_reset_reaches_the_guest()
+	_check_nothing_of_the_hosts_is_applied_before_the_valley_arrives()
+	_check_hostile_valley_input_is_bounded()
 	await _check_the_cafe_menu_gives_way_to_building()
 	await _check_a_wandering_animal_does_not_cover_the_palette_or_the_kick()
 	await _check_switching_voice_off_lets_go_of_a_held_talk_button()
+	await _check_a_child_is_saved_and_loaded_on_safe_ground()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -25525,4 +25530,266 @@ func _check_a_built_chair_is_solid_and_lets_its_sitter_out() -> void:
 	child.free()
 	structures.free()
 	floor_body.free()
+
+## Two phones: a reset on the host reaches the guest, a guest cannot reset the
+## host, and the other child's work does not tick this child's lessons.
+func _check_the_other_childs_work_is_not_this_childs_lesson_and_a_reset_reaches_the_guest() -> void:
+	print("the other child's work is not this child's lesson, and a reset reaches the guest")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var reset := game.substr(game.find("func _on_reset"))
+	reset = reset.substr(0, reset.find("\nfunc ", 1))
+	_expect(
+		reset.contains("_show_guests_the_valley_again()")
+		and reset.contains("session.is_following()"),
+		"a reset tells the guests and is refused to a guest, even before the valley arrives"
+	)
+	var again := game.substr(game.find("func _show_guests_the_valley_again"))
+	again = again.substr(0, again.find("\nfunc ", 1))
+	_expect(
+		again.contains("session.report_valley(") and again.contains("session.report_shared(")
+		and again.contains("session.is_host()"),
+		"the host sends its valley, and the rest of it, again to each guest"
+	)
+	var net := _code_only(FileAccess.get_file_as_string("res://src/net/session.gd"))
+	_expect(not net.contains("reset"), "no message on the wire resets anybody's valley")
+
+	# Pieces from the other phone (paid false) are not this child's own.
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var spawn := field.find_spawn_point()
+	for kind: StringName in [HouseParts.WALL, HouseParts.FLOOR, HouseParts.ROOF, HouseParts.BED]:
+		structures.place(kind, spawn, 0.0, false)
+	_expect(structures.house_step() == &"", "a whole house stands, built by the other child")
+	_expect(structures.house_step(true) == &"walls", "none of it counts as this child's own first house")
+	structures.place(HouseParts.WALL, spawn + Vector3(4.0, 0.0, 0.0), 0.0)
+	_expect(structures.house_step(true) == &"floor", "their own wall is the first step of their own house")
+	var main_text := game.substr(game.find("func _first_house_step"))
+	main_text = main_text.substr(0, main_text.find("\nfunc ", 1))
+	_expect(main_text.contains("house_step(true)"), "the first-house line goes by this child's own pieces")
+	structures.free()
+
+	var groves := Structures.new(field)
+	get_root().add_child(groves)
+	for offset: Vector3 in [Vector3(0, 0, 0), Vector3(6, 0, 2), Vector3(3, 0, 7)]:
+		var at := spawn + offset
+		at.y = field.height_at(at.x, at.z)
+		groves.place(BuildKinds.SAPLING, at, 0.0, false)
+	var total := BuildKinds.GROWTH_STAGE_SECONDS * float(BuildKinds.GROWTH_STAGES) + 1.0
+	var elapsed := 0.0
+	while elapsed < total:
+		groves._process(1.0)
+		elapsed += 1.0
+	_expect(groves.grove_count() >= 1, "the other child's three saplings grew into a grove")
+	_expect(groves.own_grove_count() == 0, "and it is not a grove of this child's own")
+	var grove_handler := game.substr(game.find("func _on_groves_changed"))
+	grove_handler = grove_handler.substr(0, grove_handler.find("\nfunc ", 1))
+	_expect(
+		grove_handler.contains("not _visiting and structures.own_grove_count() > 0"),
+		"only a grove with this child's own trees ticks 'plant 3 saplings'"
+	)
+	groves.free()
+
+## A guest who is connected and has not yet been sent the host's valley is still
+## holding their own: nothing from the host is applied or saved into it.
+func _check_nothing_of_the_hosts_is_applied_before_the_valley_arrives() -> void:
+	print("nothing of the host's is applied to a guest's own valley before the host's arrives")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var gate := game.substr(game.find("func _the_hosts_valley_is_here"))
+	gate = gate.substr(0, gate.find("\nfunc ", 1))
+	_expect(
+		gate.contains("not session.is_following() or _valley_received"),
+		"a guest's phone is the host's valley once it has arrived, a host's always"
+	)
+	for handler: String in [
+		"_on_remote_built", "_on_remote_removed", "_on_remote_felled", "_on_remote_meal",
+		"_on_remote_dam_stick", "_on_remote_picked", "_on_remote_parked",
+	]:
+		var body := game.substr(game.find("func %s(" % handler))
+		body = body.substr(0, body.find("\nfunc ", 1))
+		_expect(body.contains("_the_hosts_valley_is_here()"), "%s waits for the host's valley" % handler)
+	_expect(
+		game.contains("session.remote_picked.connect(_on_remote_picked)")
+		and game.contains("session.remote_parked.connect(_on_remote_parked)"),
+		"pickups and parked mounts go through the same gate"
+	)
+
+## Hostile or runaway input is bounded: stump entries are rebuilt, and no kind
+## of mount is parked past a herd.
+func _check_hostile_valley_input_is_bounded() -> void:
+	print("hostile valley input is bounded")
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	var got: Array = []
+	guest.remote_valley.connect(func(_pieces: Array, stumps: Array) -> void: got.append(stumps))
+	guest._take_valley(Session.HOST_ID, [], [
+		[1.0, 2.0, "x"], [3.0, 4.0, 1, "extra"], [5.0, "a"], [Vector3.ONE, 1.0], [6.0, 7.0, 1.0], [8.0, 9.0],
+	])
+	_expect(got.size() == 1, "the valley arrived")
+	if got.size() == 1:
+		_expect(
+			got[0] == [[1.0, 2.0], [3.0, 4.0, 1], [8.0, 9.0]] or got[0] == [[1.0, 2.0], [3.0, 4.0, 1], [6.0, 7.0], [8.0, 9.0]],
+			"stump entries keep only two numbers and a plain 1 (%s)" % str(got[0])
+		)
+	var many := {}
+	for i in 40:
+		many["horse:%d" % i] = [1.0, 0.0, 1.0, 0.0]
+	var told: Array = []
+	guest.remote_shared.connect(func(_t: PackedStringArray, _b: Array, _p: Dictionary, mounts: Dictionary) -> void: told.append(mounts.size()))
+	guest._take_shared(Session.HOST_ID, PackedStringArray(), [], [], many)
+	_expect(told == [Mounts.MAX_OF_A_KIND], "no more than a herd of one kind of mount is taken (%s)" % str(told))
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	for i in 40:
+		mounts.park_remote(StringName("horse:%d" % i), Vector3(float(i), 0.0, 0.0), 0.0)
+	var horses := 0
+	for i in 40:
+		if mounts.exists(StringName("horse:%d" % i)):
+			horses += 1
+	_expect(horses <= Mounts.MAX_OF_A_KIND, "no more than %d horses are left standing by somebody else (%d)" % [Mounts.MAX_OF_A_KIND, horses])
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("world.felled.count() >= Session.MAX_STUMPS")
+		and game.contains("world.pickups.taken.size() >= Session.MAX_TAKEN"),
+		"stumps and pickups told one at a time are bounded as a whole valley's are"
+	)
+	mounts.free()
+	host.queue_free()
+	guest.queue_free()
+
+## A thing sold into a purse already at the ceiling was handed over and its
+## coins thrown away by `earn`'s clamp: the child lost a bicycle, or a bag of
+## wool, for nothing.
+func _check_a_sale_into_a_full_purse_loses_nothing() -> void:
+	var purse := Wallet.new()
+	purse.owned[ShopStock.BICYCLE] = 1
+	purse.coins = Wallet.MAX_COINS - 10
+	var paid := purse.sell_back(ShopStock.BICYCLE, ShopStock.sells_back(ShopStock.BICYCLE))
+	_expect(paid == 0 and purse.has(ShopStock.BICYCLE), "a bicycle is not sold into a purse with no room for its price")
+	_expect(purse.coins == Wallet.MAX_COINS - 10, "and the purse is as it was")
+	purse.coins = Wallet.MAX_COINS - ShopStock.sells_back(ShopStock.BICYCLE)
+	paid = purse.sell_back(ShopStock.BICYCLE, ShopStock.sells_back(ShopStock.BICYCLE))
+	_expect(paid > 0 and purse.coins == Wallet.MAX_COINS and not purse.has(ShopStock.BICYCLE), "one that fits exactly is sold")
+
+	var bag := Inventory.new()
+	bag.add(ItemKinds.WOOL, 20)
+	var cash := Wallet.new()
+	cash.coins = Wallet.MAX_COINS - 6
+	var sale := Venues.sell(bag, cash)
+	_expect(sale.x == 3 and sale.y == 6 and bag.count(ItemKinds.WOOL) == 17, "only the wool the purse can be paid for goes: %s" % sale)
+	_expect(cash.coins == Wallet.MAX_COINS, "and every coin of it arrives")
+	var game := FileAccess.get_file_as_string("res://src/main.gd")
+	_expect(game.find("wallet.room() / ShopStock.pays_for(item)") >= 0, "the valley shop limits wool to what the purse holds")
+
+## A stand-in for the fairground that says a ride holds anyone above five metres.
+class _StubPark extends RefCounted:
+	func ride_under(at: Vector3) -> StringName:
+		return &"wheel" if at.y > 5.0 else &""
+
+## A save made on the wheel stored the body's height at the top of it, one made in
+## a boat stored the pond, and a load believed whatever it was told: the child
+## came back in mid-air, in the water, or inside a wall the other child had built
+## on that spot while visiting.
+func _check_a_child_is_saved_and_loaded_on_safe_ground() -> void:
+	print("a child is saved on the ground, and loaded onto open ground")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var park := _StubPark.new()
+	var spawn := field.find_spawn_point()
+
+	# What is saved: the ground they last stood on when they are on a ride, in a
+	# boat or in the water, and where they are otherwise.
+	var up := spawn + Vector3(0.0, 30.0, 0.0)
+	_expect(
+		RespawnSpot.spot_to_save(up, spawn, true) == spawn,
+		"a child up on a ride is saved at the ground they last stood on"
+	)
+	_expect(
+		RespawnSpot.spot_to_save(spawn + Vector3(1, 0, 1), spawn, false) == spawn + Vector3(1, 0, 1),
+		"a child on foot is saved where they are"
+	)
+	_expect(
+		RespawnSpot.spot_to_save(up, spawn, true).y < RespawnSpot.WORLD_HALF
+		and not RespawnSpot.is_wet(field, null, spawn),
+		"the ground they last stood on is dry"
+	)
+	var source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		source.contains("RespawnSpot.spot_to_save(") and source.contains("_last_on_ground = player.global_position")
+		and source.contains("RespawnSpot.choose("),
+		"the game saves through the helper, tracks the last ground and loads through the chooser"
+	)
+
+	# Loaded positions are bounded: not a number, or off the world, is the camp.
+	for bad: Vector3 in [Vector3(INF, 0, 0), Vector3(NAN, 0, 0), Vector3(1e7, 0, 0), Vector3(0, 0, -9e5)]:
+		_expect(
+			RespawnSpot.choose(field, structures, null, park, null, bad, spawn) == spawn,
+			"a saved position %s is refused for the camp" % [bad]
+		)
+	# Under water it is not accepted: the river's middle gives the nearest bank
+	# or the camp, never the water.
+	var river := Vector3(field.river_centre_x(0.0), 0.0, 0.0)
+	river.y = field.height_at(river.x, river.z)
+	_expect(RespawnSpot.is_wet(field, null, river), "the middle of the river is wet")
+	var out := RespawnSpot.choose(field, structures, null, park, null, river, spawn)
+	_expect(not RespawnSpot.is_wet(field, null, out) and out != river, "a spot in the river is not loaded (%s)" % [out])
+	# Inside a ride.
+	var in_ride := spawn + Vector3(0.0, 8.0, 0.0)
+	_expect(not RespawnSpot.is_allowed(field, structures, null, park, in_ride), "a spot inside a ride is not allowed")
+	# A clear dry spot is kept, standing on the ground as it is now.
+	var kept := RespawnSpot.choose(field, structures, null, park, null, spawn + Vector3(0, -5, 0), spawn)
+	_expect(is_equal_approx(kept.x, spawn.x) and is_equal_approx(kept.z, spawn.z) and kept.y >= spawn.y - 0.01, "a clear spot is loaded as it was, lifted out of the ground")
+
+	# A room built round the spawn while the child was away: walls on the four
+	# edges of a square. Standing in the room is fine, in a wall is not.
+	var c := HouseParts.snap_cell(spawn.x, spawn.z)
+	var base := field.height_at(c.x, c.y)
+	for edge: Vector2 in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+		var wx := c.x + edge.x
+		var wz := c.y + edge.y
+		structures.place(HouseParts.WALL, Vector3(wx, field.height_at(wx, wz), wz), 0.0 if edge.x == 0.0 else PI * 0.5)
+	var in_wall := Vector3(c.x + 1.0, base, c.y)
+	_expect(RespawnSpot.built_over(structures, in_wall), "a spot in a wall is built over")
+	_expect(not RespawnSpot.built_over(structures, Vector3(c.x, base, c.y)), "the middle of the room is open")
+	var moved := RespawnSpot.choose(field, structures, null, park, null, in_wall, spawn)
+	_expect(
+		not RespawnSpot.built_over(structures, moved) and moved != in_wall,
+		"a child saved where a wall now stands is put on open ground (%s)" % [moved]
+	)
+	# A tree planted since, a table, and the wall's end.
+	structures.place(BuildKinds.SAPLING, Vector3(c.x + 9.0, field.height_at(c.x + 9.0, c.y), c.y), 0.0)
+	var at_tree := Vector3(c.x + 9.0, field.height_at(c.x + 9.0, c.y), c.y)
+	_expect(RespawnSpot.built_over(structures, at_tree), "a spot on a planted tree is built over")
+	var from_tree := RespawnSpot.choose(field, structures, null, park, null, at_tree, spawn)
+	_expect(not RespawnSpot.built_over(structures, from_tree) and from_tree != at_tree, "a child saved on a tree is moved off it")
+	# Stairs and floors are stood on.
+	structures.place(HouseParts.FLOOR, Vector3(c.x + 20.0, field.height_at(c.x + 20.0, c.y) + 2.4, c.y), 0.0)
+	var high := Vector3(c.x + 20.0, field.height_at(c.x + 20.0, c.y) + 2.4 + HouseParts.height(HouseParts.FLOOR), c.y)
+	_expect(is_equal_approx(RespawnSpot.standing_y(field, structures, high), high.y), "a child on an upstairs floor keeps their height")
+	var gone := Vector3(c.x + 30.0, field.height_at(c.x + 30.0, c.y) + 2.6, c.y)
+	_expect(
+		is_equal_approx(RespawnSpot.standing_y(field, structures, gone), field.height_at(gone.x, gone.z)),
+		"a height saved over a floor that has been taken down is the ground"
+	)
+
+	# Loaded buildings and fires off the world are dropped.
+	var kept_records := structures.to_data().size()
+	var data := structures.to_data()
+	data.append({"kind": String(BuildKinds.SAPLING), "x": 9.0e6, "y": 0.0, "z": 0.0})
+	data.append({"kind": String(BuildKinds.SAPLING), "x": 1.0, "y": 0.0, "z": -9.0e6})
+	structures.from_data(data)
+	_expect(structures.to_data().size() == kept_records, "pieces saved off the edge of the world are not loaded (%d of %d)" % [structures.to_data().size(), kept_records])
+	var hearths := Hearths.new(field)
+	get_root().add_child(hearths)
+	hearths.from_data([[90000000, 0, 0, 100.0], [0, 0, 5, 100.0]])
+	_expect(hearths.to_data().size() == 1, "a fire saved off the edge of the world is not lit (%d kept)" % hearths.to_data().size())
+	hearths.queue_free()
+	structures.queue_free()
+	await process_frame
 

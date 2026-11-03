@@ -338,10 +338,25 @@ func release_all_remote() -> void:
 	for id in _remote.keys():
 		release_remote(id)
 
+## The most of one kind of mount a valley holds: a herd of twenty is the most it
+## has (see Session.MAX_MOUNT_NUMBER).
+const MAX_OF_A_KIND := 20
+
+func _count_of_kind(kind: StringName) -> int:
+	var count := 0
+	for id: StringName in _nodes:
+		if MountKinds.kind_of(id) == kind and is_instance_valid(_nodes[id]):
+			count += 1
+	return count
+
 ## Somebody else got off a mount and left it here. A mount this phone has never
 ## heard of — a machine bought on the other one — is put into the valley.
 func park_remote(id: StringName, at: Vector3, facing: float) -> void:
 	if id == riding:
+		return
+	# A peer cannot fill the valley with machines: one a kind has that many of
+	# already is not given another, however it is numbered.
+	if not exists(id) and _count_of_kind(MountKinds.kind_of(id)) >= MAX_OF_A_KIND:
 		return
 	var was_ridden := _remote.has(id) and exists(id)
 	var from := (_nodes[id] as Node3D).global_position if was_ridden else Vector3.ZERO

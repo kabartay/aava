@@ -66,11 +66,14 @@ static func sell(inventory: Inventory, wallet: Wallet) -> Vector2i:
 	var sold := 0
 	var earned := 0
 	for item in ShopStock.BUYS:
-		var carried := inventory.count(item)
+		# Only as many as the purse has room to be paid for: `earn` stops at
+		# the ceiling, and the rest of the wool would be handed over for nothing.
+		var each := ShopStock.pays_for(item)
+		var carried := mini(inventory.count(item), (wallet.room() - earned) / each)
 		if carried <= 0 or not inventory.spend({item: carried}):
 			continue
 		sold += carried
-		earned += carried * ShopStock.pays_for(item)
+		earned += carried * each
 	if earned > 0:
 		wallet.earn(earned)
 	return Vector2i(sold, earned)

@@ -860,7 +860,12 @@ func _take_valley(from: int, pieces: Array, stumps: Array, more := false) -> voi
 			continue
 		if not is_finite(x) or not is_finite(z) or absf(x) > BELIEVABLE_REACH or absf(z) > BELIEVABLE_REACH:
 			continue
-		clean_stumps.append(entry.slice(0, 3))
+		# Rebuilt as [x, z] or [x, z, 1], the only shapes the stumps read back:
+		# a third value of any other type was passed on and read as a number.
+		var stump: Array = [x, z]
+		if entry.size() >= 3 and typeof(entry[2]) == TYPE_INT and entry[2] == 1:
+			stump.append(1)
+		clean_stumps.append(stump)
 	_part_pieces.append_array(clean_pieces)
 	_part_stumps.append_array(clean_stumps)
 	if _part_pieces.size() > MAX_PIECES_IN_ALL or _part_stumps.size() > MAX_STUMPS_IN_ALL:
@@ -917,9 +922,14 @@ func _take_shared(
 		if believable(Vector3(float(site), 0.0, 0.0)) and count >= 0 and count < 1000:
 			clean_progress[float(site)] = count
 	var clean_mounts: Dictionary = {}
+	var of_a_kind: Dictionary = {}
 	for key: Variant in mounts:
 		var entry: Variant = mounts[key]
 		if typeof(key) != TYPE_STRING or mount_named(key) == &"":
+			continue
+		# No more of a kind than a valley holds (see Mounts.MAX_OF_A_KIND).
+		var kind := MountKinds.kind_of(StringName(key))
+		if int(of_a_kind.get(kind, 0)) >= Mounts.MAX_OF_A_KIND:
 			continue
 		if typeof(entry) != TYPE_ARRAY or entry.size() < 4:
 			continue
@@ -930,6 +940,7 @@ func _take_shared(
 			numbers.append(float(number))
 		if numbers.size() == 4 and believable(Vector3(numbers[0], numbers[1], numbers[2])):
 			clean_mounts[key] = numbers
+			of_a_kind[kind] = int(of_a_kind.get(kind, 0)) + 1
 	remote_shared.emit(clean_taken, clean_built, clean_progress, clean_mounts)
 
 ## Is this a name the valley gives a pickup — "tile x:tile z:number"? It is

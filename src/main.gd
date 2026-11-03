@@ -303,8 +303,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_time_of_day.connect(world.atmosphere.set_time)
 	session.remote_valley.connect(_on_remote_valley)
 	session.remote_shared.connect(_on_remote_shared)
-	session.remote_picked.connect(world.pickups.taken_elsewhere)
-	session.remote_parked.connect(world.mounts.park_remote)
+	session.remote_picked.connect(_on_remote_picked)
+	session.remote_parked.connect(_on_remote_parked)
 	session.remote_animals.connect(world.animals.tell)
 	# What this child picks up is gone for the other as well, and a mount got off
 	# is left where the other phone is told it stands.
@@ -420,11 +420,17 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# the terrain it was saved against, and the terrain can change between
 	# sessions: the day the playground stopped being a thirty-metre pit, a child
 	# saved at the bottom of it would have loaded thirty metres inside a hill.
-	start.y = maxf(start.y, world.field.height_at(start.x, start.z))
-	# And never inside the signpost. It was put where a child happened to be
-	# standing, and they loaded back in within the post and could not walk out:
-	# a solid thing that appears around somebody traps them there.
-	start = world.signpost.push_clear(start)
+	#
+	# And not wherever the save says, believed blindly: a spot off the world, in
+	# the water, inside something the other child built while visiting, or
+	# inside a ride is given up for the nearest open ground, and failing that
+	# the camp. The signpost's clearance is applied in there too, since it was
+	# put where a child happened to be standing and a solid thing that appears
+	# around somebody traps them.
+	start = RespawnSpot.choose(
+		world.field, structures, world.places, world.park, world.signpost, start, spawn
+	)
+	_last_on_ground = start
 	player.position = start + Vector3.UP * SPAWN_CLEARANCE
 	# A game saved mid-ride has its machine at the child's feet.
 	world.mounts.make_room_at(start)
@@ -613,9 +619,27 @@ var _voice_allowed := true
 ## café back to free.
 var _cafe_paid := false
 
+## The last place the child stood on dry ground, off every ride and out of every
+## boat. A save made while they are up on the wheel, in a gondola of the drop
+## tower or out on the pond is written here instead, so that the phone coming
+## back never puts them in mid-air or in the water. See RespawnSpot.
+var _last_on_ground := Vector3.ZERO
+
+## Whether the body is somewhere that must not be saved: aboard a ride, in a
+## boat, or in the water.
+func _off_the_ground() -> bool:
+	var here := player.global_position
+	return (
+		_aboard != &"" or world.park.ride_under(here) != &""
+		or (player.riding != &"" and MountKinds.kind_of(player.riding) == MountKinds.BOAT)
+		or RespawnSpot.is_wet(world.field, world.places, here)
+	)
+
 func _physics_process(delta: float) -> void:
 	if player == null or _waiting_for_ground or world.park == null:
 		return
+	if player.is_on_floor() and not _off_the_ground():
+		_last_on_ground = player.global_position
 	# Which ride a child is aboard, and whether it is one that charges. A
 	# ticket is taken when they get on, not while they stay on: the carousel
 	# turns for a minute and a ride is a ride.
@@ -1403,6 +1427,13 @@ func _on_reset() -> void:
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.of("say_reset_visiting"), 3.0)
 		return
+	# Nor while the way into one is still open: between joining and the host's
+	# valley arriving this child is a guest already, and a reset then would
+	# empty their own valley just before the host's was set over it.
+	if session.is_following():
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_reset_visiting"), 3.0)
+		return
 	if structures != null:
 		structures.from_data([])
 		# Its campfires are gone, so no fire can go on burning without one.
@@ -1421,7 +1452,24 @@ func _on_reset() -> void:
 	world.follow(player.global_position)
 	_write_save()
 	_rebuild_hud()
+	_show_guests_the_valley_again()
 	hud.announce(Text.of("say_reset"), 3.0)
+
+## A guest in this valley is told what it now holds. The reset sends no
+## removals, so the guest's phone went on showing every wall and tree that was
+## just cleared here, and then refused each new piece built on the same spots
+## as already taken. The valley is sent again as when they arrived: it replaces
+## what they hold, so both phones show the same empty valley. Only the host
+## ever sends this; a guest has no message that resets anybody's valley.
+func _show_guests_the_valley_again() -> void:
+	if not session.is_host() or not session.has_company():
+		return
+	for id: int in session.guests.keys():
+		session.report_valley(structures.to_data(), world.felled.to_data(), id)
+		session.report_shared(
+			PackedStringArray(world.pickups.to_data()), world.dams.built,
+			world.dams.progress, world.mounts.to_data(), id
+		)
 
 ## Everything on the HUD that Wiring.connect_hud does not cover.
 ##
@@ -2166,6 +2214,8 @@ func _on_remote_built(
 	# went green again for the rest of the afternoon.
 	if not BuildKinds.INFO.has(kind) and not HouseParts.is_house_part(kind):
 		return
+	if not _the_hosts_valley_is_here():
+		return
 	# Both children can build on one spot in the same moment, each ghost being
 	# green in its own valley. The ghost is the only check a local piece gets,
 	# so this is the arriving piece's: a second piece in the same place cannot
@@ -2214,6 +2264,8 @@ func _hear_building(sound: Sounds.Sound, at: Vector3) -> void:
 ## Just the piece named, never what stood on it: the other phone sends each
 ## piece that came down, the upper ones first, so every phone ends up agreeing.
 func _on_remote_removed(at: Vector3, named := &"") -> void:
+	if not _the_hosts_valley_is_here():
+		return
 	var record := structures.nearest_shared(at, 0.6, named)
 	if record.is_empty():
 		return
@@ -2238,16 +2290,43 @@ func _give_back(record: Dictionary) -> void:
 		inventory.add(item, int(cost[item]))
 
 func _on_remote_felled(at: Vector3) -> void:
+	# A peer cannot make this phone keep stumps without end, one message each.
+	if not _the_hosts_valley_is_here() or world.felled.count() >= Session.MAX_STUMPS:
+		return
 	world.felled.fell(at)
 	world.vegetation.rebuild_around(at)
 
 ## What the other child ordered, on the table they sat at: the same plate, eaten
 ## in the same bites on this phone as on theirs.
 func _on_remote_meal(dish: int, at: Vector3) -> void:
+	if not _the_hosts_valley_is_here():
+		return
 	world.places.set_down(Dishes.from_index(dish), at)
 
 func _on_remote_dam_stick(site: float) -> void:
+	if not _the_hosts_valley_is_here():
+		return
 	world.dams.deliver(site)
+
+## Something picked up on the other phone, by the id the valley gives it.
+func _on_remote_picked(id: String) -> void:
+	# Bounded as the host's list is (see Session.MAX_TAKEN): every id is kept
+	# and saved, and a peer could otherwise send them for ever.
+	if not _the_hosts_valley_is_here() or world.pickups.taken.size() >= Session.MAX_TAKEN:
+		return
+	world.pickups.taken_elsewhere(id)
+
+func _on_remote_parked(id: StringName, at: Vector3, facing: float) -> void:
+	if not _the_hosts_valley_is_here():
+		return
+	world.mounts.park_remote(id, at, facing)
+
+## Is what this phone holds the valley the other child is building in? A host's
+## always is. A guest's is not until the host's has arrived: connected, they
+## are still holding their own, and a piece, a stump or a pickup applied then
+## stood among their own things and was saved into their own valley.
+func _the_hosts_valley_is_here() -> bool:
+	return not session.is_following() or _valley_received
 
 ## How far the child is from a spot in the world, along the ground.
 func _metres_to_spot(at: Vector3) -> float:
@@ -2498,7 +2577,10 @@ func _first_house_step() -> StringName:
 		return &""
 	if structures.revision != _house_step_revision:
 		_house_step_revision = structures.revision
-		_house_step = structures.house_step()
+		# Only this child's own pieces: a brother's house in the valley says
+		# nothing of what this child has learnt, and a host whose guest built
+		# the walls and the roof was told they need not learn to.
+		_house_step = structures.house_step(true)
 		# Not remembered in somebody else's valley: the host's house standing
 		# there says nothing of this child, and the mark is saved with them, so
 		# a guest who had only looked at a house was never taught to build one.
@@ -3025,6 +3107,8 @@ func _on_sell_back(item: StringName) -> void:
 		return
 	var paid := wallet.sell_back(item, ShopStock.sells_back(item))
 	if paid <= 0:
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_purse_full"), 2.6)
 		return
 	if item == ShopStock.LANTERN and not wallet.has(ShopStock.LANTERN):
 		lantern.owned = false
@@ -3065,6 +3149,13 @@ func _on_buy(item: StringName) -> void:
 		var carried := inventory.count(item)
 		if carried <= 0:
 			sounds.play(Sounds.Sound.REFUSE)
+			return
+		# Only what the purse has room to be paid for: coins stop at the
+		# ceiling, and wool sold past it was handed over for nothing.
+		carried = mini(carried, wallet.room() / ShopStock.pays_for(item))
+		if carried <= 0:
+			sounds.play(Sounds.Sound.REFUSE)
+			hud.announce(Text.of("say_purse_full"), 2.6)
 			return
 		if not inventory.spend({item: carried}):
 			return
@@ -3623,7 +3714,10 @@ func _on_groves_changed(centres: Array) -> void:
 	# Only a grove standing counts: this also fires when the last one is felled.
 	# And not the host's: a grove standing in the valley a guest has walked into
 	# was planted by somebody else, and finished the guest's "plant 3 saplings".
-	if not centres.is_empty() and not _visiting:
+	# The same goes the other way: a guest's saplings in the host's valley grow
+	# up on the host's phone, and tasks are each child's own lessons, so only a
+	# grove with trees this child planted counts.
+	if not centres.is_empty() and not _visiting and structures.own_grove_count() > 0:
 		tasks.on_grove()
 	if centres.is_empty():
 		return
@@ -3691,6 +3785,9 @@ func _write_save() -> void:
 func _save_data() -> Dictionary:
 	# A visiting child is saved at the door they left by, not in the host's valley.
 	var at := _home_at if _visiting else player.global_position
+	# Not where the body is if that is up a ride, in a boat or in the water.
+	if not _visiting:
+		at = RespawnSpot.spot_to_save(at, _last_on_ground, _off_the_ground())
 	return {
 		"seed": world.world_seed,
 		"language": String(Text.language()),

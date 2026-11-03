@@ -42,6 +42,12 @@ func earn(amount: int) -> void:
 func can_afford(price: int) -> bool:
 	return coins >= price
 
+## How many more coins the purse has room for. A sale is checked against this
+## before anything is handed over: `earn` stops at the ceiling, so a thing sold
+## into a full purse was gone and its coins with it.
+func room() -> int:
+	return MAX_COINS - coins
+
 func has(item: StringName) -> bool:
 	return count_of(item) > 0
 
@@ -82,6 +88,10 @@ func give_up(item: StringName) -> bool:
 ## Sell one back to the shop. Returns what was paid for it, or nothing if
 ## there was none to sell.
 func sell_back(item: StringName, price: int) -> int:
+	# Not into a purse that cannot hold the price: the thing stays, and so does
+	# the child's choice to sell it once there is room.
+	if price > room() or not has(item):
+		return 0
 	if not give_up(item):
 		return 0
 	earn(price)

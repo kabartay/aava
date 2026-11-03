@@ -150,17 +150,33 @@ func house_pieces_near(world_position: Vector3, reach: float) -> Array[Dictionar
 			found.append(record)
 	return found
 
+## Every piece whose middle is within `reach` of a point, measured across the
+## ground, house parts and everything else alike. Where a child is put down
+## asks it, to know whether something stands on the spot.
+func records_near(world_position: Vector3, reach: float) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	for record in _records:
+		var at: Vector3 = record["position"]
+		if Vector2(at.x - world_position.x, at.z - world_position.z).length() <= reach:
+			found.append(record)
+	return found
+
 ## What a first house still wants next, for the line that tells a child who has
 ## never built one what to do: walls, then a floor, then a roof, then a bed.
 ## Empty when all four stand somewhere. It goes by what is standing, not by what
 ## was tapped last, so a house a child began on Monday is met on Tuesday with
 ## the step after the one they got to.
-func house_step() -> StringName:
+##
+## `own_only` leaves out what came from the other phone (`paid` false), so that
+## a first house is one this child put up, not one a brother did.
+func house_step(own_only := false) -> StringName:
 	var walls := false
 	var boards := false
 	var roof := false
 	var bed := false
 	for record in _records:
+		if own_only and not bool(record.get("paid", true)):
+			continue
 		var kind: StringName = record["kind"]
 		walls = walls or HouseParts.layer(kind) == &"wall"
 		boards = boards or kind == HouseParts.FLOOR
@@ -1062,8 +1078,24 @@ func grove_count() -> int:
 ## gather everything within a grove's reach. Good enough for the handful of
 ## trees a child plants, and it never disagrees with itself between frames.
 func _recompute_groves() -> void:
+	var centres := _grove_centres_of(false)
+	if centres.size() != _grove_centres.size():
+		_grove_centres = centres
+		groves_changed.emit(_grove_centres)
+	else:
+		_grove_centres = centres
+
+## How many groves stand that this child's own trees make up, leaving out
+## what the other child planted (`paid` false). A grove is only theirs if the
+## trees they planted are enough to form one.
+func own_grove_count() -> int:
+	return _grove_centres_of(true).size()
+
+func _grove_centres_of(own_only: bool) -> Array:
 	var grown: Array[Vector3] = []
 	for record in _records:
+		if own_only and not bool(record.get("paid", true)):
+			continue
 		if BuildKinds.INFO.has(record["kind"]) and BuildKinds.grows(record["kind"]) and record["stage"] >= BuildKinds.GROWTH_STAGES - 1:
 			grown.append(record["position"])
 
@@ -1086,12 +1118,7 @@ func _recompute_groves() -> void:
 			sum += grown[index]
 		var centre: Vector3 = sum / float(cluster.size())
 		centres.append(centre + Vector3.UP * 4.5)
-
-	if centres.size() != _grove_centres.size():
-		_grove_centres = centres
-		groves_changed.emit(_grove_centres)
-	else:
-		_grove_centres = centres
+	return centres
 
 func to_data() -> Array:
 	var data: Array = []
@@ -1141,9 +1168,14 @@ func from_data(data: Array) -> void:
 		var kind := StringName(entry.get("kind", ""))
 		if not BuildKinds.INFO.has(kind) and not HouseParts.is_house_part(kind):
 			continue
+		# A piece set down off the edge of the world, or at a position that is
+		# not a number, would be streamed towards or drawn at infinity.
+		var placed_at := Vector3(float(entry.get("x", 0.0)), float(entry.get("y", 0.0)), float(entry.get("z", 0.0)))
+		if not RespawnSpot.in_the_world(placed_at):
+			continue
 		var record := {
 			"kind": kind,
-			"position": Vector3(float(entry.get("x", 0.0)), float(entry.get("y", 0.0)), float(entry.get("z", 0.0))),
+			"position": placed_at,
 			"spin": float(entry.get("spin", 0.0)),
 			"age": maxf(0.0, float(entry.get("age", 0.0))),
 			"stage": 0,

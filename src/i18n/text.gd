@@ -524,6 +524,12 @@ const STRINGS := {
 		EN: "sold %d for %d coins", FR: "%d vendus pour %d pièces",
 		RU: "продано %d за %d монет",
 	},
+	# Said when a sale would be paid into a purse with no room left for it.
+	"say_purse_full": {
+		EN: "your purse is too full for that — spend a few coins first",
+		FR: "ta bourse est trop pleine — dépense quelques pièces d'abord",
+		RU: "кошелёк слишком полон — сначала потрать немного монет",
+	},
 	"say_chocolate": {
 		EN: "that is better",
 		FR: "ça va mieux",

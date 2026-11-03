@@ -229,6 +229,10 @@ func from_data(data: Array) -> void:
 			var left := minf(float(entry[3]), SECONDS_PER_LOG * float(MAX_LOGS))
 			if not left > 0.0:
 				continue
+			# Keys are tenths of a metre; one off the edge of the world is not
+			# a fire anyone lit.
+			if not RespawnSpot.in_the_world(Vector3(key) * 0.1):
+				continue
 			_burning[key] = left
 			_light(
 				Vector3(float(key.x) * 0.1, float(key.y) * 0.1, float(key.z) * 0.1), key
