@@ -25,6 +25,17 @@ const WRITING_OUT := 0.03
 
 var _blue: Label3D
 var _red: Label3D
+var _title: Label3D
+
+## Which side's number is flashing, and for how much longer. -1 for neither.
+var _flashing := -1
+var _flash_left := 0.0
+## How long a goal's flash lasts, and how fast it blinks between the side's
+## colour and white.
+const FLASH_RATE := 6.0
+
+## What the title says in place of its usual word while somebody has won.
+var _winner := -1
 
 ## `ground` is the height of the grass at the foot, which the legs are sunk a
 ## little into, so a gentle slope never shows a gap under one of them.
@@ -60,9 +71,9 @@ func _init(ground: float) -> void:
 	var top := Pitch.BOARD_HEIGHT
 
 	# The title, thin and small across the top.
-	var title := _write(Text.of("board_title"), 0.0035, TITLE_COLOUR)
-	title.position = Vector3(0.0, top - 0.3, front)
-	add_child(title)
+	_title = _write(Text.of("board_title"), 0.0035, TITLE_COLOUR)
+	_title.position = Vector3(0.0, top - 0.3, front)
+	add_child(_title)
 
 	# The two scores, and between them a colon.
 	var digits_y := top - 1.3
@@ -95,6 +106,91 @@ func _init(ground: float) -> void:
 func show_scores(blue: int, red: int) -> void:
 	_number(_blue, blue)
 	_number(_red, red)
+
+## Make the scorer's number flash in its colour for `seconds`, so that a goal is
+## a moment on the board and not only a digit that changed.
+func celebrate(side: int, seconds: float) -> void:
+	_blue.modulate = Goal.SIDE_COLOURS[0]
+	_red.modulate = Goal.SIDE_COLOURS[1]
+	_flashing = side
+	_flash_left = seconds
+
+## Is a number flashing now, and whose? For the checks: -1 for nobody's.
+func flashing() -> int:
+	return _flashing if _flash_left > 0.0 else -1
+
+## Say who has won, in the winner's colour, in place of the title; -1 puts the
+## title back. The winner's number flashes until the next game begins.
+func show_winner(side: int, seconds: float) -> void:
+	_winner = side
+	if side < 0:
+		_flash_left = 0.0
+		_blue.modulate = Goal.SIDE_COLOURS[0]
+		_red.modulate = Goal.SIDE_COLOURS[1]
+		_title.text = Text.of("board_title")
+		_title.modulate = TITLE_COLOUR
+		_title.pixel_size = 0.0035
+		return
+	_title.text = Text.of("board_wins_blue" if side == 0 else "board_wins_red")
+	_title.modulate = Goal.SIDE_COLOURS[side]
+	# As big as fits across the board, whatever the language makes of it.
+	_title.pixel_size = clampf(5.2 / (float(_title.text.length()) * 115.0), 0.002, 0.0055)
+	celebrate(side, seconds)
+	_confetti(side)
+
+## The title as it reads, for the checks.
+func title_text() -> String:
+	return _title.text
+
+func _process(delta: float) -> void:
+	if _flash_left <= 0.0:
+		return
+	_flash_left -= delta
+	var label := _blue if _flashing == 0 else _red
+	if _flash_left <= 0.0:
+		label.modulate = Goal.SIDE_COLOURS[_flashing]
+		return
+	# Between the side's colour and white, so the number blinks rather than
+	# merely changing hue, which reads at thirty metres.
+	var on := int(floor(_flash_left * FLASH_RATE)) % 2 == 0
+	label.modulate = Goal.SIDE_COLOURS[_flashing] if on else Color(1.0, 1.0, 1.0)
+
+## A burst of paper in the winner's colours above the board, which falls and is
+## gone: a simple one-shot, with no scene to load.
+func _confetti(side: int) -> void:
+	var burst := CPUParticles3D.new()
+	burst.name = "Confetti"
+	burst.one_shot = true
+	burst.emitting = true
+	burst.amount = 90
+	burst.lifetime = 2.6
+	burst.explosiveness = 1.0
+	burst.direction = Vector3.UP
+	burst.spread = 55.0
+	burst.initial_velocity_min = 5.0
+	burst.initial_velocity_max = 9.0
+	burst.gravity = Vector3(0.0, -6.0, 0.0)
+	burst.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	burst.emission_box_extents = Vector3(Pitch.BOARD_HALF_WIDTH, 0.2, 0.3)
+	var paper := Gradient.new()
+	paper.colors = PackedColorArray([
+		Goal.SIDE_COLOURS[side], Color(1.0, 1.0, 1.0), Color(0.98, 0.84, 0.25),
+	])
+	paper.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	burst.color_initial_ramp = paper
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.4, 0.4)
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	quad.material = material
+	burst.mesh = quad
+	burst.position = Vector3(0.0, Pitch.BOARD_HEIGHT + 0.3, 0.6)
+	add_child(burst)
+	# Gone with the paper, not left emitting nothing for the rest of the game.
+	if is_inside_tree():
+		get_tree().create_timer(burst.lifetime + 0.5).timeout.connect(burst.queue_free)
 
 ## What is written for each side, for the checks.
 func digits() -> PackedStringArray:

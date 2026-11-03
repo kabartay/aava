@@ -78,8 +78,9 @@ static func plan(origin: Vector3) -> Array:
 		# The whole roof, from outside the door, on the ground, looking in.
 		[HouseParts.ROOF_ROOM, Vector2(x + 0.2, z + 3.0 + 1.2), 0.0, Vector2(x + 1.0, z + 1.0)],
 		# And a bed in the north-east corner, from inside the room, looking
-		# across it into the corner.
-		[HouseParts.BED, Vector2(x - 0.05, z + 2.4), -0.7, Vector2(x + 2.0, z)],
+		# across it into the corner. Furniture goes to the nearest free square
+		# ahead, so the child stands in the north-west square, facing east.
+		[HouseParts.BED, Vector2(x - 0.05, z + 0.4), -1.4, Vector2(x + 2.0, z)],
 	]
 
 ## Put up a ready-made plan with one tap, aimed from where a child would stand:

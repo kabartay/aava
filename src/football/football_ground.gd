@@ -13,7 +13,20 @@ extends Node3D
 const BALL_COUNT := 3
 
 ## How long the "GOAL" moment lasts before the ball is put back on the spot.
-const CELEBRATION := 2.2
+const CELEBRATION := 3.0
+
+## A match is won by the first side to this many goals. The board and the
+## announcement say so, and a new game begins by itself after WIN_PAUSE — long
+## enough to enjoy the confetti, short enough that two children are playing
+## again before they have started arguing about who is next.
+const WIN_SCORE := 5
+const WIN_PAUSE := 6.0
+
+## A ball that has crossed the touchline or the goal line without scoring is
+## put back this long afterwards, at the nearest point this far inside the
+## touchline: a throw-in, simplified. Far enough in that it is not out again.
+const OUT_FOR := 3.0
+const OUT_INSET := 1.0
 
 ## A ball this far outside the levelled ground has gone for a walk and comes
 ## home. Generous, so that chasing a long ball is still part of the fun.
@@ -24,6 +37,13 @@ signal goal_scored(goal_index: int, blue: int, red: int)
 
 ## The score changed any way at all — a goal, a new game, a load.
 signal scores_changed(blue: int, red: int)
+
+## A side (0 blue, 1 red) reached WIN_SCORE, and this is the score.
+signal match_won(side: int, blue: int, red: int)
+
+## The host struck a ball on a guest's behalf, with this strength from 0 to 1,
+## so it can make the sound of it: the guest's own phone does already.
+signal guest_kicked(strength: float)
 
 ## Goals scored by each side. Blue defends the west goal and red the east, so
 ## the ball into the east goal is blue's goal and the other way round.
@@ -40,6 +60,10 @@ var _cooldown := 0.0
 ## line in that gap was given a second goal.
 var _in_the_net: Dictionary = {}
 var _field: HeightField
+## The side that has won the match being shown, or -1; and how long each ball
+## has been out of play, in seconds.
+var _winner := -1
+var _out_for: Dictionary = {}
 
 # --- playing together ---------------------------------------------------------
 #
@@ -120,6 +144,7 @@ func _physics_process(delta: float) -> void:
 	# A guest does not play the game: the host does, and this phone only draws it.
 	if not _following:
 		_play(delta)
+		_carry_guests(delta)
 	_share(delta)
 
 func _play(delta: float) -> void:
@@ -130,6 +155,10 @@ func _play(delta: float) -> void:
 	var celebrating := _cooldown > 0.0
 	if celebrating:
 		_cooldown -= delta
+		# A won match ends with the pause: the next game begins by itself.
+		if _cooldown <= 0.0 and _winner >= 0:
+			new_game()
+			return
 
 	for ball in _balls:
 		if _in_the_net.has(ball):
@@ -138,7 +167,163 @@ func _play(delta: float) -> void:
 			return
 		if _float_in_the_river(ball, delta):
 			continue
+		# Not while a goal is being cheered: a ball lying in the net is behind
+		# the goal line, and fetched back as "out" it was gone before the next
+		# goal could be judged.
+		if not celebrating and _bring_back(ball, delta):
+			continue
 		_recover_stray(ball)
+
+## A side has won the match: say so on the board, and hold play for the pause.
+## On a guest's phone too, which has been told the score and no more.
+func _win(side: int) -> void:
+	_winner = side
+	_cooldown = WIN_PAUSE
+	_board.show_winner(side, WIN_PAUSE)
+	match_won.emit(side, blue, red)
+
+## Which match is being shown as won, 0 blue and 1 red, or -1 for none.
+func winner() -> int:
+	return _winner
+
+## A ball that is over the touchline or the goal line, and did not go in, is
+## brought back after OUT_FOR seconds to the nearest point inside the
+## touchline, rather than left rolling off down the valley. Returns whether it
+## has just been put back.
+func _bring_back(ball: Ball, delta: float) -> bool:
+	var at := ball.position
+	if Pitch.is_in_play(at.x, at.z):
+		_out_for.erase(ball)
+		return false
+	var time: float = float(_out_for.get(ball, 0.0)) + delta
+	if time < OUT_FOR:
+		_out_for[ball] = time
+		return false
+	_out_for.erase(ball)
+	var spot := Pitch.nearest_inside(at.x, at.z, OUT_INSET)
+	spot.y = _field.height_at(spot.x, spot.z)
+	ball.reset_to(spot)
+	return true
+
+## Which side this phone's child plays: 0 for blue and 1 for red when two are
+## playing — the host is blue and attacks the red goal, a guest is red — and -1
+## when alone, where a child plays both ways and every goal is theirs.
+func my_side() -> int:
+	if _session == null:
+		return -1
+	if _session.is_following():
+		return 1
+	if _session.is_host() and _session.has_company():
+		return 0
+	return -1
+
+## Is a goal into `goal`'s net this phone's child's own? Alone, any goal is; with
+## a brother, only one for the child's own side.
+func scored_for_me(goal: int) -> bool:
+	var side := my_side()
+	return side < 0 or side == 1 - goal
+
+# --- the children's own bodies ---------------------------------------------------
+
+## How far from the pitch a guest still has a body here. Further than that the
+## capsule would only be an invisible post in somebody's way.
+const BODY_RANGE := 12.0
+## The fastest a guest's body is moved to catch up with the position it was told,
+## so that it pushes a ball at a believable pace; further behind than TELEPORT it
+## is set down at once.
+const BODY_PACE := 9.0
+const BODY_TELEPORT := 6.0
+
+## A kinematic capsule the size of a child for each guest near the pitch, on the
+## host: running into a ball pushes it there, and the guest sees it move because
+## the host sends the balls. Kinematic, so it goes where the guest's phone says
+## and nothing here pushes a child about.
+var _bodies: Dictionary = {}
+
+func _carry_guests(delta: float) -> void:
+	var told: Dictionary = {}
+	if _session != null and _session.is_host():
+		for id: int in _session.guest_positions:
+			if _session.guests.has(id):
+				var at: Vector3 = _session.guest_positions[id]
+				if Pitch.is_beside(at.x, at.z, BODY_RANGE):
+					told[id] = at
+	for id: int in _bodies.keys():
+		if not told.has(id):
+			(_bodies[id] as Node).queue_free()
+			_bodies.erase(id)
+	for id: int in told:
+		var target: Vector3 = (told[id] as Vector3) + Vector3.UP * Player.HEIGHT * 0.5
+		var body: AnimatableBody3D = _bodies.get(id)
+		if body == null:
+			body = _make_body()
+			body.position = target
+			add_child(body)
+			_bodies[id] = body
+		var from := body.position
+		if from.distance_to(target) > BODY_TELEPORT:
+			body.position = target
+		else:
+			body.position = from.move_toward(target, BODY_PACE * maxf(delta, 0.0001))
+		var pace := (body.position - from) / maxf(delta, 0.0001)
+		dribble(body.position - Vector3.UP * Player.HEIGHT * 0.5, pace, delta)
+
+func _make_body() -> AnimatableBody3D:
+	var body := AnimatableBody3D.new()
+	body.name = "GuestBody"
+	# The layer the ball collides with, and no mask: it moves, nothing moves it.
+	body.collision_layer = TerrainSpec.LAYER_PROPS
+	body.collision_mask = 0
+	var shape := CapsuleShape3D.new()
+	shape.height = Player.HEIGHT
+	shape.radius = Player.RADIUS
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	body.add_child(collider)
+	return body
+
+## How many guests have a body here, for the checks.
+func body_count() -> int:
+	return _bodies.size()
+
+func body_of(id: int) -> AnimatableBody3D:
+	return _bodies.get(id)
+
+## A gentle touch for a child on foot at `from`, moving at `velocity`: a ball
+## they are walking or jogging at is kept near their feet instead of being
+## shoved off (see Ball.touch_velocity). The game of whoever hosts, or plays
+## alone; a guest's phone only shows it, see `feel`.
+func dribble(from: Vector3, velocity: Vector3, delta: float) -> void:
+	if _following:
+		return
+	for ball in _balls:
+		if _in_the_net.has(ball):
+			continue
+		var now := Ball.touch_velocity(ball.position, ball.linear_velocity, from, velocity, delta)
+		if now != ball.linear_velocity:
+			ball.sleeping = false
+			ball.linear_velocity = now
+
+## A guest's phone shows the same touch at once, without waiting for the host's
+## ball to answer, for as long as it is in contact; the host's word takes over
+## a moment after, and is the same.
+func feel(from: Vector3, velocity: Vector3, delta: float) -> void:
+	if not _following:
+		return
+	for i in _balls.size():
+		var shown := _drawn[i]
+		if not shown["known"]:
+			continue
+		var ball := _balls[i]
+		var going: Vector3 = shown["guess"] if float(shown["predicting"]) > 0.0 else shown["velocity"]
+		var now := Ball.touch_velocity(ball.position, going, from, velocity, delta)
+		if now != going:
+			shown["guess"] = now
+			shown["predicting"] = maxf(float(shown["predicting"]), TOUCH_PREDICT_FOR)
+
+## How long a guest's own touch is shown before the host's word is believed
+## again. Shorter than a kick's: a touch is renewed every frame it lasts.
+const TOUCH_PREDICT_FOR := 0.12
 
 ## Where a ball actually is, whether or not this node has entered the tree.
 func ball_positions() -> Array[Vector3]:
@@ -160,9 +345,13 @@ func _check_goal(ball: Ball) -> bool:
 			red += 1
 		_cooldown = CELEBRATION
 		_board.show_scores(blue, red)
+		_board.celebrate(1 - index, CELEBRATION)
 		goal_scored.emit(index, blue, red)
 		scores_changed.emit(blue, red)
 		_tell_guests(index)
+		if blue >= WIN_SCORE or red >= WIN_SCORE:
+			# Guests work this out for themselves from the score they are told.
+			_win(1 - index)
 		# Put it back on the centre spot after the celebration, the way a
 		# restart works, rather than instantly, which reads as the ball
 		# vanishing at the moment of triumph.
@@ -266,12 +455,15 @@ func new_game() -> void:
 	blue = 0
 	red = 0
 	_cooldown = 0.0
+	_winner = -1
 	_in_the_net.clear()
 	_afloat.clear()
+	_out_for.clear()
 	for ball in _balls:
 		var spot := ball.home
 		spot.y = _field.height_at(spot.x, spot.z)
 		ball.reset_to(spot)
+	_board.show_winner(-1, 0.0)
 	_board.show_scores(blue, red)
 	scores_changed.emit(blue, red)
 	_tell_guests(-1)
@@ -306,8 +498,11 @@ func _sync_role() -> void:
 		return
 	_following = now
 	_cooldown = 0.0
+	_winner = -1
 	_in_the_net.clear()
 	_afloat.clear()
+	_out_for.clear()
+	_board.show_winner(-1, 0.0)
 	if now:
 		# What is on the board is the host's from here, until the host says.
 		_own_blue = blue
@@ -397,7 +592,9 @@ func _on_remote_kick(from: int, index: int, velocity: Vector3) -> void:
 	var speed := velocity.length()
 	if speed < 0.1 or speed > Ball.KICK_SPEED_CEILING + 0.5:
 		return
-	ball.strike(velocity, Ball.strength_of(velocity), Ball.loft_of(velocity))
+	var strength := Ball.strength_of(velocity)
+	ball.strike(velocity, strength, Ball.loft_of(velocity))
+	guest_kicked.emit(strength)
 	# Tell the guests now rather than at the next tick: the kicker is waiting.
 	_send_at_once = true
 
@@ -436,8 +633,15 @@ func _on_remote_scores(new_blue: int, new_red: int, goal: int) -> void:
 	red = new_red
 	_board.show_scores(blue, red)
 	if goal >= 0:
+		_board.celebrate(1 - goal, CELEBRATION)
 		goal_scored.emit(goal, blue, red)
+	else:
+		# A new game, or a score told to somebody arriving: nobody has just won.
+		_winner = -1
+		_board.show_winner(-1, 0.0)
 	scores_changed.emit(blue, red)
+	if goal >= 0 and (blue >= WIN_SCORE or red >= WIN_SCORE):
+		_win(1 - goal)
 
 func _on_remote_balls(states: PackedFloat32Array) -> void:
 	_sync_role()

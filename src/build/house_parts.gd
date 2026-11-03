@@ -277,6 +277,12 @@ static func layer(kind: StringName) -> StringName:
 			return &"chimney"
 	return &""
 
+## What stands on the floor of a room: the bed, table, counter, shelf, lamp and
+## pot, the chair, the rug.
+static func is_furniture(kind: StringName) -> bool:
+	var on := layer(kind)
+	return on == &"furniture" or on == &"seat" or on == &"rug"
+
 static func is_roof(kind: StringName) -> bool:
 	return kind == ROOF or kind == ROOF_PEAK or kind == ROOF_ROOM or kind == ROOF_FLAT
 

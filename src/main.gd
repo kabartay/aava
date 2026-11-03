@@ -263,6 +263,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# In somebody else's valley the football is theirs; this phone only draws it.
 	world.football.attach(session)
 	world.football.goal_scored.connect(_on_goal)
+	world.football.match_won.connect(_on_match_won)
+	world.football.guest_kicked.connect(_on_guest_kicked)
 	world.football.scores_changed.connect(_on_scores_changed)
 	world.places.basket.connect(func(total: int) -> void:
 		sounds.play(Sounds.Sound.GOAL)
@@ -401,6 +403,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# to know about.
 	build_mode.set_tree_finder(func(at: Vector3, reach: float) -> Array[Vector3]:
 		return world.vegetation.trees_near(at, reach))
+	# The undo list is this child's, kept in their own save, and found again
+	# among the structures that were restored above.
+	build_mode.restore_history(save.get("undo", []))
 	# A cafe or a shop already standing in a loaded valley is not news.
 	_known_cafe = structures.has_venue(&"cafe")
 	_known_shop = structures.has_venue(&"shop")
@@ -1005,6 +1010,19 @@ func _process(delta: float) -> void:
 		build_mode.active and (HouseParts.is_house_part(build_mode.selected) or Plans.is_plan(build_mode.selected))
 	)
 	hud.set_house_hint(_first_house_step())
+
+	# Which side this child is when two play, on the chip and on a band round
+	# their chest; and a gentle touch for a ball they are jogging at. A guest
+	# only shows the touch, the host's ball being the one that moves.
+	var side := world.football.my_side()
+	hud.set_side(side)
+	player.set_band(Goal.SIDE_COLOURS[side] if side >= 0 else Color(0.0, 0.0, 0.0, 0.0))
+	if riding == &"":
+		var on_foot := player.velocity
+		if world.football.is_following():
+			world.football.feel(player.global_position, on_foot, delta)
+		else:
+			world.football.dribble(player.global_position, on_foot, delta)
 
 	# The kick button appears only with a ball at your feet. The keyboard runs
 	# through the same two calls as the button, so the two controls cannot end
@@ -2588,11 +2606,27 @@ func _on_boulder_jumped(_at: Vector3, total: int) -> void:
 	sounds.play(Sounds.Sound.CLEARED)
 	hud.announce(Text.format("say_cleared", [total]), 1.8)
 
-func _on_goal(_index: int, _blue: int, _red: int) -> void:
-	journal.record(Journal.GOALS)
-	today.record(Today.SCORE)
+func _on_goal(index: int, _blue: int, _red: int) -> void:
+	# Both phones hear it and see it; the journal only counts a goal the child
+	# scored for their own side, so a brother's goals are not on this one's page.
+	if world.football.scored_for_me(index):
+		journal.record(Journal.GOALS)
+		today.record(Today.SCORE)
 	sounds.play(Sounds.Sound.GOAL)
-	hud.announce(Text.of("say_goal"), 2.0)
+	sounds.play(Sounds.Sound.CHEER, 1.0, -3.0)
+	hud.announce(Text.of("say_goal"), 2.0, Goal.SIDE_COLOURS[1 - index])
+
+## A side has won the match: said in its own colour over the board's.
+func _on_match_won(side: int, _blue: int, _red: int) -> void:
+	sounds.play(Sounds.Sound.CHIME, 1.3)
+	hud.announce(
+		Text.of("say_won_blue" if side == 0 else "say_won_red"),
+		FootballGround.WIN_PAUSE - 1.0, Goal.SIDE_COLOURS[side].lightened(0.2)
+	)
+
+## The host struck a ball for a guest, and plays the sound of it.
+func _on_guest_kicked(strength: float) -> void:
+	sounds.play(Sounds.Sound.KICK, 0.85 + strength * 0.4)
 
 ## The score changed for any reason — a goal, a new game, a load or a reset.
 ## The interface may not exist yet when a save is read, and shows the state
@@ -2725,6 +2759,7 @@ func _save_data() -> Dictionary:
 		"vitals": vitals.to_data(),
 		"free_meal_in": Venues.wait_left(_free_meal_after, _play_seconds()),
 		"built_house": _built_a_house,
+		"undo": build_mode.history_to_data(),
 		"journal": journal.to_data(),
 		"today": today.to_data(),
 	}

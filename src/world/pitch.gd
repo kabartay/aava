@@ -81,6 +81,16 @@ static func is_in_play(x: float, z: float) -> bool:
 		and absf(z - CENTRE.z) <= HALF_WIDTH
 	)
 
+## The nearest point on the playing surface, `inset` metres inside the
+## touchlines and goal lines, to somewhere that is off it. At ground level; the
+## caller knows the grass height. A throw-in, simplified, for a ball that went out.
+static func nearest_inside(x: float, z: float, inset: float) -> Vector3:
+	return Vector3(
+		clampf(x, CENTRE.x - HALF_LENGTH + inset, CENTRE.x + HALF_LENGTH - inset),
+		0.0,
+		clampf(z, CENTRE.z - HALF_WIDTH + inset, CENTRE.z + HALF_WIDTH - inset)
+	)
+
 ## True anywhere the ground has been levelled, including the apron.
 static func is_levelled(x: float, z: float) -> bool:
 	return (

@@ -664,7 +664,9 @@ const STRINGS := {
 		EN: "a tree is in the way", FR: "un arbre gêne", RU: "тут растёт дерево",
 	},
 	# What a ready-made plan still lacks; %s is the list of materials.
-	"why_missing": {EN: "still need %s", FR: "il manque %s", RU: "ещё нужно %s"},
+	# FR and RU follow with a name and a number ("палка ×23"), not a counted noun,
+	# so the colon is what makes it a list and not a broken sentence.
+	"why_missing": {EN: "still need %s", FR: "il manque : %s", RU: "ещё нужно: %s"},
 	# A stack of walls already as tall as a house may be.
 	"why_too_high": {EN: "as high as it goes", FR: "on ne peut pas plus haut", RU: "выше нельзя"},
 	# The pool's turnstile.
@@ -716,7 +718,7 @@ const STRINGS := {
 	},
 	"say_welcome_pool": {EN: "in you go — have a swim!", FR: "entre — bonne baignade !", RU: "проходи — поплавай!"},
 	# %s is the list of missing materials.
-	"why_need": {EN: "need %s", FR: "il faut %s", RU: "нужно %s"},
+	"why_need": {EN: "need %s", FR: "il faut : %s", RU: "нужно: %s"},
 
 	# Which storey the ghost is on. %d counts from 1 for the ground floor,
 	# because "floor 0" means nothing to a child.
@@ -732,6 +734,14 @@ const STRINGS := {
 	# starts the game again from it.
 	"board_title": {EN: "GOALS", FR: "BUTS", RU: "ГОЛЫ"},
 	"say_new_game": {EN: "new game: 0 – 0", FR: "nouveau match : 0 – 0", RU: "новая игра: 0 – 0"},
+	# A match is first to five. The board says it in a few words, the screen in a
+	# sentence, and the chip tells each of two children which side they are.
+	"board_wins_blue": {EN: "BLUE WINS", FR: "BLEU GAGNE", RU: "СИНИЕ ПОБЕДИЛИ"},
+	"board_wins_red": {EN: "RED WINS", FR: "ROUGE GAGNE", RU: "КРАСНЫЕ ПОБЕДИЛИ"},
+	"say_won_blue": {EN: "BLUE WINS THE MATCH!", FR: "LE BLEU GAGNE LE MATCH !", RU: "СИНИЕ ВЫИГРАЛИ МАТЧ!"},
+	"say_won_red": {EN: "RED WINS THE MATCH!", FR: "LE ROUGE GAGNE LE MATCH !", RU: "КРАСНЫЕ ВЫИГРАЛИ МАТЧ!"},
+	"you_blue": {EN: "you: blue", FR: "toi : bleu", RU: "ты: синие"},
+	"you_red": {EN: "you: red", FR: "toi : rouge", RU: "ты: красные"},
 
 	# Things the world says back.
 	"say_goal": {EN: "GOAL", FR: "BUT", RU: "ГОЛ"},

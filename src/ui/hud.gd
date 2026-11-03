@@ -183,7 +183,11 @@ var _message: Label
 var _message_timer := 0.0
 var _building := false
 var _kick_button: Button
+var _pulse := 0.0
+const KICK_PULSE_RATE := 6.0
 var _score: Panel
+## Which side this child is, under the score, when two are playing.
+var _score_side: Label
 var _score_blue: Label
 var _score_colon: Label
 var _score_red: Label
@@ -365,6 +369,12 @@ func _init() -> void:
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_score.add_child(label)
+	_score_side = _label(22, Color(1.0, 1.0, 1.0))
+	_score_side.position = Vector2(0.0, SCORE_CHIP.y - 4.0)
+	_score_side.size = Vector2(SCORE_CHIP.x, SIDE_ROW)
+	_score_side.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_score_side.visible = false
+	_score.add_child(_score_side)
 	_score.visible = false
 	add_child(_score)
 
@@ -1839,6 +1849,28 @@ func set_score(blue: int, red: int) -> void:
 	_score_blue.text = "%d" % blue
 	_score_red.text = "%d" % red
 
+## Say which side this child plays, 0 blue or 1 red, under the score and in that
+## side's colour; -1, alone, says nothing and the chip is as small as it was.
+func set_side(side: int) -> void:
+	if side >= 0:
+		# Read again every time, so a change of language is followed.
+		_score_side.text = Text.of("you_blue" if side == 0 else "you_red")
+	if side == _side_shown:
+		return
+	_side_shown = side
+	_score_side.visible = side >= 0
+	_score.size.y = SCORE_CHIP.y + (SIDE_ROW if side >= 0 else 0.0)
+	if side >= 0:
+		_score_side.add_theme_color_override("font_color", Goal.SIDE_COLOURS[side].lightened(0.25))
+
+var _side_shown := -1
+## Room under the chip for "you: red".
+const SIDE_ROW := 26.0
+
+## What the chip says about the side, for the checks.
+func side_text() -> String:
+	return _score_side.text if _score_side.visible else ""
+
 ## Show the score chip while the child is on or beside the pitch, and hide it
 ## everywhere else: a reading of 0 : 0 across the valley is only clutter.
 func set_at_the_pitch(near: bool) -> void:
@@ -1932,12 +1964,30 @@ func stop_asking() -> void:
 func is_asking() -> bool:
 	return _asking.visible
 
-func announce(text: String, seconds := 3.2) -> void:
+func announce(text: String, seconds := 3.2, colour := Color(1.0, 1.0, 1.0)) -> void:
 	_message.text = text
+	# Set every time, so a win in blue does not leave the next message blue.
+	_message.add_theme_color_override("font_color", colour)
 	_message_timer = seconds
 	_layout()
 
+## The colour the current announcement is written in, for the checks.
+func message_colour() -> Color:
+	return _message.get_theme_color("font_color")
+
+## The kick button breathes while a ball is in reach, so that it is the thing to
+## press and not one of several buttons that happen to be lit.
+func _pulse_the_kick_button(delta: float) -> void:
+	if not _kick_button.visible:
+		return
+	_pulse += delta
+	_kick_button.pivot_offset = _kick_button.size * 0.5
+	var swell := 0.5 + 0.5 * sin(_pulse * KICK_PULSE_RATE)
+	_kick_button.scale = Vector2.ONE * (1.0 + 0.10 * swell)
+	_kick_button.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.95, 0.55), swell)
+
 func _process(delta: float) -> void:
+	_pulse_the_kick_button(delta)
 	if _reset_held > 0.0:
 		_reset_held += delta
 		if _reset_held >= RESET_HOLD:

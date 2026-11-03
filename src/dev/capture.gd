@@ -34,6 +34,9 @@ extends Node3D
 ##   --aim=1        show the aim preview (arc, landing ring, green when on
 ##                  target) as the game draws it while the kick button is held
 ##   --score=B,R    set the football score (blue, red) before the shot
+##   --side=0|1     the chip says which side this child plays (0 blue, 1 red)
+##   --winner=0|1   that side has won the match: board title, confetti, announcement
+##   --flash=0|1    that side's number is flashing on the board, as after a goal
 ##   --power=0..1   how hard to kick it
 ##   --loft=0..1    how high: 0 along the ground, 1 chipped over the top
 ##   --nowater=1    leave the water sheet out, to see the ground under it
@@ -73,6 +76,9 @@ var _kick_strength := 1.0
 var _kick_loft := 0.25
 var _aim_preview := false
 var _score := Vector2i(-1, -1)
+var _side := -1
+var _winner := -1
+var _flash := -1
 var _zoom := 0.0
 var _shop := false
 var _together := ""
@@ -174,6 +180,19 @@ func _ready() -> void:
 		for _i in 12:
 			await get_tree().process_frame
 
+	# Staged last, just before the shutter: a won match starts a new game by
+	# itself after a few seconds, and the warm-up is longer than that.
+	if _hud != null and _winner >= 0:
+		_world.football._win(_winner)
+		_hud.announce(
+			Text.of("say_won_blue" if _winner == 0 else "say_won_red"), 60.0,
+			Goal.SIDE_COLOURS[_winner].lightened(0.2)
+		)
+	elif _flash >= 0:
+		_world.football._board.celebrate(_flash, 600.0)
+	if _winner >= 0 or _flash >= 0:
+		for _i in 25:
+			await get_tree().process_frame
 	_report_scene()
 	await _capture()
 	get_tree().quit()
@@ -227,6 +246,7 @@ func _spawn_player() -> void:
 		_world.football.from_data({"blue": _score.x, "red": _score.y})
 	_hud.set_score(_world.football.blue, _world.football.red)
 	_hud.set_at_the_pitch(_at_pitch)
+	_hud.set_side(_side)
 	# The same wiring the game uses, from the same place, so this tool cannot
 	# photograph a game that is connected differently from the real one.
 	Wiring.connect_hud(
@@ -666,6 +686,12 @@ func _parse_arguments() -> void:
 				var both := value.split(",")
 				if both.size() == 2:
 					_score = Vector2i(both[0].to_int(), both[1].to_int())
+			"side":
+				_side = value.to_int()
+			"winner":
+				_winner = value.to_int()
+			"flash":
+				_flash = value.to_int()
 			"power":
 				_kick_strength = value.to_float()
 			"loft":

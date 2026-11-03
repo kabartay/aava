@@ -11,6 +11,12 @@ extends Node3D
 ## How far ahead of the player the ghost sits.
 const REACH := 3.2
 
+## Indoors, furniture is aimed at the nearest free square of the room instead,
+## no further than this from where the child stands. A table 3.2 m ahead is on
+## the far side of the wall of any ordinary room, so it took a child pressed
+## against that wall to set one down inside.
+const ROOM_REACH := 2.0
+
 ## Everything snaps to a grid, and rotation to eighths of a turn. Snapping is
 ## not a constraint here, it is a gift: it means a child's fence comes out
 ## straight, and a straight fence is the difference between proud and
@@ -223,6 +229,57 @@ func take_last_group() -> Array[Dictionary]:
 			break
 	return found
 
+## How many taps the undo list keeps across a save. A plan is one tap, so a
+## handful is a whole afternoon's building.
+const HISTORY_KEPT := 8
+
+## The last few taps, as what can be written down: each piece by its kind, its
+## square and its storey, which is enough to find it again in a loaded valley.
+func history_to_data() -> Array:
+	var data: Array = []
+	for group: Array in _history:
+		var entries: Array = []
+		for record: Dictionary in group:
+			if not structures.has(record):
+				continue
+			var at: Vector3 = record["position"]
+			entries.append({
+				"kind": String(record["kind"]), "x": at.x, "z": at.z,
+				"storey": structures.storey_of(record),
+			})
+		if not entries.is_empty():
+			data.append(entries)
+	return data.slice(maxi(data.size() - HISTORY_KEPT, 0))
+
+## Take the undo list back from a save, once the valley has been loaded. A
+## piece that is no longer there — taken down, felled, or moved by a rule made
+## since — is dropped, and so is a tap with nothing left of it.
+func restore_history(data: Variant) -> void:
+	_history.clear()
+	if typeof(data) != TYPE_ARRAY:
+		return
+	var used: Array[Dictionary] = []
+	for entries: Variant in data:
+		if typeof(entries) != TYPE_ARRAY:
+			continue
+		var group: Array = []
+		for entry: Variant in entries:
+			if typeof(entry) != TYPE_DICTIONARY:
+				continue
+			var found := structures.find_own(
+				StringName(str(entry.get("kind", ""))),
+				float(entry.get("x", INF)), float(entry.get("z", INF)),
+				int(entry.get("storey", 0))
+			)
+			if found.is_empty() or used.has(found):
+				continue
+			used.append(found)
+			group.append(found)
+		if not group.is_empty():
+			_history.append(group)
+	while _history.size() > HISTORY_KEPT:
+		_history.pop_front()
+
 ## The pieces the last tap put up, so the game can tell the other phone about
 ## each. Empty after a tap that built nothing.
 func just_placed() -> Array[Dictionary]:
@@ -312,7 +369,7 @@ func aim(player_position: Vector3, yaw: float) -> void:
 	if Plans.is_plan(selected):
 		tile_shape = _aim_plan(raw, yaw)
 	elif _is_house():
-		tile_shape = _aim_house(raw, yaw)
+		tile_shape = _aim_house(raw, yaw, player_position)
 	else:
 		_target = Vector3(snappedf(raw.x, GRID), 0.0, snappedf(raw.z, GRID))
 		_target.y = field.height_at(_target.x, _target.z)
@@ -354,7 +411,7 @@ func aim(player_position: Vector3, yaw: float) -> void:
 ## cannot do, so no house was ever finished. Now a wall tapped onto a wall goes
 ## on top of it, a roof goes on top of the walls round it, and the up and down
 ## buttons are there for the rest.
-func _aim_house(raw: Vector3, yaw: float) -> Vector3:
+func _aim_house(raw: Vector3, yaw: float, player_position: Vector3) -> Vector3:
 	# A quarter turn, counted. The wall runs across the way the child is
 	# looking, so it appears straight ahead of them, face on.
 	var turn := TAU / float(HOUSE_TURN_STEPS)
@@ -368,6 +425,8 @@ func _aim_house(raw: Vector3, yaw: float) -> Vector3:
 			spot = HouseParts.snap_corner(raw.x, raw.z)
 		_:
 			spot = HouseParts.snap_cell(raw.x, raw.z)
+			if HouseParts.is_furniture(selected):
+				spot = _square_in_room(player_position, yaw, spot)
 	_target = Vector3(spot.x, 0.0, spot.y)
 
 	var ground := field.height_at(spot.x, spot.y)
@@ -399,6 +458,45 @@ func _aim_house(raw: Vector3, yaw: float) -> Vector3:
 			if structures.floor_under(key, _target.y):
 				_target.y += HouseParts.FLOOR_TOP
 	return tile
+
+## Where furniture goes when the child is standing in a room: the nearest free
+## square of that room in front of them, within ROOM_REACH of where they stand
+## (measured to the square's near edge, since nobody stands on its exact
+## middle). Anywhere else, or with no free square ahead, it is `outside`, the
+## usual place REACH metres on.
+func _square_in_room(player_position: Vector3, yaw: float, outside: Vector2) -> Vector2:
+	var here := HouseParts.snap_cell(player_position.x, player_position.z)
+	var here_key := HouseParts.key_of(Vector3(here.x, 0.0, here.y))
+	var room := structures.enclosed_room(here_key)
+	if room.is_empty():
+		return outside
+	var datum := structures.nearby_datum(player_position, HouseParts.MODULE * 2.6)
+	var level := field.height_at(here.x, here.y) if is_inf(datum) else datum
+	var layer := HouseParts.layer(selected)
+	var feet := Vector2(player_position.x, player_position.z)
+	var ahead := Vector2(-sin(yaw), -cos(yaw))
+	var best := outside
+	var best_distance := INF
+	for key: Vector2i in room["cells"]:
+		if key == here_key:
+			continue
+		var centre := Vector2(float(key.x), float(key.y)) * HouseParts.HALF
+		var to_centre := centre - feet
+		# In front, not beside or behind: within about sixty degrees of the way
+		# the child faces.
+		if to_centre.normalized().dot(ahead) < 0.5:
+			continue
+		var gap := Vector2(
+			maxf(absf(to_centre.x) - HouseParts.HALF, 0.0),
+			maxf(absf(to_centre.y) - HouseParts.HALF, 0.0)
+		).length()
+		if gap > ROOM_REACH or to_centre.length() >= best_distance:
+			continue
+		if structures.free_storey(layer, key, level, lift) != lift:
+			continue
+		best = centre
+		best_distance = to_centre.length()
+	return best
 
 ## Where a plan goes: the square aimed at is its first, and it reaches away
 ## from the child and across their view, turned a quarter at a time with the

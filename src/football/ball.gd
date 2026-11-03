@@ -312,6 +312,45 @@ static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinti
 	var lift := lerpf(LIFT_FLAT, LIFT_HIGH, clampf(loft, 0.0, 1.0))
 	return (direction + Vector3.UP * lift).normalized() * speed
 
+## A child jogging at a ball should be able to take it along rather than boot it
+## away, so below this pace the ball is eased onto the child's own line: a
+## gentle touch. Faster than this it is left to the physics, which is how a run
+## at the ball still sends it far.
+const TOUCH_SPEED := 4.6
+## Below this the child is standing, not dribbling, and the ball is left alone.
+const TOUCH_MIN_SPEED := 0.3
+## How far from the feet a ball can be and still be taken along, and how far
+## ahead of them it is kept: just clear of the capsule's own 0.58 of contact, so
+## the ball rolls on in front instead of being shoved and chased.
+const TOUCH_REACH := 1.25
+const TOUCH_AHEAD := 0.85
+
+## What a ball at `at` moving at `ball_v` does in this step, for a child at
+## `from` moving at `foot_v`. Pure, so the host can apply it for its own child
+## and for each guest's body, and a guest's phone can show the same thing. The
+## slower the child, the stronger the pull, fading to nothing at TOUCH_SPEED,
+## and only for a ball that is in front of them and on the ground.
+static func touch_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v: Vector3, delta: float) -> Vector3:
+	var run := Vector3(foot_v.x, 0.0, foot_v.z)
+	var pace := run.length()
+	if pace < TOUCH_MIN_SPEED or pace >= TOUCH_SPEED:
+		return ball_v
+	var offset := at - from
+	var rise := offset.y
+	offset.y = 0.0
+	if offset.length() > TOUCH_REACH or rise > 0.8 or rise < -0.5:
+		return ball_v
+	var way := run / pace
+	if offset.length() > 0.05 and offset.normalized().dot(way) < 0.5:
+		return ball_v
+	# Where the ball would like to be, and the pace that gets it there while
+	# keeping up with the child.
+	var spot := from + way * TOUCH_AHEAD
+	var want := run + Vector3(spot.x - at.x, 0.0, spot.z - at.z) * 4.0
+	var pull := (1.0 - smoothstep(2.0, TOUCH_SPEED, pace)) * clampf(delta * 10.0, 0.0, 1.0)
+	var flat := Vector3(ball_v.x, 0.0, ball_v.z).lerp(want, pull)
+	return Vector3(flat.x, ball_v.y, flat.z)
+
 ## Where a ball launched from `start` at `velocity` will be, every `step`
 ## seconds for up to `seconds`, under this world's gravity and the ball's
 ## drag — integrated the way the physics server does it, so the dots land

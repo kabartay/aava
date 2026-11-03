@@ -53,6 +53,7 @@ enum Sound {
 	STEP_SAND,  # a foot on sand or the fairground's trodden ground: a dry crunch
 	STEP_WOOD,  # a foot on the bridge's planks: a hollow knock
 	STEP_WATER, # a foot, or a stroke, in water: a small wet slap
+	CHEER,      # a goal: a small crowd, swelling and fading
 }
 
 ## How far a sound that happens somewhere else in the valley carries, and how
@@ -167,8 +168,31 @@ func _build(sound: Sound) -> AudioStreamWAV:
 			return _tone([SCALE[0], SCALE[2]], 0.08, 0.30)
 		Sound.STEP_WATER:
 			return _splash(0.12)
+		Sound.CHEER:
+			return _cheer(0.9)
 		_:
 			return _tone([SCALE[7], SCALE[9], SCALE[8]], 0.60, 0.45)
+
+## A short cheer: a crowd is noise, brighter than water, that swells up to a
+## peak a third of the way through and dies away, with a wavering high note
+## riding on it so that it reads as voices and not as wind.
+func _cheer(seconds: float) -> AudioStreamWAV:
+	var samples := int(RATE * seconds)
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 20261103
+	var last := 0.0
+	for i in samples:
+		var progress := float(i) / float(samples)
+		var t := float(i) / float(RATE)
+		var envelope := pow(sin(PI * pow(progress, 0.55)), 1.3)
+		last = lerpf(last, noise.randf_range(-1.0, 1.0), 0.55)
+		# Wavering between roughly 520 and 700 cycles: well above what a
+		# phone's speaker drops.
+		var voice := sin(TAU * (600.0 + 90.0 * sin(TAU * 6.0 * t)) * t)
+		_write(data, i, (last * 0.5 + voice * 0.18) * envelope)
+	return _wav(data)
 
 ## Filtered noise under a soft envelope: water has no pitch, so a tone is
 ## exactly wrong for it. The slow attack is what separates a splash from a

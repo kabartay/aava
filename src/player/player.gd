@@ -197,6 +197,7 @@ var _swim_sink := 0.0
 ## riding, and straight up the rest of the time.
 var _seat_up := Vector3.UP
 var _cloth: StandardMaterial3D = null
+var _band: MeshInstance3D = null
 var _swim_lean := 0.0
 var _ride_lean := 0.0
 ## Leaning side to side with the ground, as opposed to _ride_bank, which is
@@ -315,6 +316,23 @@ func _build_visual() -> Node3D:
 	body.material_override = cloth
 	_cloth = cloth
 	root.add_child(body)
+
+	# A band of the football side's colour round the chest, shown only while
+	# two children are playing: a shirt may be any colour, and the side is not
+	# the shirt. A hair wider than the body so it is a band and not a stripe.
+	_band = MeshInstance3D.new()
+	var ring := CylinderMesh.new()
+	ring.top_radius = RADIUS + 0.015
+	ring.bottom_radius = RADIUS + 0.015
+	ring.height = 0.16
+	ring.radial_segments = 14
+	_band.mesh = ring
+	_band.position.y = HEIGHT * 0.42
+	var paint := StandardMaterial3D.new()
+	paint.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_band.material_override = paint
+	_band.visible = false
+	root.add_child(_band)
 
 	# The bow, held out at the child's left side and drawn as the string is
 	# pulled. Hidden until they nock an arrow: a bow carried everywhere would
@@ -1054,6 +1072,20 @@ func face(direction: Vector3, delta: float) -> void:
 func set_shirt(colour: Color) -> void:
 	if _cloth != null:
 		_cloth.albedo_color = colour
+
+## Wear a band in the colour of a football side, or take it off. Transparent
+## (alpha 0) takes it off.
+func set_band(colour: Color) -> void:
+	if _band == null:
+		return
+	_band.visible = colour.a > 0.0
+	(_band.material_override as StandardMaterial3D).albedo_color = colour
+
+## Whether the side band is on, and its colour, for the checks.
+func band_colour() -> Color:
+	if _band == null or not _band.visible:
+		return Color(0.0, 0.0, 0.0, 0.0)
+	return (_band.material_override as StandardMaterial3D).albedo_color
 
 ## Where the drawn body sits relative to the physics body. For the checks: the
 ## seat is the whole of what "sitting in the saddle" means and it is otherwise

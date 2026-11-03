@@ -16,6 +16,17 @@ const RADIUS := 3
 const REACH := 1.5
 
 const CANDIDATES_PER_TILE := 30
+
+## How far from the river reeds grow, and how high above the water. The river
+## is wide and mostly water, so the dry ground within twenty metres of it was a
+## few dozen squares near the camp: seven reeds in all, for a house that takes
+## twelve. Reeds grow wherever the ground is still damp, which is further.
+const REED_BANK := 24.0
+const REED_HEIGHT := 2.7
+
+## The share of forest floor that is a stick. A house is twenty-eight of them
+## and the wood near the camp is thin; this is what makes it one outing.
+const STICK_SHARE := 0.44
 const TILES_PER_FRAME := 1
 
 ## Bob and glint, so that a stick in tall grass is still findable. A shared
@@ -223,17 +234,17 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 		return &""
 
 	var to_river := field.distance_to_river(x, z)
-	if to_river < 20.0 and height < HeightField.WATER_LEVEL + 2.4:
-		return ItemKinds.REED if rng.randf() < 0.55 else &""
+	if to_river < REED_BANK and height < HeightField.WATER_LEVEL + REED_HEIGHT:
+		return ItemKinds.REED if rng.randf() < 0.5 else &""
 
 	var forest := field.forest_density_at(x, z)
 	if forest > 0.22:
 		var roll := rng.randf()
-		if roll < 0.34:
+		if roll < STICK_SHARE:
 			return ItemKinds.STICK
 		# Cones lie under the conifers, which grow higher up — so climbing into
 		# the forest is what finds them, and that is worth a walk.
-		if roll < 0.34 + (0.26 if height > 22.0 else 0.08):
+		if roll < STICK_SHARE + (0.26 if height > 22.0 else 0.08):
 			return ItemKinds.CONE
 		if roll < 0.72:
 			return ItemKinds.SEED

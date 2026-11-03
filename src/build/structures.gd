@@ -181,6 +181,23 @@ func house_step() -> StringName:
 func has(record: Dictionary) -> bool:
 	return _records.has(record)
 
+## Which storey a piece stands on, counting up from the ground under it.
+func storey_of(record: Dictionary) -> int:
+	var at: Vector3 = record["position"]
+	return HouseParts.storey_of(at.y - field.height_at(at.x, at.z))
+
+## The piece this child built, of this kind, in this square (x, z) on this
+## storey, or an empty record if there is none — which is how a saved undo
+## list finds its pieces again, since a record itself cannot be saved.
+func find_own(kind: StringName, x: float, z: float, storey: int) -> Dictionary:
+	for record in _records:
+		if record["kind"] != kind or not bool(record.get("paid", true)):
+			continue
+		var at: Vector3 = record["position"]
+		if absf(at.x - x) < 0.05 and absf(at.z - z) < 0.05 and storey_of(record) == storey:
+			return record
+	return {}
+
 ## Everything that stands on a piece and would hang in the air without it, the
 ## highest first, and without the piece itself:
 ##
