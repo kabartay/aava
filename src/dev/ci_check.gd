@@ -197,6 +197,7 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_four_animals_are_smooth_painted_skins()
 	_check_a_ball_keeps_floating_while_the_goal_is_cheered()
 	_check_the_tails_are_joined_to_the_rump()
 	_check_the_ticket_booth_faces_the_queue()
@@ -18291,7 +18292,10 @@ func _check_a_guest_has_a_body_that_pushes_the_ball() -> void:
 	# The guest runs at the ball at six metres a second: past the gentle touch,
 	# so it is the body that pushes it.
 	var start_x := ball.position.x
-	for _i in 60:
+	# Eight metres of running, five of them past the ball: over only the first
+	# three the push was a few centimetres either side of the metre asked for,
+	# depending on how the ball happened to roll off the capsule.
+	for _i in 80:
 		foot.x += 0.1
 		host.guest_positions[guest._link_id] = foot
 		await get_root().get_tree().physics_frame
@@ -18432,5 +18436,165 @@ func _check_furniture_is_aimed_at_the_room_the_child_stands_in() -> void:
 		"outside it is still the usual %.1f m ahead: %s, wanted %s" % [BuildMode.REACH, at, wanted]
 	)
 	_free_the_yard(yard)
+
+## The cat, the dog, the sheep and the cow are one skin each, not spheres and
+## cylinders stood against one another.
+##
+## Their bodies, heads and legs are lofts (AnimalLoft): a ring of vertices at
+## each point along a curve, shared with the next ring, so there are no seams
+## and the normals run smoothly. A seam would show as an edge belonging to one
+## triangle only, and a face wound the wrong way as a normal pointing into the
+## animal; and the colour that used to be separate blobs is now painted on the
+## vertices, which shows as a lighter belly, bands over a cat's back and
+## patches that differ from one cow's coat to the next.
+func _check_the_four_animals_are_smooth_painted_skins() -> void:
+	print("the cat, dog, sheep and cow are smooth painted skins")
+	# The loft itself, swept either way along Z: closed, and facing outwards.
+	for order in 2:
+		var rings: Array = []
+		for i in 4:
+			var z := float(i) if order == 0 else float(3 - i)
+			rings.append(AnimalLoft.key(Vector3(0.0, 0.0, z), 1.0, 0.6, 0.6))
+		var loft := AnimalLoft.make(rings, Vector3.UP, 10, 2, 0.5, 0.5)
+		var tool := SurfaceTool.new()
+		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		loft.emit(tool)
+		tool.generate_normals()
+		var mesh := tool.commit()
+		_expect(_open_edges(mesh) == 0, "a loft swept one way (%d) has no open edge" % order)
+		_expect(_facing_out(mesh, func(v: Vector3) -> Vector3: return Vector3(0.0, 0.0, v.z)) > 0.98, "and faces outwards (%d)" % order)
+	for kind: StringName in [AnimalKinds.CAT, AnimalKinds.DOG, AnimalKinds.SHEEP, AnimalKinds.COW]:
+		var scale := AnimalKinds.size_of(kind)
+		var body := AnimalKinds.body_mesh(kind) as ArrayMesh
+		var pieces := {"body": body, "head": AnimalKinds.head_mesh(kind), "front leg": AnimalKinds.leg_mesh(kind, true), "hind leg": AnimalKinds.leg_mesh(kind, false)}
+		for name: String in pieces:
+			_expect(_open_edges(pieces[name]) == 0, "the %s's %s is closed, with no seam" % [kind, name])
+		_expect(
+			_facing_out(body, func(v: Vector3) -> Vector3: return Vector3(0.0, scale * 1.2, v.z)) > 0.9,
+			"the %s's body faces outwards (%.2f)" % [kind, _facing_out(body, func(v: Vector3) -> Vector3: return Vector3(0.0, scale * 1.2, v.z))]
+		)
+
+		# No more triangles than a phone wants to draw for one animal.
+		var node := AnimalKinds.build_node(kind)
+		var triangles := 0
+		for part: Node in [node.get_node("Body"), node.get_node("Head"), node.get_node_or_null("Tail")]:
+			if part != null:
+				triangles += _triangle_count((part as MeshInstance3D).mesh)
+		for leg in node.get_node("Body").get_children():
+			triangles += _triangle_count((leg as MeshInstance3D).mesh)
+		_expect(triangles <= 1560, "the %s is %d triangles, not more than about 1500" % [kind, triangles])
+
+		# The joints are hidden inside her: the neck's foot, and the top of
+		# every leg, so that swinging either shows no gap.
+		var trunk := body.get_aabb()
+		_expect(trunk.has_point(AnimalKinds.head_pivot(kind)), "the %s's neck turns on a point inside her body" % kind)
+		var hips := AnimalKinds.hips(kind)
+		for i in hips.size():
+			var leg_box := (AnimalKinds.leg_mesh(kind, i < 2) as ArrayMesh).get_aabb()
+			_expect(
+				hips[i].y + leg_box.end.y < trunk.end.y - scale * 0.1 and hips[i].y + leg_box.end.y > trunk.position.y + scale * 0.3,
+				"the %s's leg %d starts inside her body" % [kind, i]
+			)
+
+		# Colour is on the vertices: a paler belly than back.
+		var arrays := body.surface_get_arrays(0)
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		_expect(colours.size() == points.size(), "the %s's colour is painted on every vertex" % kind)
+		if kind != AnimalKinds.SHEEP:
+			var low := 0.0
+			var high := 0.0
+			var low_count := 0
+			var high_count := 0
+			for i in points.size():
+				if points[i].y < trunk.position.y + trunk.size.y * 0.25:
+					low += colours[i].get_luminance()
+					low_count += 1
+				elif points[i].y > trunk.position.y + trunk.size.y * 0.75:
+					high += colours[i].get_luminance()
+					high_count += 1
+			_expect(
+				low_count > 0 and high_count > 0 and low / float(maxi(low_count, 1)) > high / float(maxi(high_count, 1)),
+				"the %s's belly is paler than her back" % kind
+			)
+
+	# The cow's patches are regions of her surface that differ from coat to
+	# coat, and leave much of her white.
+	var first := (AnimalKinds.body_mesh(AnimalKinds.COW, 0) as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_COLOR] as PackedColorArray
+	var second := (AnimalKinds.body_mesh(AnimalKinds.COW, 2) as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_COLOR] as PackedColorArray
+	var differ := 0
+	var dark := 0
+	for i in first.size():
+		if first[i].get_luminance() < 0.3:
+			dark += 1
+		if absf(first[i].get_luminance() - second[i].get_luminance()) > 0.2:
+			differ += 1
+	_expect(float(dark) / float(first.size()) > 0.08 and float(dark) / float(first.size()) < 0.7, "a cow is patched, %.0f%% of her dark" % (100.0 * float(dark) / float(first.size())))
+	_expect(float(differ) / float(first.size()) > 0.05, "and two coats are not patched alike (%.0f%% differ)" % (100.0 * float(differ) / float(first.size())))
+
+	# A cat's back is banded: the colour along it goes light and dark and light
+	# again, several times.
+	var cat := (AnimalKinds.body_mesh(AnimalKinds.CAT) as ArrayMesh).surface_get_arrays(0)
+	var cat_points: PackedVector3Array = cat[Mesh.ARRAY_VERTEX]
+	var cat_colours: PackedColorArray = cat[Mesh.ARRAY_COLOR]
+	var along: Array = []
+	var cat_top := (AnimalKinds.body_mesh(AnimalKinds.CAT) as ArrayMesh).get_aabb().end.y
+	for i in cat_points.size():
+		if cat_points[i].y > cat_top - 0.06 and absf(cat_points[i].x) < 0.05:
+			along.append([cat_points[i].z, cat_colours[i].get_luminance()])
+	along.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	var changes := 0
+	for i in range(1, along.size()):
+		if (float(along[i][1]) > 0.5) != (float(along[i - 1][1]) > 0.5):
+			changes += 1
+	_expect(changes >= 4, "a cat's back has bands across it (%d changes of tone)" % changes)
+
+## How many edges of a mesh belong to a number of triangles other than two:
+## zero for a closed skin. Corners are matched by where they are.
+func _open_edges(mesh: Mesh) -> int:
+	var arrays := mesh.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices = arrays[Mesh.ARRAY_INDEX]
+	var count: int = points.size() if indices == null else (indices as PackedInt32Array).size()
+	var edges := {}
+	for corner in range(0, count - 2, 3):
+		var ids: Array[Vector3i] = []
+		for k in 3:
+			var at := points[corner + k] if indices == null else points[(indices as PackedInt32Array)[corner + k]]
+			ids.append(Vector3i(roundi(at.x * 2000.0), roundi(at.y * 2000.0), roundi(at.z * 2000.0)))
+		for k in 3:
+			var from := ids[k]
+			var to := ids[(k + 1) % 3]
+			if from == to:
+				continue
+			var edge := [from, to] if (from.x < to.x or (from.x == to.x and (from.y < to.y or (from.y == to.y and from.z < to.z)))) else [to, from]
+			edges[edge] = int(edges.get(edge, 0)) + 1
+	var open := 0
+	for edge in edges:
+		if int(edges[edge]) != 2:
+			open += 1
+	return open
+
+## The share of a mesh's normals that point away from `spine`, which says where
+## the middle of the shape is nearest each vertex.
+func _facing_out(mesh: Mesh, spine: Callable) -> float:
+	var arrays := mesh.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var out := 0
+	for i in points.size():
+		# Not "greater than nothing": a pole is next to the spine itself, and
+		# its offset is a hair either side of zero. A face wound inside out is
+		# a good deal further than that from facing out.
+		if normals[i].dot(points[i] - (spine.call(points[i]) as Vector3)) > -0.03:
+			out += 1
+	return float(out) / float(maxi(points.size(), 1))
+
+func _triangle_count(mesh: Mesh) -> int:
+	var arrays := mesh.surface_get_arrays(0)
+	var indices = arrays[Mesh.ARRAY_INDEX]
+	if indices != null:
+		return (indices as PackedInt32Array).size() / 3
+	return (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
 
 

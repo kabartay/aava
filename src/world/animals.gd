@@ -590,10 +590,11 @@ static func run_of(kind: StringName, speed: float) -> float:
 
 ## How far the head goes down to the grass, per kind that grazes, in radians
 ## about the foot of the neck. Chosen so the mouth is just above the ground:
-## a check measures it off the drawn head.
+## a check measures it off the drawn head. The necks are longer now and start
+## higher on the shoulder, so the head has further to go.
 const GRAZE_PITCH := {
-	AnimalKinds.COW: 0.55,
-	AnimalKinds.SHEEP: 0.85,
+	AnimalKinds.COW: 0.85,
+	AnimalKinds.SHEEP: 1.1,
 }
 
 ## How far to either side the head turns to look, and how far a head turns to

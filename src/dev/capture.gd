@@ -30,6 +30,10 @@ extends Node3D
 ##   --energy=N  draw the energy bar at this fraction (0..1)
 ##   --water=N  draw the bottle at this fraction, and carry one
 ##   --animals=1  place one of every animal in front of the camera
+##   --animalyaw=DEG  turn the animals this far from facing the camera
+##                    (90 shows them side on)
+##   --only=KIND  with --animals=1, place just that kind, straight ahead
+##   --animalat=METRES  how far ahead of the camera they stand (default 9)
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
 ##   --aim=1        show the aim preview (arc, landing ring, green when on
 ##                  target) as the game draws it while the kick button is held
@@ -89,6 +93,9 @@ var _dam := false
 var _lantern: Lantern = null
 var _water := -1.0
 var _animals := false
+var _animal_yaw := 0.0
+var _only_kind := ""
+var _animal_at := 9.0
 var _coins := 40
 var _house := false
 var _test_house := false
@@ -731,6 +738,12 @@ func _parse_arguments() -> void:
 				_water = value.to_float()
 			"animals":
 				_animals = value.to_int() != 0
+			"animalyaw":
+				_animal_yaw = value.to_float()
+			"only":
+				_only_kind = value
+			"animalat":
+				_animal_at = value.to_float()
 			"coins":
 				_coins = value.to_int()
 			"pos":
@@ -772,7 +785,11 @@ func _gather_animals() -> void:
 		# Far enough out to get the whole row in one frame: they are placed in
 		# front of the camera now, and three and a half metres from the lens
 		# put the ends of the row outside the picture.
-		var spot := origin + forward * 9.0 + across * (float(i) - middle) * 1.9
+		var spot := origin + forward * _animal_at + across * (float(i) - middle) * 1.9
+		if _only_kind != "":
+			if String(kind) != _only_kind:
+				continue
+			spot = origin + forward * _animal_at
 		spot.y = _world.field.height_at(spot.x, spot.z)
 		# The node the game itself hangs, legs and all: the baked mesh has paws
 		# of its own and hid how the legs of the real animal meet the ground.
@@ -780,7 +797,7 @@ func _gather_animals() -> void:
 		# Facing the camera, so a screenshot shows heads rather than tails. The
 		# meshes face -Z, as Godot does, so turning them by the heading alone
 		# pointed them the way the camera looks — tails first.
-		body.rotation.y = atan2(-forward.x, -forward.z) + PI
+		body.rotation.y = atan2(-forward.x, -forward.z) + PI + deg_to_rad(_animal_yaw)
 		add_child(body)
 		# Local, not global. This node is at the origin, so the two are the
 		# same number — except when this runs before the capture scene itself
