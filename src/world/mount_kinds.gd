@@ -74,15 +74,20 @@ const BOAT_SEAT := 0.25
 
 ## Water deeper than this and a horse swims rather than wades: about where it
 ## would be off its feet.
-const HORSE_SWIMS_AT := 1.1
-## How deep a swimming horse floats: most of the barrel under, the withers
+##
+## The same number as the draught below, so that a horse going from wading to
+## swimming is not put up or down a hand's breadth by it; the pony's belly is
+## 0.52 m up, and at this depth the water is over it.
+const HORSE_SWIMS_AT := 0.7
+## How deep a swimming horse floats: the barrel half under, the withers
 ## and head clear.
-const HORSE_DRAUGHT := 1.35
-## How high the saddle sits above the horse's own feet. Taken from where the
-## saddle is actually drawn (1.87 in the body's units, scaled by 1.2), so
-## that where a rider sits is worked out from the horse rather than guessed
-## at with a second number that can drift away from the first.
-const HORSE_SADDLE_Y := 1.87 * 1.2
+const HORSE_DRAUGHT := 0.7
+## How high the saddle's seat is above the pony's own feet: the rider's origin,
+## which is where the child's pelvis rests. Taken from where the saddle is
+## actually drawn (the cloth and seat laid on the back, see `_horse_saddle`), so that where a rider sits is worked out from the horse
+## rather than guessed at with a second number that can drift away from the
+## first. A child's pony: the withers are 1.16 m up and this is level with them.
+const HORSE_SADDLE_Y := 1.12
 
 ## The box a standing mount takes up, as (size, centre height): what a child
 ## bumps into instead of walking through it. Only while it stands — a mount
@@ -90,7 +95,8 @@ const HORSE_SADDLE_Y := 1.87 * 1.2
 static func body_box(kind: StringName) -> Array:
 	match kind_of(kind):
 		HORSE:
-			return [Vector3(0.9, 2.1, 2.9), 1.15]
+			# As wide as the pony and the child's knees either side of it.
+			return [Vector3(0.6, 1.3, 1.5), 0.65]
 		BOAT:
 			return [Vector3(1.4, 0.55, 3.5), 0.05]
 		MOTORCYCLE:
@@ -377,13 +383,13 @@ static func _bake_into(tool: SurfaceTool, mesh: Mesh, where: Transform3D) -> voi
 
 ## Where the horse's head and tail pivot, in the body's frame: the head and
 ## neck turn about the shoulder, the tail about the root of the dock.
-const HORSE_HEAD_PIVOT := Vector3(0.0, 1.872, -0.744)
-const HORSE_TAIL_PIVOT := Vector3(0.0, 1.72, 1.224)
+const HORSE_HEAD_PIVOT := Vector3(0.0, 0.90, -0.40)
+const HORSE_TAIL_PIVOT := Vector3(0.0, 1.0, 0.62)
 
 ## Where the rump is and how big, so the tail's root can be checked against
 ## the body it grows out of rather than against a number written twice.
-const HORSE_RUMP_CENTRE := Vector3(0.0, 1.632, 0.864)
-const HORSE_RUMP_RADIUS := 0.528
+const HORSE_RUMP_CENTRE := Vector3(0.0, 0.90, 0.46)
+const HORSE_RUMP_RADIUS := 0.24
 
 ## The tail, as a chain of segments read end to end: how far each is tipped
 ## back from straight up, how long it is, and how thick at its start.
@@ -404,19 +410,23 @@ const HORSE_TAIL_CHAIN: Array[float] = [
 	# a hand's width, a fifth of the head's — with the hair filling out below.
 	# The first chain was as thick at the root as the head and a half again
 	# as long, so the tail looked as big as the head.
-	78.0, 0.20, 0.05,
-	100.0, 0.16, 0.05,
-	135.0, 0.20, 0.06,
-	158.0, 0.20, 0.09,
-	170.0, 0.16, 0.08,
+	#
+	# A pony's is full: the hair thickens below the dock to a hand's width
+	# either side, and falls to the hocks.
+	78.0, 0.09, 0.022,
+	100.0, 0.08, 0.026,
+	135.0, 0.12, 0.032,
+	158.0, 0.14, 0.06,
+	170.0, 0.11, 0.055,
 ]
 const HORSE_TAIL_STRIDE := 3
 
-## A horse, a fifth bigger than the first one and with what makes a horse a
-## horse: a fuller chest and rump, a blaze on the face, eyes, pointed ears, a
-## mane in locks down the neck, a tail in two pieces, socks and hooves — and
-## a saddle on a red blanket, with stirrups, because a horse a child rides
-## should look like one that is ridden. Built in parts — body, head, tail,
+## A child's pony, with what makes a horse a horse: a deep round barrel, a thick
+## arched neck that is one skin with the chest, a blaze on the face, eyes,
+## pointed ears, a mane along the crest and a forelock, a full tail, socks and
+## rounded hooves — and a saddle on a red cloth with stirrups and a bridle with
+## reins that sag, because a horse a child rides should look like one that is
+## ridden. Built in parts — body, head, tail,
 ## legs — so the head can nod and the tail swing as it moves; `build_mesh`
 ## bakes them into one for a still picture.
 static func _horse(tool: SurfaceTool, hide := colour(HORSE)) -> void:
@@ -433,43 +443,58 @@ static func _horse(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 
 ## The barrel, chest, shoulder and rump, the saddle and its reins.
 static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
-	var s := 1.2
-	var leather := Color(0.36, 0.22, 0.12)
-	var blanket := Color(0.80, 0.22, 0.20)
-	var hoof := Color(0.15, 0.12, 0.10)
-
 	# The barrel, the chest, the shoulder, the withers and the rump are one
 	# skin from the chest to the dock, deeper than it is wide, as a horse is;
 	# see HorseNatural.
 	HorseNatural.body(tool, hide)
+	_horse_saddle(tool)
 
-	var pad := BoxMesh.new()
-	pad.size = Vector3(0.54 * s, 0.05 * s, 0.82 * s)
-	_add(tool, pad, Transform3D(Basis(), Vector3(0.0, 1.78 * s, 0.04 * s)), blanket)
-	var seat := BoxMesh.new()
-	seat.size = Vector3(0.34 * s, 0.14 * s, 0.54 * s)
-	_add(tool, seat, Transform3D(Basis(), Vector3(0.0, 1.87 * s, 0.04 * s)), leather)
-	var pommel := SphereMesh.new()
-	pommel.radius = 0.07 * s
-	pommel.height = 0.14 * s
-	pommel.radial_segments = 6
-	pommel.rings = 3
-	_add(tool, pommel, Transform3D(Basis(), Vector3(0.0, 1.98 * s, -0.2 * s)), leather)
-	var cantle := BoxMesh.new()
-	cantle.size = Vector3(0.32 * s, 0.12 * s, 0.08 * s)
-	_add(tool, cantle, Transform3D(Basis(), Vector3(0.0, 1.97 * s, 0.29 * s)), leather)
+## The saddle: a red cloth laid over the back with a leather saddle on it, a
+## raised pommel and cantle with the seat dipping between, skirts hanging down
+## the barrel's sides, and a leather and iron on each side at the child's foot.
+##
+## It was a stack of boxes on a flat slab, hanging in the air a hand above the
+## back and at the withers inside it. Every ring here is put at the back's own
+## height at its place (HorseNatural.back_at), so the cloth lies on the curve of
+## the back, and the seat's top is HORSE_SADDLE_Y, where the child sits.
+static func _horse_saddle(tool: SurfaceTool) -> void:
+	var leather := Color(0.36, 0.22, 0.12)
+	var blanket := Color(0.80, 0.22, 0.20)
+	var hoof := Color(0.15, 0.12, 0.10)
+	var cloth_rings: Array = []
+	for row: Array in [[-0.24, 0.10], [-0.10, 0.19], [0.14, 0.205], [0.30, 0.12]]:
+		var z := float(row[0])
+		cloth_rings.append(AnimalLoft.key(Vector3(0.0, HorseNatural.back_at(z) - 0.03, z), float(row[1]), 0.045, 0.09, 3.0))
+	var cloth := AnimalLoft.make(cloth_rings, Vector3.UP, 8, 1, 0.02, 0.02)
+	cloth.cap_rings = [0.7]
+	cloth.paint = AnimalNatural._flat(blanket)
+	cloth.emit(tool)
+	# Where the top of the saddle is at each place along it, as how far above
+	# the cloth, and how wide. The seat's own top is the child's.
+	var seat_rings: Array = []
+	for row: Array in [[-0.17, 0.07, 0.05], [-0.09, 0.03, 0.10], [0.04, -1.0, 0.13], [0.16, 0.035, 0.14], [0.25, 0.075, 0.12]]:
+		var z := float(row[0])
+		var top := HORSE_SADDLE_Y if float(row[1]) < 0.0 else HorseNatural.back_at(z) + 0.015 + float(row[1])
+		seat_rings.append(AnimalLoft.key(Vector3(0.0, top - 0.03, z), float(row[2]), 0.03, 0.085, 2.8))
+	var seat := AnimalLoft.make(seat_rings, Vector3.UP, 8, 1, 0.02, 0.02)
+	seat.cap_rings = [0.7]
+	seat.paint = AnimalNatural._flat(leather)
+	seat.emit(tool)
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		# Short leathers, a child's: the irons hang 0.14 below the saddle's centre
-		# and 0.36 out, a hand's breadth beyond the barrel (0.3 each side of
-		# the middle), where a child's legs, hanging down its side, come to:
-		# the shortest of the five has a leg 0.29 m from hip to ankle. They hung 0.56 down, which no child's leg reaches from the
-		# saddle, and left the feet lying along the blanket instead.
+		# Short leathers, a child's: they hang from under the skirt to an iron
+		# at the foot, wherever the pose puts it (the shortest of the five
+		# children has a leg 0.29 m from hip to ankle), and the iron is round the
+		# ball of the foot, a hand's breadth outside the barrel.
+		var foot := horse_stirrup(side)
+		var from := Vector3(side * 0.17, HORSE_SADDLE_Y - 0.06, foot.z)
+		var to := Vector3(foot.x, foot.y - 0.05, foot.z)
+		var run := to - from
 		var strap := BoxMesh.new()
-		strap.size = Vector3(0.05 * s, 0.10 * s, 0.05 * s)
-		_add(tool, strap, Transform3D(Basis(), Vector3(side * 0.30 * s, 1.82 * s, 0.04 * s)), leather)
-		var stirrup := BoxMesh.new()
-		stirrup.size = Vector3(0.1 * s, 0.09 * s, 0.05 * s)
-		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.30 * s, 1.75 * s, 0.04 * s)), hoof)
+		strap.size = Vector3(0.025, run.length(), 0.015)
+		_add(tool, strap, Transform3D(Basis(Vector3.BACK, atan2(-run.x, run.y)), from + run * 0.5), leather)
+		var tread := BoxMesh.new()
+		tread.size = Vector3(0.075, 0.014, 0.065)
+		_add(tool, tread, Transform3D(Basis(), to + Vector3(0.0, -0.01, 0.0)), hoof)
 
 ## The reins, each from the bit back to the rider's hand. A straight line
 ## between them ran through the neck, which is wider than the rein is far from
@@ -479,23 +504,17 @@ static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 ## ridden horse's are drawn again at every frame, the bit going with the head
 ## and the hand with the rider's.
 static func _horse_reins(tool: SurfaceTool, ways: Array) -> void:
-	var s := 1.2
 	var leather := Color(0.36, 0.22, 0.12)
 	for way: Array in ways:
-		for leg_of_it in way.size() - 1:
-			var run: Vector3 = way[leg_of_it + 1] - way[leg_of_it]
-			var rein := CylinderMesh.new()
-			rein.top_radius = 0.012 * s
-			rein.bottom_radius = 0.012 * s
-			rein.height = run.length()
-			rein.radial_segments = 4
-			rein.rings = 1
-			rein.cap_top = false
-			rein.cap_bottom = false
-			_add(tool, rein, Transform3D(
-				Basis.looking_at(run.normalized(), Vector3.UP) * Basis(Vector3.RIGHT, PI * 0.5),
-				way[leg_of_it] + run * 0.5
-			), leather)
+		# One thin tube through all the corners, rather than a cylinder to a
+		# leg of it: a few joined pieces share their rings, so a bend is a bend
+		# and not a gap, and a rein is a fifth of the triangles.
+		var keys: Array = []
+		for corner: Vector3 in way:
+			keys.append(AnimalLoft.key(corner, 0.009, 0.009, 0.009))
+		var rein := AnimalLoft.make(keys, Vector3.UP, 3, 1, 0.0, 0.0)
+		rein.paint = AnimalNatural._flat(leather)
+		rein.emit(tool)
 
 ## The ridden horse's reins as they are now: the bit turned with the head by
 ## `head_turn` (about X, as the head node is) and the hands moved by `sway`.
@@ -519,11 +538,21 @@ static func horse_reins_mesh(head_turn: float, sway: Vector3) -> Mesh:
 ## `side` is -1 for the left rein and 1 for the right. Read by the drawing and
 ## by the checks, which hold it outside the neck.
 static func horse_rein_way(side: float) -> Array[Vector3]:
-	var s := 1.2
+	# Out past the cheek, and then slack: the rein hangs in a curve between
+	# the bit and the hand, a hand's breadth outside the neck at its lowest, and
+	# rises to the hand over the withers.
 	return [
-		Vector3(side * 0.13 * s, 2.0 * s, -1.85 * s), Vector3(side * 0.25 * s, 1.93 * s, -1.42 * s),
-		Vector3(side * 0.30 * s, 1.88 * s, -0.95 * s), horse_rein_hand(side),
+		Vector3(side * 0.08, 1.20, -1.22), Vector3(side * 0.17, 1.20, -1.06),
+		Vector3(side * 0.20, 1.16, -0.86), Vector3(side * 0.20, 1.18, -0.62),
+		Vector3(side * 0.15, 1.25, -0.40), horse_rein_hand(side),
 	]
+
+## Where a rider's foot is in the stirrup, in the body's frame: the ankle, as the
+## pose puts it (SeatPose), which is where the iron is drawn round and the leather
+## runs to.
+static func horse_stirrup(side: float) -> Vector3:
+	var foot: Vector3 = SeatPose.POSES[HORSE]["foot"]
+	return Vector3(side * absf(foot.x), HORSE_SADDLE_Y + foot.y, foot.z)
 
 ## Where a rider's hand holds a rein, in the body's frame: the grip the seat's
 ## pose gives (SeatPose, written about the saddle), so that the rein ends in the
@@ -546,13 +575,12 @@ static func _horse_tail(tool: SurfaceTool, pivot: Vector3, hide := colour(HORSE)
 ## the root is the origin. Read by the drawing above and by the checks, so the
 ## shape cannot be asserted against numbers that only the check believes.
 static func horse_tail_joints() -> PackedVector3Array:
-	var s := 1.2
 	var out := PackedVector3Array([Vector3.ZERO])
 	var at := Vector3.ZERO
 	var i := 0
 	while i < HORSE_TAIL_CHAIN.size():
 		var tilt := deg_to_rad(HORSE_TAIL_CHAIN[i])
-		var length := HORSE_TAIL_CHAIN[i + 1] * s
+		var length := HORSE_TAIL_CHAIN[i + 1]
 		# Rotating +Y about X by a positive angle tips it towards +Z, which is
 		# behind the horse: 90 degrees is a tail held straight out.
 		at += Vector3(0.0, cos(tilt), sin(tilt)) * length
@@ -591,8 +619,8 @@ static func horse_part(part: String, hide := colour(HORSE)) -> Mesh:
 ## shoulders, at the height the leg mesh pivots from. Order: front-left,
 ## front-right, hind-left, hind-right.
 const HORSE_HIPS: Array[Vector3] = [
-	Vector3(-0.27, 1.56, -0.744), Vector3(0.27, 1.56, -0.744),
-	Vector3(-0.27, 1.56, 0.744), Vector3(0.27, 1.56, 0.744),
+	Vector3(-0.115, 0.80, -0.40), Vector3(0.115, 0.80, -0.40),
+	Vector3(-0.115, 0.80, 0.46), Vector3(0.115, 0.80, 0.46),
 ]
 
 ## One horse leg, built with its pivot at the hip so that turning the node

@@ -576,7 +576,12 @@ var _paced_from := Vector3.ZERO
 
 ## Stride length in metres per full cycle, and how far a leg swings at full
 ## pace. A trot: the diagonal pairs move together.
-const STRIDE_METRES := 2.6
+##
+## Shorter than the big horse's 2.6, which the pony replaced: its legs are
+## half as long and the pace is the same (MountKinds.speed), so its feet have
+## to go round faster to cover it — 3.0 strides a second at a canter against 2.1
+## — and that is what makes a small animal read as fast.
+const STRIDE_METRES := 1.8
 const LEG_SWING := deg_to_rad(32.0)
 
 ## How far the ridden horse's body is lifted by its stride this frame, which is
@@ -593,8 +598,9 @@ func saddle_lift() -> float:
 ## on in the rig's own settling time.
 const BOARD_TIME := 0.9
 ## How far beside the horse's middle a child stands to climb on or slides down,
-## in metres: the barrel's half width (0.3) and a hand's breadth.
-const BOARD_OUT := 0.55
+## in metres: the barrel's half width (0.22) and a child's own, with a hand's
+## breadth between.
+const BOARD_OUT := 0.45
 
 static func boarding_time(kind: StringName) -> float:
 	# The other is RigMotion.SIT_TIME, written out: RigMotion reads this class.
@@ -636,7 +642,7 @@ static func stride_metres(pace: float) -> float:
 ## How far a horse's body is lifted by its stride at `phase`: two beats to a
 ## cycle, the saddle highest at each.
 static func saddle_bob(phase: float, pace: float) -> float:
-	return absf(sin(phase)) * lerpf(0.07, 0.16, gallop_of(pace)) * effort_of(pace)
+	return absf(sin(phase)) * lerpf(0.05, 0.10, gallop_of(pace)) * effort_of(pace)
 
 ## How far a rider's hips are above the saddle, in metres, at that point of the
 ## stride. At a trot they rise out of it on one beat and sit down on the next,

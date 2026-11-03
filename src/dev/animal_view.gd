@@ -67,7 +67,7 @@ func _initialize() -> void:
 		"horse":
 			# Not one of the valley's animals but a mount, seen the same way.
 			animal = MountKinds.build_node(MountKinds.horse_id(_variant))
-			size = 1.35
+			size = 0.75
 		"bird":
 			# One of the birds that circle a grove, wings spread level.
 			var birds := Birds.new()
@@ -105,7 +105,7 @@ func _initialize() -> void:
 	var far := size * 6.5
 	var near := size * 5.0
 	if _kind == "horse":
-		# Four metres from nose to tail: the standard distance is for animals
+		# Two metres from nose to tail: the standard distance is for animals
 		# a metre long.
 		far = size * 3.4
 		near = size * 3.6

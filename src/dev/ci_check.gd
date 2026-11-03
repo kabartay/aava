@@ -267,6 +267,7 @@ func _initialize() -> void:
 	_check_legs_grow_out_of_the_body_and_all_six_animals_and_the_horse_and_ducks_are_lofts()
 	_check_the_horse_has_a_horses_lines_and_its_reins_clear_the_neck()
 	_check_the_horses_tail_is_slim_and_about_a_third_of_the_body()
+	_check_the_pony_is_a_childs_size_and_its_rider_sits_like_a_rider()
 	_check_a_cat_and_a_dog_wear_their_coat_down_the_top_of_the_leg()
 	_check_the_squirrel_sits_upright_with_full_ears_and_the_birds_are_lofts()
 	_check_a_ball_keeps_floating_while_the_goal_is_cheered()
@@ -1470,7 +1471,7 @@ func _check_nothing_hangs_in_the_air() -> void:
 	# within a hand's width, rather than curling up over the rump like a dog's.
 	_expect(joints[1].y < joints[0].y + 0.08, "it leaves the dock about level, not cocked upwards")
 	_expect(
-		joints[joints.size() - 1].y < joints[0].y - 0.5,
+		joints[joints.size() - 1].y < joints[0].y - 0.28,
 		"and hangs %.2f m below where it starts" % (joints[0].y - joints[joints.size() - 1].y)
 	)
 
@@ -8996,7 +8997,7 @@ func _check_a_rider_sits_in_the_saddle() -> void:
 		player._physics_process(1.0 / 60.0)
 	var tipped := player.visual_offset()
 	_expect(
-		Vector2(tipped.x, tipped.z).length() > 0.5,
+		Vector2(tipped.x, tipped.z).length() > 0.8 * MountKinds.HORSE_SADDLE_Y * sin(tipped_by),
 		"tipped twenty degrees the seat moves %.2f m with the horse" % Vector2(tipped.x, tipped.z).length()
 	)
 	_expect(
@@ -18899,15 +18900,15 @@ func _check_the_horse_has_a_horses_lines_and_its_reins_clear_the_neck() -> void:
 	# below it comes forward again. The foreleg goes straight down.
 	var s := HorseNatural.S
 	var hind := MountKinds.horse_leg(hide, 2)
-	var stifle := _mean_in_band(hind, 2, -0.45 * s, -0.25 * s)
-	# (The hock is a hand higher than it was: nearer where a real horse's is.)
-	var hock := _mean_in_band(hind, 2, -0.85 * s, -0.65 * s)
-	var fetlock_hind := _mean_in_band(hind, 2, -1.2 * s, -1.1 * s)
-	_expect(hock - stifle > 0.25, "the hind leg's hock is %.2f m behind its stifle" % (hock - stifle))
-	_expect(hock - fetlock_hind > 0.1, "and its cannon comes forward again, %.2f m, to the fetlock" % (hock - fetlock_hind))
+	var stifle := _mean_in_band(hind, 2, -0.10 * s, 0.05 * s)
+	# (The pony's leg is 0.8 m from hip to ground: the hock is at about half.)
+	var hock := _mean_in_band(hind, 2, -0.40 * s, -0.32 * s)
+	var fetlock_hind := _mean_in_band(hind, 2, -0.72 * s, -0.64 * s)
+	_expect(hock - stifle > 0.1, "the hind leg's hock is %.2f m behind its stifle" % (hock - stifle))
+	_expect(hock - fetlock_hind > 0.08, "and its cannon comes forward again, %.2f m, to the fetlock" % (hock - fetlock_hind))
 	var fore := MountKinds.horse_leg(hide, 0)
-	var knee := _mean_in_band(fore, 2, -0.8 * s, -0.6 * s)
-	var fetlock := _mean_in_band(fore, 2, -1.2 * s, -1.0 * s)
+	var knee := _mean_in_band(fore, 2, -0.40 * s, -0.30 * s)
+	var fetlock := _mean_in_band(fore, 2, -0.72 * s, -0.64 * s)
 	_expect(absf(knee - fetlock) < 0.06, "the foreleg is straight, its knee and fetlock %.3f m apart fore and aft" % absf(knee - fetlock))
 
 	# No lump where a leg meets the body: every vertex of a leg above its hip
@@ -19049,15 +19050,17 @@ func _check_the_horses_tail_is_slim_and_about_a_third_of_the_body() -> void:
 	# at its widest and at the dock.
 	var face := 0.0
 	for point: Vector3 in head.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
-		if point.z + MountKinds.HORSE_HEAD_PIVOT.z < -1.35 * HorseNatural.S:
+		if point.z + MountKinds.HORSE_HEAD_PIVOT.z < -1.0 * HorseNatural.S:
 			face = maxf(face, absf(point.x))
 	var widest := 0.0
 	var dock := 0.0
 	for point in tail_points:
 		widest = maxf(widest, absf(point.x))
-		if point.y > -0.1:
+		# The dock is the first hand of it, about a tenth of its length.
+		if point.y > -0.045:
 			dock = maxf(dock, absf(point.x))
-	_expect(widest < 0.5 * face, "the tail is %.2f m across at its fullest and the face %.2f" % [widest * 2.0, face * 2.0])
+	# A pony's tail is full, but never as broad as its face.
+	_expect(widest < 0.7 * face, "the tail is %.2f m across at its fullest and the face %.2f" % [widest * 2.0, face * 2.0])
 	_expect(dock < 0.35 * face, "and the dock %.2f m, a slim bone" % (dock * 2.0))
 
 ## A guest is told what the host's valley looks like, and the rest of what
@@ -20250,7 +20253,7 @@ func _check_a_child_sits_in_every_seat_they_are_carried_in() -> void:
 	# The top of each seat as it is drawn, in the frame its pose is written in.
 	# Worked from the constants and the drawing of each, not from the pose.
 	var tops := {
-		&"horse": MountKinds.HORSE_SADDLE_Y + 0.14 * 1.2 * 0.5 - MountKinds.eye_lift(MountKinds.HORSE),
+		&"horse": _top_of_the_ponys_seat() - MountKinds.eye_lift(MountKinds.HORSE),
 		&"motorcycle": 1.06 + 0.12 * 0.5 - MountKinds.eye_lift(MountKinds.MOTORCYCLE),
 		&"quad": (0.76 + 0.2 * 0.5) * MountKinds.QUAD_SCALE - MountKinds.eye_lift(MountKinds.QUAD),
 		&"boat": 0.5 - MountKinds.BOAT_DRAFT - 0.12 + 0.03 - MountKinds.eye_lift(MountKinds.BOAT),
@@ -20427,7 +20430,7 @@ func _check_a_child_sits_in_every_seat_they_are_carried_in() -> void:
 	_expect(visitors.motion_of(61).seat == MountKinds.HORSE, "somebody on a horse is posed as on a horse")
 	_expect(guest_hips.position.y < standing - 0.2, "sitting in the saddle, not standing in it (%.2f against %.2f)" % [guest_hips.position.y, standing])
 	var foot_out := absf(_in_rig(guest_rig.find_child("FootL", true, false), guest_rig).x)
-	_expect(foot_out > 0.3 and _in_rig(guest_rig.find_child("FootL", true, false), guest_rig).x * _in_rig(guest_rig.find_child("FootR", true, false), guest_rig).x < 0.0, "with a leg down each side of the barrel, astride (%.2f m out)" % foot_out)
+	_expect(foot_out > _the_barrels_half_width() + 0.02 and _in_rig(guest_rig.find_child("FootL", true, false), guest_rig).x * _in_rig(guest_rig.find_child("FootR", true, false), guest_rig).x < 0.0, "with a leg down each side of the barrel, astride (%.2f m out)" % foot_out)
 	var grip_at: Vector3 = SeatPose.POSES[MountKinds.HORSE]["hand"]
 	var guest_hand := _in_rig(guest_rig.find_child("HandL", true, false), guest_rig)
 	_expect((guest_hand - grip_at).length() < 0.11, "and a hand at the pommel where the reins are")
@@ -20789,7 +20792,7 @@ func _check_a_felled_planted_tree_leaves_its_stump() -> void:
 ## saddle, and every character astride, feet in the irons, hands on the reins.
 func _check_the_horse_is_a_childs_pony_with_the_rider_astride() -> void:
 	print("the horse is a child's pony and the rider sits astride it")
-	var s := 1.2
+	var s := HorseNatural.S
 	var body := MountKinds.horse_part("body") as ArrayMesh
 	var hide := MountKinds.colour(MountKinds.HORSE)
 	var barrel := 0.0
@@ -20814,10 +20817,23 @@ func _check_the_horse_is_a_childs_pony_with_the_rider_astride() -> void:
 
 	# The stirrup is beside the barrel, a hand's breadth out and no more, and
 	# the foot of the pose is in it.
+	# The iron as it is drawn: the lowest and the outermost points of the body
+	# mesh below the skirts on the left, which are the tread of the stirrup.
 	var foot: Vector3 = SeatPose.POSES[MountKinds.HORSE]["foot"]
-	var iron := Vector3(-0.30 * s, 1.75 * s - MountKinds.HORSE_SADDLE_Y, 0.04 * s)
-	_expect(absf(absf(foot.x) - 0.30 * s) < 0.05 and absf(foot.y - iron.y) < 0.1, "the foot of the pose is in the stirrup (%.2f, %.2f)" % [foot.x, foot.y])
-	_expect(0.30 * s - barrel < 0.14 and 0.30 * s > barrel * 0.9, "the stirrup hangs %.2f m outside the barrel's widest" % (0.30 * s - barrel))
+	var tread_y := 1e9
+	var tread_x := 0.0
+	var tread_count := 0
+	for point: Vector3 in body.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		# (Outside the barrel, which is 0.225 out at its widest.)
+		if point.x < -0.235 and point.y < MountKinds.HORSE_SADDLE_Y - 0.23:
+			tread_y = minf(tread_y, point.y)
+			tread_x += point.x
+			tread_count += 1
+	_expect(tread_count > 0, "there is an iron drawn on the left")
+	tread_x /= float(maxi(tread_count, 1))
+	var iron := Vector3(tread_x, tread_y + 0.067 - MountKinds.HORSE_SADDLE_Y, foot.z)
+	_expect(absf(foot.x - tread_x) < 0.05 and absf(foot.y - iron.y) < 0.03, "the foot of the pose is in the stirrup as drawn (%.2f, %.2f against %.2f, %.2f)" % [foot.x, foot.y, tread_x, iron.y])
+	_expect(absf(tread_x) - barrel < 0.12 and absf(tread_x) > barrel, "the stirrup hangs %.2f m outside the barrel's widest" % (absf(tread_x) - barrel))
 
 	for which in Character.KEYS.size():
 		if not Character.is_rigged(which):
@@ -20828,7 +20844,7 @@ func _check_the_horse_is_a_childs_pony_with_the_rider_astride() -> void:
 			var mirror := -1.0 if side == 0 else 1.0
 			var ankle := _in_rig(rig.find_child("Foot" + ("L" if side == 0 else "R"), true, false), rig)
 			var stirrup := Vector3(iron.x * -mirror, iron.y, iron.z)
-			_expect((ankle - stirrup).length() < 0.16, "horse, %s: foot %d is in the stirrup (%.2f m off)" % [Character.KEYS[which], side, (ankle - stirrup).length()])
+			_expect((ankle - stirrup).length() < 0.08, "horse, %s: foot %d is in the stirrup (%.2f m off)" % [Character.KEYS[which], side, (ankle - stirrup).length()])
 			# Astride: the knee is not over the barrel's top but down its side.
 			var knee := _in_rig(rig.find_child("Shin" + ("L" if side == 0 else "R"), true, false), rig)
 			_expect(absf(knee.x) > 0.10 and knee.y < 0.12, "horse, %s: knee %d hangs at the horse's side (%.2f out, %.2f up)" % [Character.KEYS[which], side, absf(knee.x), knee.y])
@@ -22572,3 +22588,152 @@ func _check_the_carousel_is_drawn_inside_what_is_collided() -> void:
 	_expect(walls == 8, "two solid handrails to each of the four ramps (%d)" % walls)
 	carousel.queue_free()
 
+## The top of the pony's seat as it is drawn: the highest point of its body mesh
+## on the middle line under the child, which is the saddle's.
+func _top_of_the_ponys_seat() -> float:
+	var top := -1e9
+	for point: Vector3 in (MountKinds.horse_part("body") as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if absf(point.x) < 0.04 and point.z > 0.0 and point.z < 0.08:
+			top = maxf(top, point.y)
+	return top
+
+## How far out the pony's barrel goes, one side.
+func _the_barrels_half_width() -> float:
+	var natural := SurfaceTool.new()
+	natural.begin(Mesh.PRIMITIVE_TRIANGLES)
+	HorseNatural.body(natural, MountKinds.colour(MountKinds.HORSE))
+	return natural.commit().get_aabb().size.x * 0.5
+
+## The horse is a child's pony and not a hunter: its saddle is about where a
+## child's own shoulder is, its withers a little over a metre, and a child
+## sits on it the way a rider does — thighs over the skirts, lower legs
+## hanging down the barrel with the feet in the irons, the back upright and the
+## hands low in front holding reins that sag between the bit and them — with
+## no part of them inside the horse, at a walk and at a canter. It strides
+## faster than the horse it replaced, and costs no more to draw.
+func _check_the_pony_is_a_childs_size_and_its_rider_sits_like_a_rider() -> void:
+	print("the pony is a child's size and its rider sits like a rider")
+	var hide := MountKinds.colour(MountKinds.HORSE)
+	var seat_top := _top_of_the_ponys_seat()
+	_expect(absf(seat_top - MountKinds.HORSE_SADDLE_Y) < 0.01, "the seat is drawn at %.3f m, the height a rider is lifted to (%.3f)" % [seat_top, MountKinds.HORSE_SADDLE_Y])
+	# The withers are the highest point of the bare barrel: the saddle's own
+	# pommel and cantle stand above them.
+	var natural := SurfaceTool.new()
+	natural.begin(Mesh.PRIMITIVE_TRIANGLES)
+	HorseNatural.body(natural, hide)
+	var barrel := natural.commit() as ArrayMesh
+	var withers := barrel.get_aabb().end.y
+	_expect(withers > 1.1 and withers < 1.3, "the withers are %.2f m up, a pony's" % withers)
+
+	# The saddle against the child standing beside it: at about their
+	# shoulder, not over their head.
+	for which in Character.KEYS.size():
+		if not Character.is_rigged(which):
+			continue
+		var standing := Node3D.new()
+		get_root().add_child(standing)
+		var stood := Character.build(which, 1, 1, Visitors.SHIRTS[2])
+		standing.add_child(stood)
+		var shoulder := _in_rig(stood.find_child("UpperArmL", true, false), stood).y
+		_expect(
+			MountKinds.HORSE_SADDLE_Y > 0.9 * shoulder and MountKinds.HORSE_SADDLE_Y < 1.7 * shoulder,
+			"%s: the seat is %.2f m up against a shoulder at %.2f" % [Character.KEYS[which], MountKinds.HORSE_SADDLE_Y, shoulder]
+		)
+		standing.queue_free()
+
+	# The rider, walking and at a full canter.
+	var neck := MountKinds.horse_part("head") as ArrayMesh
+	var lifted := Vector3(0.0, MountKinds.HORSE_SADDLE_Y, 0.0)
+	for gait: float in [0.0, MountKinds.speed(MountKinds.HORSE)]:
+		for which in Character.KEYS.size():
+			if not Character.is_rigged(which):
+				continue
+			var made := _seated(which, MountKinds.HORSE, gait)
+			var rig: Node3D = made[0]
+			var who := "%s at %.1f m/s" % [Character.KEYS[which], gait]
+			var inside := 0
+			var worst_foot := 0.0
+			var worst_hand := 0.0
+			for side in 2:
+				var tag := "L" if side == 0 else "R"
+				var mirror := -1.0 if side == 0 else 1.0
+				var hip := _in_rig(rig.find_child("Thigh" + tag, true, false), rig)
+				var knee := _in_rig(rig.find_child("Shin" + tag, true, false), rig)
+				var ankle := _in_rig(rig.find_child("Foot" + tag, true, false), rig)
+				var hand := _in_rig(rig.find_child("Hand" + tag, true, false), rig)
+				worst_foot = maxf(worst_foot, (ankle + lifted - MountKinds.horse_stirrup(mirror)).length())
+				worst_hand = maxf(worst_hand, (hand + lifted - MountKinds.horse_rein_hand(mirror)).length())
+				# Along each bone of the leg, from the hip to the knee and from
+				# the knee to the ankle.
+				for step in 6:
+					var along := float(step) / 5.0
+					for point: Vector3 in [hip.lerp(knee, along) + lifted, knee.lerp(ankle, along) + lifted]:
+						if _point_in_mesh(barrel, Vector3.ZERO, point) or _point_in_mesh(neck, MountKinds.HORSE_HEAD_PIVOT, point):
+							inside += 1
+			_expect(worst_foot < 0.08, "%s: the feet are %.3f m from the stirrups" % [who, worst_foot])
+			_expect(worst_hand < 0.11, "%s: the hands are %.3f m from the reins' ends" % [who, worst_hand])
+			_expect(inside == 0, "%s: %d points along the legs are inside the horse" % [who, inside])
+			# Upright at a walk, a little forward at a canter, and never lying
+			# down on the neck (the clay toy, whose arms are too short for the
+			# reins, is allowed to lean to reach them).
+			var torso := rig.find_child("Torso", true, false) as Node3D
+			var lean := -torso.rotation.x
+			if which != 0:
+				_expect(lean < (0.35 if gait == 0.0 else 0.5), "%s: the back is tipped %.2f rad" % [who, lean])
+			if gait > 0.0 and which != 0:
+				_expect(lean > 0.15, "%s: leaning forward a little at a canter (%.2f rad)" % [who, lean])
+			(made[2] as Node3D).queue_free()
+
+	# The reins sag: the lowest point of each is below the straight line from
+	# the bit to the hand, and none of it is inside the neck.
+	for side: float in [-1.0, 1.0]:
+		var way := MountKinds.horse_rein_way(side)
+		var lowest := 0.0
+		for corner in way.size():
+			var straight := way[0].lerp(way[way.size() - 1], (way[corner].z - way[0].z) / (way[way.size() - 1].z - way[0].z))
+			lowest = maxf(lowest, straight.y - way[corner].y)
+		_expect(lowest > 0.04 and way.size() >= 5, "the rein hangs %.2f m below a straight line in %d segments" % [lowest, way.size() - 1])
+
+	# A bridle: a browband and a noseband in leather on the head.
+	var leather := 0
+	for colour: Color in neck.surface_get_arrays(0)[Mesh.ARRAY_COLOR]:
+		if absf(colour.r - 0.30) < 0.01 and absf(colour.g - 0.18) < 0.01 and absf(colour.b - 0.10) < 0.01:
+			leather += 1
+	_expect(leather > 40, "the head wears a bridle (%d leather vertices)" % leather)
+
+	# At full speed its feet go round faster than the big horse's did (a stride
+	# of 2.6 m, 1.7 times that at a gallop), at every pace.
+	for pace: float in [1.5, 4.7, MountKinds.speed(MountKinds.HORSE)]:
+		var old_stride := lerpf(2.6, 2.6 * 1.7, Mounts.gallop_of(pace))
+		_expect(pace / Mounts.stride_metres(pace) > pace / old_stride, "at %.1f m/s it takes %.2f strides a second, not %.2f" % [pace, pace / Mounts.stride_metres(pace), pace / old_stride])
+	var top_pace := MountKinds.speed(MountKinds.HORSE)
+	_expect(top_pace / Mounts.stride_metres(top_pace) > 1.25 * top_pace / (2.6 * 1.7), "and a full canter is clearly quicker (%.2f against %.2f a second)" % [top_pace / Mounts.stride_metres(top_pace), top_pace / (2.6 * 1.7)])
+
+	# It is no dearer to draw than it was: eight nodes and 1,808 triangles.
+	var steed := MountKinds.build_node(MountKinds.HORSE)
+	var nodes := 0
+	var triangles := 0
+	var stack: Array[Node] = [steed]
+	while not stack.is_empty():
+		var part: Node = stack.pop_back()
+		stack.append_array(part.get_children())
+		if part is MeshInstance3D:
+			nodes += 1
+			triangles += _triangle_count((part as MeshInstance3D).mesh)
+	_expect(nodes <= 8, "the pony is %d mesh nodes" % nodes)
+	_expect(triangles <= 1808, "and %d triangles" % triangles)
+	steed.free()
+
+	# A swimming pony floats where it stops wading, with its back clear.
+	_expect(is_equal_approx(MountKinds.HORSE_SWIMS_AT, MountKinds.HORSE_DRAUGHT), "it begins to swim at the depth it floats at, so it is not put up or down there")
+	_expect(MountKinds.HORSE_SADDLE_Y - MountKinds.HORSE_DRAUGHT > 0.3, "and its rider sits %.2f m above the water" % (MountKinds.HORSE_SADDLE_Y - MountKinds.HORSE_DRAUGHT))
+
+	# The horses in the valley are this pony, with legs to swing.
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	mounts.place(MountKinds.horse_id(3), field.camp_centre() + Vector3(4.0, 0.0, 0.0))
+	var free_body := mounts.node_of(MountKinds.horse_id(3)).get_node("Body") as MeshInstance3D
+	_expect(free_body.mesh == MountKinds.horse_part("body", MountKinds.colour(MountKinds.horse_id(3))), "a horse in the valley wears the pony's body")
+	_expect(free_body.get_node_or_null("Leg3") != null and free_body.get_node_or_null("Head") != null, "and has its head and legs")
+	mounts.queue_free()

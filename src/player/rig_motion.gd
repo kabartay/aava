@@ -531,6 +531,13 @@ func _seat_step(delta: float, sitting: bool) -> void:
 		if to_grip.length() <= (_arm_a + _arm_b) * reach * 0.96:
 			break
 		lean += 0.1
+	# At a canter a rider goes forward with the horse, a little: upright at a
+	# walk and a trot, tipped about eight degrees by a full gallop, and the head
+	# keeps its eyes ahead (the lean is taken off `nod` below). Not on top of a
+	# lean the hands needed already: the clay toy's short arms have it
+	# bent far enough.
+	if style == &"rock":
+		lean = maxf(lean, float(pose["lean"]) + pitch + 0.14 * Mounts.gallop_of(gait) * w)
 	var torso_basis := Basis(Vector3.RIGHT, -lean)
 	var shoulder_origin := hips_at + _torso.position
 	_hips.position = Vector3(hips_at.x * w, lerpf(_hips.position.y, hips_at.y, w), hips_at.z * w)

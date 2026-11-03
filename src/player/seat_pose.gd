@@ -44,18 +44,22 @@ extends RefCounted
 const PELVIS := 0.09
 
 const POSES := {
-	# The horse's saddle: the seat box is centred at HORSE_SADDLE_Y (the rig's
-	# own origin, because that is where eye_lift puts the child) and 0.168 high,
-	# so its top is 0.084 above, with the pommel at z -0.24 and the reins ending
-	# in the hands (MountKinds.horse_rein_hand reads the grip from here). The
-	# barrel is 0.6 across at the saddle and the irons hang 0.36 out and 0.14
-	# below the seat's centre: the legs go out and down over it, astride, the feet
-	# in the irons.
+	# The pony's saddle: the top of its seat is HORSE_SADDLE_Y (the rig's own
+	# origin, because that is where eye_lift puts the child), with the pommel
+	# 0.17 ahead and the cantle 0.25 behind the middle of it; the reins end in
+	# the hands (MountKinds.horse_rein_hand reads the grip from here) and the
+	# irons are drawn round the feet (MountKinds.horse_stirrup). The barrel is
+	# 0.45 across at the ribs, and the irons hang 0.19 below the seat and 0.25
+	# out, so the thighs go out and down over the skirts and the lower legs hang
+	# down the barrel's side, the feet in the irons: a child's own legs are only
+	# 0.29 to 0.38 m from hip to ankle, and this is as far down as the shortest
+	# reaches. The back is upright, the hands low and in front over the
+	# withers, a little further forward at a canter (RigMotion).
 	&"horse": {
-		"seat": Vector3(0.0, 0.084, 0.06), "lean": 0.5, "nod": 0.25,
-		"hand": Vector3(-0.11, 0.27, -0.27), "reach": 1.1,
-		"foot": Vector3(-0.34, -0.08, 0.06), "toe": -0.5,
-		"knee": Vector3(-0.2, 0.2, -1.0), "elbow": Vector3(-1.0, -0.2, 0.3),
+		"seat": Vector3(0.0, 0.0, 0.04), "lean": 0.1, "nod": 0.1,
+		"hand": Vector3(-0.16, 0.26, -0.13), "reach": 1.1,
+		"foot": Vector3(-0.25, -0.19, 0.04), "toe": -0.4,
+		"knee": Vector3(-0.3, 0.2, -1.0), "elbow": Vector3(-1.0, -0.2, 0.3),
 		"style": &"rock",
 	},
 	# A bicycle is a child's own, so it is drawn for one: the saddle 0.55 up
