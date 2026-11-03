@@ -270,60 +270,53 @@ func _build(drake: bool, cast := 0.0) -> Mesh:
 	var head_colour := Color(0.16, 0.44, 0.24) if drake else brown.darkened(0.12)
 	var bill := Color(0.92, 0.78, 0.30)
 
-	# The body: an ellipsoid sitting half in the water, so what shows is the
-	# back and not a floating egg.
-	var body := SphereMesh.new()
-	body.radius = 0.19
-	body.height = 0.3
-	body.radial_segments = 10
-	body.rings = 6
-	_add(tool, body, Transform3D(
-		Basis().scaled(Vector3(0.82, 1.0, 1.5)), Vector3(0.0, 0.04, 0.0)
-	), body_colour)
-	# The tail, cocked up at the back the way a duck's is.
-	var tail := BoxMesh.new()
-	tail.size = Vector3(0.1, 0.05, 0.18)
-	_add(tool, tail, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(-24.0)), Vector3(0.0, 0.1, 0.26)
-	), body_colour.darkened(0.2))
-	# The neck and head, forward and up. Tipped about X by a negative angle so
-	# that its top leans forwards, under the head; it leaned back before.
-	var neck := CylinderMesh.new()
-	neck.top_radius = 0.052
-	neck.bottom_radius = 0.07
-	neck.height = 0.17
-	neck.radial_segments = 8
-	_add(tool, neck, Transform3D(
-		Basis(Vector3.RIGHT, deg_to_rad(-12.0)), Vector3(0.0, 0.16, -0.16)
-	), head_colour)
-	var head := SphereMesh.new()
-	head.radius = 0.075
-	head.height = 0.14
-	head.radial_segments = 8
-	head.rings = 5
-	_add(tool, head, Transform3D(Basis(), Vector3(0.0, 0.26, -0.19)), head_colour)
-	if drake:
-		var collar := CylinderMesh.new()
-		collar.top_radius = 0.062
-		collar.bottom_radius = 0.062
-		collar.height = 0.028
-		collar.radial_segments = 8
-		_add(tool, collar, Transform3D(Basis(), Vector3(0.0, 0.185, -0.172)), Color(0.94, 0.93, 0.90))
-	var beak := BoxMesh.new()
-	beak.size = Vector3(0.055, 0.03, 0.09)
-	_add(tool, beak, Transform3D(Basis(), Vector3(0.0, 0.255, -0.27)), bill)
+	# The body: one smooth skin sitting half in the water, so what shows is the
+	# back and not a floating egg, from the tail that is cocked up behind it
+	# round the full breast to the foot of the neck. See AnimalLoft.
+	var body := AnimalLoft.make([
+		AnimalLoft.key(Vector3(0.0, 0.14, 0.30), 0.025, 0.012, 0.012),
+		AnimalLoft.key(Vector3(0.0, 0.10, 0.24), 0.06, 0.035, 0.035),
+		AnimalLoft.key(Vector3(0.0, 0.06, 0.14), 0.125, 0.09, 0.08),
+		AnimalLoft.key(Vector3(0.0, 0.04, 0.0), 0.15, 0.11, 0.10),
+		AnimalLoft.key(Vector3(0.0, 0.07, -0.13), 0.125, 0.11, 0.09),
+		AnimalLoft.key(Vector3(0.0, 0.14, -0.19), 0.07, 0.085, 0.075),
+	], Vector3.UP, 8, 2, 0.03, 0.02)
+	var dusk := body_colour.darkened(0.25)
+	body.paint = func(_p: Vector3, along: float, angle: float) -> Color:
+		# Darker on the back and paler under the breast, and darker again on
+		# the raised tail.
+		var c := body_colour.darkened(0.12 * maxf(cos(angle), 0.0)).lightened(0.15 * maxf(-cos(angle), 0.0))
+		return c.lerp(dusk, smoothstep(0.3, 0.12, along))
+	body.emit(tool)
+	# The neck and head, forward and up, in one skin with a collar painted on
+	# the drake's neck.
+	var neck := AnimalLoft.make([
+		AnimalLoft.key(Vector3(0.0, 0.13, -0.19), 0.06, 0.06, 0.06),
+		AnimalLoft.key(Vector3(0.0, 0.19, -0.2), 0.045, 0.045, 0.045),
+		AnimalLoft.key(Vector3(0.0, 0.25, -0.21), 0.05, 0.05, 0.05),
+		AnimalLoft.key(Vector3(0.0, 0.272, -0.24), 0.062, 0.06, 0.055),
+		AnimalLoft.key(Vector3(0.0, 0.265, -0.28), 0.036, 0.034, 0.03),
+	], Vector3.UP, 8, 2, 0.0, 0.015)
+	var collar := Color(0.94, 0.93, 0.90)
+	neck.paint = func(p: Vector3, _along: float, _angle: float) -> Color:
+		if drake:
+			return head_colour.lerp(collar, smoothstep(0.045, 0.02, absf(p.y - 0.165)))
+		return head_colour
+	neck.emit(tool)
+	# The bill, flat and broad, with a rounded tip.
+	var beak := AnimalLoft.make([
+		AnimalLoft.key(Vector3(0.0, 0.262, -0.27), 0.028, 0.009, 0.009),
+		AnimalLoft.key(Vector3(0.0, 0.256, -0.31), 0.033, 0.007, 0.007),
+		AnimalLoft.key(Vector3(0.0, 0.25, -0.34), 0.026, 0.006, 0.006),
+	], Vector3.UP, 6, 1, 0.0, 0.012)
+	beak.paint = func(_p: Vector3, _along: float, _angle: float) -> Color: return bill
+	beak.emit(tool)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		AnimalLoft.ball(tool, Vector3(side * 0.05, 0.285, -0.25), Vector3(0.016, 0.016, 0.014), Color(0.05, 0.05, 0.05), 5)
 
 	tool.generate_normals()
 	tool.set_material(_material)
 	return tool.commit()
-
-static func _add(tool: SurfaceTool, mesh: Mesh, where: Transform3D, colour: Color) -> void:
-	var arrays := mesh.surface_get_arrays(0)
-	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	for index in indices:
-		tool.set_color(colour)
-		tool.add_vertex(where * vertices[index])
 
 ## How many ducks are afloat. For the checks.
 func count() -> int:

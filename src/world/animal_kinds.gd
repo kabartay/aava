@@ -276,17 +276,20 @@ static func hips(kind: StringName) -> Array[Vector3]:
 			if lift == 0.0:
 				var reach := float(shape["leg"]) * (float(shape["front_leg"]) if front < 0.0 else 1.0)
 				height = scale * (reach + PAW_DEPTH * float(shape["leg_slim"]))
+			# A squirrel's arms hang from its chest, which is the tall body
+			# leaning up and forward, not out at the end of a long one.
+			var along := 0.3 if kind == SQUIRREL and front < 0.0 else 0.6
 			out.append(Vector3(
 				side * scale * 0.44 * float(shape["slim"]),
 				height,
-				front * scale * float(shape["long"]) * 0.6
+				front * scale * float(shape["long"]) * along
 			))
 	return out
 
 ## One leg, pivoted at the hip so that turning it about X swings it: the leg
 ## itself, a paler paw. Front legs can be shorter than hind — the squirrel's.
-static func leg_mesh(kind: StringName, front: bool, variant := 0) -> Mesh:
-	var key := "%s/%d/leg%s" % [kind, variant % VARIANTS, front]
+static func leg_mesh(kind: StringName, front: bool, variant := 0, side := 1.0) -> Mesh:
+	var key := "%s/%d/leg%s/%s" % [kind, variant % VARIANTS, front, side > 0.0]
 	if _meshes.has(key):
 		return _meshes[key]
 	var tool := SurfaceTool.new()
@@ -296,7 +299,7 @@ static func leg_mesh(kind: StringName, front: bool, variant := 0) -> Mesh:
 	var coat := tint(kind, variant)
 	if AnimalNatural.is_natural(kind):
 		# Hanging from its hip, and as long as the hip is high.
-		AnimalNatural.leg(kind, front, variant, coat, scale, hips(kind)[0 if front else 2].y, tool)
+		AnimalNatural.leg(kind, front, variant, coat, scale, hips(kind)[0 if front else 2].y, tool, Vector3.ZERO, side)
 		tool.generate_normals()
 		tool.set_material(fur_material())
 		_meshes[key] = tool.commit()
@@ -330,13 +333,12 @@ static func build_node(kind: StringName, variant := 0) -> Node3D:
 	body.name = "Body"
 	body.mesh = body_mesh(kind, variant)
 	root.add_child(body)
-	var front_mesh := leg_mesh(kind, true, variant)
-	var hind_mesh := leg_mesh(kind, false, variant)
 	var points := hips(kind)
 	for i in points.size():
 		var leg := MeshInstance3D.new()
 		leg.name = "Leg%d" % i
-		leg.mesh = front_mesh if i < 2 else hind_mesh
+		# The left legs are the mirror of the right: each leans in at the top.
+		leg.mesh = leg_mesh(kind, i < 2, variant, -1.0 if i % 2 == 0 else 1.0)
 		leg.position = points[i]
 		body.add_child(leg)
 	# The head and, for those that wag one, the tail hang from the root rather
@@ -648,7 +650,7 @@ static func _build_natural(kind: StringName, with_legs: bool, variant: int, key:
 	if with_legs:
 		var points := hips(kind)
 		for i in points.size():
-			AnimalNatural.leg(kind, i < 2, variant, coat, scale, points[i].y, tool, points[i])
+			AnimalNatural.leg(kind, i < 2, variant, coat, scale, points[i].y, tool, points[i], -1.0 if i % 2 == 0 else 1.0)
 	var neck_pivot := AnimalNatural.head(kind, variant, coat, scale, head_tool)
 	if TAILS.has(kind):
 		AnimalNatural.tail(kind, coat, scale, tail_tool)
@@ -675,7 +677,7 @@ const COW_TAIL_ROOT := Vector2(1.5, 0.735)
 const TAILS := {
 	CAT: Vector2(1.15, 0.73),
 	DOG: Vector2(1.45, 0.68),
-	SQUIRREL: Vector2(1.05, 0.9),
+	SQUIRREL: Vector2(0.72, 0.62),
 	COW: COW_TAIL_ROOT,
 }
 

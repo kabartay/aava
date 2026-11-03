@@ -23,7 +23,11 @@ const SHEEP := &"sheep"
 const COW := &"cow"
 
 static func is_natural(kind: StringName) -> bool:
-	return kind == CAT or kind == DOG or kind == SHEEP or kind == COW
+	return kind == CAT or kind == DOG or kind == SHEEP or kind == COW or is_small(kind)
+
+## The squirrel and the beaver, which `AnimalSmall` draws.
+static func is_small(kind: StringName) -> bool:
+	return kind == AnimalSmall.SQUIRREL or kind == AnimalSmall.BEAVER
 
 static var _noises: Dictionary = {}
 
@@ -88,7 +92,9 @@ static func _flat(colour: Color) -> Callable:
 ## An eye: small and dark, with a pinprick of light so it looks back. The cat's
 ## is green with an upright pupil, the sheep's amber, because a black bead in
 ## a black face is no eye at all.
-static func _eye(tool: SurfaceTool, head: AnimalLoft, t: float, angle: float, radius: float, iris: Color, slit: bool) -> void:
+static func _eye(
+	tool: SurfaceTool, head: AnimalLoft, t: float, angle: float, radius: float, iris: Color, slit: bool, pupil := false
+) -> void:
 	var ring := head.at(t)
 	var centre: Vector3 = ring["c"]
 	var p := head.surface(t, angle)
@@ -97,6 +103,10 @@ static func _eye(tool: SurfaceTool, head: AnimalLoft, t: float, angle: float, ra
 	AnimalLoft.ball(tool, at, Vector3(radius, radius, radius * 0.8), iris)
 	if slit:
 		AnimalLoft.ball(tool, at + out * radius * 0.7, Vector3(radius * 0.28, radius * 0.85, radius * 0.3), Color(0.04, 0.04, 0.04))
+	if pupil:
+		# A round dark pupil in a lighter iris: the iris is the rim that shows
+		# on a coat as dark as the pupil.
+		AnimalLoft.ball(tool, at + out * radius * 0.5, Vector3(radius * 0.55, radius * 0.55, radius * 0.4), Color(0.04, 0.03, 0.03))
 	var glint := Color(0.96, 0.96, 0.96)
 	AnimalLoft.ball(tool, at + out * radius * 0.8 + Vector3(0.0, radius * 0.4, 0.0), Vector3(radius * 0.26, radius * 0.26, radius * 0.2), glint, 3)
 
@@ -117,6 +127,8 @@ static func _nostrils(tool: SurfaceTool, nose: Dictionary, spread: float, size: 
 ## The trunk, from the rump to the chest. The sheep's fleece and tail and the
 ## cow's udder belong to it and are drawn here too.
 static func body(kind: StringName, variant: int, coat: Color, s: float, tool: SurfaceTool) -> void:
+	if is_small(kind):
+		return AnimalSmall.body(kind, coat, s, tool)
 	var loft: AnimalLoft
 	match kind:
 		COW:
@@ -142,8 +154,8 @@ static func body(kind: StringName, variant: int, coat: Color, s: float, tool: Su
 				return _shade(coat, a, 0.03, 0.0).darkened(clampf(0.1 - q * 0.25, 0.0, 0.2))
 		DOG:
 			loft = AnimalLoft.make(_section(s, [
-				[-1.08, 1.66, 1.00, 0.40], [-0.72, 1.86, 0.78, 0.54], [-0.25, 1.82, 0.84, 0.52],
-				[0.25, 1.76, 1.04, 0.44], [0.75, 1.78, 0.96, 0.48], [1.1, 1.64, 1.10, 0.36],
+				[-1.08, 1.70, 0.90, 0.46], [-0.72, 1.90, 0.66, 0.62], [-0.25, 1.86, 0.74, 0.58],
+				[0.25, 1.80, 0.90, 0.52], [0.75, 1.82, 0.90, 0.54], [1.1, 1.66, 1.04, 0.42],
 			]), Vector3.UP, 12, 2, 0.28 * s, 0.26 * s)
 			loft.paint = func(p: Vector3, _along: float, a: float) -> Color:
 				var c := _shade(coat, a, 0.12, 0.1)
@@ -210,6 +222,8 @@ static func _cat_paint(variant: int, coat: Color, s: float) -> Callable:
 ## starts inside the body, at the joint, so that turning the head never opens
 ## a gap. Returns the joint.
 static func head(kind: StringName, variant: int, coat: Color, s: float, tool: SurfaceTool) -> Vector3:
+	if is_small(kind):
+		return AnimalSmall.head(kind, coat, s, tool)
 	match kind:
 		COW:
 			return _cow_head(variant, coat, s, tool)
@@ -221,11 +235,14 @@ static func head(kind: StringName, variant: int, coat: Color, s: float, tool: Su
 
 static func _cow_head(variant: int, coat: Color, s: float, tool: SurfaceTool) -> Vector3:
 	var skull := AnimalLoft.make(_rings(s, [
-		[0.0, 1.30, -1.00, 0.38, 0.40, 0.40], [0.0, 1.42, -1.42, 0.32, 0.34, 0.34],
-		[0.0, 1.50, -1.78, 0.30, 0.33, 0.31], [0.0, 1.44, -2.0, 0.30, 0.32, 0.30],
-		[0.0, 1.28, -2.16, 0.25, 0.27, 0.25], [0.0, 1.10, -2.28, 0.23, 0.22, 0.21, 2.6],
-	]), Vector3.UP, 12, 2, 0.0, 0.1 * s)
-	var nose := _nose(skull, 0.1 * s)
+		# Long and narrow, a wedge: wide across the brow, tapering along a
+		# straight face to a broad, blunt muzzle that is held level and not
+		# dropped like a pig's snout.
+		[0.0, 1.30, -1.00, 0.38, 0.40, 0.40], [0.0, 1.44, -1.40, 0.29, 0.34, 0.34],
+		[0.0, 1.52, -1.75, 0.25, 0.32, 0.30], [0.0, 1.46, -2.08, 0.18, 0.25, 0.23],
+		[0.0, 1.38, -2.36, 0.16, 0.20, 0.19], [0.0, 1.31, -2.56, 0.175, 0.17, 0.17, 2.8],
+	]), Vector3.UP, 12, 2, 0.0, 0.08 * s)
+	var nose := _nose(skull, 0.08 * s)
 	var patch: Color = AnimalKinds.COW_PATCH if variant % 2 == 0 else Color(0.42, 0.27, 0.18)
 	var noise := _noise(31 + variant * 97, 0.5)
 	var tip: Vector3 = nose["tip"]
@@ -234,19 +251,21 @@ static func _cow_head(variant: int, coat: Color, s: float, tool: SurfaceTool) ->
 		var v := noise.get_noise_3d(p.x / s * 1.3, p.y / s * 1.6, p.z / s)
 		base = base.lerp(_shade(patch, a, 0.1, 0.2), smoothstep(0.1, 0.2, v))
 		# A broad pink muzzle.
-		return base.lerp(Color(0.90, 0.68, 0.68), smoothstep(0.34 * s, 0.22 * s, p.distance_to(tip)))
+		return base.lerp(Color(0.90, 0.68, 0.68), smoothstep(0.3 * s, 0.18 * s, p.distance_to(tip)))
 	skull.emit(tool)
 	_nostrils(tool, nose, 0.075 * s, 0.032 * s, Color(0.36, 0.2, 0.22))
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		_eye(tool, skull, 3.1, side * 1.05, 0.05 * s, Color(0.07, 0.05, 0.05), false)
-		# Ears out to the sides, leaves a little drooped.
-		var ear_at := skull.surface(2.6, side * 1.45) + Vector3(-side * 0.04, 0.0, 0.0) * s
+		# The eyes are on the sides of the head, at the brow, looking out and
+		# not forward as a pig's do.
+		_eye(tool, skull, 2.15, side * 1.38, 0.05 * s, Color(0.07, 0.05, 0.05), false)
+		# Ears out to the sides below the horns, leaves a little drooped.
+		var ear_at := skull.surface(1.6, side * 1.5) + Vector3(-side * 0.04, 0.0, 0.0) * s
 		_leaf(tool, ear_at, [Vector3.ZERO, Vector3(side * 0.16, 0.02, 0.02) * s, Vector3(side * 0.16, -0.08, 0.04) * s],
-			[0.07 * s, 0.1 * s, 0.045 * s], [0.022 * s, 0.02 * s, 0.015 * s], Vector3.UP, 0.05 * s, 5,
+			[0.09 * s, 0.13 * s, 0.06 * s], [0.03 * s, 0.026 * s, 0.018 * s], Vector3.UP, 0.05 * s, 5,
 			func(_p: Vector3, _along: float, _angle: float) -> Color: return coat.darkened(0.12))
 		# Short horns, curving up and out.
-		var horn_at := skull.surface(2.4, side * 0.6) + Vector3(0.0, -0.03, 0.0) * s
-		_leaf(tool, horn_at, [Vector3.ZERO, Vector3(side * 0.1, 0.09, -0.02) * s, Vector3(side * 0.1, 0.14, -0.03) * s],
+		var horn_at := skull.surface(1.75, side * 0.85) + Vector3(0.0, -0.02, 0.0) * s
+		_leaf(tool, horn_at, [Vector3.ZERO, Vector3(side * 0.1, 0.09, -0.02) * s, Vector3(side * 0.07, 0.14, -0.03) * s],
 			[0.055 * s, 0.042 * s, 0.026 * s], [0.055 * s, 0.042 * s, 0.026 * s], Vector3(0.3, 0.2, 1.0), 0.06 * s, 4,
 			func(p: Vector3, _along: float, _angle: float) -> Color:
 				return Color(0.92, 0.88, 0.76).lerp(Color(0.3, 0.27, 0.24), smoothstep(horn_at.y + 0.17 * s, horn_at.y + 0.24 * s, p.y)))
@@ -301,7 +320,7 @@ static func _dog_head(variant: int, coat: Color, s: float, tool: SurfaceTool) ->
 	skull.emit(tool)
 	AnimalLoft.ball(tool, (nose["tip"] as Vector3) - (nose["T"] as Vector3) * 0.03 * s, Vector3(0.075, 0.06, 0.05) * s, Color(0.06, 0.05, 0.05))
 	for side in PackedFloat32Array([-1.0, 1.0]):
-		_eye(tool, skull, 3.3, side * 1.1, 0.045 * s, Color(0.08, 0.06, 0.05), false)
+		_eye(tool, skull, 3.3, side * 1.1, 0.055 * s, Color(0.78, 0.52, 0.2), false, true)
 		# A floppy ear: hung from the top of the skull, swinging out and down.
 		var ear_at := skull.surface(3.0, side * 0.85) + Vector3(-side * 0.03, 0.0, 0.0) * s
 		_leaf(tool, ear_at, [Vector3.ZERO, Vector3(side * 0.12, -0.04, 0.04) * s, Vector3(side * 0.1, -0.2, 0.05) * s, Vector3(side * 0.05, -0.2, 0.03) * s],
@@ -338,9 +357,9 @@ static func _cat_head(variant: int, coat: Color, s: float, tool: SurfaceTool) ->
 			func(_p: Vector3, _along: float, a: float) -> Color:
 				return coat.darkened(0.12).lerp(Color(0.88, 0.62, 0.64), smoothstep(-0.3, -0.7, cos(a))))
 		# Whiskers.
-		for row in 3:
-			var from := (nose["tip"] as Vector3) - (nose["T"] as Vector3) * 0.1 * s + (nose["S"] as Vector3) * side * 0.06 * s + Vector3(0.0, 0.01 - 0.03 * float(row), 0.0) * s
-			_leaf(tool, from, [Vector3.ZERO, Vector3(side * 0.3, 0.03 - 0.04 * float(row), 0.0) * s],
+		for row in 2:
+			var from := (nose["tip"] as Vector3) - (nose["T"] as Vector3) * 0.1 * s + (nose["S"] as Vector3) * side * 0.06 * s + Vector3(0.0, 0.01 - 0.04 * float(row), 0.0) * s
+			_leaf(tool, from, [Vector3.ZERO, Vector3(side * 0.3, 0.03 - 0.06 * float(row), 0.0) * s],
 				[0.008 * s, 0.003 * s], [0.008 * s, 0.003 * s], Vector3.UP, 0.0, 3, _flat(cream))
 	return skull.at(0.0)["c"]
 
@@ -350,6 +369,8 @@ static func _cat_head(variant: int, coat: Color, s: float, tool: SurfaceTool) ->
 ## head and moved to its root by `AnimalKinds`. The first ring is at the root,
 ## inside the rump.
 static func tail(kind: StringName, coat: Color, s: float, tool: SurfaceTool) -> void:
+	if is_small(kind):
+		return AnimalSmall.tail(coat, s, tool)
 	var tuft := Color(0.96, 0.94, 0.9)
 	var loft: AnimalLoft
 	match kind:
@@ -357,9 +378,13 @@ static func tail(kind: StringName, coat: Color, s: float, tool: SurfaceTool) -> 
 			# Long, and up in a question mark with its tip leaning forward;
 			# banded, with a white tip.
 			loft = AnimalLoft.make(_rings(s, [
-				[0.0, 1.15, 1.35, 0.15, 0.15, 0.15], [0.0, 1.13, 1.72, 0.14, 0.14, 0.14],
-				[0.0, 1.38, 1.98, 0.13, 0.13, 0.13], [0.0, 1.80, 2.02, 0.12, 0.12, 0.12],
-				[0.0, 2.2, 1.9, 0.105, 0.105, 0.105], [0.0, 2.45, 1.7, 0.09, 0.09, 0.09],
+				# It starts well inside the rump, as thick as the rump is
+				# there and running on from its slope, and thins as it
+				# goes: no knob where it comes out.
+				[0.0, 1.14, 1.0, 0.24, 0.24, 0.24], [0.0, 1.16, 1.4, 0.19, 0.19, 0.19],
+				[0.0, 1.24, 1.74, 0.15, 0.15, 0.15], [0.0, 1.5, 1.98, 0.13, 0.13, 0.13],
+				[0.0, 1.88, 2.04, 0.12, 0.12, 0.12], [0.0, 2.25, 1.92, 0.105, 0.105, 0.105],
+				[0.0, 2.5, 1.7, 0.09, 0.09, 0.09],
 			]), Vector3(0.7, 0.2, 0.5), 6, 2, 0.0, 0.1 * s)
 			loft.paint = func(_p: Vector3, along: float, _a: float) -> Color:
 				var band := smoothstep(0.2, 0.6, sin(along * 46.0))
@@ -386,12 +411,22 @@ static func tail(kind: StringName, coat: Color, s: float, tool: SurfaceTool) -> 
 
 # ----------------------------------------------------------------- the legs
 
+## How far, in units of the animal's size, the top of a leg is drawn in from
+## its hip towards the middle,
+## and how much longer fore and aft it is made there. A dog's or a cat's haunch
+## is already as long as its rump is deep, and any more stands out behind it.
+const LEAN := {
+	COW: [0.17, 0.5], DOG: [0.12, 0.12], SHEEP: [0.12, 0.3], CAT: [0.1, 0.08],
+	&"squirrel": [0.1, 0.1], &"beaver": [0.12, 0.2],
+}
+
 ## One leg, about its hip and hanging from it: thick where it is buried in the
 ## body, thin at the foot, bent at the knee or the hock, and ending in a hoof
 ## or a paw whose sole is exactly `height` below the hip, so the animal stands
 ## on it. `hip` moves it to where it hangs, for a body that bakes its legs in.
 static func leg(
-	kind: StringName, front: bool, variant: int, coat: Color, s: float, height: float, tool: SurfaceTool, hip := Vector3.ZERO
+	kind: StringName, front: bool, variant: int, coat: Color, s: float, height: float, tool: SurfaceTool, hip := Vector3.ZERO,
+	side := 1.0
 ) -> void:
 	var h := height / s
 	var rows: Array
@@ -399,18 +434,24 @@ static func leg(
 	var paint: Callable
 	var dark := Color(0.14, 0.12, 0.12)
 	match kind:
+		AnimalSmall.SQUIRREL, AnimalSmall.BEAVER:
+			var spec := AnimalSmall.leg(kind, front, coat, s, height, hip)
+			rows = spec[0]
+			sole = spec[1]
+			paint = spec[2]
+			h = spec[3]
 		COW:
 			if front:
 				rows = [
 					[0.0, 0.30, 0.0, 0.16, 0.22, 0.22], [0.0, -0.15, 0.0, 0.15, 0.19, 0.18], [0.0, -0.55, 0.0, 0.115, 0.125, 0.12],
-					[0.0, -0.78, -0.01, 0.12, 0.14, 0.12], [0.0, -0.93, 0.0, 0.085, 0.09, 0.085],
-					[0.0, -1.04, 0.0, 0.095, 0.1, 0.09], [0.0, -(h - sole), -0.015, 0.11, 0.13, 0.12],
+					[0.0, -0.78, -0.01, 0.12, 0.14, 0.12], [0.0, -0.95, 0.0, 0.085, 0.09, 0.085],
+					[0.0, -(h - sole), -0.015, 0.11, 0.13, 0.12],
 				]
 			else:
 				rows = [
 					[0.0, 0.30, 0.08, 0.18, 0.28, 0.28], [0.0, -0.10, 0.05, 0.18, 0.25, 0.23], [0.0, -0.45, 0.0, 0.14, 0.17, 0.15],
-					[0.0, -0.75, 0.10, 0.11, 0.15, 0.11], [0.0, -0.95, 0.06, 0.085, 0.09, 0.085],
-					[0.0, -1.06, 0.03, 0.095, 0.1, 0.09], [0.0, -(h - sole), 0.01, 0.11, 0.13, 0.12],
+					[0.0, -0.75, 0.10, 0.11, 0.15, 0.11], [0.0, -0.97, 0.05, 0.085, 0.09, 0.085],
+					[0.0, -(h - sole), 0.01, 0.11, 0.13, 0.12],
 				]
 			var patch: Color = AnimalKinds.COW_PATCH if variant % 2 == 0 else Color(0.42, 0.27, 0.18)
 			var noise := _noise(31 + variant * 97, 0.5)
@@ -472,7 +513,21 @@ static func leg(
 				return coat.darkened(0.08).lerp(white, smoothstep(-(h - 0.32), -(h - 0.18), y))
 	# The top is rounded, not cut flat: where it comes through the side of the
 	# body it is the swell of a shoulder or a haunch, not the end of a pole.
-	var loft := AnimalLoft.make(_rings(s, rows), Vector3(0.0, 0.0, 1.0), 6, 1, 0.14 * s, sole * s)
+	# A leg that is a tube set on the outside of the flank shows as a sleeve.
+	# The top is a slab instead: long fore and aft, thin across, drawn in from
+	# the hip towards the middle of the animal so that it lies within the body,
+	# and giving its width back down the leg, so that the thigh or shoulder is
+	# the swell of the flank and the leg comes out from under it. That leans
+	# one way for the left leg and the other for the right, which is why a leg
+	# is told which side it is on.
+	var fit: Array = LEAN.get(kind, [0.12, 0.3])
+	for row: Array in rows:
+		var grown := smoothstep(-0.55, 0.05, float(row[1]))
+		row[0] = -side * float(fit[0]) * grown
+		row[3] = float(row[3]) * (1.0 - 0.3 * grown)
+		row[4] = float(row[4]) * (1.0 + float(fit[1]) * grown)
+		row[5] = float(row[5]) * (1.0 + float(fit[1]) * grown)
+	var loft := AnimalLoft.make(_rings(s, rows), Vector3(0.0, 0.0, 1.0), 7, 1, 0.14 * s, sole * s)
 	loft.cap_rings = [0.7]
 	loft.origin = hip
 	loft.paint = paint

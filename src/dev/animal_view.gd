@@ -5,6 +5,8 @@ extends SceneTree
 ##   godot --path . --resolution 1280x720 --script src/dev/animal_view.gd -- \
 ##         --kind=cow --variant=0 --out=cow.png [--head=1]
 ##
+## `--kind` is any animal, or `horse`, or `drake` or `hen` for the ducks.
+##
 ## The world takes minutes to build and an animal is a metre across, so judging
 ## the shape of one is done here: a plain meadow, the sun, and the real
 ## `build_node` seen side on, from three-quarters, from the front and from
@@ -59,21 +61,39 @@ func _initialize() -> void:
 	green.albedo_color = Color(0.40, 0.58, 0.28)
 	ground.material_override = green
 	root.add_child(ground)
-	var animal := AnimalKinds.build_node(StringName(_kind), _variant)
+	var animal: Node3D
+	var size := 1.0
+	match _kind:
+		"horse":
+			# Not one of the valley's animals but a mount, seen the same way.
+			animal = MountKinds.build_node(MountKinds.horse_id(_variant))
+			size = 1.3
+		"drake", "hen":
+			# A duck is a mesh of its own, a third of a metre long.
+			var ducks := Ducks.new()
+			animal = MeshInstance3D.new()
+			(animal as MeshInstance3D).mesh = ducks._build(_kind == "drake")
+			size = 0.25
+		_:
+			animal = AnimalKinds.build_node(StringName(_kind), _variant)
+			size = AnimalKinds.size_of(StringName(_kind))
 	root.add_child(animal)
 	var triangles := 0
-	for mesh_node: Node in [animal.get_node("Body"), animal.get_node("Head"), animal.get_node_or_null("Tail")]:
-		if mesh_node != null:
-			triangles += ((mesh_node as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() / 3
-	for leg in animal.get_node("Body").get_children():
-		triangles += ((leg as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() / 3
+	var stack: Array[Node] = [animal]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		stack.append_array(node.get_children())
+		if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+			triangles += ((node as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() / 3
 	print("%s: %d triangles" % [_kind, triangles])
-	var size := AnimalKinds.size_of(StringName(_kind))
 	_centre = Vector3(0.0, size * 1.0, 0.0)
 	var far := size * 6.5
 	var near := size * 5.0
 	if _head:
-		_centre = AnimalKinds.head_pivot(StringName(_kind)) + Vector3(0.0, size * 0.3, 0.0)
+		var pivot := MountKinds.HORSE_HEAD_PIVOT if _kind == "horse" else (
+			Vector3(0.0, 0.2, -0.2) if size == 0.25 else AnimalKinds.head_pivot(StringName(_kind))
+		)
+		_centre = pivot + Vector3(0.0, size * 0.3, 0.0)
 		far = size * 3.2
 		near = size * 3.2
 	# The animal faces -Z: the side is +X, the front -Z.

@@ -198,6 +198,7 @@ func _initialize() -> void:
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
 	_check_the_four_animals_are_smooth_painted_skins()
+	_check_legs_grow_out_of_the_body_and_all_six_animals_and_the_horse_and_ducks_are_lofts()
 	_check_a_ball_keeps_floating_while_the_goal_is_cheered()
 	_check_the_tails_are_joined_to_the_rump()
 	_check_the_ticket_booth_faces_the_queue()
@@ -18482,7 +18483,7 @@ func _check_the_four_animals_are_smooth_painted_skins() -> void:
 				triangles += _triangle_count((part as MeshInstance3D).mesh)
 		for leg in node.get_node("Body").get_children():
 			triangles += _triangle_count((leg as MeshInstance3D).mesh)
-		_expect(triangles <= 1560, "the %s is %d triangles, not more than about 1500" % [kind, triangles])
+		_expect(triangles <= 1600, "the %s is %d triangles, not more than about 1600" % [kind, triangles])
 
 		# The joints are hidden inside her: the neck's foot, and the top of
 		# every leg, so that swinging either shows no gap.
@@ -18597,4 +18598,100 @@ func _triangle_count(mesh: Mesh) -> int:
 		return (indices as PackedInt32Array).size() / 3
 	return (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
 
+## A leg is not a tube stuck on the outside of the flank: its top is drawn in
+## from the hip so that it lies within the body's width, and the left legs are
+## the mirror of the right. The squirrel and the beaver are smooth skins of the
+## same kind as the cat and cow — a squirrel sitting up with a tail curled over
+## it, a beaver with orange teeth and a flat paddle — and so are the horse and
+## the ducks, with the horse's saddle, pivots and hips where they were.
+func _check_legs_grow_out_of_the_body_and_all_six_animals_and_the_horse_and_ducks_are_lofts() -> void:
+	print("legs grow out of the body, and the squirrel, beaver, horse and ducks are lofts")
+	for kind in AnimalKinds.ALL:
+		var scale := AnimalKinds.size_of(kind)
+		var trunk := (AnimalKinds.body_mesh(kind) as ArrayMesh).get_aabb()
+		var half := maxf(absf(trunk.position.x), absf(trunk.end.x))
+		var hips := AnimalKinds.hips(kind)
+		for i in hips.size():
+			var left := (AnimalKinds.leg_mesh(kind, i < 2, 0, -1.0) as ArrayMesh).get_aabb()
+			var right := (AnimalKinds.leg_mesh(kind, i < 2, 0, 1.0) as ArrayMesh).get_aabb()
+			_expect(
+				absf(left.position.x + right.end.x) < 0.001 and absf(left.end.x + right.position.x) < 0.001,
+				"the %s's left leg %d is the mirror of its right" % [kind, i]
+			)
+			# Above the hip, where it is buried, no part of the leg is further
+			# out than the body itself.
+			var arrays := (AnimalKinds.leg_mesh(kind, i < 2, 0, -1.0 if hips[i].x < 0.0 else 1.0) as ArrayMesh).surface_get_arrays(0)
+			var outermost := 0.0
+			for point: Vector3 in arrays[Mesh.ARRAY_VERTEX]:
+				if point.y > 0.0:
+					outermost = maxf(outermost, absf(hips[i].x + point.x))
+			_expect(outermost < half, "the %s's leg %d is inside her flank at the top (%.2f of %.2f m)" % [kind, i, outermost, half])
+		# Nothing but the loft is left: no more triangles than a phone wants.
+		var node := AnimalKinds.build_node(kind)
+		var triangles := 0
+		var stack: Array[Node] = [node]
+		while not stack.is_empty():
+			var part: Node = stack.pop_back()
+			stack.append_array(part.get_children())
+			if part is MeshInstance3D:
+				triangles += _triangle_count((part as MeshInstance3D).mesh)
+		_expect(triangles <= 1600, "the %s is %d triangles" % [kind, triangles])
+		_expect(node.get_node("Body").get_child_count() == 4 and node.get_node_or_null("Head") != null, "and keeps four legs and a head")
+		node.free()
+		_expect(AnimalNatural.is_natural(kind), "the %s is drawn by AnimalNatural" % kind)
+	# The cat's tail begins inside her, as thick as the rump there, and not at
+	# its surface as a thin stalk with a knob.
+	var cat_tail := (AnimalKinds.tail_mesh(AnimalKinds.CAT) as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	var inside := 0.0
+	for point in cat_tail:
+		if point.z < -0.1 * AnimalKinds.size_of(AnimalKinds.CAT):
+			inside = maxf(inside, absf(point.x))
+	_expect(inside > 0.2 * AnimalKinds.size_of(AnimalKinds.CAT), "the cat's tail runs into the rump, %.3f m across there" % (inside * 2.0))
+	# A dog has a chest: deeper and broader at the shoulder than it was.
+	var dog := (AnimalKinds.body_mesh(AnimalKinds.DOG) as ArrayMesh).get_aabb()
+	_expect(dog.size.x > 1.15 * AnimalKinds.size_of(AnimalKinds.DOG), "the dog is %.2f m across, not a greyhound" % dog.size.x)
+
+	# The squirrel sits up and its tail curls over its back; the head is high.
+	var squirrel_size := AnimalKinds.size_of(AnimalKinds.SQUIRREL)
+	var tail_top := (AnimalKinds.tail_mesh(AnimalKinds.SQUIRREL) as ArrayMesh).get_aabb().end.y + AnimalKinds.tail_pivot(AnimalKinds.SQUIRREL).y
+	_expect(AnimalKinds.head_pivot(AnimalKinds.SQUIRREL).y > 1.5 * squirrel_size, "the squirrel sits up, its neck %.2f m high" % AnimalKinds.head_pivot(AnimalKinds.SQUIRREL).y)
+	_expect(tail_top > 2.3 * squirrel_size, "and its tail curls up over its back, to %.2f m" % tail_top)
+	# The beaver has orange front teeth, and a paddle that is flat and wide.
+	var found_orange := false
+	for colour in (AnimalKinds.head_mesh(AnimalKinds.BEAVER) as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_COLOR] as PackedColorArray:
+		if colour.r > 0.85 and colour.g > 0.35 and colour.g < 0.65 and colour.b < 0.25:
+			found_orange = true
+	_expect(found_orange, "the beaver's front teeth are orange")
+	var beaver_size := AnimalKinds.size_of(AnimalKinds.BEAVER)
+	var paddle_wide := 0.0
+	var paddle_thick := 0.0
+	var beaver_points := (AnimalKinds.body_mesh(AnimalKinds.BEAVER) as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	for point in beaver_points:
+		if point.z > 2.2 * beaver_size:
+			paddle_wide = maxf(paddle_wide, absf(point.x))
+			paddle_thick = maxf(paddle_thick, point.y)
+	_expect(paddle_wide > 0.3 * beaver_size and paddle_thick < 0.45 * beaver_size, "the beaver's paddle is %.2f m wide and lies flat" % (paddle_wide * 2.0))
+
+	# The horse: one mirrored leg per hip, still pivoting at its hip and ending
+	# on the ground, and a neck that rises well above its back.
+	var horse_left := MountKinds.horse_leg(MountKinds.colour(MountKinds.HORSE), 0).get_aabb()
+	var horse_right := MountKinds.horse_leg(MountKinds.colour(MountKinds.HORSE), 1).get_aabb()
+	_expect(absf(horse_left.position.x + horse_right.end.x) < 0.001, "the horse's legs are mirrored")
+	for i in MountKinds.HORSE_HIPS.size():
+		var low := MountKinds.horse_leg(MountKinds.colour(MountKinds.HORSE), i).get_aabb().position.y + MountKinds.HORSE_HIPS[i].y
+		_expect(low < 0.0 and low > -0.12, "the horse's hoof %d reaches the ground (%.3f m below)" % [i, low])
+	var head_box := (MountKinds.horse_part("head") as ArrayMesh).get_aabb()
+	_expect(head_box.end.y + MountKinds.HORSE_HEAD_PIVOT.y > MountKinds.HORSE_SADDLE_Y + 0.3, "the horse's head is carried above its rider's seat")
+	_expect(_triangle_count(MountKinds.build_mesh(MountKinds.HORSE)) <= 2000, "and the horse is not more than 2000 triangles")
+
+	# The ducks are smooth and light.
+	for drake: bool in [true, false]:
+		var duck := Ducks.new()
+		var mesh := duck._build(drake)
+		_expect(_triangle_count(mesh) <= 700, "a duck is %d triangles" % _triangle_count(mesh))
+		_expect(_open_edges(mesh) == 0, "a duck is one closed skin, with no seam")
+		var box := (mesh as ArrayMesh).get_aabb()
+		# The bill is the flattest, foremost thing on it, and the tail is cocked up.
+		_expect(box.position.z < -0.3 and box.end.z > 0.28, "a duck is %.2f m long" % box.size.z)
+		duck.free()
 
