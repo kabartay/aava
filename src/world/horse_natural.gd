@@ -75,9 +75,12 @@ static func head(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
 	# as thick as the chest is there, and is thick all the way up, a pony's
 	# being as deep as it is long; it arches to the poll, and the head is
 	# carried down from it to a soft, square muzzle. The first rings lie inside
-	# the body so that no edge of the neck shows on the chest.
+	# the body so that no edge of the neck shows on the chest. The first ring's
+	# top is below the back's (1.07 against 1.13 m): it used to be level with it
+	# (1.16 m), so the neck ran flush along the back and drew a crease where the
+	# two skins met at the withers.
 	var skull := AnimalLoft.make(_rings([
-		[0.0, 0.94, -0.22, 0.17, 0.22, 0.26], [0.0, 1.03, -0.46, 0.165, 0.21, 0.22],
+		[0.0, 0.90, -0.22, 0.17, 0.17, 0.26], [0.0, 1.00, -0.46, 0.165, 0.20, 0.22],
 		[0.0, 1.15, -0.64, 0.155, 0.20, 0.20], [0.0, 1.28, -0.76, 0.14, 0.18, 0.18],
 		[0.0, 1.39, -0.88, 0.13, 0.15, 0.19, 2.2], [0.0, 1.36, -1.04, 0.11, 0.12, 0.16, 2.3],
 		[0.0, 1.27, -1.19, 0.08, 0.095, 0.10, 2.4], [0.0, 1.20, -1.30, 0.078, 0.08, 0.08, 2.6],

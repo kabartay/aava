@@ -247,6 +247,9 @@ var _lantern_button: Button
 var _sleep_button: Button
 var together: TogetherPanel
 var _talk_button: Button
+## Whether a finger is on the talk button, kept here because a button that is
+## hidden under a finger forgets it was pressed and never says it was let go.
+var _talk_held := false
 var _voice_allowed := true
 var _shop: PanelContainer
 ## The shelf the stock sits on, which scrolls when there is more of it than
@@ -650,8 +653,10 @@ func _init() -> void:
 	# never sits there inviting a child to speak to nobody.
 	_talk_button = _icon_button(ActionIcon.Kind.TALK)
 	_talk_button.visible = false
-	_talk_button.button_down.connect(func() -> void: talk_started.emit())
-	_talk_button.button_up.connect(func() -> void: talk_released.emit())
+	_talk_button.button_down.connect(func() -> void:
+		_talk_held = true
+		talk_started.emit())
+	_talk_button.button_up.connect(_let_go_of_talk)
 	add_child(_talk_button)
 
 	_danger = _build_danger()
@@ -1355,6 +1360,8 @@ func set_voice(offered: bool, speaking: bool) -> void:
 	# button away as well as silencing the microphone.
 	var wanted := offered and _voice_allowed
 	if _talk_button.visible != wanted:
+		if not wanted:
+			_let_go_of_talk()
 		_talk_button.visible = wanted
 		_layout()
 	# Lit while the microphone is actually running, so a child can always see
@@ -1534,14 +1541,19 @@ func _refresh_cafe_menu() -> void:
 ## Show the menu while a child is inside a café — the valley's, or one of their
 ## own with `at_home` — and say how many coins are in the purse so that what
 ## cannot be afforded yet is dimmed.
+##
+## Never while building. A child decorating their own café is inside it, and the
+## menu stands exactly where the palette and its tabs do: it lay over both, took
+## the taps meant for the pieces, and left the top of the palette unreachable.
 func set_cafe_menu_open(open: bool, at_home: bool, coins: int) -> void:
-	var state := [open, at_home, coins, _cafe_paid, Text.language()]
+	var shown := open and not _building
+	var state := [shown, at_home, coins, _cafe_paid, Text.language()]
 	if state == _cafe_menu_state:
 		return
 	var was_open: bool = _cafe_menu_state.size() > 0 and _cafe_menu_state[0]
 	_cafe_menu_state = state
-	_cafe_menu.visible = open
-	if open:
+	_cafe_menu.visible = shown
+	if shown:
 		_refresh_cafe_menu()
 		if not was_open:
 			_cafe_menu.move_to_front()
@@ -1955,6 +1967,10 @@ func set_building(enabled: bool) -> void:
 	_place_button.visible = enabled
 	_remove_button.visible = enabled
 	_undo_button.visible = enabled
+	# The café's menu gives way at once, rather than at the next frame's offer.
+	if enabled and _cafe_menu != null and _cafe_menu.visible:
+		_cafe_menu.visible = false
+		_cafe_menu_state = []
 	if not enabled:
 		_storey_row.visible = false
 		_hint.visible = false
@@ -2139,9 +2155,20 @@ func score_is_shown() -> bool:
 func set_voice_allowed(allowed: bool) -> void:
 	_voice_allowed = allowed
 	_refresh_voice_switch()
-	if not allowed and _talk_button.visible:
-		_talk_button.visible = false
-		_layout()
+	if not allowed:
+		# Switching voice off while a finger is on talk took the button away
+		# and left the microphone running: nothing was left to be released.
+		_let_go_of_talk()
+		if _talk_button.visible:
+			_talk_button.visible = false
+			_layout()
+
+## The finger came off the talk button, or the button went from under it.
+func _let_go_of_talk() -> void:
+	if not _talk_held:
+		return
+	_talk_held = false
+	talk_released.emit()
 
 ## Where in the name a tap at this local x falls, measured letter by letter in
 ## the field's own font — the field is centred and never scrolls, since the
@@ -2523,6 +2550,13 @@ func _layout() -> void:
 	var column_top := _backpack.position.y + _backpack.shut_height() + 10.0
 	var column_x := safe.position.x + safe.size.x - BUTTON - MARGIN
 	var floor_y := safe.position.y + safe.size.y - BUTTON * 2.0 - MARGIN
+	# Nor into whatever is stacked above build in this same column: the kick
+	# button, and while building the plus. The kick stands two places up then,
+	# so a third carried thing was drawn straight through it.
+	if _kick_button.visible:
+		floor_y = minf(floor_y, _kick_button.position.y - 10.0)
+	if _building:
+		floor_y = minf(floor_y, _place_button.position.y - 10.0)
 	var next_y := column_top
 	for button: Button in [
 		_drink_button, _snack_button, _lantern_button,
@@ -2568,9 +2602,16 @@ func _layout() -> void:
 	# stroke" then hung out to the right over the jump button. Nothing laid
 	# the screen out again once it had grown.
 	_care_button.size = _care_button.get_combined_minimum_size()
+	# Not on the palette's row while building. The palette is centred on that
+	# very row, so an animal wandering up to a child laying walls put the
+	# button across the pieces, and whichever was added later took every touch.
+	# While building it hangs under the task line instead, where nothing is.
+	var thumb_row := safe.position.y + safe.size.y - BUTTON - MARGIN
+	if _building:
+		thumb_row = _task_label.position.y + 44.0
 	_care_button.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _care_button.size.x * 0.5,
-		safe.position.y + safe.size.y - BUTTON - MARGIN
+		thumb_row
 	)
 
 	# The bow's button shares that spot, and the two do meet: nothing keeps the
@@ -2581,7 +2622,7 @@ func _layout() -> void:
 	var shoot_x := safe.position.x + safe.size.x * 0.5 - _shoot_button.size.x * 0.5
 	if _care_button.visible:
 		shoot_x = _care_button.position.x + _care_button.size.x + 16.0
-	_shoot_button.position = Vector2(shoot_x, safe.position.y + safe.size.y - BUTTON - MARGIN)
+	_shoot_button.position = Vector2(shoot_x, thumb_row)
 
 	# The shelf takes what is left of the screen after everything that has to be
 	# on it: the heading above, and the name, the line about it, the buying

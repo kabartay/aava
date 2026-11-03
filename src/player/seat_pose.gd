@@ -56,11 +56,15 @@ const POSES := {
 	# out, so the thighs go out and down over the skirts and the lower legs hang
 	# down the barrel's side, the feet in the irons: a child's own legs are only
 	# 0.29 to 0.38 m from hip to ankle, and this is as far down as the shortest
-	# reaches. The back is upright, the hands low and in front over the
-	# withers, a little further forward at a canter (RigMotion).
+	# reaches. The back is upright, the hands in front over the withers, a
+	# little further forward at a canter (RigMotion). The grip is 0.42 above the
+	# seat and only 0.07 ahead of the hips: the plain character's chest is long
+	# and its arm 0.23 m, and reins held low and far leaned it forward 46 degrees
+	# to reach them. Held near the chest, with the forearms forward, every
+	# character sits within about 6 degrees of upright (checked).
 	&"horse": {
 		"seat": Vector3(0.0, 0.0, 0.04), "lean": 0.1, "nod": 0.1,
-		"hand": Vector3(-0.16, 0.26, -0.13), "reach": 1.1,
+		"hand": Vector3(-0.20, 0.42, -0.07), "reach": 1.1,
 		"foot": Vector3(-0.25, -0.19, 0.04), "toe": -0.4,
 		"knee": Vector3(-0.3, 0.2, -1.0), "elbow": Vector3(-1.0, -0.2, 0.3),
 		"style": &"rock",

@@ -484,6 +484,10 @@ func _initialize() -> void:
 	await _check_a_child_walks_up_the_stairs_onto_the_upper_floor()
 	_check_the_chair_does_not_snag()
 	_check_the_camera_looks_past_a_childs_furniture()
+	_check_the_looks_of_the_pony_rider_neck_and_carousel_pink()
+	await _check_the_cafe_menu_gives_way_to_building()
+	await _check_a_wandering_animal_does_not_cover_the_palette_or_the_kick()
+	await _check_switching_voice_off_lets_go_of_a_held_talk_button()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -24728,4 +24732,147 @@ func _check_the_other_childs_cafe_is_not_announced_as_mine() -> void:
 	own = own.substr(0, own.find("\nfunc ", 1))
 	_expect(own.contains("say_own_cafe") and own.contains("say_own_shop"), "the child's own venues are still announced")
 	_expect(game.count("_note_new_venues()") >= 3, "and still from the child's own placing and removing")
+
+## A child decorating their own café stands inside it, so the menu was offered
+## every frame while the palette and its tabs were being used in the very same
+## place: it lay over both and took the taps meant for the pieces.
+func _check_the_cafe_menu_gives_way_to_building() -> void:
+	print("the cafe's menu gives way to the build palette")
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	window.size = Vector2i(1280, 720)
+	window.content_scale_size = Vector2i(1280, 720)
+	var hud := Hud.new()
+	window.add_child(hud)
+	await process_frame
+	hud.set_cafe_menu_open(true, true, 3)
+	_expect(hud.is_cafe_menu_open(), "the menu is up inside a cafe")
+	hud.set_building(true)
+	_expect(not hud.is_cafe_menu_open(), "and goes the moment building opens")
+	# The game offers it again every frame.
+	hud.set_cafe_menu_open(true, true, 3)
+	await process_frame
+	_expect(not hud.is_cafe_menu_open(), "and stays away while building, however often it is offered")
+	hud.set_building(false)
+	hud.set_cafe_menu_open(true, true, 3)
+	_expect(hud.is_cafe_menu_open(), "and comes back when building is closed")
+	hud.queue_free()
+	window.size = was_size
+	window.content_scale_size = was_content
+	await process_frame
+
+## The care and bow buttons stand on the bottom row, centred, which is where the
+## palette stands while building; and the things carried walked down the right
+## edge into the kick button, which stands two places up while building.
+func _check_a_wandering_animal_does_not_cover_the_palette_or_the_kick() -> void:
+	print("an animal or a ball does not put a button across the build controls")
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	for lang: StringName in [Text.EN, Text.RU]:
+		Text.set_language(lang)
+		window.size = Vector2i(1280, 720)
+		window.content_scale_size = Vector2i(1280, 720)
+		var hud := Hud.new()
+		window.add_child(hud)
+		await process_frame
+		hud.set_building(true)
+		hud.set_animal_in_reach(Text.of("wish_stroke"))
+		hud.set_on_shooting_line(true)
+		hud._layout()
+		await process_frame
+		hud._layout()
+		var palette := Rect2(hud._palette.position, hud._palette.size)
+		var tabs := Rect2(hud._tabs.position, hud._tabs.size)
+		for button: Button in [hud._care_button, hud._shoot_button]:
+			var drawn := Rect2(button.position, button.size)
+			_expect(
+				not drawn.intersects(palette) and not drawn.intersects(tabs),
+				"in %s the %s keeps off the palette and its tabs while building" % [
+					lang, "care button" if button == hud._care_button else "bow button"
+				]
+			)
+		hud.set_animal_in_reach("")
+		hud.set_on_shooting_line(false)
+		hud.set_ball_in_reach(true)
+		hud.set_vitals(0.5, 0.5, true)
+		hud.set_lantern(true, true)
+		hud.set_owned({ShopStock.WHISTLE: 1})
+		hud.set_snack_offer(true)
+		hud._layout()
+		await process_frame
+		hud._layout()
+		var stack := [Rect2(hud._kick_button.position, hud._kick_button.size)]
+		stack.append(Rect2(hud._place_button.position, hud._place_button.size))
+		for button: Button in [hud._drink_button, hud._lantern_button, hud._whistle_button, hud._snack_button]:
+			_expect(
+				button.visible and not Rect2(button.position, button.size).intersects(stack[0])
+				and not Rect2(button.position, button.size).intersects(stack[1]),
+				"in %s a carried thing stays clear of the kick and plus buttons while building" % lang
+			)
+		hud.queue_free()
+	Text.set_language(Text.EN)
+	window.size = was_size
+	window.content_scale_size = was_content
+	await process_frame
+
+## A hidden button never sends its release. Switching voice off while a finger
+## was on talk took the button away and left the microphone sending to the
+## other phone, with nothing left on the screen to let go of.
+func _check_switching_voice_off_lets_go_of_a_held_talk_button() -> void:
+	print("switching voice off lets go of a held talk button")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var released := [0]
+	hud.talk_released.connect(func() -> void: released[0] += 1)
+	hud.set_voice(true, false)
+	hud._talk_button.button_down.emit()
+	hud._talk_button.button_up.emit()
+	_expect(released[0] == 1, "an ordinary press and release is released once (%d)" % released[0])
+	hud._talk_button.button_down.emit()
+	hud.set_voice_allowed(false)
+	_expect(released[0] == 2, "voice switched off under a held finger is released at once (%d)" % released[0])
+	hud.set_voice_allowed(true)
+	hud.set_voice(true, false)
+	hud._talk_button.button_down.emit()
+	hud.set_voice(false, false)
+	_expect(released[0] == 3, "so is a button taken away because nobody is left to talk to (%d)" % released[0])
+	hud._talk_button.button_up.emit()
+	_expect(released[0] == 3, "and a release that arrives later does not say it twice (%d)" % released[0])
+	hud.queue_free()
+
+## Three things that looked wrong in a render and are held by a measurement now.
+## A rider on the pony sat tipped forward some 46 degrees when the character was
+## the plain one, whose arms are short and whose chest is long: the reins were
+## too low for it to reach upright. The neck rose through the top of the back
+## flush with it, which draws as a crease where the skins meet. And the pink
+## carousel horse read lilac, because the sky's blue light lands on a coat whose
+## blue was as high as its red.
+func _check_the_looks_of_the_pony_rider_neck_and_carousel_pink() -> void:
+	print("the pony's rider sits nearly upright, the neck comes out of the back, the pink horse is pink")
+	for which in Character.KEYS.size():
+		var seated := _seated(which, MountKinds.HORSE)
+		var torso := (seated[0] as Node3D).find_child("Torso", true, false) as Node3D
+		var lean := rad_to_deg(-torso.rotation.x)
+		_expect(lean < 15.0, "%s sits upright on the pony, leaning %.1f degrees (under 15)" % [Character.KEYS[which], lean])
+		(seated[2] as Node3D).queue_free()
+	# The first ring of the neck lies inside the back: nothing of it is above the
+	# back's own height at that place, so the neck rises out of it.
+	var head: ArrayMesh = MountKinds.horse_part("head")
+	var highest := -1e9
+	var near := 0
+	for point: Vector3 in head.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		var at := point + MountKinds.HORSE_HEAD_PIVOT
+		if at.z > -0.30 and at.z < -0.18:
+			near += 1
+			highest = maxf(highest, at.y - HorseNatural.back_at(at.z))
+	_expect(near > 0, "there is neck at the front of the back to measure (%d points)" % near)
+	_expect(highest <= 0.0, "the neck comes out of the back, not flush on top of it (%.3f m above it)" % highest)
+
+	# Pink is red well ahead of blue. The sky's light is blue, so a coat with its
+	# blue near its red is lit to lilac.
+	var pink: Color = Carousel.HORSE_PAINT[3][0]
+	_expect(pink.r - pink.b > 0.4 and pink.g >= pink.b, "the pink carousel horse's coat has its red well ahead of its blue (%.2f, %.2f, %.2f)" % [pink.r, pink.g, pink.b])
 

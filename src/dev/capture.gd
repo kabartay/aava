@@ -27,6 +27,8 @@ extends Node3D
 ##   --shop=1  open the shop panel, with coins to spend
 ##   --dam=1  finish the first dam before the shot, to show the pond
 ##   --mounts=1  put a horse and a bicycle in front of the camera
+##   --ride=KIND    seat a child on that mount (horse, bicycle...), placed
+##                  at --look, with --rider=N for the character (0 simple, -1 none)
 ##   --character=C,SKIN,HAIR  with --player=1, dress the player as that
 ##                  character (0 plain, 1 boy, 2 girl, 3 cap, 4 bear)
 ##   --chop=N  fell the N nearest trees before the shot, to show a clearing
@@ -95,6 +97,8 @@ var _together := ""
 var _energy := 1.0
 var _chop := 0
 var _mounts := false
+var _ride: StringName = &""
+var _rider := 0
 ## --character=C,SKIN,HAIR: dress the player as this character.
 var _look: Array = []
 var _dam := false
@@ -191,6 +195,8 @@ func _ready() -> void:
 		_fell_nearby()
 	if _mounts:
 		_show_mounts()
+	if _ride != &"":
+		_seat_a_rider()
 	if _dam:
 		for _i in DamSpec.STICKS_NEEDED:
 			_world.dams.deliver(DamSpec.SITES[0])
@@ -201,7 +207,7 @@ func _ready() -> void:
 			await RenderingServer.frame_post_draw
 			if _world.terrain.is_idle() and _world.vegetation.is_idle():
 				break
-	if _chop > 0 or _mounts or _animals:
+	if _chop > 0 or _mounts or _animals or _ride != &"":
 		# Let the queued rebuilds actually run before the shutter opens.
 		for _i in 12:
 			await get_tree().process_frame
@@ -764,6 +770,10 @@ func _parse_arguments() -> void:
 				_chop = value.to_int()
 			"mounts":
 				_mounts = value.to_int() != 0
+			"ride":
+				_ride = StringName(value)
+			"rider":
+				_rider = value.to_int()
 			"character":
 				_look = Array(value.split(",")).map(func(part: String) -> int: return part.to_int())
 			"dam":
@@ -860,6 +870,23 @@ func _fell_nearby() -> void:
 		_world.vegetation.rebuild_around(tree)
 		cut += 1
 	print("felled %d trees; %d stumps recorded" % [cut, _world.felled.count()])
+
+## One mount with a child seated on it, placed at the --look point, for a close
+## look at the seat pose. The rig sits where the game puts it: the mount's own
+## origin lifted by MountKinds.eye_lift, and is posed by the same RigMotion.
+func _seat_a_rider() -> void:
+	var spot := _look_at
+	spot.y = _world.field.height_at(spot.x, spot.z)
+	_world.mounts.place(_ride, spot)
+	if _rider < 0:
+		return
+	var rig := Character.build(_rider, 1, 1, Visitors.SHIRTS[2])
+	rig.position = Vector3.UP * MountKinds.eye_lift(_ride)
+	_world.mounts.node_of(_ride).add_child(rig)
+	var motion := RigMotion.new(rig)
+	motion.seat = MountKinds.kind_of(_ride)
+	for _i in 90:
+		motion.step(1.0 / 60.0)
 
 ## A horse and a bicycle side by side, so a screenshot shows whether each reads
 ## as what it is.
