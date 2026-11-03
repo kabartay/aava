@@ -211,6 +211,7 @@ func _initialize() -> void:
 	await _check_the_rides_are_solid()
 	_check_a_carousel_horse_seats_where_its_saddle_is()
 	await _check_the_carousel_is_a_ride_like_the_others()
+	_check_the_carousel_is_drawn_inside_what_is_collided()
 	_check_ride_decks_are_collided_as_drawn()
 	_check_the_pirate_ship_swings()
 	_check_the_drop_tower_climbs_and_falls()
@@ -22489,4 +22490,85 @@ func _check_far_animals_are_stepped_less_often_and_walk_as_far() -> void:
 	)
 	near.queue_free()
 	far.queue_free()
+
+## The carousel was redrawn with prancing horses, a pig, a rooster, swans, a
+## scalloped canopy, a painted drum and handrailed ramps. All of that is paint
+## over the same few solid things, and this holds the paint to them: nothing of
+## an animal below its saddle is drawn outside its barrel, the drum's paint is
+## inside its collider, the handrails are solid, the lap belt lies low and thin,
+## and a child standing on the deck does not meet the valance.
+func _check_the_carousel_is_drawn_inside_what_is_collided() -> void:
+	print("the carousel's animals, drum and rails are drawn inside what is collided")
+	var carousel := Carousel.new(Vector3.ZERO)
+	get_root().add_child(carousel)
+	var kinds := {}
+	for kind in Carousel.KINDS:
+		kinds[kind] = int(kinds.get(kind, 0)) + 1
+	_expect(
+		kinds.get(&"horse", 0) >= 4 and kinds.has(&"pig") and kinds.has(&"rooster") and kinds.has(&"swan"),
+		"there are horses, a pig, a rooster and a swan chariot to choose from"
+	)
+	var webbing_top := -INF
+	for horse in Carousel.HORSES:
+		var barrel: CollisionShape3D = carousel._barrels[horse]
+		var box := barrel.shape as BoxShape3D
+		var drawn := carousel.get_node("Turntable/Animal%d" % horse) as MeshInstance3D
+		var arrays := drawn.mesh.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		var out_by := 0.0
+		for index in vertices.size():
+			var local := barrel.transform.affine_inverse() * vertices[index]
+			# The head and the swan's neck rise above the saddle, where nothing a
+			# child does reaches; the rest is held to the barrel's own box.
+			if local.y > box.size.y * 0.5:
+				if _colour_near(colours[index], Carousel.WEBBING):
+					webbing_top = maxf(webbing_top, vertices[index].y - Carousel.SADDLE_TOP)
+				continue
+			if _colour_near(colours[index], Carousel.WEBBING):
+				webbing_top = maxf(webbing_top, vertices[index].y - Carousel.SADDLE_TOP)
+			out_by = maxf(out_by, absf(local.x) - box.size.x * 0.5)
+			out_by = maxf(out_by, absf(local.z) - box.size.z * 0.5)
+			out_by = maxf(out_by, -local.y - box.size.y * 0.5)
+		_expect(
+			out_by < 0.11,
+			"%s %d is drawn within its barrel below the saddle (out by %.2f m)" % [Carousel.KINDS[horse], horse, out_by]
+		)
+	_expect(webbing_top > 0.0 and webbing_top < 0.16, "the lap belt lies on the lap, %.2f m over the saddle, not a bar across the child" % webbing_top)
+
+	# The drum's paint, bands and frames never stand further out than its collider.
+	var turning := carousel.get_node("Turntable/Turning") as MeshInstance3D
+	var turning_arrays := turning.mesh.surface_get_arrays(0)
+	var turning_vertices: PackedVector3Array = turning_arrays[Mesh.ARRAY_VERTEX]
+	var base := Carousel.FLOOR_HEIGHT + Carousel.DECK_THICKNESS * 0.5
+	var drum_reach := 0.0
+	var lowest_valance := INF
+	for point in turning_vertices:
+		var flat := Vector2(point.x, point.z).length()
+		if flat < 1.5 and point.y > base + 0.001 and point.y < base + Carousel.DRUM_HEIGHT - 0.001:
+			drum_reach = maxf(drum_reach, flat)
+		if flat > Carousel.RADIUS and point.y > base + 1.0:
+			lowest_valance = minf(lowest_valance, point.y)
+	var drum_solid := 0.0
+	for shape in carousel.get_node("Floor").get_children():
+		var cylinder := (shape as CollisionShape3D).shape as CylinderShape3D
+		if cylinder != null and cylinder.radius > 0.9 and cylinder.radius < 1.5:
+			drum_solid = cylinder.radius
+	_expect(drum_reach <= drum_solid + 0.001, "the drum's paint reaches %.3f m and its collider %.3f m" % [drum_reach, drum_solid])
+	_expect(
+		lowest_valance > base + Player.HEIGHT + 0.5,
+		"the valance hangs %.2f m over the deck, clear of a child's head" % (lowest_valance - base)
+	)
+
+	# The handrails are solid: a wall along each side of each of the four ramps,
+	# as tall as the rails, and not across the way up.
+	var walls := 0
+	for shape in carousel.get_node("Floor").get_children():
+		var wall := (shape as CollisionShape3D).shape as BoxShape3D
+		if wall != null and wall.size.y > Carousel.RAIL_HEIGHT and wall.size.z < 0.2 and wall.size.x > 1.0:
+			walls += 1
+			var ramp_at := Vector2((shape as CollisionShape3D).position.x, (shape as CollisionShape3D).position.z)
+			_expect(ramp_at.length() > Carousel.RADIUS, "a handrail stands out on its ramp, not on the deck")
+	_expect(walls == 8, "two solid handrails to each of the four ramps (%d)" % walls)
+	carousel.queue_free()
 
