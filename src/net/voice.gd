@@ -102,6 +102,11 @@ var _capture: AudioEffectCapture = null
 var _microphone: AudioStreamPlayer = null
 var _speakers: Dictionary = {}
 var _talking := false
+
+## The button is down but the permission dialog is still open. Without this the
+## press that raised the dialog was simply lost, and a child who pressed,
+## tapped "allow" and pressed again could not tell it from being refused.
+var _held := false
 var _available := false
 
 func _init() -> void:
@@ -123,6 +128,15 @@ func _ready() -> void:
 	_available = _build_bus()
 	if not _available:
 		push_warning("no microphone: the talk button will not be offered")
+	if is_inside_tree():
+		get_tree().on_request_permissions_result.connect(_on_permission_answered)
+
+## The dialog was answered. If the child is still holding the button the answer
+## carries straight on into talking, rather than asking them to press again; if
+## they let go while it was open there is nothing to carry on.
+func _on_permission_answered(permission: String, granted: bool) -> void:
+	if permission == PERMISSION and granted and _held:
+		start_talking()
 
 ## The bus, its capture effect, and the (stopped) microphone player.
 func _build_bus() -> bool:
@@ -187,9 +201,9 @@ func start_talking() -> void:
 		return
 
 	# Asked for here, on the press, rather than at startup — see the note at the
-	# top of this file. The dialog is answered after this frame, so this press
-	# does not carry; the next one does. That is one lost press, once, in
-	# exchange for a permission request that explains itself.
+	# top of this file. The dialog is answered after this frame, and if the
+	# button is still down then, `_on_permission_answered` carries on.
+	_held = true
 	if not is_permitted():
 		OS.request_permission(PERMISSION)
 		return
@@ -204,6 +218,7 @@ func start_talking() -> void:
 ## Let go. The microphone stops here, and this is the only place it can be
 ## running from.
 func stop_talking() -> void:
+	_held = false
 	if not _talking:
 		return
 	_talking = false

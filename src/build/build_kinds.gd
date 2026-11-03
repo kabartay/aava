@@ -58,6 +58,17 @@ const WILD_TREE_VALUE := 3
 static func reward_for(kind: StringName) -> int:
 	return int(TREE_VALUE.get(kind, 0))
 
+## What a standing piece has already paid out: a tree that has finished growing
+## has earned its reward, and one still growing has earned nothing. Asked when a
+## piece is taken down, because the minus button gave the seed back in full and
+## kept the coins: plant, wait, take down, plant again was a purse that filled
+## itself, three coins a round or six for a fir, which the axe was already
+## written not to allow.
+static func grown_worth(record: Dictionary) -> int:
+	if int(record.get("stage", 0)) < GROWTH_STAGES - 1:
+		return 0
+	return reward_for(record.get("kind", &""))
+
 const INFO := {
 	SAPLING: {
 		"label": "sapling",

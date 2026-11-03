@@ -111,6 +111,20 @@ func buy_ticket(price: int) -> bool:
 	changed.emit(coins)
 	return true
 
+## Pay back what is owed as far as the purse goes, and say whether all of it
+## was. Never into debt: a child with nothing is charged nothing, and simply
+## does not get the part that was to be paid for.
+func repay(owed: int) -> bool:
+	var toll := mini(owed, coins)
+	if toll > 0:
+		spend(toll)
+	return toll >= owed
+
+## A ticket paid for and never used goes back in the purse as it was.
+func return_ticket() -> void:
+	tickets += 1
+	changed.emit(coins)
+
 ## Hand one over at the gate of a ride. False if there is none to hand over.
 func use_ticket() -> bool:
 	if tickets <= 0:

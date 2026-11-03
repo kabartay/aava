@@ -92,6 +92,9 @@ const BEACON := Color(0.96, 0.24, 0.20)
 
 enum Phase { GROUND, ASCEND, TOP, DROP }
 
+## The ring has been let go at the top, for the sound of it.
+signal dropped
+
 var _phase := Phase.GROUND
 var _phase_time := 0.0
 var _ring: AnimatableBody3D
@@ -458,6 +461,7 @@ func _physics_process(delta: float) -> void:
 			if _phase_time >= TOP_HOLD:
 				_phase = Phase.DROP
 				_phase_time = 0.0
+				dropped.emit()
 		Phase.DROP:
 			var u := clampf(_phase_time / DROP_TIME, 0.0, 1.0)
 			# Not let go of but thrown down: the ring leaves the top already

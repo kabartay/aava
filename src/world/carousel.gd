@@ -269,7 +269,47 @@ func _init(at: Vector3) -> void:
 	Park.commit(turning, _turntable, "Turning")
 	Park.commit(still, self, "Still")
 
+	# Its music: a small tune, from the middle of the ride and only heard near
+	# it. A carousel that turns in silence is a ceiling fan. The tune is baked
+	# on a worker thread, as the animals' voices are, and starts when it is
+	# ready — a couple of hundred thousand samples is not for the first frame.
+	_music = AudioStreamPlayer3D.new()
+	_music.name = "Music"
+	_music.bus = Mix.WORLD
+	_music.max_distance = MUSIC_REACH
+	_music.unit_size = 5.0
+	_music.volume_db = MUSIC_DB
+	_music.position = Vector3(0.0, CANOPY_HEIGHT * 0.5, 0.0)
+	add_child(_music)
+	_music_task = WorkerThreadPool.add_task(_bake_music, false, "carousel music")
+
+## How far the carousel's tune carries, and how loud it is at the ride.
+const MUSIC_REACH := 45.0
+const MUSIC_DB := -16.0
+
+var _music: AudioStreamPlayer3D
+var _music_task := -1
+var _music_stream: AudioStreamWAV
+
+func _bake_music() -> void:
+	_music_stream = Sounds.music_box()
+
+## Never freed while the bake is still running: it writes into this object.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE and _music_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_music_task)
+		_music_task = -1
+
+## Is the tune playing? For the checks.
+func music_playing() -> bool:
+	return _music != null and _music.playing
+
 func _physics_process(delta: float) -> void:
+	if _music_task >= 0 and WorkerThreadPool.is_task_completed(_music_task):
+		WorkerThreadPool.wait_for_task_completion(_music_task)
+		_music_task = -1
+		_music.stream = _music_stream
+		_music.play()
 	_turned = fmod(_turned + TURN_RATE * delta, TAU)
 	var spin := Transform3D(Basis(Vector3.UP, _turned), Vector3.ZERO)
 	_turntable.transform = spin

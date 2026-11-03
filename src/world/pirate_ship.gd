@@ -98,6 +98,10 @@ const LAMP := Color(1.0, 0.82, 0.42)
 
 enum Phase { STILL, SWINGING }
 
+## The boat has swung through the bottom of its arc, with how far it is
+## swinging as a fraction of its widest, for the breath of air that goes with it.
+signal passed_the_bottom(strength: float)
+
 var _phase := Phase.STILL
 var _phase_time := 0.0
 var _swing_time := 0.0
@@ -754,7 +758,12 @@ func _physics_process(delta: float) -> void:
 				envelope = smoothstep(0.0, 1.0, _swing_time / RAMP_TIME)
 			elif _swing_time > SWING_TIME - RAMP_TIME:
 				envelope = smoothstep(0.0, 1.0, (SWING_TIME - _swing_time) / RAMP_TIME)
+			var before_angle := _angle
 			_angle = MAX_ANGLE * envelope * sin(TAU / SWING_PERIOD * _swing_time)
+			# Through the bottom is a change of side. Only once it is swinging
+			# enough to feel: the first, barely-moving passes are no breeze.
+			if before_angle * _angle < 0.0 and envelope > 0.25:
+				passed_the_bottom.emit(envelope)
 			if _phase_time >= SWING_TIME:
 				_phase = Phase.STILL
 				_phase_time = 0.0

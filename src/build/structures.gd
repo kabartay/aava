@@ -666,6 +666,14 @@ func nearest_shared(world_position: Vector3, reach: float, kind := &"") -> Dicti
 			best = record
 	return best
 
+## Everything standing is the host's valley, handed to a guest on arrival: not
+## built from this child's bag, so taking it down refunds nothing, and standing
+## in both valleys, so a removal either child makes crosses the wire.
+func adopt_as_shared() -> void:
+	for record in _records:
+		record["paid"] = false
+		record["shared"] = true
+
 ## The game together is over: from now on nothing here is in anyone else's
 ## valley, including what was built while it lasted. Kept per session rather
 ## than saved, because the next game may be with a different brother whose

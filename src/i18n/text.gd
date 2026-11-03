@@ -420,6 +420,36 @@ const STRINGS := {
 		EN: "playing alone again", FR: "de nouveau tout seul",
 		RU: "снова играешь один",
 	},
+	"say_joining": {
+		EN: "looking for that valley…", FR: "je cherche cette vallée…",
+		RU: "ищем эту долину…",
+	},
+	"say_met": {
+		EN: "%s is here", FR: "%s est là", RU: "%s здесь",
+	},
+	"fail_unreachable": {
+		EN: "nobody answered at that number — check it and try again",
+		FR: "personne ne répond à ce numéro — vérifie-le et réessaie",
+		RU: "по этому номеру никто не отвечает — проверь его и попробуй снова",
+	},
+	"fail_host_closed": {
+		EN: "your friend closed their valley",
+		FR: "ton ami a fermé sa vallée",
+		RU: "друг закрыл свою долину",
+	},
+	"fail_in_use": {
+		EN: "the game is already open on this device",
+		FR: "le jeu est déjà ouvert sur cet appareil",
+		RU: "игра уже открыта на этом устройстве",
+	},
+	"fail_open": {
+		EN: "could not open the valley", FR: "impossible d'ouvrir la vallée",
+		RU: "не удалось открыть долину",
+	},
+	"fail_connect": {
+		EN: "could not connect", FR: "connexion impossible",
+		RU: "не удалось подключиться",
+	},
 	"say_joined": {
 		EN: "%s came to your valley", FR: "%s est venu dans ta vallée",
 		RU: "%s пришёл в твою долину",
@@ -750,6 +780,12 @@ const STRINGS := {
 		EN: "your own tree: %d wood, and the %d it grew for",
 		FR: "ton propre arbre : %d bois, et les %d de sa pousse",
 		RU: "своё дерево: %d древесины, и %d монет за рост назад",
+	},
+	# %d is the coins the tree's growing had paid, taken back as the axe does.
+	"say_took_tree": {
+		EN: "tree taken down: −%d, the coins it grew for",
+		FR: "arbre retiré : −%d, les pièces de sa pousse",
+		RU: "дерево убрано: −%d монет, что оно принесло",
 	},
 	"say_grown": {EN: "your tree has grown", FR: "ton arbre a poussé", RU: "твоё дерево выросло"},
 	"say_grove": {

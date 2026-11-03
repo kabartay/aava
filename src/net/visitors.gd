@@ -155,6 +155,21 @@ func rename(id: int, who: String) -> void:
 			(child as Label3D).text = who
 			return
 
+## How long a name stays lit after the last scrap of somebody's voice arrived.
+## A packet is a twentieth of a second, so this rides over a lost one or two
+## without flickering, and goes out soon after they let go.
+const SPEAKING_FOR := 0.35
+const SPEAKING_COLOUR := Color(1.0, 0.85, 0.3)
+
+## Somebody's voice has just arrived: their name lights up, so a child can see
+## which of the others is talking.
+func speaking(id: int) -> void:
+	if _visitors.has(id):
+		_visitors[id]["speaking"] = SPEAKING_FOR
+
+func is_speaking(id: int) -> bool:
+	return _visitors.has(id) and float(_visitors[id].get("speaking", 0.0)) > 0.0
+
 func remove(id: int) -> void:
 	_early.erase(id)
 	if not _visitors.has(id):
@@ -196,6 +211,12 @@ func _process(delta: float) -> void:
 		var node: Node3D = record["node"]
 		if not is_instance_valid(node):
 			continue
+		var lit := float(record.get("speaking", 0.0)) > 0.0
+		record["speaking"] = maxf(float(record.get("speaking", 0.0)) - delta, 0.0)
+		for child in node.get_children():
+			if child is Label3D:
+				(child as Label3D).modulate = SPEAKING_COLOUR if lit else Color.WHITE
+				(child as Label3D).scale = Vector3.ONE * (1.3 if lit else 1.0)
 		node.position = node.position.lerp(record["wanted"], weight)
 		node.rotation.y = lerp_angle(node.rotation.y, float(record["facing"]), weight)
 

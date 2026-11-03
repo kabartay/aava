@@ -49,6 +49,9 @@ signal remote_removed(position: Vector3, kind: StringName)
 signal remote_felled(position: Vector3)
 signal remote_dam_stick(site: float)
 signal remote_time_of_day(fraction: float)
+## The host's whole valley as it stands, told to a guest on arrival: every
+## piece built (as saved) and every tree felled.
+signal remote_valley(pieces: Array, stumps: Array)
 
 ## Where another child is, so they can be drawn.
 signal guest_moved(id: int, position: Vector3, facing: float)
@@ -110,6 +113,7 @@ var _link_id := 2
 var _peer: ENetMultiplayerPeer = null
 var _since_move := 0.0
 var _last_sent := Vector3(1e9, 1e9, 1e9)
+var _last_facing := 0.0
 
 func _init() -> void:
 	name = "Session"
@@ -306,10 +310,15 @@ func _process(delta: float) -> void:
 func report_position(at: Vector3, facing: float) -> void:
 	if not is_connected_to_anyone() or _since_move < MOVE_INTERVAL:
 		return
-	if at.distance_squared_to(_last_sent) < 0.01:
+	# A child turning on the spot is changing what the other phone draws too.
+	if (
+		at.distance_squared_to(_last_sent) < 0.01
+		and absf(angle_difference(facing, _last_facing)) < 0.1
+	):
 		return
 	_since_move = 0.0
 	_last_sent = at
+	_last_facing = facing
 	_send_position.rpc(at, facing)
 
 ## The four things that change a valley. Each is sent as it happens.
@@ -422,6 +431,17 @@ func report_time_of_day(fraction: float, to_peer := 0) -> void:
 		_send_time_of_day.rpc(fraction)
 	else:
 		_send_time_of_day.rpc_id(to_peer, fraction)
+
+## What the host has built and felled, to a guest who has just arrived. Without
+## it the guest walks into the host's valley carrying their own: a house the
+## host cannot see, and a forest the host has already cut down.
+func report_valley(pieces: Array, stumps: Array, to_peer: int) -> void:
+	if role != Role.HOSTING or not is_connected_to_anyone():
+		return
+	if _link != null:
+		_link._take_valley(HOST_ID, pieces, stumps)
+	else:
+		_send_valley.rpc_id(to_peer, pieces, stumps)
 
 # --- what arrives ---------------------------------------------------------
 #
@@ -540,6 +560,58 @@ func _send_felled(at: Vector3) -> void:
 		return
 	remote_felled.emit(at)
 
+## More pieces than anybody builds in an afternoon; a longer list is nonsense.
+const MAX_PIECES := 20000
+## And more stumps than a forest has trees near enough to fell.
+const MAX_STUMPS := 40000
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_valley(pieces: Array, stumps: Array) -> void:
+	_take_valley(multiplayer.get_remote_sender_id(), pieces, stumps)
+
+func _take_valley(from: int, pieces: Array, stumps: Array) -> void:
+	if not _from_the_host(from):
+		return
+	if pieces.size() > MAX_PIECES or stumps.size() > MAX_STUMPS:
+		return
+	# Rebuilt rather than passed on: a piece is read with
+	# `Vector3(entry.get("x"), ...)`, which is a crash for anything that is not
+	# a number, and a stump likewise.
+	var clean_pieces: Array = []
+	for entry: Variant in pieces:
+		if typeof(entry) != TYPE_DICTIONARY or typeof(entry.get("kind")) != TYPE_STRING:
+			continue
+		var piece := {"kind": entry["kind"]}
+		var good := true
+		for key: String in ["x", "y", "z", "spin", "age", "across", "along"]:
+			if not entry.has(key):
+				continue
+			var number: Variant = entry[key]
+			if (
+				(typeof(number) != TYPE_FLOAT and typeof(number) != TYPE_INT)
+				or not is_finite(float(number)) or absf(float(number)) > BELIEVABLE_REACH
+			):
+				good = false
+				break
+			piece[key] = number
+		if not good:
+			continue
+		if typeof(entry.get("material")) == TYPE_STRING:
+			piece["material"] = entry["material"]
+		clean_pieces.append(piece)
+	var clean_stumps: Array = []
+	for entry: Variant in stumps:
+		if typeof(entry) != TYPE_ARRAY or entry.size() < 2:
+			continue
+		var x: Variant = entry[0]
+		var z: Variant = entry[1]
+		if typeof(x) != TYPE_FLOAT or typeof(z) != TYPE_FLOAT:
+			continue
+		if not is_finite(x) or not is_finite(z) or absf(x) > BELIEVABLE_REACH or absf(z) > BELIEVABLE_REACH:
+			continue
+		clean_stumps.append(entry.slice(0, 3))
+	remote_valley.emit(clean_pieces, clean_stumps)
+
 @rpc("any_peer", "call_remote", "reliable")
 func _send_dam_stick(site: float) -> void:
 	if not is_finite(site) or absf(site) > BELIEVABLE_REACH:
@@ -610,6 +682,22 @@ func _on_connect_failed() -> void:
 func _on_host_left() -> void:
 	close()
 	failed.emit("the other game closed")
+
+## Which line of the game's own words says a `failed` reason to a child. The
+## reasons are written in English for whoever reads a log, and put on the
+## screen of a child who reads French or Russian.
+static func words_for(reason: String) -> StringName:
+	match reason:
+		"could not reach that valley":
+			return &"fail_unreachable"
+		"the other game closed":
+			return &"fail_host_closed"
+		"the game is already open on this device":
+			return &"fail_in_use"
+		"could not open the valley":
+			return &"fail_open"
+		_:
+			return &"fail_connect"
 
 ## Errors a child might actually hit, in words rather than codes.
 static func _explain(error: int) -> String:

@@ -44,6 +44,24 @@ var today: Today
 var lantern: Lantern
 
 var _waiting_for_ground := false
+
+## Being a guest in somebody else's valley. The guest's own valley is left on
+## disk exactly as it was: while this is true nothing of the world is written,
+## and the child's own player file says they are standing where they were when
+## they set out. Coming home is then a reload, which reads all of it back.
+var _visiting := false
+## Asked to join, and not yet standing beside the host.
+var _arriving := false
+## Where the host was last said to be, while arriving.
+var _host_at := Vector3.INF
+var _valley_received := false
+var _placed := false
+var _home_at := Vector3.ZERO
+var _home_undo: Array = []
+var _going_home := false
+## What to say once the valley has reloaded after a visit. A static, because the
+## scene that said it is gone by then.
+static var _come_home_note := ""
 var _autosave := AUTOSAVE_SECONDS
 var _seen_first_grove := false
 
@@ -241,10 +259,12 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.guest_arrived.connect(_on_guest_arrived)
 	session.guest_left.connect(_on_guest_left)
 	session.peer_gone.connect(voice.forget)
+	voice.someone_spoke.connect(visitors.speaking)
 	session.guest_renamed.connect(_on_guest_renamed)
-	session.guest_moved.connect(visitors.move)
+	session.guest_moved.connect(_on_guest_moved)
 	session.failed.connect(_on_session_failed)
 	session.closed.connect(visitors.clear)
+	session.closed.connect(_on_session_closed)
 	session.closed.connect(voice.forget_everyone)
 	# The fallback shirt comes from this machine's network id, which is 1 until
 	# the connection completes and 1 again once it closes.
@@ -259,6 +279,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_felled.connect(_on_remote_felled)
 	session.remote_dam_stick.connect(_on_remote_dam_stick)
 	session.remote_time_of_day.connect(world.atmosphere.set_time)
+	session.remote_valley.connect(_on_remote_valley)
 
 	# In somebody else's valley the football is theirs; this phone only draws it.
 	world.football.attach(session)
@@ -302,6 +323,18 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.dams.dam_finished.connect(func(site: float) -> void:
 		sounds.play_at(Sounds.Sound.GOAL, _metres_to_dam(site))
 		hud.announce(Text.of("say_dam_done"), 5.0))
+	# The fairground's two big drops and swings are heard from where they are,
+	# like the dam: a ride across the valley is not in the child's ear.
+	world.park.drop_tower.dropped.connect(func() -> void:
+		sounds.play_at(
+			Sounds.Sound.DROP, _metres_to_spot(world.park.drop_tower.global_position)
+		))
+	world.park.pirate_ship.passed_the_bottom.connect(func(strength: float) -> void:
+		sounds.play_at(
+			Sounds.Sound.SWING,
+			_metres_to_spot(world.park.pirate_ship.global_position),
+			1.0, linear_to_db(strength)
+		))
 	# A bicycle already bought must be standing in the world on reload.
 	lantern.owned = wallet.has(ShopStock.LANTERN)
 	# Every machine a child owns must be standing somewhere on reload. Where
@@ -433,6 +466,13 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	_show_the_state()
 
 	world.follow(start)
+	# Home from a visit: said once the world has appeared, and why it did.
+	if not _come_home_note.is_empty():
+		var note := Text.of(_come_home_note)
+		_come_home_note = ""
+		get_tree().create_timer(2.4).timeout.connect(func() -> void:
+			if is_instance_valid(hud):
+				hud.announce(note, 4.5))
 	print("Aava seed %d, spawn %v, player '%s' in world '%s', save at %s" % [
 		world.world_seed, start,
 		profiles.current_player if not profiles.current_player.is_empty() else "(nobody yet)",
@@ -461,6 +501,8 @@ var _coaster_rider_paid := false
 var _wheel_told := false
 var _wheel_here_told := false
 var _wheel_rider_paid := false
+## And whether they actually got into the gondola they paid for.
+var _wheel_boarded := false
 ## Which ride the question on screen is about.
 var _asked_ride: StringName = &""
 
@@ -540,17 +582,27 @@ func _physics_process(delta: float) -> void:
 		hud.stop_asking()
 	# The ticket stays good until it is used or the child walks away from the
 	# ride: paying and then missing the train should not cost a coin.
+	#
+	# Walking away with it still unused hands the ticket back: it was ten coins,
+	# and "paying and then missing the train should not cost a coin" was true of
+	# the booking and not of the purse.
 	if not ParkSpec.inside(player.global_position.x, player.global_position.z):
+		if _coaster_paid:
+			wallet.return_ticket()
 		_coaster_paid = false
 	# The wheel's payment is the same: good while a gondola is coming or
 	# standing at the boards, and gone once the child leaves the park or the
 	# booking runs out. Left set, a child who paid and never got in rode the
-	# next time for nothing.
+	# next time for nothing — and, never boarded, it is given back as a ticket.
+	if aboard == &"wheel" and _wheel_rider_paid:
+		_wheel_boarded = true
 	if _wheel_rider_paid and aboard != &"wheel" and (
 		not ParkSpec.inside(player.global_position.x, player.global_position.z)
 		or (not world.park.wheel.called() and world.park.wheel.waiting() <= 0.0)
 	):
 		_wheel_rider_paid = false
+		if not _wheel_boarded:
+			wallet.return_ticket()
 	coaster.clear_to_board(_coaster_paid)
 	# And the bars come down the moment somebody sits in a car, which is what
 	# being strapped in means — they are certainly down by the time it leaves.
@@ -732,7 +784,7 @@ func _process(delta: float) -> void:
 		structures.sharing = true
 	elif not together and structures.sharing:
 		structures.stop_sharing()
-	session.report_position(player.global_position, player.rotation.y)
+	session.report_position(player.global_position, player.facing_angle())
 	# Offered only when there is somebody in the valley to talk to.
 	hud.set_voice(
 		voice.is_available() and session.is_connected_to_anyone(),
@@ -1478,9 +1530,11 @@ func _on_together_opened() -> void:
 	# whether they would like to host.
 	if session.is_host():
 		hud.together.show_hosting()
-	elif session.is_networked():
+	elif session.is_following():
 		hud.together.show_visiting()
 	else:
+		# Also while a join is still in flight: that child is in their own
+		# valley, and "you are in someone else's valley" would be untrue.
 		hud.together.open()
 
 func _on_host_requested() -> void:
@@ -1493,7 +1547,15 @@ func _on_join_requested(code: int) -> void:
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.of("say_no_network"), 3.0)
 		return
-	session.join(address, _display_name(), _shirt)
+	if session.join(address, _display_name(), _shirt):
+		_arriving = true
+		_host_at = Vector3.INF
+		_placed = false
+		_valley_received = false
+		# Said at once, because a number nobody answers to takes seconds to be
+		# given up on, and a keypad that does nothing looks broken.
+		hud.together.close()
+		hud.announce(Text.of("say_joining"), 4.0)
 
 func _on_leave_requested() -> void:
 	session.close()
@@ -1512,9 +1574,98 @@ func _on_session_joined() -> void:
 func _on_guest_arrived(id: int, name: String, shirt: int) -> void:
 	visitors.add(id, name, shirt)
 	sounds.play(Sounds.Sound.CHIME, 1.4)
-	hud.announce(Text.format("say_joined", [name]), 4.0)
+	# A guest meets the host, who has not "come to your valley": it is the
+	# guest who has come to theirs.
 	if session.is_host():
+		hud.announce(Text.format("say_joined", [name]), 4.0)
 		session.report_time_of_day(world.atmosphere.time_of_day, id)
+		session.report_valley(structures.to_data(), world.felled.to_data(), id)
+	else:
+		hud.announce(Text.format("say_met", [name]), 4.0)
+
+## Somebody else moved. The host's first position is where a guest who has just
+## asked to come is set down, and the host's valley follows it.
+func _on_guest_moved(id: int, at: Vector3, facing: float) -> void:
+	visitors.move(id, at, facing)
+	if id != Session.HOST_ID:
+		return
+	_host_at = at
+	if _arriving and not _placed and session.is_following():
+		_placed = true
+		_begin_visit()
+		_place_beside_host()
+		if _valley_received:
+			_arriving = false
+
+## The host's valley, as it stands, arrives for a guest.
+func _on_remote_valley(pieces: Array, stumps: Array) -> void:
+	if not session.is_following():
+		return
+	_begin_visit()
+	structures.from_data(pieces)
+	structures.adopt_as_shared()
+	world.felled.from_data(stumps)
+	world.vegetation.rebuild_all()
+	_refresh_fires()
+	# What the host has built is not news, whatever it is.
+	_known_cafe = structures.has_venue(&"cafe")
+	_known_shop = structures.has_venue(&"shop")
+	_valley_received = true
+	# Set down again beside the host, now that their walls are here to be
+	# stood clear of rather than somebody else's.
+	if _placed:
+		_place_beside_host()
+		_arriving = false
+
+## The guest's own valley stops being written to, and where they were standing
+## is remembered, from the moment anything of the host's reaches this phone.
+func _begin_visit() -> void:
+	if _visiting:
+		return
+	_visiting = true
+	_home_at = player.global_position
+	_home_undo = build_mode.history_to_data()
+
+## Somewhere beside the host that is dry, level and clear of anything built.
+func _spot_beside(host: Vector3) -> Vector3:
+	var field := world.field
+	for ring: float in [2.0, 3.2, 4.5]:
+		for step in 8:
+			var angle := TAU * float(step) / 8.0 + 0.6
+			var x := host.x + cos(angle) * ring
+			var z := host.z + sin(angle) * ring
+			var ground := field.height_at(x, z)
+			if field.is_pond(x, z) or ground < field.water_level_at(x, z) + 0.3:
+				continue
+			if world.places.water_depth_at(x, z) > 0.0 or field.steepness_at(x, z) > 0.5:
+				continue
+			var spot := Vector3(x, ground, z)
+			if not structures.is_clear(spot, 0.5):
+				continue
+			return world.signpost.push_clear(spot)
+	# Nowhere ideal — the host is in the river or up a mountain — so where they are.
+	return Vector3(host.x, maxf(host.y, field.height_at(host.x, host.z)), host.z)
+
+func _place_beside_host() -> void:
+	if player.riding != &"":
+		_on_ride()
+	var spot := _spot_beside(_host_at)
+	player.velocity = Vector3.ZERO
+	player.global_position = spot + Vector3.UP * SPAWN_CLEARANCE
+	world.follow(spot)
+	# As on first arrival: no physics until the ground under them exists.
+	player.set_physics_process(false)
+	_waiting_for_ground = true
+
+## The connection is over. A guest goes home: the world is read back from disk,
+## where their own valley has been kept all along.
+func _on_session_closed() -> void:
+	_arriving = false
+	if _visiting and not _going_home:
+		_going_home = true
+		_come_home_note = "say_alone_again"
+		_write_save()
+		get_tree().reload_current_scene.call_deferred()
 
 ## Everybody's sky, set to this machine's. Sent when somebody sleeps.
 func _tell_everyone_the_time() -> void:
@@ -1535,7 +1686,11 @@ func _on_session_failed(reason: String) -> void:
 	visitors.clear()
 	voice.forget_everyone()
 	sounds.play(Sounds.Sound.REFUSE)
-	hud.announce(reason, 4.0)
+	_arriving = false
+	var words := Session.words_for(reason)
+	if _going_home:
+		_come_home_note = String(words)
+	hud.announce(Text.of(words), 4.0)
 
 func _footprint_of_kind(kind: StringName) -> float:
 	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
@@ -1564,6 +1719,9 @@ func _on_remote_built(
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
 	_note_new_venues()
+	# A brother's building is heard where it goes up: close by it is a knock,
+	# across the valley nothing. Before this it went up in silence.
+	sounds.play_at(Sounds.Sound.PLACE, _metres_to_spot(at))
 
 ## Somebody in the other valley took something down.
 ##
@@ -1582,7 +1740,12 @@ func _on_remote_removed(at: Vector3, named := &"") -> void:
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
 	_note_new_venues()
-	if paid and kind != &"":
+	if kind != &"":
+		sounds.play_at(Sounds.Sound.REMOVE, _metres_to_spot(at))
+	# Not the seed of a tree that has already paid its reward: the other child
+	# took it down, so no coins are asked of this one, but the seed is not
+	# handed back on top of what the tree gave.
+	if paid and kind != &"" and BuildKinds.grown_worth(record) <= 0:
 		_give_back(record)
 
 ## The materials a piece cost, back into the bag — all of them, for a whole
@@ -1598,6 +1761,21 @@ func _on_remote_felled(at: Vector3) -> void:
 
 func _on_remote_dam_stick(site: float) -> void:
 	world.dams.deliver(site)
+
+## How far the child is from a spot in the world, along the ground.
+func _metres_to_spot(at: Vector3) -> float:
+	if player == null:
+		return 0.0
+	var here := player.global_position
+	return Vector2(here.x, here.z).distance_to(Vector2(at.x, at.z))
+
+## How far the child is from the nearest ball, which is where a goal or a kick
+## happened. Nothing to measure from means the child's own ear.
+func _metres_to_play() -> float:
+	var nearest := INF
+	for ball_at in world.football.ball_positions():
+		nearest = minf(nearest, _metres_to_spot(ball_at))
+	return 0.0 if nearest == INF else nearest
 
 ## How far the child is from a dam site, for how loudly its news is heard. A
 ## site is only a place along the river, so the river's own x is asked for.
@@ -2366,8 +2544,18 @@ func _take_down_piece(record: Dictionary) -> void:
 	# Back to whoever paid for it. A piece the brother built came out of his
 	# bag; taking it down here hands nothing to this child, or every wall built
 	# together could be taken down twice and paid for twice.
-	if paid:
+	#
+	# A tree that had finished growing has already paid its reward, so taking it
+	# down pays that back first — the way the axe does — and the seed only comes
+	# home if all of it could be. Otherwise planting, waiting and taking down
+	# again was coins from nothing.
+	var before := wallet.coins
+	var repaid := wallet.repay(BuildKinds.grown_worth(record))
+	if paid and repaid:
 		_give_back(record)
+	if before > wallet.coins:
+		hud.announce(Text.format("say_took_tree", [before - wallet.coins]), 2.2)
+		return
 	hud.announce(Text.format("say_took_back", [
 		HouseParts.label(kind) if HouseParts.is_house_part(kind) else BuildKinds.label(kind)
 	]), 1.6)
@@ -2486,6 +2674,7 @@ func _on_answered(yes: bool) -> void:
 					hud.announce(Text.of("say_coaster_booked"), 2.4)
 				&"wheel":
 					_wheel_rider_paid = true
+					_wheel_boarded = false
 					world.park.wheel.book()
 					hud.announce(Text.of("say_wheel_called"), 2.2)
 				_:
@@ -2612,8 +2801,11 @@ func _on_goal(index: int, _blue: int, _red: int) -> void:
 	if world.football.scored_for_me(index):
 		journal.record(Journal.GOALS)
 		today.record(Today.SCORE)
-	sounds.play(Sounds.Sound.GOAL)
-	sounds.play(Sounds.Sound.CHEER, 1.0, -3.0)
+	# As loud as the pitch is near: a goal scored at the far end of the valley
+	# was a fanfare and a crowd in the ear of a child nowhere near it.
+	var away := _metres_to_play()
+	sounds.play_at(Sounds.Sound.GOAL, away)
+	sounds.play_at(Sounds.Sound.CHEER, away, 1.0, -3.0)
 	hud.announce(Text.of("say_goal"), 2.0, Goal.SIDE_COLOURS[1 - index])
 
 ## A side has won the match: said in its own colour over the board's.
@@ -2626,7 +2818,8 @@ func _on_match_won(side: int, _blue: int, _red: int) -> void:
 
 ## The host struck a ball for a guest, and plays the sound of it.
 func _on_guest_kicked(strength: float) -> void:
-	sounds.play(Sounds.Sound.KICK, 0.85 + strength * 0.4)
+	# A brother's kick is heard from the ball, not from the child's own foot.
+	sounds.play_at(Sounds.Sound.KICK, _metres_to_play(), 0.85 + strength * 0.4)
 
 ## The score changed for any reason — a goal, a new game, a load or a reset.
 ## The interface may not exist yet when a save is read, and shows the state
@@ -2739,12 +2932,18 @@ func _write_save() -> void:
 	# What was done this session becomes what the greeting reports next time.
 	journal.depart()
 	SaveGame.write(_save_data(), profiles.current_save_path())
+	# A guest's phone holds the host's valley in the place of their own, and
+	# writing that over their own would be the end of their house. The world
+	# file stays as it was until they are home.
+	if _visiting:
+		return
 	SaveGame.write(_world_data(), profiles.current_world_path())
 
 ## What one child carries: their bag, their coins, where they are standing, what
 ## they did yesterday. Two children in the same valley each have their own.
 func _save_data() -> Dictionary:
-	var at := player.global_position
+	# A visiting child is saved at the door they left by, not in the host's valley.
+	var at := _home_at if _visiting else player.global_position
 	return {
 		"seed": world.world_seed,
 		"language": String(Text.language()),
@@ -2759,7 +2958,7 @@ func _save_data() -> Dictionary:
 		"vitals": vitals.to_data(),
 		"free_meal_in": Venues.wait_left(_free_meal_after, _play_seconds()),
 		"built_house": _built_a_house,
-		"undo": build_mode.history_to_data(),
+		"undo": _home_undo if _visiting else build_mode.history_to_data(),
 		"journal": journal.to_data(),
 		"today": today.to_data(),
 	}

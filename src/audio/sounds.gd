@@ -54,6 +54,8 @@ enum Sound {
 	STEP_WOOD,  # a foot on the bridge's planks: a hollow knock
 	STEP_WATER, # a foot, or a stroke, in water: a small wet slap
 	CHEER,      # a goal: a small crowd, swelling and fading
+	DROP,       # the drop tower let go: a soft, falling slide
+	SWING,      # the pirate ship passing the bottom of its swing: a breath of air
 }
 
 ## How far a sound that happens somewhere else in the valley carries, and how
@@ -65,6 +67,8 @@ const HEARD_NOT := 70.0
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _cache: Dictionary = {}
+## The frame each sound last started on. See play().
+var _started: Dictionary = {}
 
 ## A handful of players cycled round, so overlapping sounds do not cut each
 ## other off — a child collecting quickly triggers three in half a second.
@@ -79,6 +83,15 @@ func _init() -> void:
 		_players.append(player)
 
 func play(sound: Sound, pitch := 1.0, volume_db := 0.0) -> void:
+	# The same sound twice in one frame is one sound, only louder. Taking down a
+	# stack of twenty pieces, or a plan, asked for twenty identical removals in
+	# the same instant, and twenty copies of one waveform in step add up to
+	# twenty times the amplitude: a crack at the limiter, and a ring of six
+	# players cut off one after another. Once is what was meant.
+	var frame := Engine.get_process_frames()
+	if frame > 0 and _started.get(sound, -1) == frame:
+		return
+	_started[sound] = frame
 	var stream: AudioStreamWAV = _cache.get(sound)
 	if stream == null:
 		stream = _build(sound)
@@ -105,10 +118,10 @@ static func falloff_db(metres: float) -> float:
 	return lerpf(0.0, -30.0, (metres - HEARD_FULL) / (HEARD_NOT - HEARD_FULL))
 
 ## Play a sound that happened somewhere, as loud as that somewhere is near.
-func play_at(sound: Sound, metres: float, pitch := 1.0) -> void:
+func play_at(sound: Sound, metres: float, pitch := 1.0, volume_db := 0.0) -> void:
 	var quieter := falloff_db(metres)
-	if quieter > -79.0:
-		play(sound, pitch, quieter)
+	if quieter + volume_db > -79.0:
+		play(sound, pitch, quieter + volume_db)
 
 ## What a foot lands on here, as the sound it makes.
 ##
@@ -170,8 +183,79 @@ func _build(sound: Sound) -> AudioStreamWAV:
 			return _splash(0.12)
 		Sound.CHEER:
 			return _cheer(0.9)
+		Sound.DROP:
+			return _slide(SCALE[8], SCALE[3], 1.1, 0.35)
+		Sound.SWING:
+			return _breath(0.7, 0.3)
 		_:
 			return _tone([SCALE[7], SCALE[9], SCALE[8]], 0.60, 0.45)
+
+## A soft glide from one pitch to another, for something falling: the phase is
+## accumulated, so the bend is the one asked for and not twice it. Gentle all
+## the way — a quick swell in and a long fade — because the ride it belongs to
+## is the one a small child is most unsure of.
+func _slide(from_hz: float, to_hz: float, seconds: float, volume: float) -> AudioStreamWAV:
+	var samples := int(RATE * seconds)
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	var phase := 0.0
+	for i in samples:
+		var progress := float(i) / float(samples)
+		phase += TAU * lerpf(from_hz, to_hz, progress) / float(RATE)
+		var envelope := minf(progress * 8.0, 1.0) * pow(1.0 - progress, 1.5)
+		var value := (sin(phase) + 0.30 * sin(phase * 2.0)) / HARMONIC_SUM
+		_write(data, i, value * envelope * volume)
+	return _wav(data)
+
+## Air moving past: damped noise that swells and dies away, so it is a breath
+## and never a hiss. Longer than a splash and a good deal quieter.
+func _breath(seconds: float, volume: float) -> AudioStreamWAV:
+	var samples := int(RATE * seconds)
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 20261104
+	var last := 0.0
+	for i in samples:
+		var progress := float(i) / float(samples)
+		var envelope := pow(sin(PI * progress), 2.0)
+		last = lerpf(last, noise.randf_range(-1.0, 1.0), 0.12)
+		_write(data, i, last * envelope * volume)
+	return _wav(data)
+
+## A music box: a slow, gentle tune that loops without a seam, for the
+## carousel. Bell-like partials in the pentatonic scale, so whatever else is
+## sounding agrees with it, at a low rate because nothing in it is above two
+## kilohertz. The tails of the last notes are wrapped round to the start, which
+## is what keeps the join silent.
+static func music_box() -> AudioStreamWAV:
+	var rate := 11025
+	var step := 0.45
+	var tune: Array[int] = [5, 7, 8, 7, 5, 4, 5, 3, 5, 7, 9, 8, 7, 5, 7, 5]
+	var samples := int(rate * step * tune.size())
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	var ring := int(rate * 1.2)
+	for n in tune.size():
+		var hertz: float = SCALE[tune[n]]
+		var start := int(rate * step * n)
+		for i in ring:
+			var t := float(i) / float(rate)
+			var envelope := minf(t * 200.0, 1.0) * exp(-t * 3.5)
+			var value := sin(TAU * hertz * t) + 0.25 * sin(TAU * hertz * 2.0 * t)
+			values[(start + i) % samples] += value * envelope * 0.3
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 32767.0))
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = rate
+	stream.data = data
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = samples
+	return stream
 
 ## A short cheer: a crowd is noise, brighter than water, that swells up to a
 ## peak a third of the way through and dies away, with a wavering high note

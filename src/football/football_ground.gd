@@ -743,17 +743,31 @@ func to_data() -> Dictionary:
 		return {"blue": _own_blue, "red": _own_red}
 	return {"blue": blue, "red": red}
 
+## A score read back from a save, with a match that had been won sent home.
+##
+## The save is written during the pause after a win too, with five goals on the
+## board and the new game still seconds away. Loaded as it stood there was no
+## winner and nothing to start another game, so the next goal by either side
+## was "a win" for the scorer: five-two to blue, then a red goal, and red
+## were cheered as the winners of the match with three.
+static func unfinished(blue_goals: int, red_goals: int) -> Vector2i:
+	if blue_goals >= WIN_SCORE or red_goals >= WIN_SCORE:
+		return Vector2i.ZERO
+	return Vector2i(blue_goals, red_goals)
+
 func from_data(data: Dictionary) -> void:
 	if _following:
-		_own_blue = maxi(int(data.get("blue", 0)), 0)
-		_own_red = maxi(int(data.get("red", 0)), 0)
+		var theirs := unfinished(maxi(int(data.get("blue", 0)), 0), maxi(int(data.get("red", 0)), 0))
+		_own_blue = theirs.x
+		_own_red = theirs.y
 		return
 	# A save from before there were two sides holds one number, "score", for
 	# goals in either end, and there is no telling now whose they were. It is
 	# loaded as 0:0 rather than handed to blue: a child should not open the game
 	# to a lead that one of two brothers never scored.
-	blue = maxi(int(data.get("blue", 0)), 0)
-	red = maxi(int(data.get("red", 0)), 0)
+	var kept := unfinished(maxi(int(data.get("blue", 0)), 0), maxi(int(data.get("red", 0)), 0))
+	blue = kept.x
+	red = kept.y
 	_board.show_scores(blue, red)
 	scores_changed.emit(blue, red)
 	_tell_guests(-1)

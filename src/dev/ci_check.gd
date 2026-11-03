@@ -57,6 +57,7 @@ func _initialize() -> void:
 	_check_every_language_is_complete()
 	_check_every_text_key_exists()
 	_check_everything_the_network_can_say_is_said()
+	_check_a_guest_arrives_in_the_hosts_valley_and_goes_home()
 	_check_every_kind_of_day_can_be_finished()
 	_check_every_button_glyph_is_drawn()
 	_check_an_unshirted_child_looks_the_same_to_everyone()
@@ -152,6 +153,7 @@ func _initialize() -> void:
 	_check_two_valleys_stay_two_valleys()
 	_check_a_sold_machine_stays_sold()
 	_check_talking_can_be_switched_off()
+	_check_a_held_press_survives_the_permission_dialog_and_a_name_lights()
 	_check_a_valley_survives_a_new_phone()
 	_check_felling_your_own_tree_costs_what_it_paid()
 	_check_nothing_is_planted_where_it_does_not_belong()
@@ -197,6 +199,8 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_the_economy_has_no_free_coins()
+	await _check_the_rides_and_the_building_are_heard_and_not_stacked()
 	_check_the_four_animals_are_smooth_painted_skins()
 	_check_legs_grow_out_of_the_body_and_all_six_animals_and_the_horse_and_ducks_are_lofts()
 	_check_the_horse_has_a_horses_lines_and_its_reins_clear_the_neck()
@@ -14078,8 +14082,12 @@ func _check_sounds_have_distance_surfaces_and_a_night() -> void:
 	var sounds := Sounds.new()
 	get_root().add_child(sounds)
 	sounds.play(Sounds.Sound.STEP_GRASS, 1.0, -20.0)
-	for _i in Sounds.VOICES:
-		sounds.play(Sounds.Sound.CHIME)
+	# Six different sounds, because the same one twice in a frame is played once.
+	for other: Sounds.Sound in [
+		Sounds.Sound.CHIME, Sounds.Sound.PICKUP, Sounds.Sound.PLACE,
+		Sounds.Sound.JUMP, Sounds.Sound.GOAL, Sounds.Sound.CLEARED
+	]:
+		sounds.play(other)
 	var stuck := false
 	for player: AudioStreamPlayer in sounds._players:
 		stuck = stuck or player.volume_db != 0.0
@@ -18918,5 +18926,211 @@ func _check_the_horses_tail_is_slim_and_about_a_third_of_the_body() -> void:
 			dock = maxf(dock, absf(point.x))
 	_expect(widest < 0.5 * face, "the tail is %.2f m across at its fullest and the face %.2f" % [widest * 2.0, face * 2.0])
 	_expect(dock < 0.35 * face, "and the dock %.2f m, a slim bone" % (dock * 2.0))
+
+## A guest is told what the host's valley looks like, and the rest of what
+## coming to somebody else's valley means: they are saved at their own door,
+## told in their own language when it goes wrong, and drawn facing the way they
+## face.
+func _check_a_guest_arrives_in_the_hosts_valley_and_goes_home() -> void:
+	print("a guest arrives in the host's valley and goes home")
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	host._link = guest
+	guest._link = host
+	var heard: Array = []
+	guest.remote_valley.connect(func(pieces: Array, stumps: Array) -> void: heard.append_array([pieces, stumps]))
+	host.report_valley(
+		[
+			{"kind": "wall", "x": 3.0, "y": 1.0, "z": 4.0, "spin": 0.0, "age": 0.0, "paid": true},
+			{"kind": "wall", "x": NAN, "y": 0.0, "z": 0.0},
+			{"kind": 7, "x": 1.0},
+			{"kind": "wall", "x": "far"},
+			"not a piece",
+		],
+		[[1.5, 2.5], [1.0], ["a", "b"], [INF, 0.0], [4.0, 5.0, 1]],
+		guest._link_id
+	)
+	_expect(not heard.is_empty(), "the host's valley reaches a guest")
+	if not heard.is_empty():
+		_expect(heard[0].size() == 1, "only the one believable piece got through (%d)" % heard[0].size())
+		_expect(heard[1].size() == 2, "and only the two believable stumps (%d)" % heard[1].size())
+	# Told to a host, or by somebody who is not the host, it is nothing.
+	var stray: Array = []
+	host.remote_valley.connect(func(_p: Array, _s: Array) -> void: stray.append(1))
+	host._take_valley(2, [{"kind": "wall"}], [])
+	guest._take_valley(7, [{"kind": "wall"}], [])
+	_expect(stray.is_empty(), "a host is never handed a valley")
+	host.queue_free()
+	guest.queue_free()
+	# What the host built is the guest's to see and to take down, and refunds nothing.
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var spot := field.find_spawn_point()
+	structures.place(BuildKinds.SAPLING, spot, 0.0)
+	structures.adopt_as_shared()
+	var piece := structures.nearest_shared(spot, 0.6, BuildKinds.SAPLING)
+	_expect(not piece.is_empty() and not bool(piece["paid"]), "the host's pieces stand in both valleys and were not paid for here")
+	structures.queue_free()
+
+	# Every way a join or an invitation can fail is said in all three languages.
+	var reasons := [
+		"could not reach that valley", "the other game closed",
+		"the game is already open on this device", "could not open the valley",
+		"could not connect",
+	]
+	var keys := {}
+	for reason: String in reasons:
+		var key := Session.words_for(reason)
+		keys[key] = true
+		_expect(Text.STRINGS.has(String(key)), "'%s' has words (%s)" % [reason, key])
+	_expect(keys.size() == reasons.size(), "and each says something different")
+	for key: String in ["say_joining", "say_met"]:
+		_expect(Text.STRINGS.has(key), "%s is said" % key)
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("report_position(player.global_position, player.facing_angle())"),
+		"a child is drawn for the other facing the way the body is turned, not the root that never turns"
+	)
+	_expect(
+		game.contains("var at := _home_at if _visiting else player.global_position")
+		and game.contains("if _visiting:\n\t\treturn\n\tSaveGame.write(_world_data()"),
+		"a visiting child is saved at their own door and their own valley is not written over"
+	)
+	_expect(game.contains("_on_session_closed"), "and the way home is a reload from what was kept")
+
+## A press that raised the permission dialog is not lost, and a voice lights
+## the name of whoever is speaking.
+func _check_a_held_press_survives_the_permission_dialog_and_a_name_lights() -> void:
+	print("a held press survives the permission dialog, and a speaker's name lights")
+	var voice := Voice.new()
+	get_root().add_child(voice)
+	voice._held = true
+	voice.stop_talking()
+	_expect(not voice._held, "letting go forgets the press, so a late 'allow' starts nothing")
+	voice._on_permission_answered(Voice.PERMISSION, true)
+	_expect(not voice.is_talking(), "and an answer with the button up does not open the microphone")
+	voice.queue_free()
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	visitors.add(7, "Amir")
+	_expect(not visitors.is_speaking(7), "a quiet visitor's name is not lit")
+	visitors.speaking(7)
+	_expect(visitors.is_speaking(7), "a voice from them lights it")
+	visitors._process(Visitors.SPEAKING_FOR + 0.1)
+	_expect(not visitors.is_speaking(7), "and it goes out soon after they let go")
+	visitors.speaking(99)
+	_expect(not visitors.is_speaking(99), "a voice from nobody in the valley lights nothing")
+	visitors.queue_free()
+
+## Sounds that were missing, stacked or heard from across the valley.
+func _check_the_rides_and_the_building_are_heard_and_not_stacked() -> void:
+	print("the rides have sounds, and one sound is not played twice at once")
+	await get_root().get_tree().process_frame
+	var sounds := Sounds.new()
+	get_root().add_child(sounds)
+	# Twenty pieces taken down in one tap ask for twenty removals in one frame:
+	# in step, they are twenty times the amplitude. One is heard.
+	for _i in 20:
+		sounds.play(Sounds.Sound.REMOVE)
+	var sounding := 0
+	for player in sounds._players:
+		if player.playing:
+			sounding += 1
+	_expect(sounding == 1, "twenty removals in one frame start %d sound, not twenty" % sounding)
+	# A different sound in the same frame is still its own.
+	sounds.play(Sounds.Sound.PLACE)
+	sounding = 0
+	for player in sounds._players:
+		if player.playing:
+			sounding += 1
+	_expect(sounding == 2, "and a different sound alongside it is still heard")
+	sounds.queue_free()
+	# The rides' own sounds exist and are gentle.
+	var gentle := Sounds.new()
+	for ride_sound: Sounds.Sound in [Sounds.Sound.DROP, Sounds.Sound.SWING]:
+		var stream := gentle._build(ride_sound)
+		var loudest := 0
+		for i in stream.data.size() / 2:
+			loudest = maxi(loudest, absi(stream.data.decode_s16(i * 2)))
+		_expect(
+			stream.data.size() > 4000 and loudest < 0.4 * 32767.0,
+			"ride sound %d is audible and gentle (peak %.2f)" % [ride_sound, loudest / 32767.0]
+		)
+	gentle.free()
+
+	# The drop tower says so when it lets go, the ship when it swings through
+	# the bottom of its arc.
+	var tower := DropTower.new(Vector3.ZERO)
+	get_root().add_child(tower)
+	var dropped := [0]
+	tower.dropped.connect(func() -> void: dropped[0] += 1)
+	tower._phase = DropTower.Phase.TOP
+	tower._phase_time = DropTower.TOP_HOLD
+	tower._physics_process(0.016)
+	_expect(dropped[0] == 1, "the drop tower announces its drop once")
+	tower.queue_free()
+
+	var ship := PirateShip.new(Vector3.ZERO)
+	get_root().add_child(ship)
+	var passes := [0]
+	ship.passed_the_bottom.connect(func(_strength: float) -> void: passes[0] += 1)
+	ship._phase = PirateShip.Phase.SWINGING
+	ship._phase_time = 0.0
+	ship._swing_time = PirateShip.RAMP_TIME
+	for _i in int(PirateShip.SWING_PERIOD * 3.0 / 0.05):
+		ship._physics_process(0.05)
+	_expect(passes[0] >= 4, "the ship passes the bottom of its swing %d times in three periods" % passes[0])
+	ship.queue_free()
+
+	# The carousel's tune loops, and does not click at the join.
+	var tune := Sounds.music_box()
+	var count := tune.data.size() / 2
+	_expect(
+		tune.loop_mode == AudioStreamWAV.LOOP_FORWARD and tune.loop_end == count,
+		"the carousel's tune loops over all of itself"
+	)
+	var seam := absi(tune.data.decode_s16(0) - tune.data.decode_s16((count - 1) * 2))
+	_expect(seam < 3000, "and joins without a click (a step of %d)" % seam)
+
+## Coins must not come from nothing: a grown tree taken down by the minus button
+## pays its reward back, a ticket paid for and never used comes home, and a won
+## match that was saved is not carried into the next session as a live score.
+func _check_the_economy_has_no_free_coins() -> void:
+	print("the economy has no free coins")
+	var purse := Wallet.new()
+	var grown := {"kind": BuildKinds.SAPLING, "stage": BuildKinds.GROWTH_STAGES - 1}
+	var young := {"kind": BuildKinds.SAPLING, "stage": 0}
+	_expect(BuildKinds.grown_worth(young) == 0, "a sapling still growing has earned nothing to pay back")
+	_expect(BuildKinds.grown_worth(grown) == BuildKinds.reward_for(BuildKinds.SAPLING), "a grown tree has earned its reward")
+	_expect(
+		BuildKinds.grown_worth({"kind": BuildKinds.PINE, "stage": BuildKinds.GROWTH_STAGES - 1}) == BuildKinds.reward_for(BuildKinds.PINE),
+		"and a fir its larger one"
+	)
+	# Plant, wait, take down, plant again: the purse ends where it began.
+	for lap in 5:
+		purse.earn(BuildKinds.grown_worth(grown))
+		_expect(purse.repay(BuildKinds.grown_worth(grown)), "a purse that can pay the tree back does")
+	_expect(purse.coins == 0, "five rounds of grow and take down leave %d coins, not a gain" % purse.coins)
+	purse.earn(1)
+	_expect(not purse.repay(3) and purse.coins == 0, "a short purse pays what it has and the seed stays with the tree")
+	var tickets := Wallet.new()
+	tickets.earn(Park.RIDE_PRICE)
+	tickets.buy_ticket(Park.RIDE_PRICE)
+	tickets.return_ticket()
+	_expect(tickets.tickets == 2 and tickets.coins == 0, "a returned ticket is a ticket, not coins")
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(Text.format("say_took_tree", [3]).contains("3"), "taking a grown tree down says what it cost in %s" % code)
+	Text.set_language(Text.EN)
+
+	_expect(FootballGround.unfinished(3, 2) == Vector2i(3, 2), "a match still being played is loaded as it stood")
+	_expect(FootballGround.unfinished(5, 2) == Vector2i.ZERO, "a won match saved in its pause starts again at nothing")
+	_expect(FootballGround.unfinished(1, 6) == Vector2i.ZERO, "from either side")
 
 
