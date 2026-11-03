@@ -123,10 +123,15 @@ func _build_hosting() -> void:
 		number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_column.add_child(number)
 		_note(Text.of("say_read_it_out"))
+		_note(Text.of("say_same_wifi"))
 
-	var leave := _big(Text.of("ui_play_alone"), Color(0.94, 0.72, 0.66))
-	leave.pressed.connect(func() -> void: leave_requested.emit())
-	_column.add_child(leave)
+	# Somebody who has opened their valley may still want to go to another's.
+	# The door shut behind them, since a child is in one valley at a time.
+	var visit := _big(Text.of("ui_visit"), Color(0.58, 0.82, 0.96))
+	visit.pressed.connect(_start_typing)
+	_column.add_child(visit)
+
+	_column.add_child(_leave_button())
 
 	_column.add_child(_back())
 
@@ -140,6 +145,7 @@ func _build_typing() -> void:
 	entry.add_theme_color_override("font_color", Color(0.58, 0.82, 0.96))
 	entry.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_column.add_child(entry)
+	_note(Text.of("say_same_wifi"))
 
 	var keys := GridContainer.new()
 	keys.columns = 3
@@ -165,11 +171,22 @@ func _build_visiting() -> void:
 	_heading(Text.of("ui_together"))
 	_note(Text.of("say_visiting"))
 
-	var leave := _big(Text.of("ui_play_alone"), Color(0.94, 0.72, 0.66))
-	leave.pressed.connect(func() -> void: leave_requested.emit())
-	_column.add_child(leave)
+	_column.add_child(_leave_button())
 
 	_column.add_child(_back())
+
+## Leaving ends the game two children are in the middle of, so it is held. The
+## button says how itself when it is only tapped: this panel has no message
+## line to say it in.
+func _leave_button() -> Button:
+	var leave := _big(Text.of("ui_play_alone"), Color(0.94, 0.72, 0.66))
+	var ring := HoldRing.attach(leave, func() -> void: leave_requested.emit())
+	ring.too_short.connect(func() -> void:
+		leave.text = Text.of("ui_hold_hint")
+		await leave.get_tree().create_timer(1.4).timeout
+		if is_instance_valid(leave):
+			leave.text = Text.of("ui_play_alone"))
+	return leave
 
 func _start_typing() -> void:
 	page = Page.TYPING

@@ -26,6 +26,7 @@ var _stage_time := 0.0
 var _failed := ""
 var _ball_start := Vector3.ZERO
 var _kicked_at := Vector3.ZERO
+var _saw_mount := false
 
 func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -37,6 +38,11 @@ func _initialize() -> void:
 	_ground = FootballGround.new(_field)
 	root.add_child(_ground)
 	_ground.attach(_session)
+	# What the guest says it rides arrives over a real socket as an optional third
+	# value, which a check in one process cannot show.
+	_session.guest_moved.connect(func(_id: int, _at: Vector3, _facing: float, mount: StringName) -> void:
+		if mount == &"horse:1":
+			_saw_mount = true)
 	_session.failed.connect(func(reason: String) -> void: print("NETPAIR %s: session failed: %s" % [_role, reason]))
 	# No terrain collision in this process: a floor under the pitch.
 	var centre := Pitch.centre()
@@ -134,6 +140,8 @@ func _host_step() -> bool:
 		2:
 			# Stay up a moment so the guest can see the ball settle.
 			if _stage_time > 4.0:
+				if not _saw_mount:
+					_fail("the guest's mount never arrived with its position")
 				return _finish()
 	return false
 
@@ -149,7 +157,7 @@ func _guest_step() -> bool:
 			# Let the host's balls arrive, then stand beside the centre ball.
 			var ball := _centre_ball()
 			var foot := ball.position + Vector3(-1.0, -Ball.RADIUS, 0.0)
-			_session.report_position(foot, 0.0)
+			_session.report_position(foot, 0.0, &"horse:1")
 			if _stage_time > 2.0:
 				_kicked_at = ball.position
 				_ground.kick(ball, foot, Vector3.RIGHT, false, 1.0, 0.25, Vector3.RIGHT)

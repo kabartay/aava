@@ -37,6 +37,11 @@ extends Node
 signal talking_changed(speaking: bool)
 signal someone_spoke(id: int)
 
+## The child pressed talk and the phone said no: the dialog was refused, or
+## Android has stopped asking after two refusals and answered for them. The
+## screen has to say so, or the button simply does nothing.
+signal permission_refused()
+
 ## Voice needs far less than music. 11 kHz mono is telephone quality and plenty
 ## for one child shouting about a football; it is a quarter of the data of the
 ## mix rate, which matters on a tablet's wifi.
@@ -84,6 +89,44 @@ static func pack(frames: PackedVector2Array, step: float, phase: float) -> Packe
 
 ## Where the next packet starts inside the first frame it is given.
 var _phase := 0.0
+
+## The noise gate. A packet quieter than this (a peak of about -36 dB, which is
+## a room and not a voice) is not sent, and the gate stays open for a quarter
+## of a second after the last loud one so the soft end of a word is not
+## clipped. It is the simple half of dealing with a phone hearing the other
+## phones: what comes back off a speaker across the room is much quieter than
+## a child at the microphone, and silence costs the wifi nothing.
+const GATE_PEAK := 0.015
+const GATE_HANG := 5
+
+## The last quiet packet, kept so that when the gate opens the beginning of the
+## word goes out with it rather than starting a twentieth of a second late.
+var _preroll := PackedByteArray()
+var _hang := 0
+
+## How much speech is held back before a voice starts to play, about an eighth
+## of a second. Wifi delivers packets in bursts, and a speaker that starts the
+## moment the first arrives runs dry between bursts and plays the gap as a
+## stutter. This much in hand rides out a hitch of that size; any more is
+## delay a child mid-sentence would notice.
+const PREBUFFER := 0.12
+
+## A voice that has not been heard for this long has stopped, and whatever it
+## left below the prebuffer is played rather than held for ever: the end of a
+## word would otherwise never be heard.
+const SPEECH_MSEC := 150
+
+## How quickly the game's own sounds give way under a voice, and return.
+const DUCK_ATTACK := 0.25
+const DUCK_RELEASE := 0.8
+
+## Per speaker: the frames waiting for the prebuffer, whether they are playing
+## yet, when the last packet came, and how big the generator's buffer is.
+var _pending: Dictionary = {}
+var _primed: Dictionary = {}
+var _heard_at: Dictionary = {}
+var _capacity: Dictionary = {}
+var _duck := 0.0
 
 ## How much audio goes in one packet. About a twentieth of a second, so a lost
 ## packet is a click rather than a missing word.
@@ -135,8 +178,28 @@ func _ready() -> void:
 ## carries straight on into talking, rather than asking them to press again; if
 ## they let go while it was open there is nothing to carry on.
 func _on_permission_answered(permission: String, granted: bool) -> void:
-	if permission == PERMISSION and granted and _held:
-		start_talking()
+	if permission != PERMISSION:
+		return
+	if granted:
+		if _held:
+			start_talking()
+	else:
+		# Said whether or not the button is still down: the child saw a dialog
+		# and said no, or Android said it for them, and either way "nothing
+		# happens" is the one answer that explains nothing.
+		_held = false
+		permission_refused.emit()
+
+## Peak loudness of a run of captured frames, 0 to 1.
+static func peak(frames: PackedVector2Array) -> float:
+	var loudest := 0.0
+	for frame in frames:
+		loudest = maxf(loudest, absf(frame.x + frame.y) * 0.5)
+	return loudest
+
+## Leaving mid-word must not leave the valley turned down for good.
+func _exit_tree() -> void:
+	Mix.duck(0.0)
 
 ## The bus, its capture effect, and the (stopped) microphone player.
 func _build_bus() -> bool:
@@ -211,6 +274,8 @@ func start_talking() -> void:
 	_capture.clear_buffer()
 	# A new press is a new stream: nothing is left over from the last one.
 	_phase = 0.0
+	_hang = 0
+	_preroll = PackedByteArray()
 	_microphone.play()
 	_hush_the_others(true)
 	talking_changed.emit(true)
@@ -244,7 +309,8 @@ func _notification(what: int) -> void:
 	):
 		stop_talking()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_listen(delta)
 	if not _talking or _capture == null or _session == null:
 		return
 	# The connection can drop while a child is still holding the button, and
@@ -258,12 +324,27 @@ func _process(_delta: float) -> void:
 	var wanted := frames_for(step, _phase)
 	while _capture.get_frames_available() >= wanted:
 		var frames := _capture.get_buffer(wanted)
-		_send_voice.rpc(pack(frames, step, _phase))
+		_send_gated(frames, step)
 		# The fraction of a frame this packet did not use is where the next
 		# one starts. Dropped, it is a ninth of a sample lost per packet, which
 		# adds up to the drift this replaced.
 		_phase = _phase + float(FRAMES_PER_PACKET) * step - float(wanted)
 		wanted = frames_for(step, _phase)
+
+## Send a packet, unless it is only the room. See GATE_PEAK.
+func _send_gated(frames: PackedVector2Array, step: float) -> void:
+	var packet := pack(frames, step, _phase)
+	if peak(frames) >= GATE_PEAK:
+		if _hang == 0 and not _preroll.is_empty():
+			_send_voice.rpc(_preroll)
+		_hang = GATE_HANG
+	elif _hang > 0:
+		_hang -= 1
+	else:
+		_preroll = packet
+		return
+	_preroll = PackedByteArray()
+	_send_voice.rpc(packet)
 
 ## Voice is sent unreliably: a lost packet is a click, and a resent one arrives
 ## after the word it belonged to and is worse than silence.
@@ -288,17 +369,84 @@ func _send_voice(packet: PackedByteArray) -> void:
 	someone_spoke.emit(from)
 
 func _play(from: int, packet: PackedByteArray) -> void:
+	# This child is talking, so the room is not being listened to: see
+	# _hush_the_others. The packet is dropped rather than queued, or the last
+	# of what a brother said while they held the button would come out of the
+	# speaker after they let go.
+	if _talking:
+		return
 	var playback := _speaker_for(from)
 	if playback == null:
 		return
-	var count := packet.size() / 2
-	for i in count:
+	_heard_at[from] = Time.get_ticks_msec()
+
+	var frames := PackedVector2Array()
+	for i in packet.size() / 2:
+		var value := float(packet.decode_s16(i * 2)) / 32767.0
+		frames.append(Vector2(value, value))
+
+	# Playing already, unless it has run dry: then it was a stutter, and the
+	# next stretch is held back to build up again rather than played in
+	# fragments as it trickles in.
+	if _primed.get(from, false) and _queued(from, playback) <= 0:
+		_primed[from] = false
+	var waiting: PackedVector2Array = _pending.get(from, PackedVector2Array())
+	waiting.append_array(frames)
+	_pending[from] = waiting
+	if _primed.get(from, false) or float(waiting.size()) >= PREBUFFER * float(RATE):
+		_prime(from)
+
+## Start a speaker's held-back frames playing.
+func _prime(from: int) -> void:
+	var waiting: PackedVector2Array = _pending.get(from, PackedVector2Array())
+	_pending[from] = PackedVector2Array()
+	_primed[from] = true
+	var playback := _speaker_for(from)
+	if playback == null:
+		return
+	for frame in waiting:
 		if playback.get_frames_available() <= 0:
 			# Behind, and the choice is to drop the newest or to grow a delay
 			# that never recovers. Dropping keeps the conversation in time.
 			break
-		var value := float(packet.decode_s16(i * 2)) / 32767.0
-		playback.push_frame(Vector2(value, value))
+		playback.push_frame(frame)
+
+## How many frames a speaker has queued and not yet played.
+func _queued(from: int, playback: AudioStreamGeneratorPlayback) -> int:
+	return int(_capacity.get(from, 0)) - playback.get_frames_available()
+
+## How many frames of this speaker are being held back for the prebuffer. For
+## the checks.
+func held_frames(id: int) -> int:
+	var waiting: PackedVector2Array = _pending.get(id, PackedVector2Array())
+	return waiting.size()
+
+## Whether this speaker's voice is playing (as opposed to filling up).
+func is_playing_voice(id: int) -> bool:
+	return _primed.get(id, false)
+
+## Each frame: let a voice that has stopped finish, and turn the game's own
+## sounds down under anyone speaking.
+##
+## Also while this child is the one talking. The phone's speaker is what the
+## microphone hears of the game, as much as of a brother's voice, and a valley
+## full of birdsong going into every word is the other half of the echo.
+func _listen(delta: float) -> void:
+	var now := Time.get_ticks_msec()
+	var heard := false
+	for id in _speakers.keys():
+		var at: int = _heard_at.get(id, -SPEECH_MSEC * 2)
+		if now - at > SPEECH_MSEC:
+			if held_frames(id) > 0:
+				_prime(id)
+		else:
+			heard = true
+	var target := 1.0 if heard or _talking else 0.0
+	if target == _duck:
+		return
+	var seconds := DUCK_ATTACK if target > _duck else DUCK_RELEASE
+	_duck = move_toward(_duck, target, delta / seconds)
+	Mix.duck(_duck)
 
 ## Silence the other children while this child is holding the button.
 ##
@@ -322,6 +470,7 @@ func _speaker_for(id: int) -> AudioStreamGeneratorPlayback:
 		if is_instance_valid(existing):
 			return existing.get_stream_playback()
 		_speakers.erase(id)
+		_forget_state(id)
 
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = RATE
@@ -342,6 +491,9 @@ func _speaker_for(id: int) -> AudioStreamGeneratorPlayback:
 	add_child(player)
 	player.play()
 	_speakers[id] = player
+	_capacity[id] = player.get_stream_playback().get_frames_available()
+	_primed[id] = false
+	_pending[id] = PackedVector2Array()
 	return player.get_stream_playback()
 
 ## Somebody left the valley, so their voice goes with them.
@@ -352,6 +504,13 @@ func forget(id: int) -> void:
 	if is_instance_valid(player):
 		player.queue_free()
 	_speakers.erase(id)
+	_forget_state(id)
+
+func _forget_state(id: int) -> void:
+	_pending.erase(id)
+	_primed.erase(id)
+	_heard_at.erase(id)
+	_capacity.erase(id)
 
 func forget_everyone() -> void:
 	for id in _speakers.keys():

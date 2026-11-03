@@ -271,6 +271,7 @@ func _build_tile(coord: Vector2i) -> void:
 		_living.append({
 			"kind": kind,
 			"node": node,
+			"born": home,
 			"home": home,
 			"target": home,
 			"tile": coord,
@@ -281,6 +282,67 @@ func _build_tile(coord: Vector2i) -> void:
 			"velocity": 0.0,
 		})
 
+## Is this a guest's phone, in the host's valley? Then the host's animals are
+## the animals: each one that the host has told us about goes where the host
+## has it, and does nothing of its own. Set by the game each frame, as for
+## the football.
+var following := false
+
+## How long what the host said about an animal holds before this phone's own
+## animal is left to its own devices again: the host only speaks of those near
+## somebody, and one that has been left behind should not stand frozen.
+const TOLD_FOR := 2.5
+## Further than this from where the host has it, an animal is set down there
+## rather than walked across the meadow.
+const TOLD_SNAP := 8.0
+## How near a child an animal must be for the host to bother telling anyone, and
+## the most it will tell in one go.
+const TELLING_REACH := 70.0
+const MAX_TOLD := 400
+## Numbers in one animal's entry: where it was born (x, z), where it stands (x, z).
+const STATE_FLOATS := 4
+
+## What names an animal on both phones: where it was born, which comes out of
+## the seed and the tile and so is the same on both. Where it is *now* is no
+## good for that, and neither is where it lives, which a pond can move.
+static func key_of(born: Vector3) -> Vector2i:
+	return Vector2i(roundi(born.x * 4.0), roundi(born.z * 4.0))
+
+## The animals near any of these places, as the host tells them: four numbers
+## each — where it was born, then where it stands.
+func states_near(places: Array[Vector3], reach := TELLING_REACH) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	for animal in _living:
+		var node: Node3D = animal["node"]
+		if not is_instance_valid(node) or out.size() >= MAX_TOLD * STATE_FLOATS:
+			continue
+		var at := node.position
+		var near := false
+		for place in places:
+			if Vector2(place.x - at.x, place.z - at.z).length() <= reach:
+				near = true
+				break
+		if not near:
+			continue
+		var born: Vector3 = animal["born"]
+		out.append_array([born.x, born.z, at.x, at.z])
+	return out
+
+## The host has said where some animals are. Those this phone has built are put
+## to follow; the others — a tile not streamed in yet — are found where they
+## are told when it is, a moment later.
+func tell(states: PackedFloat32Array) -> void:
+	var by_key: Dictionary = {}
+	for animal in _living:
+		by_key[key_of(animal["born"])] = animal
+	for i in states.size() / STATE_FLOATS:
+		var base := i * STATE_FLOATS
+		var animal: Dictionary = by_key.get(key_of(Vector3(states[base], 0.0, states[base + 1])), {})
+		if animal.is_empty():
+			continue
+		animal["told"] = Vector3(states[base + 2], 0.0, states[base + 3])
+		animal["told_for"] = TOLD_FOR
+
 ## Put one animal somewhere, for the checks. The world spawns them by tile and
 ## by chance, which is no way to ask "what does a cat standing in the lake do".
 func put_one_at(kind: StringName, at: Vector3) -> Dictionary:
@@ -290,6 +352,7 @@ func put_one_at(kind: StringName, at: Vector3) -> Dictionary:
 	var animal := {
 		"kind": kind,
 		"node": node,
+		"born": at,
 		"home": at,
 		"target": at,
 		"tile": Vector2i.ZERO,
@@ -393,7 +456,21 @@ func _step(animal: Dictionary, delta: float) -> void:
 	# on dry ground and never choose a pond to walk to, but a pond can appear
 	# under one: the eastern lake was dug where a cat was already living.
 	var afloat := field.is_pond(node.position.x, node.position.z)
-	if afloat:
+	# On a guest's phone, where the host says it is is where it goes, by the
+	# ordinary way of walking there so that its legs move. The host's animal
+	# has already been turned out of any pond.
+	var told := following and float(animal.get("told_for", 0.0)) > 0.0
+	if told:
+		animal["told_for"] = float(animal["told_for"]) - delta
+		var there: Vector3 = animal["told"]
+		if Vector2(there.x - node.position.x, there.z - node.position.z).length() > TOLD_SNAP:
+			node.position.x = there.x
+			node.position.z = there.z
+		there.y = _footing(there.x, there.z)
+		animal["target"] = there
+		animal["rest"] = 1.0
+		animal["speed"] = maxf(Animals.pace_of(animal["kind"]) * 1.4, SPEED)
+	elif afloat:
 		_head_for_the_bank(animal)
 	animal["cooldown"] = maxf(0.0, float(animal["cooldown"]) - delta)
 
@@ -956,6 +1033,9 @@ func whistle_active() -> bool:
 
 func watch(player_position: Vector3, inventory: Inventory) -> void:
 	_whistle = maxf(0.0, _whistle - get_process_delta_time())
+	# On a guest's phone the host's animals have decided already.
+	if following:
+		return
 	for animal in _living:
 		var node: Node3D = animal["node"]
 		if not is_instance_valid(node):

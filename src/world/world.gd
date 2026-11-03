@@ -185,7 +185,7 @@ func _on_ground_changed() -> void:
 	field.dams_built = dams.built.duplicate()
 	# Only around the dam that changed, not the whole valley: a full rebuild
 	# takes seconds of streaming during which the world is visibly missing.
-	for site in dams.built:
+	for site in dams.built + dams.departed:
 		var at := Vector3(field.river_centre_x(float(site)), 0.0, float(site))
 		terrain.rebuild_near(at, DamSpec.POND_LENGTH + 20.0)
 	vegetation.rebuild_all()

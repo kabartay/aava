@@ -58,6 +58,9 @@ void fragment() {
 """
 
 signal collected(kind: StringName, world_position: Vector3)
+## The same, by the id the valley gives it — the same one on every phone, since
+## the valley is the same — for telling somebody else it is gone.
+signal taken_here(id: String)
 
 var field: HeightField
 var world_seed: int
@@ -165,7 +168,20 @@ func check_reach(world_position: Vector3) -> void:
 		if is_instance_valid(node):
 			node.queue_free()
 		_active.remove_at(i)
+		taken_here.emit(record["id"])
 		collected.emit(record["kind"], record["position"])
+
+## Somebody else picked this up. It is gone here too, without a reward: it went
+## into their bag. A tile not built yet will leave it out when it is.
+func taken_elsewhere(id: String) -> void:
+	taken[id] = true
+	for i in range(_active.size() - 1, -1, -1):
+		if _active[i]["id"] != id:
+			continue
+		var node: Node3D = _active[i]["node"]
+		if is_instance_valid(node):
+			node.queue_free()
+		_active.remove_at(i)
 
 func _build_tile(coord: Vector2i) -> void:
 	var holder := Node3D.new()

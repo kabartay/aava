@@ -78,7 +78,7 @@ func _init() -> void:
 	name = "Sounds"
 	for i in VOICES:
 		var player := AudioStreamPlayer.new()
-		player.bus = "Master"
+		player.bus = Mix.EFFECTS
 		add_child(player)
 		_players.append(player)
 

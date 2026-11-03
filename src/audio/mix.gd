@@ -23,6 +23,16 @@ extends RefCounted
 
 const WORLD := &"World"
 
+## The interface's own sounds — the coin, the chime, the click of building —
+## on a bus of their own, so they can be turned down under a voice without
+## touching the voices themselves, which stay on Master.
+const EFFECTS := &"Effects"
+
+## How far the valley's ambience and the interface's sounds give way while
+## somebody is speaking. Gentle: the world is still there, it is simply not
+## shouting over a brother. About a third of the loudness, not silence.
+const DUCK_DB := -8.0
+
 ## A decibel short of full scale, so the limiter has something to aim at that
 ## no speaker will distort on.
 const CEILING_DB := -1.0
@@ -36,6 +46,7 @@ const UNDER_CUTOFF := 650.0
 const UNDER_HUSH_DB := -4.0
 
 static var _last_under := -1.0
+static var _duck := 0.0
 
 static func build() -> void:
 	var master := AudioServer.get_bus_index(&"Master")
@@ -50,6 +61,12 @@ static func build() -> void:
 		AudioServer.add_bus(world)
 		AudioServer.set_bus_name(world, WORLD)
 		AudioServer.set_bus_send(world, &"Master")
+	var effects := AudioServer.get_bus_index(EFFECTS)
+	if effects < 0:
+		effects = AudioServer.bus_count
+		AudioServer.add_bus(effects)
+		AudioServer.set_bus_name(effects, EFFECTS)
+		AudioServer.set_bus_send(effects, &"Master")
 	if _effect(world, "AudioEffectLowPassFilter") == null:
 		var dull := AudioEffectLowPassFilter.new()
 		dull.cutoff_hz = OPEN_CUTOFF
@@ -80,7 +97,34 @@ static func muffle(amount: float) -> void:
 		# filter close: a straight line from sixteen thousand to six hundred
 		# spends almost all of its travel where nothing changes.
 		filter.cutoff_hz = exp(lerpf(log(OPEN_CUTOFF), log(UNDER_CUTOFF), under))
-	AudioServer.set_bus_volume_db(world, lerpf(0.0, UNDER_HUSH_DB, under))
+	_levels()
+
+## How far the game's own sounds are turned down, from 0 (not at all) to 1
+## (by DUCK_DB). Cheap to call every frame, like muffle.
+static func duck(amount: float) -> void:
+	var ducked := clampf(amount, 0.0, 1.0)
+	# Anything that is not a visible change is skipped, except arriving at
+	# exactly zero, which must be reached or the valley stays a hair quiet.
+	if absf(ducked - _duck) < 0.005 and not (ducked == 0.0 and _duck != 0.0):
+		return
+	_duck = ducked
+	_levels()
+
+## Where the ducking has got to, for the checks.
+static func ducked() -> float:
+	return _duck
+
+## The volume of the two buses the ducking reaches. The world's is the sum of
+## its two reasons to be quieter: under water, and under a voice.
+static func _levels() -> void:
+	var down := _duck * DUCK_DB
+	var world := AudioServer.get_bus_index(WORLD)
+	if world >= 0:
+		var under := clampf(_last_under, 0.0, 1.0)
+		AudioServer.set_bus_volume_db(world, lerpf(0.0, UNDER_HUSH_DB, under) + down)
+	var effects := AudioServer.get_bus_index(EFFECTS)
+	if effects >= 0:
+		AudioServer.set_bus_volume_db(effects, down)
 
 ## Where the world's filter has got to. For the checks.
 static func world_cutoff() -> float:

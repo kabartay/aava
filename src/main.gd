@@ -280,6 +280,14 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_dam_stick.connect(_on_remote_dam_stick)
 	session.remote_time_of_day.connect(world.atmosphere.set_time)
 	session.remote_valley.connect(_on_remote_valley)
+	session.remote_shared.connect(_on_remote_shared)
+	session.remote_picked.connect(world.pickups.taken_elsewhere)
+	session.remote_parked.connect(world.mounts.park_remote)
+	session.remote_animals.connect(world.animals.tell)
+	# What this child picks up is gone for the other as well, and a mount got off
+	# is left where the other phone is told it stands.
+	world.pickups.taken_here.connect(func(id: String) -> void: session.report_picked(id))
+	world.mounts.dismounted.connect(_on_dismounted)
 
 	# In somebody else's valley the football is theirs; this phone only draws it.
 	world.football.attach(session)
@@ -784,7 +792,12 @@ func _process(delta: float) -> void:
 		structures.sharing = true
 	elif not together and structures.sharing:
 		structures.stop_sharing()
-	session.report_position(player.global_position, player.facing_angle())
+	# On foot while still arriving: what a guest is riding then is a machine of
+	# their own valley, and the host has no such thing to put them on.
+	session.report_position(
+		player.global_position, player.facing_angle(), &"" if _arriving else player.riding
+	)
+	_share_the_animals(delta)
 	# Offered only when there is somebody in the valley to talk to.
 	hud.set_voice(
 		voice.is_available() and session.is_connected_to_anyone(),
@@ -1172,6 +1185,7 @@ func _connect_the_rest_of_the_hud() -> void:
 	hud.fire_fed.connect(_on_feed_fire)
 	hud.slept.connect(_on_sleep)
 	hud.talk_started.connect(voice.start_talking)
+	voice.permission_refused.connect(hud.show_mic_refused)
 	hud.talk_released.connect(voice.stop_talking)
 	hud.together_opened.connect(_on_together_opened)
 	hud.name_chosen.connect(_on_name_chosen)
@@ -1308,7 +1322,7 @@ const WOOD_PER_TREE := 4
 ## What a fleece comes to, and how much of a child's legs a cow's milk gives
 ## back. The fleece grows again on its own clock, so this is a wage rather than
 ## a prize.
-const WOOL_PER_SHEEP := 3
+const WOOL_PER_SHEEP := ShopStock.WOOL_PER_SHEEP
 const MILK_RESTORE := 0.3
 
 ## How close to the shooting line a child must stand to draw a bow.
@@ -1580,13 +1594,18 @@ func _on_guest_arrived(id: int, name: String, shirt: int) -> void:
 		hud.announce(Text.format("say_joined", [name]), 4.0)
 		session.report_time_of_day(world.atmosphere.time_of_day, id)
 		session.report_valley(structures.to_data(), world.felled.to_data(), id)
+		session.report_shared(
+			PackedStringArray(world.pickups.to_data()), world.dams.built,
+			world.dams.progress, world.mounts.to_data(), id
+		)
 	else:
 		hud.announce(Text.format("say_met", [name]), 4.0)
 
 ## Somebody else moved. The host's first position is where a guest who has just
 ## asked to come is set down, and the host's valley follows it.
-func _on_guest_moved(id: int, at: Vector3, facing: float) -> void:
-	visitors.move(id, at, facing)
+func _on_guest_moved(id: int, at: Vector3, facing: float, mount := &"") -> void:
+	visitors.move(id, at, facing, mount)
+	_follow_their_mount(id, at, facing, mount)
 	if id != Session.HOST_ID:
 		return
 	_host_at = at
@@ -1596,6 +1615,57 @@ func _on_guest_moved(id: int, at: Vector3, facing: float) -> void:
 		_place_beside_host()
 		if _valley_received:
 			_arriving = false
+
+## Which mount each other child is on, by their peer id. A mount somebody rides
+## goes where they go on this phone too — the horse a guest rides in the host's
+## valley is not left standing where it was — and is let go when they get off,
+## leave, or the connection ends.
+var _rides_of_others: Dictionary = {}
+
+func _follow_their_mount(id: int, at: Vector3, facing: float, mount: StringName) -> void:
+	var was: StringName = _rides_of_others.get(id, &"")
+	if was != &"" and was != mount:
+		world.mounts.release_remote(was)
+	if mount == &"":
+		_rides_of_others.erase(id)
+		return
+	_rides_of_others[id] = mount
+	world.mounts.ride_remote(mount, at, facing)
+
+func _let_go_of_their_mounts(id := 0) -> void:
+	for who: int in _rides_of_others.keys():
+		if id == 0 or who == id:
+			world.mounts.release_remote(_rides_of_others[who])
+			_rides_of_others.erase(who)
+
+## A mount this child got off is left standing, and the other phone is told
+## where. Its rider's last position said where *they* were, which is a stride
+## from where the machine is put.
+func _on_dismounted(kind: StringName) -> void:
+	if not _telling_of_parking:
+		return
+	session.report_parked(kind, world.mounts.position_of(kind), world.mounts.facing_of(kind))
+
+## How often the host says where its animals are. Often enough that two
+## children feeding the same cow are at the same cow; a good deal less than the
+## positions, since an animal is slow.
+const ANIMAL_TELLING := 0.4
+var _since_animals_told := 0.0
+
+## The host's animals are the animals. A guest's phone follows what the host
+## says; the host tells each guest about those near anybody in the valley.
+func _share_the_animals(delta: float) -> void:
+	world.animals.following = session.is_following()
+	if not session.is_host() or not session.has_company():
+		return
+	_since_animals_told += delta
+	if _since_animals_told < ANIMAL_TELLING:
+		return
+	_since_animals_told = 0.0
+	var places: Array[Vector3] = [player.global_position]
+	for at: Vector3 in session.guest_positions.values():
+		places.append(at)
+	session.report_animals(world.animals.states_near(places))
 
 ## The host's valley, as it stands, arrives for a guest.
 func _on_remote_valley(pieces: Array, stumps: Array) -> void:
@@ -1616,6 +1686,31 @@ func _on_remote_valley(pieces: Array, stumps: Array) -> void:
 	if _placed:
 		_place_beside_host()
 		_arriving = false
+
+## The rest of the host's valley arrives for a guest: the pickups already gone,
+## the dams as they stand, and every mount where the host has it.
+func _on_remote_shared(
+	taken: PackedStringArray, built: Array, progress: Dictionary, mounts: Dictionary
+) -> void:
+	if not session.is_following():
+		return
+	_begin_visit()
+	world.pickups.from_data(Array(taken))
+	world.dams.adopt(built, progress)
+	# Off whatever they were riding before its machine is swapped for the host's.
+	_get_off_quietly()
+	world.mounts.adopt(mounts)
+
+## Off the mount without telling the host where it was left: it is one of this
+## child's own, from their own valley, and the host has none of that name.
+func _get_off_quietly() -> void:
+	if player.riding == &"":
+		return
+	_telling_of_parking = false
+	_on_ride()
+	_telling_of_parking = true
+
+var _telling_of_parking := true
 
 ## The guest's own valley stops being written to, and where they were standing
 ## is remembered, from the moment anything of the host's reaches this phone.
@@ -1647,8 +1742,7 @@ func _spot_beside(host: Vector3) -> Vector3:
 	return Vector3(host.x, maxf(host.y, field.height_at(host.x, host.z)), host.z)
 
 func _place_beside_host() -> void:
-	if player.riding != &"":
-		_on_ride()
+	_get_off_quietly()
 	var spot := _spot_beside(_host_at)
 	player.velocity = Vector3.ZERO
 	player.global_position = spot + Vector3.UP * SPAWN_CLEARANCE
@@ -1661,6 +1755,7 @@ func _place_beside_host() -> void:
 ## where their own valley has been kept all along.
 func _on_session_closed() -> void:
 	_arriving = false
+	_let_go_of_their_mounts()
 	if _visiting and not _going_home:
 		_going_home = true
 		_come_home_note = "say_alone_again"
@@ -1678,6 +1773,7 @@ func _on_guest_renamed(id: int, name: String, shirt: int) -> void:
 
 func _on_guest_left(id: int, name: String) -> void:
 	visitors.remove(id)
+	_let_go_of_their_mounts(id)
 	# Their voice goes with them, or a departed child's player sits open.
 	voice.forget(id)
 	hud.announce(Text.format("say_left", [name]), 3.0)
@@ -1690,7 +1786,9 @@ func _on_session_failed(reason: String) -> void:
 	var words := Session.words_for(reason)
 	if _going_home:
 		_come_home_note = String(words)
-	hud.announce(Text.of(words), 4.0)
+	# Longer for the one that has to say two things: that the number may be
+	# wrong, and that both phones must be on the same Wi-Fi.
+	hud.announce(Text.of(words), 7.0 if words == &"fail_unreachable" else 4.0)
 
 func _footprint_of_kind(kind: StringName) -> float:
 	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
@@ -2069,9 +2167,13 @@ func _arrow_aim() -> Vector3:
 func _arrow_from() -> Vector3:
 	return player.global_position + Vector3.UP * 1.2
 
-func _on_arrow_hit(_index: int, ring: int, points: int) -> void:
-	wallet.earn(points)
-	journal.record(Journal.COINS, points)
+func _on_arrow_hit(index: int, ring: int, points: int) -> void:
+	# The score is the ring; the coins are paid once a target has rested, so a
+	# child who stands at the line and looses arrows all afternoon is practising
+	# rather than printing money.
+	var paid := world.archery.payout(index, points)
+	wallet.earn(paid)
+	journal.record(Journal.COINS, paid)
 	today.record(Today.SHOOT)
 	sounds.play(Sounds.Sound.GOAL if ring == 0 else Sounds.Sound.CLEARED)
 	hud.announce(

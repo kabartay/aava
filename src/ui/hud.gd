@@ -177,6 +177,7 @@ var _player_name := ""
 const RESET_HOLD := 5.0
 
 var _reset_button: Button
+var _visit_ring: HoldRing
 var _reset_held := 0.0
 var _status: Label
 var _message: Label
@@ -215,6 +216,11 @@ var _shoot_button: Button
 var _visit_button: Button
 var _ticket_button: Button
 var _asking: PanelContainer
+## The crossed microphone and what to do about it, shown when the phone refuses
+## the microphone. See show_mic_refused.
+var _mic_notice: PanelContainer
+var _mic_words: Label
+var _mic_seconds := 0.0
 var _question: Label
 var _dam_button: Button
 var _fire_button: Button
@@ -310,6 +316,7 @@ func _init() -> void:
 	add_child(_hint)
 
 	_build_asking()
+	_build_mic_notice()
 
 	_message = _label(30, Color(1.0, 1.0, 1.0))
 	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -398,7 +405,9 @@ func _init() -> void:
 	# Taking things down is as important as putting them up. A child who cannot
 	# undo a misplaced wall stops experimenting, and experimenting is the game.
 	_remove_button = _button("-", Color(0.96, 0.56, 0.46))
-	_remove_button.pressed.connect(func() -> void: build_remove.emit())
+	# Held, not tapped: one press takes down a whole piece with all that stands
+	# on it, and a toddler's finger finds this button as readily as any.
+	_hold(_remove_button, func() -> void: build_remove.emit())
 	_remove_button.visible = false
 	add_child(_remove_button)
 
@@ -409,7 +418,8 @@ func _init() -> void:
 	var undo_face := PartIcon.new(PartIcon.UNDO)
 	undo_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_undo_button.add_child(undo_face)
-	_undo_button.pressed.connect(func() -> void: build_undo.emit())
+	# Held too: one undo takes back a whole plan, every piece that went up with it.
+	_hold(_undo_button, func() -> void: build_undo.emit())
 	_undo_button.visible = false
 	add_child(_undo_button)
 
@@ -529,7 +539,12 @@ func _init() -> void:
 	# of which two are always inert.
 	_visit_button = _icon_button(ActionIcon.Kind.SWING)
 	_visit_button.visible = false
-	_visit_button.pressed.connect(func() -> void: place_used.emit())
+	# A swing is a tap; a meal, the shop's counter and a new game are not. The
+	# ring is told which this place is by set_place_offer.
+	_visit_ring = _hold(_visit_button, func() -> void: place_used.emit())
+	_visit_button.pressed.connect(func() -> void:
+		if not _visit_ring.needed:
+			place_used.emit())
 	add_child(_visit_button)
 
 	# At a cafe the child built, what a meal costs is theirs to say: nothing for
@@ -546,7 +561,8 @@ func _init() -> void:
 
 	_ticket_button = _icon_button(ActionIcon.Kind.TICKET)
 	_ticket_button.visible = false
-	_ticket_button.pressed.connect(func() -> void: ticket_pressed.emit())
+	# Held: a ticket spends coins, and a tap is not a decision.
+	_hold(_ticket_button, func() -> void: ticket_pressed.emit())
 	add_child(_ticket_button)
 
 	# Only shown at a dam site, with a stick in the bag.
@@ -563,7 +579,8 @@ func _init() -> void:
 
 	_snack_button = _icon_button(ActionIcon.Kind.SNACK)
 	_snack_button.visible = false
-	_snack_button.pressed.connect(func() -> void: snack_pressed.emit())
+	# Held: a bar of chocolate eaten by a stray tap is coins eaten with it.
+	_hold(_snack_button, func() -> void: snack_pressed.emit())
 	add_child(_snack_button)
 
 	_fire_button = _icon_button(ActionIcon.Kind.FEED_FIRE)
@@ -937,7 +954,9 @@ func _build_menu() -> VBoxContainer:
 		flag.offset_right = -4.0
 		flag.offset_bottom = -4.0
 		button.add_child(flag)
-		button.pressed.connect(func() -> void: language_chosen.emit(code))
+		# Held: a change of language rebuilds the whole interface under a
+		# child who did not mean it, in words they may not read.
+		_hold(button, func() -> void: language_chosen.emit(code))
 		flags.add_child(button)
 	column.add_child(flags)
 
@@ -1143,7 +1162,10 @@ func _build_shop() -> PanelContainer:
 	# A second one may always be bought: what a child pays for is the thing,
 	# not the right to have one, and the shop refuses only when they have as
 	# many as they are allowed.
-	_shop_buy_button.pressed.connect(func() -> void:
+	#
+	# Held, as is selling back: both move coins, and selling wool empties the
+	# bag in one go.
+	_hold(_shop_buy_button, func() -> void:
 		if _shop_chosen != &"":
 			shop_buy.emit(_shop_chosen)
 	)
@@ -1156,7 +1178,7 @@ func _build_shop() -> PanelContainer:
 	_shop_sell_back.custom_minimum_size = Vector2(BUTTON * 3.0, BUTTON * 0.62)
 	_shop_sell_back.add_theme_font_size_override("font_size", 19)
 	_shop_sell_back.visible = false
-	_shop_sell_back.pressed.connect(func() -> void:
+	_hold(_shop_sell_back, func() -> void:
 		if _shop_chosen != &"":
 			shop_sold_back.emit(_shop_chosen)
 	)
@@ -1375,6 +1397,8 @@ func set_dam_offer(offered: bool) -> void:
 ## the café — rather than being told a word to show.
 func set_place_offer(place: StringName) -> void:
 	var wanted := place != &""
+	# Everything but the swing spends coins, sells or starts the score again.
+	_visit_ring.needed = place != Places.PLAYGROUND
 	if wanted:
 		var face := _face_of(_visit_button)
 		if face != null:
@@ -1607,6 +1631,14 @@ func _show_group(group: StringName) -> void:
 func _show_house(house: bool) -> void:
 	_show_group(&"walls" if house else &"things")
 
+## Make a button need a press-and-hold, with a ring filling on it, and say how
+## when a finger lifts too soon. For what loses something that is hard to get
+## back; the everyday buttons stay a tap.
+func _hold(button: Button, action: Callable) -> HoldRing:
+	var ring := HoldRing.attach(button, action)
+	ring.too_short.connect(func() -> void: announce(Text.of("ui_hold_hint"), 1.8))
+	return ring
+
 func _button(text: String, color: Color) -> Button:
 	var button := Button.new()
 	button.text = text
@@ -1671,6 +1703,59 @@ func _build_asking() -> void:
 	answers.add_child(_answer_button("✓", Color(0.42, 0.82, 0.46), func() -> void:
 		stop_asking()
 		confirmed.emit()))
+
+## The panel for a refused microphone: a crossed microphone for a child who
+## cannot read yet, and the words for the parent standing behind them.
+func _build_mic_notice() -> void:
+	_mic_notice = PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.07, 0.09, 0.12, 0.92)
+	style.set_corner_radius_all(16)
+	style.content_margin_left = 16.0
+	style.content_margin_right = 20.0
+	style.content_margin_top = 14.0
+	style.content_margin_bottom = 14.0
+	style.border_color = Color(1.0, 0.6, 0.5, 0.5)
+	style.set_border_width_all(2)
+	_mic_notice.add_theme_stylebox_override("panel", style)
+	_mic_notice.visible = false
+	# A tap puts it away, so it never sits over the game for somebody who has
+	# read it.
+	_mic_notice.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			hide_mic_refused())
+	add_child(_mic_notice)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	_mic_notice.add_child(row)
+
+	var picture := ActionIcon.new(ActionIcon.Kind.MIC_OFF)
+	picture.custom_minimum_size = Vector2(BUTTON, BUTTON)
+	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(picture)
+
+	_mic_words = Label.new()
+	_mic_words.add_theme_font_size_override("font_size", 22)
+	_mic_words.add_theme_color_override("font_color", Color(1.0, 0.97, 0.90))
+	_mic_words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_mic_words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_mic_words)
+
+## The phone would not let the game listen. Told once, plainly, and left up
+## long enough to read aloud.
+func show_mic_refused() -> void:
+	_mic_words.text = Text.of("say_mic_refused")
+	_mic_seconds = 14.0
+	_mic_notice.visible = true
+	_layout()
+
+func hide_mic_refused() -> void:
+	_mic_seconds = 0.0
+	_mic_notice.visible = false
+
+func is_mic_refused_shown() -> bool:
+	return _mic_notice.visible
 
 func _answer_button(face: String, colour: Color, pressed: Callable) -> Button:
 	var button := Button.new()
@@ -1988,6 +2073,10 @@ func _pulse_the_kick_button(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_pulse_the_kick_button(delta)
+	if _mic_seconds > 0.0:
+		_mic_seconds -= delta
+		if _mic_seconds <= 0.0:
+			hide_mic_refused()
 	if _reset_held > 0.0:
 		_reset_held += delta
 		if _reset_held >= RESET_HOLD:
@@ -2098,6 +2187,18 @@ func _layout() -> void:
 		_asking.position = Vector2(
 			safe.position.x + (safe.size.x - _asking.size.x) * 0.5,
 			safe.position.y + safe.size.y * 0.42 - _asking.size.y * 0.5
+		)
+
+	# The refused microphone, in the middle and a little above the question's
+	# place, with its words wrapped to what the safe area leaves.
+	if _mic_notice.visible:
+		_mic_words.custom_minimum_size.x = minf(560.0, maxf(safe.size.x - BUTTON - 40.0 - 36.0, 120.0))
+		_mic_words.size = Vector2(_mic_words.custom_minimum_size.x, 0.0)
+		_mic_notice.size = Vector2.ZERO
+		_mic_notice.size = _mic_notice.get_combined_minimum_size()
+		_mic_notice.position = Vector2(
+			safe.position.x + (safe.size.x - _mic_notice.size.x) * 0.5,
+			safe.position.y + safe.size.y * 0.30 - _mic_notice.size.y * 0.5
 		)
 
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)

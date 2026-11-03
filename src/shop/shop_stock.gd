@@ -3,6 +3,39 @@ extends RefCounted
 
 ## What the shop sells.
 ##
+## ECONOMY NOTES — what earns, what it earns, and why (read before changing a
+## number anywhere; a check holds the ordering).
+##
+## The aim, for children of six to twelve who play a lot: every animal and
+## activity worth a visit, nothing worth standing in one spot to repeat, and
+## something still to save for after an hour (the quad, 199) and after a week
+## (the motorcycle, 299 — and a second one, or the quad as well). Coins stop at
+## 9999, which is not a goal, only a ceiling.
+##
+## Per visit, with the rest the thing needs before it pays again:
+##   cat      2 coins, nothing needed, ready again after  40 s
+##   dog      3 coins, a stick,                           30 s
+##   squirrel 4 coins, a cone (hard to find; it bolts),   25 s
+##   beaver   5 coins, a stick (and a walk to the water), 35 s
+##   sheep    1 fleece = 2 coins at the shop, shears,    100 s
+##   a butt   up to 5 coins, then it rests 150 s (three butts)
+##   a tree   3 coins grown (6 for a fir), after 150 s; felling takes it back
+##   today's task 8 coins, once a day
+##   a goal   no coins: the score is the game
+## The sheep used to give three fleeces at four coins every 90 s: twelve coins
+## a visit with no cone or stick to find, against a squirrel's four, and a flock
+## of a hundred made everything else pointless. A fleece is now worth no more
+## than a cat's stroke, which is what an animal that needs nothing should pay;
+## the shears (39) still pay for themselves in twenty fleeces, and a rug still
+## costs one. The bow used to pay five coins an arrow, as often as an arrow
+## could be loosed, with no limit; now a butt pays once and then rests.
+##
+## Nothing here can be turned into more than it cost. Buying back from the shop
+## pays half; a grown tree taken down gives its seed back and takes its coins
+## back (one not yet grown has paid none); a ticket not used is returned at the price
+## paid; a cafe or a shop of a child's own charges or pays what the valley's does,
+## never more; wool put into a rug comes back as wool, not coins.
+##
 ## Every item is bought once and kept forever. There are no consumables and
 ## nothing to re-buy: a child who has earned a bicycle should own a bicycle, not
 ## be made to earn it again, and a shop that drains what you saved is a shop
@@ -61,7 +94,11 @@ static func is_consumable(item: StringName) -> bool:
 ## The first thing this shop has ever bought rather than sold. A fleece grows
 ## back, so a flock is an income rather than a windfall — which is the point of
 ## the shears and the reason the sheep are worth walking out to.
-const BUYS := {ItemKinds.WOOL: 4}
+const BUYS := {ItemKinds.WOOL: 2}
+
+## How much wool one shear gives. One fleece, at two coins: see the economy
+## notes at the top of this file.
+const WOOL_PER_SHEEP := 1
 
 static func pays_for(item: StringName) -> int:
 	return int(BUYS.get(item, 0))

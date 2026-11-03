@@ -78,7 +78,7 @@ const INFO := {
 	# A sheep gives wool rather than coins, and only to somebody carrying
 	# shears. Big and slow and entirely unbothered by children.
 	SHEEP: {
-		"want": &"", "coins": 0, "cooldown": 90.0,
+		"want": &"", "coins": 0, "cooldown": 100.0,
 		"colour": Color(0.95, 0.94, 0.90), "size": 0.58,
 		"home": "meadow", "shy": 0.0,
 		"gives": &"wool",

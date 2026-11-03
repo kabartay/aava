@@ -95,7 +95,7 @@ func add(id: int, who: String, chose := -1) -> void:
 	if _early.has(id):
 		var told: Array = _early[id]
 		_early.erase(id)
-		move(id, told[0], told[1])
+		move(id, told[0], told[1], told[2])
 
 ## Which shirt to draw somebody in.
 ##
@@ -141,7 +141,44 @@ func reshirt(id: int, chose: int) -> void:
 		return
 	var shirt := shirt_for(id, chose)
 	record["shirt"] = shirt
-	(node as MeshInstance3D).mesh = _build_body(shirt)
+	(node as MeshInstance3D).mesh = _build_body(shirt, _lift_of(record))
+
+## How far above their own spot somebody sits: a rider in the saddle, as the
+## player's own body is drawn, and a child on foot not at all.
+func _lift_of(record: Dictionary) -> float:
+	var riding: StringName = record.get("mount", &"")
+	return MountKinds.eye_lift(riding) if riding != &"" else 0.0
+
+## What somebody is riding, or empty. For the checks.
+func mount_of(id: int) -> StringName:
+	return _visitors[id].get("mount", &"") if _visitors.has(id) else &""
+
+## Put somebody on a mount, or take them off. The mount is the same mesh the
+## valley draws it as, and the rider is lifted into its saddle, so a child on a
+## horse across the valley is on a horse and not running at sixteen metres a
+## second. Nothing is rebuilt when it has not changed: this is asked of every
+## position that arrives.
+func _ride(record: Dictionary, mount: StringName) -> void:
+	if record.get("mount", &"") == mount:
+		return
+	record["mount"] = mount
+	var node: Node3D = record["node"]
+	if not is_instance_valid(node):
+		return
+	var old := node.get_node_or_null("Mount")
+	if old != null:
+		node.remove_child(old)
+		old.queue_free()
+	var lift := _lift_of(record)
+	if mount != &"":
+		var steed := MountKinds.build_node(mount)
+		steed.name = "Mount"
+		node.add_child(steed)
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).mesh = _build_body(record["shirt"], lift)
+	for child in node.get_children():
+		if child is Label3D:
+			(child as Label3D).position.y = 2.15 + lift
 
 ## Somebody changed their name while standing in the valley.
 func rename(id: int, who: String) -> void:
@@ -188,12 +225,13 @@ func count() -> int:
 	return _visitors.size()
 
 ## A position arrived from another machine.
-func move(id: int, at: Vector3, facing: float) -> void:
+func move(id: int, at: Vector3, facing: float, mount := &"") -> void:
 	if not _visitors.has(id):
 		if _early.has(id) or _early.size() < MAX_EARLY:
-			_early[id] = [at, facing]
+			_early[id] = [at, facing, mount]
 		return
 	var record: Dictionary = _visitors[id]
+	_ride(record, mount)
 	record["wanted"] = at
 	record["facing"] = facing
 	var node: Node3D = record["node"]
@@ -223,7 +261,7 @@ func _process(delta: float) -> void:
 ## The same shape as the player, in a different shirt, so that seeing someone
 ## across the valley reads as "another child" and not as a different kind of
 ## creature.
-func _build_body(shirt: Color) -> Mesh:
+func _build_body(shirt: Color, lift := 0.0) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 
@@ -238,7 +276,7 @@ func _build_body(shirt: Color) -> Mesh:
 	torso.height = Player.HEIGHT * 0.66
 	torso.radial_segments = 10
 	torso.rings = 4
-	_add(tool, torso, Transform3D(Basis(), Vector3(0.0, Player.HEIGHT * 0.33, 0.0)), shirt)
+	_add(tool, torso, Transform3D(Basis(), Vector3(0.0, Player.HEIGHT * 0.33 + lift, 0.0)), shirt)
 
 	var head := SphereMesh.new()
 	head.radius = 0.21
@@ -247,7 +285,7 @@ func _build_body(shirt: Color) -> Mesh:
 	head.rings = 6
 	_add(
 		tool, head,
-		Transform3D(Basis(), Vector3(0.0, Player.HEIGHT * 0.79, 0.0)),
+		Transform3D(Basis(), Vector3(0.0, Player.HEIGHT * 0.79 + lift, 0.0)),
 		Color(0.93, 0.78, 0.62)
 	)
 
@@ -260,7 +298,7 @@ func _build_body(shirt: Color) -> Mesh:
 		tool, nose,
 		Transform3D(
 			Basis(Vector3.RIGHT, deg_to_rad(-90.0)),
-			Vector3(0.0, Player.HEIGHT * 0.79, -0.20)
+			Vector3(0.0, Player.HEIGHT * 0.79 + lift, -0.20)
 		),
 		Color(0.93, 0.78, 0.62)
 	)

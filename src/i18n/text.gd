@@ -199,6 +199,14 @@ const STRINGS := {
 	"ui_your_name": {EN: "your name", FR: "ton prénom", RU: "твоё имя"},
 	"ui_name_hint": {EN: "tap to type it", FR: "appuie pour écrire", RU: "нажми и напиши"},
 	"ui_your_colour": {EN: "your colour", FR: "ta couleur", RU: "твой цвет"},
+	# Said when the phone will not let the game use its microphone. Where to go
+	# is spelt out because after two refusals Android stops asking, and the
+	# only way back is the phone's own settings.
+	"say_mic_refused": {
+		EN: "I can't hear you: the microphone is off. To allow it, open the phone's Settings, then Apps, Aava, Permissions, Microphone.",
+		FR: "Je ne t'entends pas : le micro est coupé. Pour l'autoriser, ouvre les Réglages du téléphone, puis Applications, Aava, Autorisations, Micro.",
+		RU: "Тебя не слышно: микрофон выключен. Чтобы разрешить, открой Настройки телефона, потом Приложения, Aava, Разрешения, Микрофон.",
+	},
 	"say_name_set": {
 		EN: "hello, %s — that is the name they will see",
 		FR: "bonjour %s — c'est le nom qu'ils verront",
@@ -222,6 +230,12 @@ const STRINGS := {
 		RU: "держи, чтобы стереть",
 	},
 	"ui_reset_holding": {EN: "keep holding…", FR: "continue…", RU: "держи…"},
+	# Said when a button that has to be held is only tapped.
+	"ui_hold_hint": {
+		EN: "press and hold",
+		FR: "appuie longtemps",
+		RU: "нажми и держи",
+	},
 	# The opening steps. Each is a single instruction with one verb, phrased as
 	# something to go and do rather than something to understand.
 	"task_gather": {
@@ -428,9 +442,19 @@ const STRINGS := {
 		EN: "%s is here", FR: "%s est là", RU: "%s здесь",
 	},
 	"fail_unreachable": {
-		EN: "nobody answered at that number — check it and try again",
-		FR: "personne ne répond à ce numéro — vérifie-le et réessaie",
-		RU: "по этому номеру никто не отвечает — проверь его и попробуй снова",
+		EN: "nobody answered — both phones must be on the same Wi-Fi, and the number must be right",
+		FR: "personne n'a répondu — les deux téléphones doivent être sur le même Wi-Fi, et le numéro doit être le bon",
+		RU: "никто не ответил — оба телефона должны быть в одной сети Wi-Fi, а номер — верным",
+	},
+	"say_same_wifi": {
+		EN: "both phones must be on the same Wi-Fi",
+		FR: "les deux téléphones doivent être sur le même Wi-Fi",
+		RU: "оба телефона должны быть в одной сети Wi-Fi",
+	},
+	"fail_too_big": {
+		EN: "that valley is too big to bring over",
+		FR: "cette vallée est trop grande pour être apportée",
+		RU: "эта долина слишком большая, чтобы её перенести",
 	},
 	"fail_host_closed": {
 		EN: "your friend closed their valley",
@@ -568,7 +592,7 @@ const STRINGS := {
 	"ui_sell": {EN: "sell", FR: "vendre", RU: "продать"},
 	"shop_buys": {
 		EN: "the shop buys it, %d a piece",
-		# Plural in French for every price the shop pays (it pays four), and
+		# Plural in French for every price the shop pays (it pays two), and
 		# the count after the noun in Russian, as the other coin texts do:
 		# "по 4 монете" is wrong for anything but one.
 		FR: "la boutique l'achète, %d pièces l'unité",

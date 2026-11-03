@@ -154,6 +154,35 @@ func restore() -> void:
 		if not _walls.has(site):
 			_build_wall(float(site))
 
+## The dams as another valley has them, replacing these: the walls it has that
+## this does not are raised, the ones this has that it does not are taken
+## down, and the ground is told. For a guest, who walks into the host's river.
+## The guest's own come back with the reload that ends the visit.
+func adopt(sites_built: Array, sticks: Dictionary) -> void:
+	var before := built.duplicate()
+	for site in before:
+		if not _is_among(site, sites_built):
+			var wall: Node = _walls.get(site)
+			if is_instance_valid(wall):
+				wall.queue_free()
+			_walls.erase(site)
+	from_data({"built": sites_built, "progress": sticks})
+	restore()
+	# Both what is standing now and what stood a moment ago are rebuilt, or the
+	# ground under a wall that has gone would stay dug out for it.
+	departed = before.filter(func(site: Variant) -> bool: return not _is_among(site, built))
+	rebuild_needed.emit()
+	departed = []
+
+## Sites a dam has just come down from, for whoever redraws the ground.
+var departed: Array = []
+
+static func _is_among(site: Variant, sites: Array) -> bool:
+	for other in sites:
+		if is_equal_approx(float(other), float(site)):
+			return true
+	return false
+
 func to_data() -> Dictionary:
 	return {"built": built.duplicate(), "progress": progress.duplicate()}
 

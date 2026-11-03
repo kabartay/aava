@@ -58,6 +58,10 @@ func _initialize() -> void:
 	_check_every_text_key_exists()
 	_check_everything_the_network_can_say_is_said()
 	_check_a_guest_arrives_in_the_hosts_valley_and_goes_home()
+	_check_the_other_child_is_drawn_on_what_they_ride()
+	_check_the_hosts_mounts_follow_their_riders_and_stay_where_they_are_left()
+	_check_the_animals_the_pickups_and_the_dams_agree_between_two_phones()
+	_check_a_big_valley_arrives_in_parts_and_the_panel_offers_both_ways()
 	_check_every_kind_of_day_can_be_finished()
 	_check_every_button_glyph_is_drawn()
 	_check_an_unshirted_child_looks_the_same_to_everyone()
@@ -148,6 +152,7 @@ func _initialize() -> void:
 	_check_voice_is_safe()
 	_check_the_microphone_closes_when_the_app_is_taken_away()
 	_check_a_voice_keeps_its_pitch()
+	_check_talking_is_buffered_ducked_gated_and_explained()
 	_check_every_sound_reaches_a_phone()
 	_check_the_mix_holds_together()
 	_check_two_valleys_stay_two_valleys()
@@ -199,6 +204,8 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	await _check_a_stray_tap_loses_nothing()
+	_check_the_earning_is_balanced()
 	_check_the_economy_has_no_free_coins()
 	await _check_the_rides_and_the_building_are_heard_and_not_stacked()
 	_check_the_four_animals_are_smooth_painted_skins()
@@ -18994,7 +19001,7 @@ func _check_a_guest_arrives_in_the_hosts_valley_and_goes_home() -> void:
 
 	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
 	_expect(
-		game.contains("report_position(player.global_position, player.facing_angle())"),
+		game.contains("player.global_position, player.facing_angle(), &\"\" if _arriving else player.riding"),
 		"a child is drawn for the other facing the way the body is turned, not the root that never turns"
 	)
 	_expect(
@@ -19133,4 +19140,551 @@ func _check_the_economy_has_no_free_coins() -> void:
 	_expect(FootballGround.unfinished(5, 2) == Vector2i.ZERO, "a won match saved in its pause starts again at nothing")
 	_expect(FootballGround.unfinished(1, 6) == Vector2i.ZERO, "from either side")
 
+## One tap must not do what loses something hard to get back (a three-year-old
+## taps at random): taking things down, undo, tickets, chocolate, buying and
+## selling at the shop, a meal, the flags, and leaving a game together all
+## need a hold of about a second, while a swing stays a tap.
+func _check_a_stray_tap_loses_nothing() -> void:
+	print("a stray tap loses nothing")
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(Text.of("ui_hold_hint") != "ui_hold_hint", "the hold hint is written in %s" % code)
+	Text.set_language(Text.EN)
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var fired: Array = []
+	hud.build_remove.connect(func() -> void: fired.append("remove"))
+	hud.build_undo.connect(func() -> void: fired.append("undo"))
+	hud.ticket_pressed.connect(func() -> void: fired.append("ticket"))
+	hud.snack_pressed.connect(func() -> void: fired.append("snack"))
+	hud.shop_buy.connect(func(_i: StringName) -> void: fired.append("buy"))
+	hud.shop_sold_back.connect(func(_i: StringName) -> void: fired.append("sell"))
+	hud.place_used.connect(func() -> void: fired.append("place"))
+	hud.language_chosen.connect(func(code: StringName) -> void: fired.append("language %s" % code))
+	hud.set_shop_open(true, 500, {ShopStock.BICYCLE: 1})
+	hud._shop_tapped(ShopStock.BICYCLE)
+	hud._menu.visible = true
+	for button: Button in [hud._remove_button, hud._undo_button, hud._ticket_button, hud._snack_button]:
+		button.visible = true
+	hud.set_place_offer(Places.CAFE)
+	var cases: Array = [
+		["remove", hud._remove_button], ["undo", hud._undo_button],
+		["ticket", hud._ticket_button], ["snack", hud._snack_button],
+		["buy", hud._shop_buy_button], ["sell", hud._shop_sell_back],
+		["place", hud._visit_button],
+	]
+	for flag: Button in hud._menu.find_children("*", "Button", true, false):
+		if flag.tooltip_text == Text.ENDONYM[Text.FR]:
+			cases.append(["language fr", flag])
+	_expect(cases.size() == 8, "the French flag is in the menu to be tested")
+	for entry: Array in cases:
+		var name: String = entry[0]
+		var button: Button = entry[1]
+		var ring: HoldRing = null
+		for child in button.get_children():
+			if child is HoldRing:
+				ring = child
+		_expect(ring != null, "%s needs a hold" % name)
+		if ring == null:
+			continue
+		fired.clear()
+		hud._message.text = ""
+		button.pressed.emit()
+		button.button_down.emit()
+		ring._process(0.5)
+		button.button_up.emit()
+		_expect(fired.is_empty(), "a tap, or half a second, does not %s" % name)
+		_expect(hud._message.text == Text.of("ui_hold_hint"), "a short press on %s says how to hold" % name)
+		button.button_down.emit()
+		ring._process(0.6)
+		_expect(fired.is_empty() and ring.progress > 0.5, "%s is not done before the ring is full" % name)
+		ring._process(0.6)
+		ring._process(0.6)
+		_expect(fired.size() == 1, "%s happens once, when the ring is full, not %d times" % [name, fired.size()])
+		button.button_up.emit()
+		_expect(ring.progress == 0.0, "letting go empties the ring for %s" % name)
+	# A button hidden under a finger stops filling, so nothing fires later.
+	fired.clear()
+	hud._remove_button.button_down.emit()
+	hud._remove_button.visible = false
+	for child in hud._remove_button.get_children():
+		if child is HoldRing:
+			child._process(2.0)
+	_expect(fired.is_empty(), "a hidden button does not finish its hold")
+	# A swing is still a tap.
+	hud.set_place_offer(Places.PLAYGROUND)
+	fired.clear()
+	hud._visit_button.pressed.emit()
+	_expect(fired == ["place"], "the swing stays instant")
+	hud.queue_free()
+
+	var panel := TogetherPanel.new()
+	get_root().add_child(panel)
+	var left: Array = []
+	panel.leave_requested.connect(func() -> void: left.append(true))
+	panel.show_hosting()
+	await process_frame
+	var leave: Button = null
+	for button: Button in panel.find_children("*", "Button", true, false):
+		if button.text == Text.of("ui_play_alone"):
+			leave = button
+	_expect(leave != null, "the hosting page has a leave button")
+	if leave != null:
+		leave.pressed.emit()
+		_expect(left.is_empty(), "tapping leave does not leave the game")
+		var ring: HoldRing = null
+		for child in leave.get_children():
+			if child is HoldRing:
+				ring = child
+		leave.button_down.emit()
+		ring._process(1.1)
+		leave.button_up.emit()
+		_expect(left.size() == 1, "holding leave does")
+	panel.queue_free()
+## Earning has to be balanced: a sheep paid twelve coins a visit with nothing to
+## find, against a squirrel's four, and a bow paid five coins an arrow without
+## end. Nothing that needs no item may out-earn an animal that does, and a
+## target that has paid must rest.
+func _check_the_earning_is_balanced() -> void:
+	print("earning is balanced")
+	var fleece := ShopStock.WOOL_PER_SHEEP * ShopStock.pays_for(ItemKinds.WOOL)
+	var sheep_rate := float(fleece) / AnimalKinds.cooldown(AnimalKinds.SHEEP)
+	for kind: StringName in [AnimalKinds.CAT, AnimalKinds.DOG, AnimalKinds.SQUIRREL, AnimalKinds.BEAVER]:
+		_expect(
+			fleece <= AnimalKinds.coins(kind),
+			"a fleece (%d) is worth no more than a visit to the %s (%d)" % [fleece, kind, AnimalKinds.coins(kind)]
+		)
+		_expect(
+			sheep_rate < float(AnimalKinds.coins(kind)) / AnimalKinds.cooldown(kind),
+			"a sheep pays by the second less than the %s" % kind
+		)
+
+	# The bow: the first hit pays, the next on the same butt does not until it
+	# has rested, and a different butt is unaffected.
+	var archery := Archery.new(HeightField.new(20260903))
+	_expect(archery.payout(0, 5) == 5, "the first gold on a butt pays")
+	_expect(archery.payout(0, 5) == 0, "a second arrow on the same butt pays nothing")
+	_expect(archery.payout(1, 3) == 3, "another butt still pays")
+	archery._physics_process(Archery.PAYOUT_REST + 1.0)
+	_expect(archery.payout(0, 5) == 5, "and a butt that has rested pays again")
+	archery.free()
+
+	# Buying back from the shop never pays as much as the shop charged, so no
+	# purchase can be turned into a profit.
+	for item in ShopStock.ALL:
+		_expect(
+			ShopStock.sells_back(item) < ShopStock.price(item) or ShopStock.is_consumable(item),
+			"%s sells back for less than it cost" % item
+		)
+## Talking, second pass: a refused microphone says so, a voice is built up
+## before it plays, the game's own sounds give way under it, and the phone
+## does not play a brother back into its own microphone.
+func _check_talking_is_buffered_ducked_gated_and_explained() -> void:
+	print("talking is buffered, ducked, gated and explained")
+	Mix.build()
+	var voice := Voice.new()
+	get_root().add_child(voice)
+	var silence := PackedByteArray()
+	silence.resize(Voice.FRAMES_PER_PACKET * 2)
+
+	# The prebuffer: the first packets are held, and playing starts once about
+	# an eighth of a second is in hand.
+	voice._play(7, silence)
+	_expect(voice.held_frames(7) == Voice.FRAMES_PER_PACKET and not voice.is_playing_voice(7), "the first packet of a voice is held back, not played")
+	voice._play(7, silence)
+	_expect(not voice.is_playing_voice(7), "and so is the second, at 100 ms")
+	voice._play(7, silence)
+	_expect(voice.is_playing_voice(7) and voice.held_frames(7) == 0, "the third starts it playing, with the held frames released")
+	_expect(
+		Voice.PREBUFFER > 0.09 and Voice.PREBUFFER < 0.16,
+		"the prebuffer is %.0f ms: enough for a burst, not much delay" % (Voice.PREBUFFER * 1000.0)
+	)
+
+	# What is left when somebody stops mid-prebuffer is played, not kept.
+	voice.forget(7)
+	voice._play(8, silence)
+	_expect(voice.held_frames(8) > 0, "a short word is held while it might be the start of more")
+	voice._heard_at[8] = Time.get_ticks_msec() - 1000
+	voice._listen(0.01)
+	_expect(voice.held_frames(8) == 0 and voice.is_playing_voice(8), "and is played once nothing more comes, so no word loses its end")
+
+	# Ducking: the valley and the interface turn down under a voice, gently,
+	# and come back after it.
+	voice._heard_at[8] = Time.get_ticks_msec()
+	for i in 30:
+		voice._listen(0.05)
+	var world := AudioServer.get_bus_index(Mix.WORLD)
+	var effects := AudioServer.get_bus_index(Mix.EFFECTS)
+	_expect(effects >= 0, "the interface's sounds have a bus of their own")
+	_expect(
+		absf(AudioServer.get_bus_volume_db(world) - Mix.DUCK_DB) < 0.1 and absf(AudioServer.get_bus_volume_db(effects) - Mix.DUCK_DB) < 0.1,
+		"under a voice the ambience and the effects are down by %.0f dB" % Mix.DUCK_DB
+	)
+	_expect(Mix.DUCK_DB > -14.0 and Mix.DUCK_DB < -4.0, "which is gentle, not silence")
+	voice._heard_at[8] = Time.get_ticks_msec() - 1000
+	for i in 60:
+		voice._listen(0.05)
+	_expect(
+		absf(AudioServer.get_bus_volume_db(world)) < 0.01 and absf(AudioServer.get_bus_volume_db(effects)) < 0.01,
+		"and are back to full when the voice has gone"
+	)
+	var sounds := _code_only(FileAccess.get_file_as_string("res://src/audio/sounds.gd"))
+	_expect(sounds.contains("bus = Mix.EFFECTS"), "the interface's sounds are on the bus that is ducked")
+
+	# Echo: while this child holds the button nothing of the others is played
+	# or queued, and the game's own sounds are ducked too.
+	voice.forget(8)
+	voice._talking = true
+	voice._play(9, silence)
+	_expect(voice.held_frames(9) == 0 and not voice.is_playing_voice(9), "a brother's voice is not queued while this child talks")
+	voice._listen(1.0)
+	_expect(Mix.ducked() > 0.0, "and the game is ducked under the child's own voice as well")
+	voice._talking = false
+	var quiet := PackedVector2Array([Vector2(0.004, 0.004), Vector2(-0.006, -0.006)])
+	var loud := PackedVector2Array([Vector2(0.3, 0.3), Vector2.ZERO])
+	_expect(Voice.peak(quiet) < Voice.GATE_PEAK and Voice.peak(loud) > Voice.GATE_PEAK, "the noise gate tells a room from a voice")
+	get_root().remove_child(voice)
+	voice.free()
+	_expect(Mix.ducked() == 0.0, "leaving the valley mid-word does not leave it turned down")
+
+	# A refused microphone is said, with a picture and in every language.
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	_expect(not hud.is_mic_refused_shown(), "nothing is said about the microphone until it is refused")
+	var talker := Voice.new()
+	get_root().add_child(talker)
+	var told := [false]
+	talker.permission_refused.connect(func() -> void: told[0] = true)
+	talker._on_permission_answered("android.permission.CAMERA", false)
+	_expect(not told[0], "a refusal of some other permission is not about the microphone")
+	talker._on_permission_answered(Voice.PERMISSION, false)
+	_expect(told[0], "a refused microphone is reported")
+	talker.permission_refused.connect(hud.show_mic_refused)
+	talker._on_permission_answered(Voice.PERMISSION, false)
+	_expect(hud.is_mic_refused_shown(), "and the screen shows the notice")
+	var has_picture := false
+	for child in hud._mic_notice.get_child(0).get_children():
+		if child is ActionIcon and child.kind == ActionIcon.Kind.MIC_OFF:
+			has_picture = true
+	_expect(has_picture, "with a crossed microphone in it")
+	_expect(hud._mic_words.text.contains("Settings"), "and the words say where to allow it")
+	for language: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(language)
+		var words := Text.of("say_mic_refused")
+		_expect(not words.begins_with("?") and words.length() > 40, "the notice is written in %s" % language)
+	Text.set_language(Text.EN)
+	hud.hide_mic_refused()
+	_expect(not hud.is_mic_refused_shown(), "and a tap puts it away")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(game.contains("voice.permission_refused.connect(hud.show_mic_refused)"), "the game connects one to the other")
+	hud.queue_free()
+	talker.queue_free()
+## The other child on a horse, a bicycle, a motorcycle, a quad or a boat is drawn
+## on it, in the saddle, and a phone that says nothing about it is on foot.
+func _check_the_other_child_is_drawn_on_what_they_ride() -> void:
+	print("the other child is drawn on what they ride")
+	for id: String in ["horse:3", "bicycle:0", "motorcycle:1", "quad:0", "boat:2", "horse"]:
+		_expect(Session.mount_named(id) == StringName(id), "'%s' is a mount a child may say they ride" % id)
+	for odd: String in ["", "spaceship", "horse:x", "horse:3:4", "horse:99999999999999999999", "../x", "horse:"]:
+		_expect(Session.mount_named(odd) == &"", "'%s' is not, and is on foot" % odd)
+
+	# A position with a mount, one without (an old phone), and one with nonsense.
+	var session := Session.new()
+	get_root().add_child(session)
+	var heard: Array = []
+	session.guest_moved.connect(func(_id: int, _at: Vector3, _facing: float, mount: StringName) -> void: heard.append(mount))
+	session._send_position(Vector3(1.0, 0.0, 2.0), 0.5)
+	session._send_position(Vector3(1.0, 0.0, 2.0), 0.5, "horse:2")
+	session._send_position(Vector3(1.0, 0.0, 2.0), 0.5, "tractor")
+	_expect(heard == [&"", &"horse:2", &""], "a position says what is ridden, and old ones still read: %s" % str(heard))
+	session.queue_free()
+
+	var visitors := Visitors.new()
+	get_root().add_child(visitors)
+	visitors.add(5, "Amir")
+	var body := visitors._visitors[5]["node"] as MeshInstance3D
+	var on_foot_top := body.mesh.get_aabb().end.y
+	for id: StringName in [&"horse:3", &"bicycle:0", &"motorcycle:1", &"quad:0", &"boat:2"]:
+		visitors.move(5, Vector3(3.0, 1.0, 4.0), 0.0, id)
+		var mount := body.get_node_or_null("Mount")
+		_expect(mount != null and visitors.mount_of(5) == id, "%s: the child is drawn on it" % id)
+		if mount != null:
+			_expect(mount.get_node_or_null("Body") != null, "%s: with the machine's own body" % id)
+		_expect(
+			body.mesh.get_aabb().end.y > on_foot_top + MountKinds.eye_lift(id) - 0.01,
+			"%s: and sits in the saddle, not inside it" % id
+		)
+	visitors.move(5, Vector3(3.0, 1.0, 4.0), 0.0)
+	_expect(body.get_node_or_null("Mount") == null, "getting off takes the machine away")
+	_expect(is_equal_approx(body.mesh.get_aabb().end.y, on_foot_top), "and puts the child back on the ground")
+	# A position that overtakes the name that introduces it keeps its mount.
+	visitors.move(9, Vector3.ONE, 0.0, &"quad:0")
+	visitors.add(9, "Mia")
+	_expect(visitors.mount_of(9) == &"quad:0", "a first position that came before the name still says what is ridden")
+	visitors.queue_free()
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("world.mounts.dismounted.connect(_on_dismounted)")
+		and game.contains("session.report_parked(kind"),
+		"a mount got off is told to the other phone"
+	)
+
+## A mount somebody else rides goes where they go, on this phone as on theirs,
+## and stays where they leave it; a guest is given the host's mounts.
+func _check_the_hosts_mounts_follow_their_riders_and_stay_where_they_are_left() -> void:
+	print("the host's mounts follow their riders and stay where they are left")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var camp := field.camp_centre()
+	mounts.place(&"horse:0", camp + Vector3(6.0, 0.0, 0.0))
+	mounts.place(&"bicycle:0", camp + Vector3(-6.0, 0.0, 0.0))
+	var there := camp + Vector3(20.0, 0.0, 5.0)
+	mounts.ride_remote(&"horse:0", there, 1.0)
+	var now := mounts.position_of(&"horse:0")
+	_expect(Vector2(now.x - there.x, now.z - there.z).length() < 0.01, "the horse a guest rides goes where the guest goes")
+	_expect(is_equal_approx(mounts.facing_of(&"horse:0"), 1.0), "facing the way they face")
+	_expect(not mounts.node_of(&"horse:0").visible, "it is drawn as the visitor's mount, not twice")
+	_expect(not mounts.is_solid(&"horse:0"), "it is not solid under its rider")
+	_expect(not mounts.blocks(there.x, there.z, 0.5), "animals do not walk round it")
+	_expect(mounts.nearest(there) == &"", "and nobody else can get on it")
+	mounts.ride_remote(&"quad:7", there, 0.0)
+	_expect(not mounts.exists(&"quad:7"), "a mount this phone does not have is not made up by somebody riding it")
+	mounts.release_remote(&"horse:0")
+	_expect(mounts.node_of(&"horse:0").visible and not mounts.is_ridden_elsewhere(&"horse:0"), "got off, it is there again")
+	var left := camp + Vector3(24.0, 0.0, 9.0)
+	mounts.park_remote(&"horse:0", left, 2.0)
+	now = mounts.position_of(&"horse:0")
+	_expect(Vector2(now.x - left.x, now.z - left.z).length() < 0.01, "and stays where its rider left it")
+	mounts.park_remote(&"quad:4", left, 0.0)
+	_expect(mounts.exists(&"quad:4"), "a machine bought on the other phone appears where it is left")
+	_expect(mounts.mount(&"bicycle:0"), "this child gets on their own")
+	var mine := mounts.position_of(&"bicycle:0")
+	mounts.ride_remote(&"bicycle:0", there, 0.0)
+	_expect(mounts.position_of(&"bicycle:0") == mine, "and nobody else's message moves the one they ride")
+	mounts.dismount(mine)
+	mounts.adopt({"horse:1": [camp.x + 3.0, field.height_at(camp.x + 3.0, camp.z), camp.z, 0.5]})
+	_expect(
+		mounts.exists(&"horse:1") and not mounts.exists(&"horse:0") and not mounts.exists(&"bicycle:0"),
+		"a guest has the host's mounts and not their own"
+	)
+	mounts.queue_free()
+
+## The animals are the host's, a pickup taken by one is gone for both, and a
+## guest meets the dams as the host's river has them.
+func _check_the_animals_the_pickups_and_the_dams_agree_between_two_phones() -> void:
+	print("the animals, the pickups and the dams agree between two phones")
+	var field := HeightField.new(20260903)
+	var host_animals := Animals.new(field, 20260903)
+	var guest_animals := Animals.new(field, 20260903)
+	get_root().add_child(host_animals)
+	get_root().add_child(guest_animals)
+	var camp := field.camp_centre()
+	var at := Vector3(camp.x + 5.0, 0.0, camp.z + 5.0)
+	at.y = field.height_at(at.x, at.z)
+	var hosts_cat := host_animals.put_one_at(AnimalKinds.CAT, at)
+	var guests_cat := guest_animals.put_one_at(AnimalKinds.CAT, at)
+	var far := at + Vector3(900.0, 0.0, 0.0)
+	host_animals.put_one_at(AnimalKinds.COW, far)
+	(hosts_cat["node"] as Node3D).position += Vector3(6.0, 0.0, 3.0)
+	var near_the_children: Array[Vector3] = [at]
+	var states := host_animals.states_near(near_the_children)
+	_expect(states.size() == Animals.STATE_FLOATS, "the host tells of the animal near the children and not the one across the valley")
+	guest_animals.following = true
+	guest_animals.tell(states)
+	var wanted := (hosts_cat["node"] as Node3D).position
+	for frame in 400:
+		# The host says it again every few tenths of a second.
+		if frame % 4 == 0:
+			guest_animals.tell(states)
+		guest_animals._step(guests_cat, 0.1)
+	var node := guests_cat["node"] as Node3D
+	_expect(
+		Vector2(node.position.x - wanted.x, node.position.z - wanted.z).length() < 1.0,
+		"the guest's cat walks to where the host's is (%.1f m off)" % Vector2(node.position.x - wanted.x, node.position.z - wanted.z).length()
+	)
+	# A long way off, it is set down there rather than walked across the meadow.
+	var elsewhere := at + Vector3(60.0, 0.0, 0.0)
+	(hosts_cat["node"] as Node3D).position = elsewhere
+	var near_there: Array[Vector3] = [elsewhere]
+	guest_animals.tell(host_animals.states_near(near_there))
+	guest_animals._step(guests_cat, 0.05)
+	_expect(
+		Vector2(node.position.x - elsewhere.x, node.position.z - elsewhere.z).length() < 2.0,
+		"a cat far from where the host has it is brought there"
+	)
+	host_animals.queue_free()
+	guest_animals.queue_free()
+
+	# A pickup taken by one is gone for both, whether or not the other's ground
+	# has been built yet.
+	var mine := Pickups.new(field, 20260903)
+	var theirs := Pickups.new(field, 20260903)
+	var later := Pickups.new(field, 20260903)
+	get_root().add_child(mine)
+	get_root().add_child(theirs)
+	get_root().add_child(later)
+	var told: Array[String] = []
+	mine.taken_here.connect(func(id: String) -> void:
+		told.append(id)
+		theirs.taken_elsewhere(id)
+		later.taken_elsewhere(id))
+	var tile := Vector2i.ZERO
+	for step in 40:
+		tile = Vector2i(step % 8, step / 8)
+		mine._build_tile(tile)
+		if mine.count_active() > 0:
+			break
+	_expect(mine.count_active() > 0, "there is something to pick up near the camp")
+	theirs._build_tile(tile)
+	var record: Dictionary = mine._active[0]
+	var id: String = record["id"]
+	_expect(theirs._active.any(func(r: Dictionary) -> bool: return r["id"] == id), "the other phone has it lying there too")
+	mine.check_reach(record["position"])
+	_expect(told.has(id), "taking it says which it was")
+	_expect(not theirs._active.any(func(r: Dictionary) -> bool: return r["id"] == id), "and it is gone from the other phone")
+	later._build_tile(tile)
+	_expect(not later._active.any(func(r: Dictionary) -> bool: return r["id"] == id), "and from ground that is built afterwards")
+	_expect(Session.is_pickup_id(id) and not Session.is_pickup_id("x:1:2") and not Session.is_pickup_id("1:2"), "only a pickup's own kind of name is believed")
+	mine.queue_free()
+	theirs.queue_free()
+	later.queue_free()
+
+	# A guest arrives into the dams as they stand, and loses their own.
+	var dams := Dams.new(field)
+	get_root().add_child(dams)
+	var first := DamSpec.SITES[0]
+	var second := DamSpec.SITES[1]
+	dams.adopt([first], {})
+	_expect(dams.is_built(first) and dams._walls.has(first), "a dam the host has finished stands for the guest")
+	var departed: Array = []
+	dams.rebuild_needed.connect(func() -> void: departed.append_array(dams.departed))
+	dams.adopt([second], {first: 3})
+	_expect(dams.is_built(second) and not dams.is_built(first), "the host's dams replace the guest's own")
+	_expect(not dams._walls.has(first) and dams.sticks_at(first) == 3, "the wall that is not the host's comes down, and the sticks so far are the host's")
+	_expect(departed.size() == 1 and is_equal_approx(float(departed[0]), first), "and the ground is told which site to redraw")
+	dams.queue_free()
+
+	# And all of it comes down the wire, believed only when it is believable.
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	host._link = guest
+	guest._link = host
+	var got: Array = []
+	guest.remote_shared.connect(func(taken: PackedStringArray, built: Array, progress: Dictionary, mounts: Dictionary) -> void:
+		got.append_array([taken, built, progress, mounts]))
+	host.report_shared(
+		PackedStringArray(["1:2:3", "nonsense", "-4:0:9"]), [96.0, NAN, "x"], {-64.0: 3},
+		{"horse:1": [1.0, 2.0, 3.0, 0.5], "spaceship": [0.0, 0.0, 0.0, 0.0], "boat:0": [NAN, 0.0, 0.0, 0.0]},
+		guest._link_id
+	)
+	_expect(not got.is_empty(), "the rest of the host's valley reaches a guest")
+	if not got.is_empty():
+		_expect(got[0].size() == 2, "two believable pickups (%d)" % got[0].size())
+		_expect(got[1] == [96.0], "one believable dam")
+		_expect(got[2] == {-64.0: 3}, "its sticks so far")
+		_expect(got[3].size() == 1 and got[3].has("horse:1"), "and the one believable mount")
+	var heard_animals: Array = []
+	guest.remote_animals.connect(func(states: PackedFloat32Array) -> void: heard_animals.append(states.size()))
+	host.report_animals(PackedFloat32Array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]))
+	guest._take_animals(Session.HOST_ID, PackedFloat32Array([1.0, 2.0, 3.0]))
+	guest._take_animals(Session.HOST_ID, PackedFloat32Array([1.0, 2.0, NAN, 4.0]))
+	guest._take_animals(7, PackedFloat32Array([1.0, 2.0, 3.0, 4.0]))
+	host._take_animals(Session.HOST_ID, PackedFloat32Array([1.0, 2.0, 3.0, 4.0]))
+	_expect(heard_animals == [8], "the animals told are two, and nothing odd or from a stranger is believed: %s" % str(heard_animals))
+	var picked: Array = []
+	guest.remote_picked.connect(func(wanted_id: String) -> void: picked.append(wanted_id))
+	guest._send_picked("3:4:5")
+	guest._send_picked("../../x")
+	_expect(picked == ["3:4:5"], "a pickup taken elsewhere is believed only by its own kind of name")
+	var parked: Array = []
+	guest.remote_parked.connect(func(id: StringName, _at: Vector3, _facing: float) -> void: parked.append(id))
+	guest._send_parked("horse:2", Vector3.ONE, 0.0)
+	guest._send_parked("horse:2", Vector3(NAN, 0.0, 0.0), 0.0)
+	guest._send_parked("sofa", Vector3.ONE, 0.0)
+	_expect(parked == [&"horse:2"], "and a mount left standing likewise")
+	host.queue_free()
+	guest.queue_free()
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("world.animals.following = session.is_following()")
+		and game.contains("session.report_animals(world.animals.states_near(places))"),
+		"the host tells the animals and the guest follows them"
+	)
+
+## A valley over the old cap arrives in full, in parts; the panel of a host
+## offers 'go to someone', and both phones are told to be on the same Wi-Fi.
+func _check_a_big_valley_arrives_in_parts_and_the_panel_offers_both_ways() -> void:
+	print("a big valley arrives in parts, and the panel offers both ways")
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	host._link = guest
+	guest._link = host
+	var arrivals: Array = []
+	guest.remote_valley.connect(func(pieces: Array, stumps: Array) -> void: arrivals.append([pieces.size(), stumps.size()]))
+	var pieces: Array = []
+	for i in Session.MAX_PIECES + 1500:
+		pieces.append({"kind": "wall", "x": float(i % 500), "y": 0.0, "z": float(i / 500), "spin": 0.0})
+	var stumps: Array = []
+	for i in Session.MAX_STUMPS + 1500:
+		stumps.append([float(i % 900), float(i / 900)])
+	host.report_valley(pieces, stumps, guest._link_id)
+	_expect(arrivals.size() == 1, "a valley in parts arrives once, whole: %d times" % arrivals.size())
+	if arrivals.size() == 1:
+		_expect(arrivals[0][0] == pieces.size(), "every piece of %d arrives (%d)" % [pieces.size(), arrivals[0][0]])
+		_expect(arrivals[0][1] == stumps.size(), "and every stump of %d (%d)" % [stumps.size(), arrivals[0][1]])
+	# A small one is still one message, as an older phone sends it.
+	arrivals.clear()
+	guest._take_valley(Session.HOST_ID, [{"kind": "wall", "x": 1.0}], [[1.0, 2.0]])
+	_expect(arrivals == [[1, 1]], "a valley told in one piece, as before, arrives as it did")
+	# A host that never says it is finished does not make a guest keep it all.
+	_expect(Session.words_for("the valley is too big to bring") == &"fail_too_big", "a valley too big to bring is said, not dropped")
+	host.queue_free()
+	guest.queue_free()
+
+	# The panel of a host offers 'go to someone'.
+	var panel := TogetherPanel.new()
+	get_root().add_child(panel)
+	panel.show_hosting()
+	var visit: Button = null
+	var notes := ""
+	for child in panel._column.get_children():
+		if child is Button and (child as Button).text == Text.of("ui_visit"):
+			visit = child
+		if child is Label:
+			notes += (child as Label).text + "|"
+	_expect(visit != null, "a child who has opened their valley can still go to someone")
+	_expect(notes.contains(Text.of("say_same_wifi")) or Session.own_code() <= 0, "and is told both phones must be on the same Wi-Fi")
+	if visit != null:
+		visit.pressed.emit()
+		_expect(panel.page == TogetherPanel.Page.TYPING, "that goes to the keypad")
+	panel.queue_free()
+	# Hosting, then joining, leaves the hosting behind.
+	var both := Session.new()
+	get_root().add_child(both)
+	if both.host("Amir"):
+		var closed := [0]
+		both.closed.connect(func() -> void: closed[0] += 1)
+		_expect(both.join("127.0.0.1", "Amir"), "a child who is hosting can join another")
+		_expect(both.role == Session.Role.VISITING and closed[0] == 1, "and is then a visitor, the door shut behind them")
+		both.close()
+	both.queue_free()
+
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		_expect(Text.of("fail_unreachable").contains("Wi-Fi"), "'nobody answered' names the Wi-Fi in %s" % code)
+		_expect(Text.of("say_same_wifi").contains("Wi-Fi"), "and so does the note on the panel in %s" % code)
+		_expect(not Text.of("fail_too_big").is_empty(), "the valley too big has words in %s" % code)
+	Text.set_language(Text.EN)
 

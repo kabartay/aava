@@ -53,8 +53,21 @@ signal remote_time_of_day(fraction: float)
 ## piece built (as saved) and every tree felled.
 signal remote_valley(pieces: Array, stumps: Array)
 
-## Where another child is, so they can be drawn.
-signal guest_moved(id: int, position: Vector3, facing: float)
+## Where another child is, so they can be drawn. `mount` is the id of what they
+## are riding, or empty on foot.
+signal guest_moved(id: int, position: Vector3, facing: float, mount: StringName)
+
+## What the host's valley holds besides the things built, told to a guest on
+## arrival: the pickups already taken, the dams (finished, and sticks so far)
+## and where every mount stands — `{id: [x, y, z, facing]}`.
+signal remote_shared(taken: PackedStringArray, built: Array, progress: Dictionary, mounts: Dictionary)
+## Somebody picked something up, by the id the valley gives it.
+signal remote_picked(id: String)
+## A mount was left standing by somebody who got off it.
+signal remote_parked(id: StringName, position: Vector3, facing: float)
+## Where the host's animals are, for a guest: four numbers each — where it was
+## born (which is what names it on both phones) and where it stands now.
+signal remote_animals(states: PackedFloat32Array)
 
 ## The football, which is the host's. Every ball's state as the host sees it
 ## (see report_balls for the layout); the score, with the end a goal went into
@@ -114,6 +127,11 @@ var _peer: ENetMultiplayerPeer = null
 var _since_move := 0.0
 var _last_sent := Vector3(1e9, 1e9, 1e9)
 var _last_facing := 0.0
+var _last_mount := &""
+
+## The valley as it arrives in parts, kept until the last part is in.
+var _part_pieces: Array = []
+var _part_stumps: Array = []
 
 func _init() -> void:
 	name = "Session"
@@ -209,6 +227,8 @@ func _ready_to_connect() -> bool:
 	return true
 
 func close() -> void:
+	_part_pieces.clear()
+	_part_stumps.clear()
 	if _peer != null:
 		_peer.close()
 		_peer = null
@@ -307,19 +327,30 @@ func _process(delta: float) -> void:
 
 ## Tell everyone else where this child is. Called every frame by the game; sends
 ## at most MOVE_INTERVAL apart, and only when they have actually moved.
-func report_position(at: Vector3, facing: float) -> void:
+##
+## `mount` is what they are riding, if anything, so the other phone draws a
+## child on a horse and not one running at sixteen metres a second. It is a
+## third value that is only sent when there is one: a phone that has not been
+## updated reads the two it has always read, and sends none.
+func report_position(at: Vector3, facing: float, mount := &"") -> void:
 	if not is_connected_to_anyone() or _since_move < MOVE_INTERVAL:
 		return
-	# A child turning on the spot is changing what the other phone draws too.
+	# A child turning on the spot is changing what the other phone draws too,
+	# and so is one getting on or off at a standstill.
 	if (
 		at.distance_squared_to(_last_sent) < 0.01
 		and absf(angle_difference(facing, _last_facing)) < 0.1
+		and mount == _last_mount
 	):
 		return
 	_since_move = 0.0
 	_last_sent = at
 	_last_facing = facing
-	_send_position.rpc(at, facing)
+	_last_mount = mount
+	if mount == &"":
+		_send_position.rpc(at, facing)
+	else:
+		_send_position.rpc(at, facing, String(mount))
 
 ## The four things that change a valley. Each is sent as it happens.
 ##
@@ -435,13 +466,77 @@ func report_time_of_day(fraction: float, to_peer := 0) -> void:
 ## What the host has built and felled, to a guest who has just arrived. Without
 ## it the guest walks into the host's valley carrying their own: a house the
 ## host cannot see, and a forest the host has already cut down.
+##
+## Sent in parts, however much there is. It was one message that the other end
+## threw away whole when it held more than MAX_PIECES, so a child who had
+## built a great deal brought a brother into an empty valley and neither phone
+## said so. A part is small enough to be a reasonable thing to refuse; the
+## guest keeps them until the last says it is the last.
 func report_valley(pieces: Array, stumps: Array, to_peer: int) -> void:
 	if role != Role.HOSTING or not is_connected_to_anyone():
 		return
+	var at_piece := 0
+	var at_stump := 0
+	while true:
+		var some_pieces := pieces.slice(at_piece, at_piece + PIECES_PER_PART)
+		var some_stumps := stumps.slice(at_stump, at_stump + STUMPS_PER_PART)
+		at_piece += PIECES_PER_PART
+		at_stump += STUMPS_PER_PART
+		var more := at_piece < pieces.size() or at_stump < stumps.size()
+		if _link != null:
+			_link._take_valley(HOST_ID, some_pieces, some_stumps, more)
+		elif more:
+			_send_valley.rpc_id(to_peer, some_pieces, some_stumps, true)
+		else:
+			_send_valley.rpc_id(to_peer, some_pieces, some_stumps)
+		if not more:
+			return
+
+## The rest of what the host's valley holds, to a guest who has just arrived:
+## which pickups are already gone, how far each dam has got, and where every
+## mount stands. Without it the guest looks for sticks that are not there,
+## sees a river the host has dammed running free, and finds a horse where the
+## host left it an hour ago.
+func report_shared(
+	taken: PackedStringArray, built: Array, progress: Dictionary, mounts: Dictionary,
+	to_peer: int
+) -> void:
+	if role != Role.HOSTING or not is_connected_to_anyone():
+		return
+	# Sites travel as pairs of numbers: a dictionary keyed by a float is a
+	# thing only this game's own save knows how to read back.
+	var sticks: Array = []
+	for site: Variant in progress:
+		sticks.append([float(site), int(progress[site])])
 	if _link != null:
-		_link._take_valley(HOST_ID, pieces, stumps)
+		_link._take_shared(HOST_ID, taken, built, sticks, mounts)
 	else:
-		_send_valley.rpc_id(to_peer, pieces, stumps)
+		_send_shared.rpc_id(to_peer, taken, built, sticks, mounts)
+
+## Something was picked up here, and is gone for both. `id` is the one the
+## valley gave it, which is the same on both phones.
+func report_picked(id: String) -> void:
+	if is_connected_to_anyone():
+		_send_picked.rpc(id)
+
+## A mount was got off, and left where it now stands. Its way there was told
+## as its rider's position; this is where it stays.
+func report_parked(id: StringName, at: Vector3, facing: float) -> void:
+	if is_connected_to_anyone():
+		_send_parked.rpc(String(id), at, facing)
+
+## Where the host's animals are, for a guest. Like the football, the animals
+## are the host's: each guest's own would otherwise wander off in a direction
+## of its own, and two children would be feeding two different cows. Four
+## numbers an animal (see `remote_animals`), unreliably, since the next
+## update corrects a lost one.
+func report_animals(states: PackedFloat32Array) -> void:
+	if role != Role.HOSTING or not is_connected_to_anyone() or states.is_empty():
+		return
+	if _link != null:
+		_link._take_animals(HOST_ID, states)
+	else:
+		_send_animals.rpc(states)
 
 # --- what arrives ---------------------------------------------------------
 #
@@ -471,12 +566,26 @@ static func believable(at: Vector3) -> bool:
 	)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
-func _send_position(at: Vector3, facing: float) -> void:
+func _send_position(at: Vector3, facing: float, mount := "") -> void:
 	if not believable(at) or not is_finite(facing):
 		return
 	var from := multiplayer.get_remote_sender_id()
 	guest_positions[from] = at
-	guest_moved.emit(from, at, facing)
+	guest_moved.emit(from, at, facing, mount_named(mount))
+
+## What somebody says they are riding, or nothing. An id is "horse:3" or
+## "bicycle:0": a kind this game has, and at most a number after it. Anything
+## else is on foot, because it is drawn as a mesh and looked up in tables.
+static func mount_named(text: String) -> StringName:
+	if text.length() > 16:
+		return &""
+	var colon := text.find(":")
+	var kind := text if colon < 0 else text.substr(0, colon)
+	if not MountKinds.ALL.has(StringName(kind)):
+		return &""
+	if colon >= 0 and not text.substr(colon + 1).is_valid_int():
+		return &""
+	return StringName(text)
 
 ## Is this from the host? 0 is no sender at all, which is how a check calls a
 ## handler directly. Another guest's message relayed through the host is not
@@ -560,16 +669,26 @@ func _send_felled(at: Vector3) -> void:
 		return
 	remote_felled.emit(at)
 
-## More pieces than anybody builds in an afternoon; a longer list is nonsense.
+## More pieces in one message than anybody builds in an afternoon; a longer
+## list is nonsense. A phone that has not been updated sends the whole valley
+## in one, so this stays what it was.
 const MAX_PIECES := 20000
 ## And more stumps than a forest has trees near enough to fell.
 const MAX_STUMPS := 40000
+## How much goes in one part of a valley sent in parts.
+const PIECES_PER_PART := 500
+const STUMPS_PER_PART := 2000
+## What a whole valley may come to over all its parts. Far beyond any child's
+## building, and there only so that a peer that never says "last" cannot make
+## this phone keep everything it is sent.
+const MAX_PIECES_IN_ALL := 400000
+const MAX_STUMPS_IN_ALL := 800000
 
 @rpc("any_peer", "call_remote", "reliable")
-func _send_valley(pieces: Array, stumps: Array) -> void:
-	_take_valley(multiplayer.get_remote_sender_id(), pieces, stumps)
+func _send_valley(pieces: Array, stumps: Array, more := false) -> void:
+	_take_valley(multiplayer.get_remote_sender_id(), pieces, stumps, more)
 
-func _take_valley(from: int, pieces: Array, stumps: Array) -> void:
+func _take_valley(from: int, pieces: Array, stumps: Array, more := false) -> void:
 	if not _from_the_host(from):
 		return
 	if pieces.size() > MAX_PIECES or stumps.size() > MAX_STUMPS:
@@ -610,7 +729,115 @@ func _take_valley(from: int, pieces: Array, stumps: Array) -> void:
 		if not is_finite(x) or not is_finite(z) or absf(x) > BELIEVABLE_REACH or absf(z) > BELIEVABLE_REACH:
 			continue
 		clean_stumps.append(entry.slice(0, 3))
-	remote_valley.emit(clean_pieces, clean_stumps)
+	_part_pieces.append_array(clean_pieces)
+	_part_stumps.append_array(clean_stumps)
+	if _part_pieces.size() > MAX_PIECES_IN_ALL or _part_stumps.size() > MAX_STUMPS_IN_ALL:
+		# Said, and the visit given up: a guest told nothing and left in a valley
+		# of only half of what the host has is the silent failure this replaced.
+		close()
+		failed.emit("the valley is too big to bring")
+		return
+	if more:
+		return
+	var whole_pieces := _part_pieces
+	var whole_stumps := _part_stumps
+	_part_pieces = []
+	_part_stumps = []
+	remote_valley.emit(whole_pieces, whole_stumps)
+
+## More pickups taken than a long afternoon's walking; a longer list is nonsense.
+const MAX_TAKEN := 500000
+## More animals in one update than a handful of tiles hold.
+const MAX_ANIMALS := Animals.MAX_TOLD
+const ANIMAL_FLOATS := Animals.STATE_FLOATS
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_shared(
+	taken: PackedStringArray, built: Array, progress: Array, mounts: Dictionary
+) -> void:
+	_take_shared(multiplayer.get_remote_sender_id(), taken, built, progress, mounts)
+
+func _take_shared(
+	from: int, taken: PackedStringArray, built: Array, progress: Array, mounts: Dictionary
+) -> void:
+	if not _from_the_host(from):
+		return
+	if taken.size() > MAX_TAKEN or built.size() > 64 or progress.size() > 64 or mounts.size() > 256:
+		return
+	var clean_taken := PackedStringArray()
+	for id in taken:
+		if is_pickup_id(id):
+			clean_taken.append(id)
+	# A site is checked by the dams themselves when it is used, so what is
+	# wanted here is only that it is a number that will not poison a save.
+	var clean_built: Array = []
+	for site: Variant in built:
+		if (typeof(site) == TYPE_FLOAT or typeof(site) == TYPE_INT) and believable(Vector3(float(site), 0.0, 0.0)):
+			clean_built.append(float(site))
+	var clean_progress: Dictionary = {}
+	for entry: Variant in progress:
+		if typeof(entry) != TYPE_ARRAY or entry.size() < 2:
+			continue
+		var site: Variant = entry[0]
+		var count: Variant = entry[1]
+		if (typeof(site) != TYPE_FLOAT and typeof(site) != TYPE_INT) or typeof(count) != TYPE_INT:
+			continue
+		if believable(Vector3(float(site), 0.0, 0.0)) and count >= 0 and count < 1000:
+			clean_progress[float(site)] = count
+	var clean_mounts: Dictionary = {}
+	for key: Variant in mounts:
+		var entry: Variant = mounts[key]
+		if typeof(key) != TYPE_STRING or mount_named(key) == &"":
+			continue
+		if typeof(entry) != TYPE_ARRAY or entry.size() < 4:
+			continue
+		var numbers: Array = []
+		for number: Variant in entry.slice(0, 4):
+			if (typeof(number) != TYPE_FLOAT and typeof(number) != TYPE_INT) or not is_finite(float(number)):
+				break
+			numbers.append(float(number))
+		if numbers.size() == 4 and believable(Vector3(numbers[0], numbers[1], numbers[2])):
+			clean_mounts[key] = numbers
+	remote_shared.emit(clean_taken, clean_built, clean_progress, clean_mounts)
+
+## Is this a name the valley gives a pickup — "tile x:tile z:number"? It is
+## stored and saved, and read back as a key, so nothing else gets in.
+static func is_pickup_id(id: String) -> bool:
+	if id.length() > 24:
+		return false
+	var parts := id.split(":")
+	if parts.size() != 3:
+		return false
+	for part in parts:
+		if not part.is_valid_int():
+			return false
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_picked(id: String) -> void:
+	if is_pickup_id(id):
+		remote_picked.emit(id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_parked(id: String, at: Vector3, facing: float) -> void:
+	if mount_named(id) == &"" or not believable(at) or not is_finite(facing):
+		return
+	remote_parked.emit(StringName(id), at, facing)
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func _send_animals(states: PackedFloat32Array) -> void:
+	_take_animals(multiplayer.get_remote_sender_id(), states)
+
+func _take_animals(from: int, states: PackedFloat32Array) -> void:
+	if not _from_the_host(from):
+		return
+	var count := states.size() / ANIMAL_FLOATS
+	if states.size() % ANIMAL_FLOATS != 0 or count < 1 or count > MAX_ANIMALS:
+		return
+	for number in states:
+		if not is_finite(number) or absf(number) > BELIEVABLE_REACH:
+			return
+	remote_animals.emit(states)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_dam_stick(site: float) -> void:
@@ -694,6 +921,8 @@ static func words_for(reason: String) -> StringName:
 			return &"fail_host_closed"
 		"the game is already open on this device":
 			return &"fail_in_use"
+		"the valley is too big to bring":
+			return &"fail_too_big"
 		"could not open the valley":
 			return &"fail_open"
 		_:

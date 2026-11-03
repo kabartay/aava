@@ -260,6 +260,7 @@ func _forget(id: StringName) -> void:
 	_positions.erase(id)
 	_facings.erase(id)
 	_waiting_to_be_solid.erase(id)
+	_remote.erase(id)
 	if _settling == id:
 		_settling = &""
 
@@ -273,13 +274,78 @@ func _forget(id: StringName) -> void:
 ## The ridden one does not count. A child is standing in it.
 func blocks(x: float, z: float, margin: float) -> bool:
 	for id in _nodes:
-		if id == riding or not is_instance_valid(_nodes[id]):
+		if id == riding or _remote.has(id) or not is_instance_valid(_nodes[id]):
 			continue
 		var node: Node3D = _nodes[id]
 		var reach := MountKinds.girth(id) + margin
 		if Vector2(x - node.global_position.x, z - node.global_position.z).length() < reach:
 			return true
 	return false
+
+## Mounts somebody else is riding, in another phone, by id.
+##
+## Such a mount goes where its rider goes, on this phone as on theirs, and is
+## not drawn here: the visitor is drawn on a copy of it (see Visitors), which
+## glides with them. It is not solid, nobody can get on it, and animals do not
+## walk round it — it is as taken as one the child is riding.
+var _remote: Dictionary = {}
+
+func is_ridden_elsewhere(id: StringName) -> bool:
+	return _remote.has(id)
+
+## Somebody else is on this mount, and has just said where. Not while this
+## child is on it: whoever got on first keeps it.
+func ride_remote(id: StringName, at: Vector3, facing: float) -> void:
+	if id == riding or not exists(id):
+		return
+	var node: Node3D = _nodes[id]
+	if not _remote.has(id):
+		_remote[id] = true
+		_set_solid(id, false)
+		_waiting_to_be_solid.erase(id)
+		node.visible = false
+	_stand_at(id, at, facing)
+
+## Their rider got off, or went home: it is drawn and solid again where it is.
+func release_remote(id: StringName) -> void:
+	if not _remote.erase(id) or not exists(id):
+		return
+	(_nodes[id] as Node3D).visible = true
+	_waiting_to_be_solid[id] = true
+	_settling = id
+
+func release_all_remote() -> void:
+	for id in _remote.keys():
+		release_remote(id)
+
+## Somebody else got off a mount and left it here. A mount this phone has never
+## heard of — a machine bought on the other one — is put into the valley.
+func park_remote(id: StringName, at: Vector3, facing: float) -> void:
+	if id == riding:
+		return
+	release_remote(id)
+	if not exists(id):
+		place(id, at, facing)
+		return
+	_stand_at(id, at, facing)
+
+## Every mount in the valley as the host has it, replacing this phone's own.
+## The guest's own come back with the reload that ends the visit.
+func adopt(data: Dictionary) -> void:
+	for id in _nodes.keys():
+		if id != riding:
+			_forget(id)
+	_remote.clear()
+	from_data(data)
+
+func _stand_at(id: StringName, at: Vector3, facing: float) -> void:
+	var node: Node3D = _nodes[id]
+	var spot := at
+	spot.y = _rest_height(id, at)
+	node.position = spot
+	node.transform.basis = _lie_on_the_ground(spot, facing, id)
+	_facings[id] = facing
+	_positions[id] = spot
 
 ## The node a mount is drawn as. For the checks, and for anything that needs
 ## to reach inside it.
@@ -312,7 +378,7 @@ func nearest(player_position: Vector3) -> StringName:
 	var best := &""
 	var best_distance := REACH
 	for kind in _nodes:
-		if not is_instance_valid(_nodes[kind]):
+		if not is_instance_valid(_nodes[kind]) or _remote.has(kind):
 			continue
 		var flat: Vector3 = _positions[kind] - player_position
 		flat.y = 0.0
@@ -544,7 +610,7 @@ func _process(delta: float) -> void:
 ## it, rather than sliding up the bank.
 func _drift_the_boats(delta: float) -> void:
 	for id in _nodes:
-		if id == riding or not MountKinds.floats(id):
+		if id == riding or _remote.has(id) or not MountKinds.floats(id):
 			continue
 		var node: Node3D = _nodes[id]
 		if not is_instance_valid(node):

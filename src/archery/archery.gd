@@ -37,7 +37,16 @@ const TARGET_SPACING := 7.0
 const RINGS: Array[float] = [0.24, 0.52, 0.86]
 const RING_POINTS: Array[int] = [5, 3, 1]
 
+## How long a butt rests after it has paid out, in seconds of play. Three
+## butts at five coins each every two and a half minutes is at best a tenth of a
+## coin a second: less than a squirrel with a cone, because a bow costs nothing
+## to loose and an arrow is never used up.
+const PAYOUT_REST := 150.0
+
 var field: HeightField
+## When each butt next pays, on this range's own clock.
+var _clock := 0.0
+var _pays_again := {}
 
 var _origin := Vector3.ZERO
 var _facing := Vector3.FORWARD
@@ -163,7 +172,16 @@ func loose(from: Vector3, direction: Vector3, charge: float, aim_height: float) 
 		"node": node,
 	})
 
+## What a hit on a butt earns in coins: the ring's points if it has rested, and
+## nothing if it paid out lately. The hit still scores; only the purse waits.
+func payout(index: int, points: int) -> int:
+	if _clock < float(_pays_again.get(index, 0.0)):
+		return 0
+	_pays_again[index] = _clock + PAYOUT_REST
+	return points
+
 func _physics_process(delta: float) -> void:
+	_clock += delta
 	var finished: Array[Dictionary] = []
 
 	for arrow in _arrows:
