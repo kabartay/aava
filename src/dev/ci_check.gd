@@ -19483,11 +19483,15 @@ func _check_the_other_child_is_drawn_on_what_they_ride() -> void:
 		# A horse is climbed onto, which takes a moment (see
 		# _check_getting_on_and_off_a_horse_is_a_climb_and_a_slide).
 		visitors._process(Mounts.BOARD_TIME + 0.2)
+		# A horse is climbed onto, which takes a moment (see
+		# _check_getting_on_and_off_a_horse_is_a_climb_and_a_slide).
+		visitors._process(Mounts.BOARD_TIME + 0.2)
 		_expect(
 			is_equal_approx(rig.position.y, MountKinds.eye_lift(id)),
 			"%s: and sits in the saddle, not inside it" % id
 		)
 	visitors.move(5, Vector3(3.0, 1.0, 4.0), 0.0)
+	visitors._process(Mounts.BOARD_TIME + 0.2)
 	visitors._process(Mounts.BOARD_TIME + 0.2)
 	_expect(body.get_node_or_null("Mount") == null, "getting off takes the machine away")
 	_expect(is_zero_approx(rig.position.y), "and puts the child back on the ground")
