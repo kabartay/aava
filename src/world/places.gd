@@ -3393,10 +3393,14 @@ func _build_table(tool: SurfaceTool, local: Vector3, canopy: Color, solid: Stati
 		back_shape.size = Vector3(0.14, 0.45, 0.56)
 		_collide(solid, back_shape, Transform3D(Basis(), seat_at + Vector3(side * 0.26, 0.7, 0.0)))
 		# Facing the table: from +X the body looks along -X, which is rotation
-		# atan2(-(-1), 0) = +PI/2; from -X, -PI/2.
+		# atan2(-(-1), 0) = +PI/2; from -X, -PI/2. "table" is where the food
+		# lands, straight ahead of the seat's middle whichever side it is on;
+		# it used to be a fixed 0.42 m either side of the table's middle, which
+		# put the plate 0.63 m from a child in the -X chair and 1.05 m from one
+		# in the +X chair, because the tray was laid the same way up for both.
 		_cafe_seats.append({
 			"seat": seat_at + Vector3(0.0, 0.45, 0.0),
-			"table": local + Vector3(side * 0.42, 0.78, 0.0),
+			"table": seat_at + Vector3(-side * PLATE_AHEAD, 0.78, 0.0),
 			"facing": side * PI * 0.5, "pose": &"chair",
 		})
 
@@ -3688,13 +3692,25 @@ func serve_meal(near: Vector3, dish: StringName = Dishes.USUAL) -> Dictionary:
 			best = distance
 			chosen = seat
 	var on: Vector3
+	var yaw := 0.0
+	var food: Vector3
 	if chosen.is_empty():
 		on = spot + Vector3(clampf(near.x - spot.x - 1.0, -2.6, 2.6) + 1.0, 1.1, CAFE_MID_Z + CAFE_DEPTH * 0.5 - 0.2 - 0.9 - 0.3)
+		food = on + Vector3(tray_food_x(dish), 0.0, 0.0)
+	elif chosen["pose"] == &"chair":
+		# Straight in front of whoever sits there, the tray turned so that the
+		# food is on the child's side of it: see `tray_centre`.
+		food = spot + (chosen["table"] as Vector3)
+		yaw = tray_yaw(float(chosen["facing"]))
+		on = tray_centre(food, dish, yaw)
 	else:
-		on = spot + chosen["table"]
-	_place_tray(on, dish)
-	# The other child's phone is told where, and what (see Main._finish_eating).
-	last_tray = {"dish": dish, "at": on}
+		# The bar and the sofa's table are laid as they always were.
+		on = spot + (chosen["table"] as Vector3)
+		food = on + Vector3(tray_food_x(dish), 0.0, 0.0)
+	_place_tray(on, dish, yaw)
+	# The other child's phone is told where the food is, and what (see
+	# Main._finish_eating); it turns the tray the same way (see `set_down`).
+	last_tray = {"dish": dish, "at": food}
 	if chosen.is_empty():
 		return {}
 	return {"seat": spot + chosen["seat"], "facing": float(chosen["facing"])}
@@ -3702,6 +3718,35 @@ func serve_meal(near: Vector3, dish: StringName = Dishes.USUAL) -> Dictionary:
 ## The tray most recently set down by `serve_meal`, for the game to say aloud
 ## to the other child: the dish and where it stands. Empty before any.
 var last_tray: Dictionary = {}
+
+## How far in front of the middle of a chair at the café's round tables the food
+## is put down. The pose's hands rest 0.50 m ahead of the hips, which are 0.08 m
+## forward of the seat's middle, so the plate is where the hands already are,
+## about a third of a metre in front of the chest and well inside an arm's
+## reach; the table's edge is 0.45 m from the seat, so the plate's own edge
+## stops just short of it.
+const PLATE_AHEAD := 0.58
+
+## Where the food stands on a tray, along the tray's own long axis, measured from
+## its middle: the near end, which is the child's end once the tray is turned
+## (see `tray_yaw`). The juice is alone on its tray and stands in the middle.
+static func tray_food_x(dish: StringName) -> float:
+	match dish:
+		Dishes.JUICE:
+			return 0.0
+		Dishes.SOUP:
+			return -0.15
+	return -0.17
+
+## How to turn a tray so that the food on it is at the end nearest a child who
+## faces `facing` (the rotation a seat is given): the tray's -X end is turned to
+## the child's back. Unturned it is right for a child facing +X only.
+static func tray_yaw(facing: float) -> float:
+	return facing + PI * 0.5
+
+## Where the middle of a tray goes so that its food stands on `food`.
+static func tray_centre(food: Vector3, dish: StringName, yaw: float) -> Vector3:
+	return food - Basis(Vector3.UP, yaw) * Vector3(tray_food_x(dish), 0.0, 0.0)
 
 ## How far below the top of its seat the body of a child sat at a table is kept
 ## (Main._carry): down in the chair, whose furniture the body ignores meanwhile.
@@ -3731,20 +3776,29 @@ func cafe_seat_near(at: Vector3) -> Dictionary:
 		return {
 			"pose": seat["pose"],
 			"place": Transform3D(Basis(Vector3.UP, float(seat["facing"])), top),
-			"meal_age": meal_age_near(spot + (seat["table"] as Vector3), 0.05),
+			"meal_age": meal_age_near(spot + (seat["table"] as Vector3), PLATE_REACH),
 		}
 	return {}
 
-## How long ago the nearest plate within `reach` of a point (across, not up) was
-## set down, or -1 when there is none.
+## How far from the spot a seat names the food of its own plate may stand: the
+## lap seats' trays are laid by their middle, up to 0.17 m off the food. Two
+## seats' plates are never as close as this to each other's seat.
+const PLATE_REACH := 0.25
+
+## How long ago the nearest plate's food within `reach` of a point (across, not
+## up) was set down, or -1 when there is none. The food, not the tray: two
+## children sitting opposite each other have the same tray between them, and
+## each is timed by the plate at their own end of it.
 func meal_age_near(at: Vector3, reach: float) -> float:
 	var best := -1.0
 	var nearest := reach
 	for meal in _meals:
 		var node := meal["node"] as Node3D
-		if not is_instance_valid(node):
+		var food := meal["food"] as Node3D
+		if not is_instance_valid(node) or not is_instance_valid(food):
 			continue
-		var distance := Vector2(node.position.x - at.x, node.position.z - at.z).length()
+		var spot := node.transform * food.position
+		var distance := Vector2(spot.x - at.x, spot.z - at.z).length()
 		if distance <= nearest:
 			nearest = distance
 			best = float(meal["age"])
@@ -3757,12 +3811,37 @@ func meal_age_near(at: Vector3, reach: float) -> float:
 func set_down(dish: StringName, on: Vector3) -> void:
 	if not Dishes.is_dish(dish) or _meals.size() >= MEALS_AT_ONCE:
 		return
-	_place_tray(on, dish)
+	# `on` is where the food stands. The tray is turned to the chair the food is
+	# in front of, as it was on the phone of the child who sat there.
+	var yaw := _tray_yaw_at(on)
+	_place_tray(tray_centre(on, dish, yaw), dish, yaw)
+
+## Finds, from the food's place alone, which way a tray is turned: to the café's
+## chair it is in front of, or to a chair the child built (asked of
+## `chair_yaw_finder`, which the game points at its Structures: a Callable taking
+## the point and giving a rotation, or NAN). A tray on no chair is not turned.
+func _tray_yaw_at(food: Vector3) -> float:
+	if _spots.has(CAFE):
+		var spot: Vector3 = _spots[CAFE]
+		for seat in _cafe_seats:
+			if seat["pose"] != &"chair":
+				continue
+			var plate: Vector3 = spot + (seat["table"] as Vector3)
+			if Vector2(plate.x - food.x, plate.z - food.z).length() < 0.05:
+				return tray_yaw(float(seat["facing"]))
+	if chair_yaw_finder.is_valid():
+		var found: float = chair_yaw_finder.call(food)
+		if not is_nan(found):
+			return found
+	return 0.0
+
+## See `_tray_yaw_at`. Unset, no tray but the café's own is turned.
+var chair_yaw_finder := Callable()
 
 ## More trays than there are seats in the valley's café, and the built ones.
 const MEALS_AT_ONCE := 16
 
-func _place_tray(on: Vector3, dish: StringName = Dishes.USUAL) -> void:
+func _place_tray(on: Vector3, dish: StringName = Dishes.USUAL, yaw := 0.0) -> void:
 	# The crockery stays on the table till the tray is cleared; the food is a
 	# mesh of its own, so that it can be eaten — see `_tick_meals`.
 	var tool := SurfaceTool.new()
@@ -3810,7 +3889,7 @@ func _place_tray(on: Vector3, dish: StringName = Dishes.USUAL) -> void:
 	tool.set_material(_material())
 	var meal := MeshInstance3D.new()
 	meal.mesh = tool.commit()
-	meal.transform = Transform3D(Basis(), on)
+	meal.transform = Transform3D(Basis(Vector3.UP, yaw), on)
 	add_child(meal)
 	food_tool.generate_normals()
 	food_tool.set_material(_material())

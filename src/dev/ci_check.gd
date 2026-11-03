@@ -488,6 +488,9 @@ func _initialize() -> void:
 	await _check_a_child_walks_up_the_stairs_onto_the_upper_floor()
 	_check_the_chair_does_not_snag()
 	_check_the_camera_looks_past_a_childs_furniture()
+	_check_a_plate_is_put_in_front_of_whoever_sits_at_a_cafe_table()
+	_check_a_built_chairs_plate_is_in_front_of_its_sitter()
+	await _check_a_built_chair_is_solid_and_lets_its_sitter_out()
 	await _check_a_stray_tap_does_not_fell_a_planted_tree()
 	_check_nothing_is_built_on_a_trunk()
 	_check_the_looks_of_the_pony_rider_neck_and_carousel_pink()
@@ -17597,19 +17600,22 @@ func _check_a_boat_rider_is_not_held_to_the_bed() -> void:
 	_expect(not Mounts.held_to_the_ground(MountKinds.boat_id(0)), "a boat's rider is not held to the bed")
 	for kind: StringName in [MountKinds.HORSE, MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD]:
 		_expect(Mounts.held_to_the_ground(kind), "a %s's rider is held to the ground" % kind)
-## A chair stands in its table's square, on the side a child walks up from, so
-## a chair that stops a body stops the child on the way to the table.
+## A chair stands in its table's square, on the side a child walks up from.
+## It was walked through so that it could not stop the child on the way to the
+## table; it is solid now, as the table and the valley café's chairs are (see
+## `_check_a_built_chair_is_solid_and_lets_its_sitter_out`, which also checks
+## that nobody is caught by it), and a child is still sat at it by the cafe.
 func _check_the_chair_does_not_snag() -> void:
 	print("the chair does not snag")
-	_expect(not HouseParts.is_solid(HouseParts.CHAIR), "a chair is walked through")
-	_expect(HouseParts.furniture_boxes(HouseParts.CHAIR).is_empty(), "it has no box to catch on")
+	_expect(HouseParts.is_solid(HouseParts.CHAIR), "a chair is a thing to walk round, as a table is")
+	_expect(HouseParts.furniture_boxes(HouseParts.CHAIR).size() == 2, "its seat and its back are each a box")
 	_expect(HouseParts.is_solid(HouseParts.TABLE), "and the table is still a table")
 	var field := HeightField.new(20260903)
 	var structures := Structures.new(field)
 	get_root().add_child(structures)
 	structures.place(HouseParts.TABLE, Vector3(10.0, 4.0, 10.0), 0.0)
 	var chair := structures.place(HouseParts.CHAIR, Vector3(10.0, 4.0, 10.0), 0.0)
-	_expect(not _node_has_body(chair["node"]), "a placed chair has no body")
+	_expect(_node_has_body(chair["node"]), "a placed chair has a body")
 	_expect(not structures.seat_near(Vector3(10.0, 4.0, 11.5)).is_empty(), "and a child at the table is still seated at it")
 	structures.free()
 
@@ -25228,4 +25234,295 @@ func _check_the_top_bar_is_a_thumb_wide_and_clear_of_everything_else() -> void:
 	await process_frame
 	hud.queue_free()
 	map.queue_free()
+
+## The food a seat's tray carries, where it stands in the world: the middle of
+## the plate, which is what the child eats from.
+func _food_spot(places: Places, index: int) -> Vector3:
+	var meal: Dictionary = places._meals[index]
+	return (meal["node"] as Node3D).transform * (meal["food"] as Node3D).position
+
+## Where a seated child's chest is, in front of their seat's middle: the pose
+## sits the hips 0.08 m forward and the body leans 0.3 rad over, so the front of
+## the chest is about 0.18 m ahead of the seat.
+const CHEST_AHEAD := 0.18
+
+## The plate is in front of whoever sits, wherever at the table that is: not
+## 0.8 m off for the chair on the table's +x side, and not on the far side of the
+## table from the chair on its -x side either. For every chair of the café, every
+## dish, the food stands straight ahead of the chair, a third of a metre in front
+## of the chest and within the table's top; the tray is turned so that the food
+## is at the child's end of it; a phone that is only told where the food is puts it
+## in the same place; and two children opposite each other each read their own
+## plate's age rather than one reading the other's.
+func _check_a_plate_is_put_in_front_of_whoever_sits_at_a_cafe_table() -> void:
+	print("a plate is put in front of whoever sits at a cafe table")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.CAFE]
+	var tables: Array[Vector3] = []
+	for table_at: Vector3 in Places.CAFE_TABLES:
+		tables.append(spot + table_at)
+	for table_at: Vector3 in Places.CAFE_TERRACE:
+		tables.append(spot + table_at)
+	var chairs := 0
+	var worst_far := 0.0
+	var worst_near := INF
+	var worst_side := 0.0
+	var worst_edge := 0.0
+	for seat: Dictionary in places._cafe_seats:
+		if seat["pose"] != &"chair":
+			continue
+		chairs += 1
+		var top: Vector3 = spot + (seat["seat"] as Vector3)
+		var ahead := Basis(Vector3.UP, float(seat["facing"])) * Vector3.FORWARD
+		var across := ahead.cross(Vector3.UP)
+		for dish in Dishes.ALL:
+			places._meals.clear()
+			var served := places.serve_meal(top, dish)
+			_expect(not served.is_empty(), "%s is served at a chair" % dish)
+			var food := _food_spot(places, 0)
+			var from_chest := Vector2(food.x - top.x, food.z - top.z).dot(Vector2(ahead.x, ahead.z)) - CHEST_AHEAD
+			worst_far = maxf(worst_far, from_chest)
+			worst_near = minf(worst_near, from_chest)
+			worst_side = maxf(worst_side, absf(Vector2(food.x - top.x, food.z - top.z).dot(Vector2(across.x, across.z))))
+			var table_middle := Vector3.INF
+			for candidate in tables:
+				if Vector2(candidate.x - food.x, candidate.z - food.z).length() < Vector2(table_middle.x - food.x, table_middle.z - food.z).length():
+					table_middle = candidate
+			worst_edge = maxf(worst_edge, Vector2(table_middle.x - food.x, table_middle.z - food.z).length())
+			var tray_middle := (places._meals[0]["node"] as Node3D).position
+			_expect(
+				Vector2(food.x - top.x, food.z - top.z).length() <= Vector2(tray_middle.x - top.x, tray_middle.z - top.z).length() + 0.001,
+				"%s: the food is at the child's end of its tray" % dish
+			)
+			_expect(absf(float(served["facing"]) - float(seat["facing"])) < 0.001, "and the child is sat to face the table")
+			# The other phone, told only the dish and where the food is.
+			var told: Vector3 = places.last_tray["at"]
+			var there := Places.new(field)
+			get_root().add_child(there)
+			there.stand_up(field.camp_centre())
+			there.set_down(dish, told)
+			var theirs := _food_spot(there, 0)
+			_expect(theirs.distance_to(food) < 0.01, "%s: the other phone puts the food on the same spot" % dish)
+			var tray_there := (there._meals[0]["node"] as Node3D).transform
+			var tray_here := (places._meals[0]["node"] as Node3D).transform
+			_expect(tray_there.origin.distance_to(tray_here.origin) < 0.01 and tray_there.basis.is_equal_approx(tray_here.basis), "%s: and turns the tray the same way" % dish)
+			there.queue_free()
+	_expect(chairs == 10, "ten chairs were looked at (%d): six inside and four on the terrace" % chairs)
+	_expect(worst_far < 0.45, "the food is never further than %.2f m from the chest (limit 0.45)" % worst_far)
+	_expect(worst_near > 0.25, "nor nearer than %.2f m (limit 0.25)" % worst_near)
+	_expect(worst_side < 0.01, "it is straight ahead of the chair, %.3f m off at worst" % worst_side)
+	_expect(worst_edge < 0.5, "and on the table top: %.2f m from its middle at worst (the top is 0.6 m)" % worst_edge)
+
+	# Opposite each other at one table: each child is timed by the plate at
+	# their own end. The first sits and eats a while; the second sits later.
+	places._meals.clear()
+	var west: Dictionary = {}
+	var east: Dictionary = {}
+	for seat: Dictionary in places._cafe_seats:
+		if seat["pose"] != &"chair":
+			continue
+		var local: Vector3 = seat["seat"]
+		var table_at: Vector3 = Places.CAFE_TERRACE[1]
+		if absf(local.z - table_at.z) < 0.01 and absf(absf(local.x - table_at.x) - 1.05) < 0.01:
+			if local.x > table_at.x:
+				east = seat
+			else:
+				west = seat
+	_expect(not west.is_empty() and not east.is_empty(), "the terrace table has a chair on each side")
+	if not west.is_empty() and not east.is_empty():
+		places.serve_meal(spot + (west["seat"] as Vector3), Dishes.SOUP)
+		places._tick_meals(3.0)
+		places.serve_meal(spot + (east["seat"] as Vector3), Dishes.PIZZA)
+		var west_kept: Vector3 = spot + (west["seat"] as Vector3) - Vector3(0.0, Places.DINING_SINK, 0.0)
+		var east_kept: Vector3 = spot + (east["seat"] as Vector3) - Vector3(0.0, Places.DINING_SINK, 0.0)
+		var west_age := float(places.cafe_seat_near(west_kept).get("meal_age", -9.0))
+		var east_age := float(places.cafe_seat_near(east_kept).get("meal_age", -9.0))
+		_expect(absf(west_age - 3.0) < 0.01, "the first child reads their own plate's age (%.2f s, not the other's)" % west_age)
+		_expect(absf(east_age) < 0.01, "and the second theirs, fresh (%.2f s)" % east_age)
+	places.queue_free()
+
+## A child's own cafe: the plate goes in front of the chair the child is sat at,
+## on that chair's table, not on whichever table was nearest to where they
+## stood (which was 0.68 m from the chair, in the middle of the table: further
+## than the chest to the table's far edge). A chair with no table in front of it
+## is not sat at, and a child at a table with no chair eats standing. A second
+## chair opposite takes a second plate at its own end, and is timed by it.
+func _check_a_built_chairs_plate_is_in_front_of_its_sitter() -> void:
+	print("a built chair's plate is in front of its sitter")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	var yard := _a_yard(300)
+	var origin: Vector3 = yard["origin"]
+	var build: BuildMode = yard["build"]
+	var structures: Structures = yard["structures"]
+	var field: HeightField = yard["field"]
+	if not origin.is_finite():
+		_fail("no ground near the spawn to build on")
+		_free_the_yard(yard)
+		return
+	_expect(TestHouse.build_plan(build, field, origin, Plans.CAFE), "a cafe goes up: %s" % build._reason)
+	var tables: Array[Dictionary] = []
+	var chairs: Array[Dictionary] = []
+	for record in build.just_placed():
+		if record["kind"] == HouseParts.TABLE:
+			tables.append(record)
+		elif record["kind"] == HouseParts.CHAIR:
+			chairs.append(record)
+	_expect(tables.size() == 2 and chairs.size() == 2, "two tables and two chairs")
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	places.chair_yaw_finder = structures.plate_yaw_near
+	for chair in chairs:
+		var seat := structures.table_seat_near(chair["position"])
+		_expect(not seat.is_empty(), "a chair with its table in front of it is sat at")
+		if seat.is_empty():
+			continue
+		var top: Vector3 = seat["seat"]
+		var plate: Vector3 = seat["plate"]
+		var ahead := Basis(Vector3.UP, float(seat["facing"])) * Vector3.FORWARD
+		var along := Vector2(plate.x - top.x, plate.z - top.z).dot(Vector2(ahead.x, ahead.z))
+		_expect(along - CHEST_AHEAD > 0.25 and along - CHEST_AHEAD < 0.45, "the plate is %.2f m in front of the chest" % (along - CHEST_AHEAD))
+		var across := absf(Vector2(plate.x - top.x, plate.z - top.z).dot(Vector2(ahead.cross(Vector3.UP).x, ahead.cross(Vector3.UP).z)))
+		_expect(across < 0.01, "and straight ahead, %.3f m off" % across)
+		# On the wood of the table that is there, within the drawn top (1.0 by 0.7).
+		var table: Dictionary = {}
+		for candidate in tables:
+			if Vector2(candidate["position"].x - plate.x, candidate["position"].z - plate.z).length() < 0.5:
+				table = candidate
+		_expect(not table.is_empty(), "it stands over the table")
+		if not table.is_empty():
+			var local := Basis(Vector3.UP, float(table["spin"])).inverse() * (plate - (table["position"] as Vector3))
+			_expect(absf(local.x) < 0.5 - 0.13 and absf(local.z) < 0.35 - 0.13, "inside the top, with the plate's own width to spare")
+			_expect(absf(plate.y - ((table["position"] as Vector3).y + 0.77)) < 0.01, "and at its height")
+		for dish in [Dishes.JUICE, Dishes.SOUP]:
+			places._meals.clear()
+			places.set_down(dish, plate)
+			_expect(Vector2(_food_spot(places, 0).x - plate.x, _food_spot(places, 0).z - plate.z).length() < 0.01, "%s: the food stands where the child's own phone says" % dish)
+			var tray := (places._meals[0]["node"] as Node3D).position
+			_expect(
+				Vector2(plate.x - top.x, plate.z - top.z).length() <= Vector2(tray.x - top.x, tray.z - top.z).length() + 0.001,
+				"%s: at the child's end of the tray" % dish
+			)
+	# The game uses what this checks: it sits the child by `table_seat_near`,
+	# turns the other phone's trays by the chairs, and lifts a diner out of the
+	# chair before the furniture is solid to them again.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var home := game.substr(game.find("func _eat_at_home"))
+	home = home.substr(0, home.find("\nfunc ", 1))
+	_expect(home.contains("structures.table_seat_near(player.global_position)") and home.contains("set_down(dish, plate)"), "a meal at a cafe of their own is put in front of the chair they are sat at")
+	_expect(game.contains("world.places.chair_yaw_finder = structures.plate_yaw_near"), "and the trays are turned to the built chairs")
+	_expect(game.contains("meal_age_near(seat[\"plate\"], Places.PLATE_REACH)"), "and a built chair's bites are timed by its own plate")
+	var carry := game.substr(game.find("func _carry"))
+	carry = carry.substr(0, carry.find("\nfunc ", 1))
+	_expect(carry.find("_step_out_of_chairs()") >= 0 and carry.find("_step_out_of_chairs()") < carry.find("player.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS"), "a diner is lifted out of the chair before its furniture is solid to them again")
+	# A chair whose table is somewhere else is not one to sit at.
+	var stray := structures.place(HouseParts.CHAIR, origin + Vector3(0.0, 0.0, -30.0), 0.0)
+	_expect(structures.table_seat_near(stray["position"]).is_empty(), "a chair with no table in front of it is not sat at")
+	structures.remove(stray)
+	# A second chair across the first one's table: its own plate, its own age.
+	var first: Dictionary = chairs[0]
+	var opposite := structures.place(HouseParts.CHAIR, first["position"], float(first["spin"]) + PI)
+	var here := structures.table_seat_near((first["position"] as Vector3) + Basis(Vector3.UP, float(first["spin"])) * Vector3(0.0, 0.0, 0.68))
+	var there := structures.table_seat_near((first["position"] as Vector3) + Basis(Vector3.UP, float(first["spin"]) + PI) * Vector3(0.0, 0.0, 0.68))
+	_expect(not here.is_empty() and not there.is_empty() and (here["plate"] as Vector3).distance_to(there["plate"]) > 0.3, "two chairs at a table have plates 0.34 m apart")
+	if not here.is_empty() and not there.is_empty():
+		places._meals.clear()
+		places.set_down(Dishes.SOUP, here["plate"])
+		places._tick_meals(3.0)
+		places.set_down(Dishes.PIZZA, there["plate"])
+		var here_age := places.meal_age_near(here["plate"], Places.PLATE_REACH)
+		var there_age := places.meal_age_near(there["plate"], Places.PLATE_REACH)
+		_expect(absf(here_age - 3.0) < 0.01 and absf(there_age) < 0.01, "each child's bites are timed by the plate at their own end (%.2f s and %.2f s)" % [here_age, there_age])
+	structures.remove(opposite)
+	places.queue_free()
+	_free_the_yard(yard)
+
+## A chair the child builds stops a body, as a table does: a child walking into
+## it is stopped, and one who is standing where a chair is put, or who is let out
+## of it after a meal (the body is kept in it, ignoring it, while they eat), is
+## pushed clear of it rather than caught between it and its table, and can walk
+## away.
+func _check_a_built_chair_is_solid_and_lets_its_sitter_out() -> void:
+	print("a built chair is solid, and nobody is caught in it")
+	var floor_body := StaticBody3D.new()
+	floor_body.collision_layer = TerrainSpec.LAYER_GROUND
+	var floor_shape := CollisionShape3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(40.0, 1.0, 40.0)
+	floor_shape.shape = slab
+	floor_shape.position = Vector3(0.0, -0.5, 0.0)
+	floor_body.add_child(floor_shape)
+	get_root().add_child(floor_body)
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var centre := Vector3(0.0, 0.0, 0.0)
+	var table := structures.place(HouseParts.TABLE, centre, 0.0)
+	var chair := structures.place(HouseParts.CHAIR, centre, 0.0)
+	_expect(_node_has_body(table["node"]) and _node_has_body(chair["node"]), "a table and a chair each have a body")
+	var body_of: StaticBody3D = null
+	for child in (chair["node"] as Node).get_children():
+		if child is StaticBody3D:
+			body_of = child
+	_expect(body_of != null and body_of.collision_layer == TerrainSpec.LAYER_PROPS, "the chair's body is on the props layer, so the camera passes it")
+	await physics_frame
+
+	var child := CharacterBody3D.new()
+	child.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+	var shape := CapsuleShape3D.new()
+	shape.radius = Player.RADIUS
+	shape.height = Player.HEIGHT
+	var capsule := CollisionShape3D.new()
+	capsule.shape = shape
+	capsule.position = Vector3(0.0, Player.HEIGHT * 0.5, 0.0)
+	child.add_child(capsule)
+	get_root().add_child(child)
+
+	# Walking into the chair from behind (the back is at z = 0.89): stopped.
+	child.global_position = Vector3(0.0, 0.05, 2.5)
+	for frame in 150:
+		child.velocity = Vector3(0.0, -2.0, -2.0)
+		child.move_and_slide()
+		await physics_frame
+	_expect(child.global_position.z > 0.89 + Player.RADIUS - 0.05, "a child who walks into a chair is stopped by it (at z %.2f m, the back is at 0.89)" % child.global_position.z)
+
+	# Standing where the chair is put, with its table in front, and let out of it
+	# after a meal (kept 0.3 m below the seat's top while they eat, with the
+	# furniture ignored): the game finds them caught by the chair and sets them
+	# beside it, from where they walk away.
+	var mask := TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+	var starts: Array[Vector3] = [
+		Vector3(0.0, 0.05, 0.68), Vector3(0.1, 0.05, 0.6), Vector3(-0.15, 0.05, 0.8),
+		Vector3(0.0, 0.5 - Places.DINING_SINK, 0.68),
+	]
+	for start in starts:
+		child.collision_mask = mask
+		child.global_position = start
+		child.velocity = Vector3.ZERO
+		await physics_frame
+		var caught := structures.chair_around(child.global_position, Player.RADIUS)
+		_expect(not caught.is_empty(), "a child at %s is found to be in the way of the chair" % start)
+		if caught.is_empty():
+			continue
+		var spot := structures.chair_exit(caught, child.get_world_3d().direct_space_state, mask, [child.get_rid()])
+		_expect(spot.is_finite(), "and there is a place beside it")
+		child.global_position = spot
+		child.velocity = Vector3.ZERO
+		var away := Vector3(spot.x - caught["seat"].x, 0.0, spot.z - caught["seat"].z).normalized()
+		for frame in 120:
+			child.velocity = Vector3(away.x * 2.0, -2.0, away.z * 2.0)
+			child.move_and_slide()
+			await physics_frame
+		var gone := Vector2(child.global_position.x - caught["seat"].x, child.global_position.z - caught["seat"].z).length()
+		_expect(gone > 1.0 and structures.chair_around(child.global_position, Player.RADIUS).is_empty(), "from %s the child walks off, %.2f m from the seat" % [start, gone])
+	# A child beside the chair, or behind it, is not in its way.
+	_expect(structures.chair_around(Vector3(1.0, 0.0, 0.68), Player.RADIUS).is_empty(), "a child a step to the side is left alone")
+	_expect(structures.chair_around(Vector3(0.0, 0.0, 1.6), Player.RADIUS).is_empty(), "and one behind it")
+	_expect(structures.chair_around(Vector3(0.0, 1.2, 0.68), Player.RADIUS).is_empty(), "and one up on a roof above it")
+	child.free()
+	structures.free()
+	floor_body.free()
 

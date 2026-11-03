@@ -444,10 +444,17 @@ static func furniture_boxes(kind: StringName) -> Array:
 		TABLE:
 			return [[Vector3(0.0, 0.38, 0.0), Vector3(1.0, 0.76, 0.7)]]
 		CHAIR:
-			# Not solid: a chair stands in the square of its table, on the side a
-			# child walks up to it, and a body that catches on it never reaches
-			# the table. Sitting down is the cafe's doing, not the chair's.
-			return []
+			# The seat and the back, each the box it is drawn as (see `_chair`),
+			# as the cafe's own chairs and its tables are: a child walks round a
+			# chair, and a jump at the low seat lands on the seat rather than on
+			# a wall as tall as the back. Sitting down is still the cafe's doing,
+			# not the chair's: a diner's body ignores the furniture while they
+			# eat (Main._finish_eating), and is let out of the chair afterwards
+			# (Main._carry).
+			return [
+				[Vector3(0.0, 0.24, 0.68), Vector3(0.42, 0.48, 0.42)],
+				[Vector3(0.0, 0.68, 0.865), Vector3(0.42, 0.44, 0.05)],
+			]
 		COUNTER:
 			return [[Vector3(0.0, 0.5, 0.0), Vector3(1.9, 1.0, 0.7)]]
 		SHELF:

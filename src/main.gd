@@ -230,6 +230,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	structures.matured.connect(_on_matured)
 	structures.groves_changed.connect(_on_groves_changed)
 	add_child(structures)
+	# A tray set down in front of a chair the child built is turned to it, on
+	# this phone as on the other child's (see Places.set_down).
+	world.places.chair_yaw_finder = structures.plate_yaw_near
 	if save.has("structures"):
 		structures.from_data(save["structures"])
 
@@ -917,8 +920,10 @@ func _seat_at(at: Vector3) -> Dictionary:
 	if seat.is_empty() and structures != null:
 		seat = structures.seat_under(at, Places.DINING_SINK, Places.DINING_ACROSS, Places.DINING_ABOUT)
 		if not seat.is_empty() and world.places != null:
-			var top: Vector3 = (seat["place"] as Transform3D).origin
-			seat["meal_age"] = world.places.meal_age_near(top, 1.0)
+			# The plate in front of this chair, and no other: the whole of the
+			# café's reach (1 m) timed a second child's bites by the first
+			# child's plate on the same table.
+			seat["meal_age"] = world.places.meal_age_near(seat["plate"], Places.PLATE_REACH)
 	return seat
 
 func _process(delta: float) -> void:
@@ -942,6 +947,10 @@ func _process(delta: float) -> void:
 	player.seat_pose = seated.get("pose", &"")
 	player.seat_place = seated.get("place", Transform3D())
 	player.meal_age = seated.get("meal_age", -1.0)
+	if structures.revision != _chairs_seen:
+		_chairs_seen = structures.revision
+		if not player.is_carried:
+			_step_out_of_chairs()
 
 	world.pickups.check_reach(player.global_position)
 	# The rocks watch the player rather than the player reporting to them, so
@@ -1659,6 +1668,9 @@ func _carry(delta: float, at: Vector3) -> void:
 		player.face(Vector3(-sin(_dining_facing), 0.0, -cos(_dining_facing)), delta)
 		if _dining <= 0.0:
 			player.is_carried = false
+			# Out of a chair of their own before the furniture is solid to them
+			# again: they are sat inside its seat, between it and the table.
+			_step_out_of_chairs()
 			player.collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
 		return
 
@@ -2444,13 +2456,22 @@ func _eat_at_home() -> void:
 			if not paying:
 				_free_meal_after = now + Venues.FREE_WAIT
 			_cooled_for = Dishes.COOL_SECONDS if Dishes.cools(dish) else _cooled_for
-			_finish_eating(structures.seat_near(player.global_position))
-			# The plate goes on the nearest table of the child's own, if they
-			# have put one up, and the other child is shown it as well.
-			var table := structures.table_near(player.global_position)
-			if table.is_finite():
-				world.places.set_down(dish, table + Vector3(0.0, 0.77, 0.0))
-				_tell_of_the_meal(dish, table + Vector3(0.0, 0.77, 0.0))
+			# Sat at a chair that has a table in front of it, with the plate on
+			# that table in front of them; at a table with no chair, the child
+			# eats standing and the plate goes on the nearest. The other child
+			# is shown it as well.
+			var seat := structures.table_seat_near(player.global_position)
+			_finish_eating(seat)
+			var plate := Vector3(NAN, NAN, NAN)
+			if not seat.is_empty():
+				plate = seat["plate"]
+			else:
+				var table := structures.table_near(player.global_position)
+				if table.is_finite():
+					plate = table + Vector3(0.0, Structures.CHAIR_PLATE_UP, 0.0)
+			if plate.is_finite():
+				world.places.set_down(dish, plate)
+				_tell_of_the_meal(dish, plate)
 
 ## How much longer an ice cream keeps a child cooled down: energy comes back
 ## faster for this many seconds (see Dishes.COOL_SECONDS).
@@ -2530,6 +2551,27 @@ func _note_new_venues() -> void:
 func _note_venues_quietly() -> void:
 	_known_cafe = structures.has_venue(&"cafe")
 	_known_shop = structures.has_venue(&"shop")
+
+## The structures' revision the child was last looked at against, so that a chair
+## put down on them is found when it is, and not every frame.
+var _chairs_seen := -1
+
+## A child caught by a chair of their own building (put down where they stand,
+## or the one they have just got up from) is set beside it. See
+## Structures.chair_around.
+func _step_out_of_chairs() -> void:
+	if player.riding != &"":
+		return
+	var chair := structures.chair_around(player.global_position, Player.RADIUS)
+	if chair.is_empty():
+		return
+	var spot := structures.chair_exit(
+		chair, player.get_world_3d().direct_space_state,
+		TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS, [player.get_rid()]
+	)
+	if spot.is_finite():
+		player.global_position = spot
+		player.velocity = Vector3.ZERO
 
 func _finish_eating(seat: Dictionary) -> void:
 	_refresh_vitals()

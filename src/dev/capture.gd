@@ -61,6 +61,8 @@ extends Node3D
 ##   --storeys=2    with --plan=house, stack a second storey and move the roof up
 ##   --meal=juice|icecream|pancake|soup|pizza|cake  set that dish on the café table
 ##                  nearest the --look point, and --mealframes=N frames on
+##   --sit=1        with --player=1 and --meal, sit the player in the seat that
+##                  meal was served at, posed as at a table in the game
 ##   --group=plans|walls|floor|roof|furniture|things  with --build=1, open the
 ##                  palette on that group
 
@@ -112,6 +114,7 @@ var _coins := 40
 var _menu := false
 var _meal: StringName = &""
 var _meal_frames := 60
+var _sit := false
 var _house := false
 var _test_house := false
 var _palette_group := ""
@@ -228,8 +231,18 @@ func _ready() -> void:
 	if _meal != &"":
 		# A dish on the table nearest the look-at point, a moment after it was
 		# set down, so that a shot shows the food and a bite of it gone.
-		_world.places.serve_meal(_look_at, _meal)
+		var seated := _world.places.serve_meal(_look_at, _meal)
+		if _sit and _player != null and not seated.is_empty():
+			# Where the game keeps a diner (Main._carry), posed as Main._process does.
+			var seat: Vector3 = seated["seat"]
+			_player.global_position = seat - Vector3(0.0, Places.DINING_SINK, 0.0)
+			_player.rotation.y = float(seated["facing"])
+			var found := _world.places.cafe_seat_near(_player.global_position)
+			_player.seat_pose = found.get("pose", &"")
+			_player.seat_place = found.get("place", Transform3D())
 		for _i in _meal_frames:
+			if _sit and _player != null:
+				_player.meal_age = _world.places.cafe_seat_near(_player.global_position).get("meal_age", -1.0)
 			await get_tree().process_frame
 	_report_scene()
 	await _capture()
@@ -794,6 +807,8 @@ func _parse_arguments() -> void:
 				_menu = value.to_int() != 0
 			"meal":
 				_meal = StringName(value)
+			"sit":
+				_sit = value.to_int() != 0
 			"mealframes":
 				_meal_frames = value.to_int()
 			"pos":

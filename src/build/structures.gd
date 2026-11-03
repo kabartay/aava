@@ -415,6 +415,107 @@ func seat_near(at: Vector3) -> Dictionary:
 		}
 	return best
 
+## How far in front of a built chair's seat the food is put down, and how high:
+## the chair stands 0.68 m from the middle of its table's square, the tray is
+## 0.7 m long and the table 0.7 m deep, so the food at the near end of a tray
+## centred on the table is 0.17 m in front of the table's middle, 0.51 m from
+## the seat: a little under the pose's reach, and the whole tray on the wood.
+const CHAIR_PLATE_AHEAD := 0.51
+const CHAIR_PLATE_UP := 0.77
+
+## The chair nearest a point that has one of a cafe's tables in front of it, as
+## `seat_near` gives it with the spot its plate goes on: a child is sat only
+## where there is a table for the plate, and the plate goes in front of the
+## chair they are sat at rather than on whichever table was nearest to them.
+## Empty when there is no such chair.
+func table_seat_near(at: Vector3) -> Dictionary:
+	_find_venues()
+	var best := {}
+	var best_distance := VENUE_USE
+	for chair: Dictionary in _chairs:
+		var seat: Vector3 = chair["seat"]
+		var distance := Vector2(seat.x - at.x, seat.z - at.z).length()
+		if distance >= best_distance:
+			continue
+		var plate: Vector3 = chair["plate"]
+		var has_table := false
+		for table: Vector3 in _cafe_tables:
+			if Vector2(table.x - plate.x, table.z - plate.z).length() < CHAIR_TABLE_REACH:
+				has_table = true
+				break
+		if not has_table:
+			continue
+		best_distance = distance
+		best = {"seat": seat, "facing": chair["facing"], "plate": plate}
+	return best
+
+## The built chair a body of this radius at `at` (the feet) is in the way of, or
+## an empty record: its seat's box (0.42 m square, 0.48 m high) and its back
+## stand where HouseParts.furniture_boxes puts them, and the body is a capsule.
+## A chair put down where a child stands, or the chair a diner is let out of
+## (they are kept in it, ignoring it, while they eat), leaves the child between
+## the chair and its table with less room than they are wide: an engine that
+## pushes a body out of a box has no good way out of that, and the child stayed
+## caught. The game lifts them clear (Main._step_out_of_chairs, `chair_exit`).
+func chair_around(at: Vector3, radius: float) -> Dictionary:
+	_find_venues()
+	for chair: Dictionary in _chairs:
+		var base: Vector3 = chair["position"]
+		if at.y > base.y + 0.9 or at.y + Player.HEIGHT < base.y:
+			continue
+		var local := Basis(Vector3.UP, float(chair["facing"])).inverse() * (at - base)
+		# Distance from the body's middle to the seat's footprint (0.21 either
+		# side, 0.47 to 0.89 back): the back stands within it.
+		var nearest := Vector2(clampf(local.x, -0.21, 0.21), clampf(local.z, 0.47, 0.89))
+		if Vector2(local.x, local.z).distance_to(nearest) < radius:
+			return chair
+	return {}
+
+## Where a body can stand clear of a chair that has caught it: beside the seat
+## first (the back is the chair's far side and the table its near one), then
+## behind it, the first spot where a capsule of the body's size touches nothing
+## in `space` that `mask` names, leaving out `exclude`. The first of them if
+## none is free, rather than nowhere.
+func chair_exit(chair: Dictionary, space: PhysicsDirectSpaceState3D, mask: int, exclude: Array[RID]) -> Vector3:
+	var seat: Vector3 = chair["seat"]
+	var base: Vector3 = chair["position"]
+	var turn := Basis(Vector3.UP, float(chair["facing"]))
+	var reach := 0.21 + Player.RADIUS + 0.1
+	var offsets: Array[Vector3] = [
+		Vector3(reach, 0.0, 0.0), Vector3(-reach, 0.0, 0.0),
+		Vector3(0.0, 0.0, reach + 0.1), Vector3(reach, 0.0, reach), Vector3(-reach, 0.0, reach),
+	]
+	var shape := CapsuleShape3D.new()
+	shape.radius = Player.RADIUS
+	shape.height = Player.HEIGHT
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.collision_mask = mask
+	query.exclude = exclude
+	var first := Vector3.INF
+	for offset in offsets:
+		var spot := Vector3(seat.x, base.y + 0.1, seat.z) + turn * offset
+		if not first.is_finite():
+			first = spot
+		query.transform = Transform3D(Basis(), spot + Vector3(0.0, Player.HEIGHT * 0.5, 0.0))
+		if space.intersect_shape(query, 1).is_empty():
+			return spot
+	return first
+
+## How near the food's spot a table's middle must be for the chair to be at it.
+const CHAIR_TABLE_REACH := 0.4
+
+## Which way the tray is turned for food put down at a point: towards the child
+## in the built chair it is in front of, or NAN when it is in front of none (see
+## Places.set_down, which asks).
+func plate_yaw_near(food: Vector3) -> float:
+	_find_venues()
+	for chair: Dictionary in _chairs:
+		var plate: Vector3 = chair["plate"]
+		if Vector2(plate.x - food.x, plate.z - food.z).length() < 0.05:
+			return Places.tray_yaw(float(chair["facing"]))
+	return NAN
+
 ## Whether somebody is sitting in one of the chairs the child has built, from
 ## where they are alone (they are kept `sink` below the top of it while they
 ## eat, see Main._carry): the pose, and the seat in the world turned to face its
@@ -431,6 +532,7 @@ func seat_under(at: Vector3, sink: float, across: float, about: float) -> Dictio
 		return {
 			"pose": &"chair",
 			"place": Transform3D(Basis(Vector3.UP, float(chair["facing"])), seat - Vector3(0.0, 0.02, 0.0)),
+			"plate": chair["plate"],
 		}
 	return {}
 
@@ -473,7 +575,11 @@ func _find_venues() -> void:
 				tables.append(at)
 			HouseParts.CHAIR:
 				var spin := float(record["spin"])
-				_chairs.append({"seat": at + Basis(Vector3.UP, spin) * Vector3(0.0, 0.5, 0.68), "facing": spin})
+				_chairs.append({
+					"seat": at + Basis(Vector3.UP, spin) * Vector3(0.0, 0.5, 0.68), "facing": spin,
+					"position": at,
+					"plate": at + Basis(Vector3.UP, spin) * Vector3(0.0, CHAIR_PLATE_UP, 0.68 - CHAIR_PLATE_AHEAD),
+				})
 			HouseParts.SHELF:
 				shelves.append(at)
 			_:
