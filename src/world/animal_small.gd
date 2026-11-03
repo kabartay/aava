@@ -26,9 +26,10 @@ const ARM := 0.62
 static func body(kind: StringName, coat: Color, s: float, tool: SurfaceTool) -> void:
 	if kind == SQUIRREL:
 		var loft := AnimalLoft.make(AnimalNatural._rings(s, [
-			# From the haunches up to the neck, leaning forward.
-			[0.0, 0.62, 0.66, 0.54, 0.50, 0.50, 2.2], [0.0, 1.02, 0.42, 0.58, 0.54, 0.54, 2.2],
-			[0.0, 1.46, 0.06, 0.50, 0.46, 0.46, 2.2], [0.0, 1.80, -0.26, 0.36, 0.32, 0.32],
+			# From the haunches up to the neck, leaning a little forward: a
+			# squirrel sits nearly upright, its back a gentle curve.
+			[0.0, 0.62, 0.66, 0.54, 0.50, 0.50, 2.2], [0.0, 1.02, 0.56, 0.58, 0.54, 0.54, 2.2],
+			[0.0, 1.46, 0.38, 0.50, 0.46, 0.46, 2.2], [0.0, 1.80, 0.16, 0.36, 0.32, 0.32],
 		]), Vector3.UP, 12, 2, 0.3 * s, 0.15 * s)
 		loft.paint = func(_p: Vector3, _along: float, a: float) -> Color:
 			var c := AnimalNatural._shade(coat, a, 0.12, 0.0)
@@ -64,9 +65,9 @@ static func head(kind: StringName, coat: Color, s: float, tool: SurfaceTool) -> 
 
 static func _squirrel_head(coat: Color, s: float, tool: SurfaceTool) -> Vector3:
 	var skull := AnimalLoft.make(AnimalNatural._rings(s, [
-		[0.0, 1.80, -0.26, 0.30, 0.30, 0.30], [0.0, 2.02, -0.42, 0.34, 0.33, 0.32],
-		[0.0, 2.10, -0.66, 0.36, 0.34, 0.31], [0.0, 2.02, -0.90, 0.22, 0.20, 0.17],
-		[0.0, 1.96, -1.04, 0.11, 0.11, 0.09],
+		[0.0, 1.80, 0.16, 0.30, 0.30, 0.30], [0.0, 2.02, 0.0, 0.34, 0.33, 0.32],
+		[0.0, 2.10, -0.24, 0.36, 0.34, 0.31], [0.0, 2.02, -0.48, 0.22, 0.20, 0.17],
+		[0.0, 1.96, -0.62, 0.11, 0.11, 0.09],
 	]), Vector3.UP, 12, 2, 0.0, 0.07 * s)
 	var nose := AnimalNatural._nose(skull, 0.07 * s)
 	var tip: Vector3 = nose["tip"]
@@ -82,9 +83,11 @@ static func _squirrel_head(coat: Color, s: float, tool: SurfaceTool) -> Vector3:
 		# Ears that stand up from the back of the head, and end in a long dark
 		# tuft that is the part of a red squirrel anybody remembers.
 		var ear_at := skull.surface(1.45, side * 0.75) + Vector3(-side * 0.02, -0.04, 0.0) * s
-		var tuft_from := ear_at.y + 0.2 * s
-		AnimalNatural._leaf(tool, ear_at, [Vector3.ZERO, Vector3(side * 0.03, 0.16, 0.0) * s, Vector3(side * 0.01, 0.12, 0.0) * s, Vector3(0.0, 0.16, 0.0) * s],
-			[0.14 * s, 0.13 * s, 0.07 * s, 0.03 * s], [0.03 * s, 0.025 * s, 0.015 * s, 0.01 * s], Vector3(0.0, 0.0, 1.0), 0.04 * s, 5,
+		# The ear is a full leaf that narrows into the tuft, a little brush of
+		# hair that keeps some width of its own before it ends in a point.
+		var tuft_from := ear_at.y + 0.22 * s
+		AnimalNatural._leaf(tool, ear_at, [Vector3.ZERO, Vector3(side * 0.03, 0.14, 0.0) * s, Vector3(side * 0.01, 0.12, 0.0) * s, Vector3(side * 0.01, 0.1, 0.0) * s, Vector3(0.0, 0.14, 0.0) * s],
+			[0.18 * s, 0.18 * s, 0.13 * s, 0.085 * s, 0.035 * s], [0.04 * s, 0.035 * s, 0.03 * s, 0.025 * s, 0.014 * s], Vector3(0.0, 0.0, 1.0), 0.05 * s, 6,
 			func(p: Vector3, _along: float, a: float) -> Color:
 				var c := coat.darkened(0.1).lerp(Color(0.86, 0.60, 0.56), smoothstep(-0.2, -0.7, cos(a)) * smoothstep(tuft_from, ear_at.y, p.y))
 				return c.lerp(coat.darkened(0.55), smoothstep(tuft_from - 0.02 * s, tuft_from + 0.08 * s, p.y)))

@@ -373,7 +373,7 @@ static func _bake_into(tool: SurfaceTool, mesh: Mesh, where: Transform3D) -> voi
 ## Where the horse's head and tail pivot, in the body's frame: the head and
 ## neck turn about the shoulder, the tail about the root of the dock.
 const HORSE_HEAD_PIVOT := Vector3(0.0, 1.872, -0.744)
-const HORSE_TAIL_PIVOT := Vector3(0.0, 1.56, 1.224)
+const HORSE_TAIL_PIVOT := Vector3(0.0, 1.72, 1.224)
 
 ## Where the rump is and how big, so the tail's root can be checked against
 ## the body it grows out of rather than against a number written twice.
@@ -394,11 +394,16 @@ const HORSE_TAIL_CHAIN: Array[float] = [
 	# width: it is heavy hair hanging, not a raised plume. The first chain went
 	# up at 62 degrees before coming down, which gave it a cocked, doglike
 	# curl — the thing that looked wrong from the saddle.
-	78.0, 0.22, 0.16,
-	104.0, 0.24, 0.15,
-	132.0, 0.28, 0.13,
-	154.0, 0.30, 0.11,
-	168.0, 0.30, 0.09,
+	#
+	# Its length is about a third of the body's, and it is slim at the dock —
+	# a hand's width, a fifth of the head's — with the hair filling out below.
+	# The first chain was as thick at the root as the head and a half again
+	# as long, so the tail looked as big as the head.
+	78.0, 0.20, 0.05,
+	100.0, 0.16, 0.05,
+	135.0, 0.20, 0.06,
+	158.0, 0.20, 0.09,
+	170.0, 0.16, 0.08,
 ]
 const HORSE_TAIL_STRIDE := 3
 
@@ -454,21 +459,35 @@ static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 		var stirrup := BoxMesh.new()
 		stirrup.size = Vector3(0.1 * s, 0.09 * s, 0.05 * s)
 		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.44 * s, 1.4 * s, 0.04 * s)), hoof)
-		# A rein from the bit back to the pommel: a thin cylinder laid along
-		# the line between them.
-		var bit := Vector3(side * 0.13 * s, 2.0 * s, -1.85 * s)
-		var pommel_at := Vector3(side * 0.06 * s, 2.0 * s, -0.2 * s)
-		var run := pommel_at - bit
-		var rein := CylinderMesh.new()
-		rein.top_radius = 0.012 * s
-		rein.bottom_radius = 0.012 * s
-		rein.height = run.length()
-		rein.radial_segments = 4
-		rein.rings = 1
-		_add(tool, rein, Transform3D(
-			Basis.looking_at(run.normalized(), Vector3.UP) * Basis(Vector3.RIGHT, PI * 0.5),
-			bit + run * 0.5 + Vector3(0.0, -0.06 * s, 0.0)
-		), leather)
+		# A rein from the bit back to the pommel. A straight line between
+		# them ran through the neck, which is wider than the rein is far from
+		# its middle, so it goes round it: from the bit, out past the cheek,
+		# along the side of the neck, and in over the withers to the pommel.
+		var way := horse_rein_way(side)
+		for leg_of_it in way.size() - 1:
+			var run := way[leg_of_it + 1] - way[leg_of_it]
+			var rein := CylinderMesh.new()
+			rein.top_radius = 0.012 * s
+			rein.bottom_radius = 0.012 * s
+			rein.height = run.length()
+			rein.radial_segments = 4
+			rein.rings = 1
+			rein.cap_top = false
+			rein.cap_bottom = false
+			_add(tool, rein, Transform3D(
+				Basis.looking_at(run.normalized(), Vector3.UP) * Basis(Vector3.RIGHT, PI * 0.5),
+				way[leg_of_it] + run * 0.5
+			), leather)
+
+## The corners of one rein, from the bit to the pommel, in the body's frame;
+## `side` is -1 for the left rein and 1 for the right. Read by the drawing and
+## by the checks, which hold it outside the neck.
+static func horse_rein_way(side: float) -> Array[Vector3]:
+	var s := 1.2
+	return [
+		Vector3(side * 0.13 * s, 2.0 * s, -1.85 * s), Vector3(side * 0.25 * s, 1.93 * s, -1.42 * s),
+		Vector3(side * 0.30 * s, 1.88 * s, -0.95 * s), Vector3(side * 0.06 * s, 2.0 * s, -0.2 * s),
+	]
 
 ## The neck and head, with the mane, the forelock, the ears and the face,
 ## relative to the shoulder they pivot about.

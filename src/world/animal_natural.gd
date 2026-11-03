@@ -157,11 +157,7 @@ static func body(kind: StringName, variant: int, coat: Color, s: float, tool: Su
 				[-1.08, 1.70, 0.90, 0.46], [-0.72, 1.90, 0.66, 0.62], [-0.25, 1.86, 0.74, 0.58],
 				[0.25, 1.80, 0.90, 0.52], [0.75, 1.82, 0.90, 0.54], [1.1, 1.66, 1.04, 0.42],
 			]), Vector3.UP, 12, 2, 0.28 * s, 0.26 * s)
-			loft.paint = func(p: Vector3, _along: float, a: float) -> Color:
-				var c := _shade(coat, a, 0.12, 0.1)
-				# A pale bib down the chest.
-				var bib := smoothstep(-0.6 * s, -0.95 * s, p.z) * smoothstep(0.2, -0.5, cos(a))
-				return c.lerp(coat.lightened(0.5), bib)
+			loft.paint = _dog_paint(coat, s)
 		_:
 			loft = AnimalLoft.make(_section(s, [
 				[-1.15, 1.40, 0.62, 0.38], [-0.75, 1.54, 0.52, 0.48], [-0.1, 1.50, 0.54, 0.46],
@@ -198,6 +194,14 @@ static func _cow_paint(variant: int, coat: Color, s: float) -> Callable:
 		var base := _shade(coat, a, 0.06, 0.08)
 		var v := noise.get_noise_3d(p.x / s * 1.3, p.y / s * 1.6, p.z / s)
 		return base.lerp(_shade(patch, a, 0.1, 0.2), smoothstep(0.1, 0.2, v))
+
+## A dog is darker along the back and paler under the belly, with a pale bib
+## down the chest.
+static func _dog_paint(coat: Color, s: float) -> Callable:
+	return func(p: Vector3, _along: float, a: float) -> Color:
+		var c := _shade(coat, a, 0.12, 0.1)
+		var bib := smoothstep(-0.6 * s, -0.95 * s, p.z) * smoothstep(0.2, -0.5, cos(a))
+		return c.lerp(coat.lightened(0.5), bib)
 
 ## A tabby: dark bands across the back that fade down the flanks, a pale belly
 ## and a white bib. The bands are broken up by noise, so they wander as a cat's
@@ -238,9 +242,11 @@ static func _cow_head(variant: int, coat: Color, s: float, tool: SurfaceTool) ->
 		# Long and narrow, a wedge: wide across the brow, tapering along a
 		# straight face to a broad, blunt muzzle that is held level and not
 		# dropped like a pig's snout.
-		[0.0, 1.30, -1.00, 0.38, 0.40, 0.40], [0.0, 1.44, -1.40, 0.29, 0.34, 0.34],
-		[0.0, 1.52, -1.75, 0.25, 0.32, 0.30], [0.0, 1.46, -2.08, 0.18, 0.25, 0.23],
-		[0.0, 1.38, -2.36, 0.16, 0.20, 0.19], [0.0, 1.31, -2.56, 0.175, 0.17, 0.17, 2.8],
+		# Not a horse's long face: a cow's head is deep and short, and carried
+		# a little lower than the poll, so the muzzle drops towards the grass.
+		[0.0, 1.30, -1.00, 0.38, 0.40, 0.40], [0.0, 1.42, -1.34, 0.31, 0.37, 0.36],
+		[0.0, 1.46, -1.62, 0.28, 0.35, 0.33], [0.0, 1.36, -1.90, 0.22, 0.28, 0.26],
+		[0.0, 1.22, -2.12, 0.19, 0.22, 0.21], [0.0, 1.13, -2.28, 0.20, 0.18, 0.18, 2.8],
 	]), Vector3.UP, 12, 2, 0.0, 0.08 * s)
 	var nose := _nose(skull, 0.08 * s)
 	var patch: Color = AnimalKinds.COW_PATCH if variant % 2 == 0 else Color(0.42, 0.27, 0.18)
@@ -511,6 +517,26 @@ static func leg(
 			paint = func(p: Vector3, _t: float, _a: float) -> Color:
 				var y := p.y - hip.y
 				return coat.darkened(0.08).lerp(white, smoothstep(-(h - 0.32), -(h - 0.18), y))
+	# The top of a cat's or a dog's leg wears the body's own colour — the bands
+	# and the darker back, the paler belly — and gives way to the leg's colour
+	# lower down. Plain coat against a striped or shaded flank showed the join
+	# as a line where each leg came out. The body's paint is asked for the
+	# height the vertex is at, as if it were on the flank there: an ellipse's
+	# angle is its height over its half-depth.
+	if kind == CAT or kind == DOG:
+		var flank := _cat_paint(variant, coat, s) if kind == CAT else _dog_paint(coat, s)
+		var middle := 1.03 if kind == CAT else 1.3
+		var depth := 0.5 if kind == CAT else 0.56
+		var lowest := -0.5 if kind == CAT else 0.0
+		var feet := paint
+		# The mesh is drawn about its hip, so the body's own frame is the
+		# hip's height and place along the animal added back.
+		var at_hip := Vector3(0.0, height, float(AnimalKinds._shape(kind)["long"]) * 0.6 * s * (-1.0 if front else 1.0))
+		paint = func(p: Vector3, t: float, a: float) -> Color:
+			var on_body := p - hip + at_hip
+			var up := clampf((on_body.y / s - middle) / depth, lowest, 1.0)
+			var carried: Color = flank.call(on_body, t, acos(up))
+			return (feet.call(p, t, a) as Color).lerp(carried, smoothstep(-0.5, -0.12, (p.y - hip.y) / s))
 	# The top is rounded, not cut flat: where it comes through the side of the
 	# body it is the swell of a shoulder or a haunch, not the end of a pole.
 	# A leg that is a tube set on the outside of the flank shows as a sleeve.

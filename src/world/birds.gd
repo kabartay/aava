@@ -51,38 +51,60 @@ func _init() -> void:
 func _build_body(plumage: Color) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var body := SphereMesh.new()
-	body.radius = 0.10
-	body.height = 0.22
-	body.radial_segments = 6
-	body.rings = 4
-	_add(tool, body, Transform3D(Basis().scaled(Vector3(1.0, 0.8, 1.6)), Vector3.ZERO), plumage)
-	var head := SphereMesh.new()
-	head.radius = 0.06
-	head.height = 0.12
-	head.radial_segments = 6
-	head.rings = 3
-	_add(tool, head, Transform3D(Basis(), Vector3(0.0, 0.05, -0.15)), plumage.lightened(0.12))
-	var beak := CylinderMesh.new()
-	beak.top_radius = 0.0
-	beak.bottom_radius = 0.025
-	beak.height = 0.09
-	beak.radial_segments = 4
-	beak.rings = 1
-	_add(tool, beak, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-90.0)), Vector3(0.0, 0.04, -0.23)), Color(0.85, 0.66, 0.24))
-	# A tail, flat behind: without one the bird is an egg with a beak.
-	var tail := BoxMesh.new()
-	tail.size = Vector3(0.09, 0.015, 0.13)
-	_add(tool, tail, Transform3D(Basis(), Vector3(0.0, 0.0, 0.2)), plumage.darkened(0.15))
+	# One smooth skin, the way the animals are (see AnimalLoft): a plump
+	# breast, a body that tapers to the tail, a round head on a short neck, a
+	# beak that is a cone and a tail that is a flat fan. It was an egg, a ball,
+	# a pyramid and a plank, each showing where it met the next.
+	var body := AnimalLoft.make([
+		AnimalLoft.key(Vector3(0.0, 0.0, 0.26), 0.05, 0.008, 0.008),
+		AnimalLoft.key(Vector3(0.0, 0.0, 0.13), 0.06, 0.04, 0.036),
+		AnimalLoft.key(Vector3(0.0, 0.01, -0.01), 0.088, 0.078, 0.066),
+		AnimalLoft.key(Vector3(0.0, 0.025, -0.1), 0.078, 0.07, 0.056),
+		AnimalLoft.key(Vector3(0.0, 0.05, -0.15), 0.042, 0.042, 0.04),
+	], Vector3.UP, 7, 1, 0.03, 0.02)
+	body.paint = func(_p: Vector3, along: float, angle: float) -> Color:
+		# Darker on the back, paler under the breast, darker again on the tail.
+		var c := plumage.darkened(0.1 * maxf(cos(angle), 0.0)).lightened(0.18 * maxf(-cos(angle), 0.0))
+		return c.lerp(plumage.darkened(0.25), smoothstep(0.25, 0.1, along))
+	body.emit(tool)
+	var head := AnimalLoft.make([
+		AnimalLoft.key(Vector3(0.0, 0.05, -0.14), 0.04, 0.04, 0.04),
+		AnimalLoft.key(Vector3(0.0, 0.07, -0.18), 0.05, 0.05, 0.045),
+		AnimalLoft.key(Vector3(0.0, 0.065, -0.215), 0.034, 0.036, 0.03),
+	], Vector3.UP, 7, 1, 0.0, 0.01)
+	head.paint = _flat(plumage.lightened(0.12))
+	head.emit(tool)
+	var beak := AnimalLoft.make([
+		AnimalLoft.key(Vector3(0.0, 0.058, -0.225), 0.02, 0.016, 0.014),
+		AnimalLoft.key(Vector3(0.0, 0.054, -0.262), 0.006, 0.006, 0.005),
+	], Vector3.UP, 5, 1, 0.0, 0.012)
+	beak.paint = _flat(Color(0.85, 0.66, 0.24))
+	beak.emit(tool)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		AnimalLoft.ball(tool, Vector3(side * 0.04, 0.078, -0.2), Vector3(0.012, 0.012, 0.01), Color(0.05, 0.05, 0.05), 4)
 	tool.generate_normals()
 	return tool.commit()
+
+static func _flat(colour: Color) -> Callable:
+	return func(_p: Vector3, _along: float, _angle: float) -> Color: return colour
 
 func _build_wing(plumage: Color) -> Mesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var wing := BoxMesh.new()
-	wing.size = Vector3(0.34, 0.02, 0.14)
-	_add(tool, wing, Transform3D(Basis(), Vector3(0.17, 0.0, 0.0)), plumage.darkened(0.1))
+	# A wing is broad at the shoulder and narrow at the tip, which is swept
+	# back, not a plank of one width: a loft along the span, its two faces the
+	# way across (see AnimalLoft).
+	var wing := AnimalLoft.make([
+		AnimalLoft.key(Vector3(0.0, 0.0, -0.01), 0.075, 0.014, 0.012),
+		AnimalLoft.key(Vector3(0.12, 0.0, 0.0), 0.07, 0.009, 0.008),
+		AnimalLoft.key(Vector3(0.25, 0.0, 0.03), 0.05, 0.006, 0.005),
+		AnimalLoft.key(Vector3(0.36, 0.0, 0.07), 0.02, 0.004, 0.004),
+	], Vector3.UP, 6, 1, 0.0, 0.02)
+	var dark := plumage.darkened(0.1)
+	wing.paint = func(_p: Vector3, along: float, _angle: float) -> Color:
+		# The tip feathers darker than the shoulder.
+		return dark.lerp(plumage.darkened(0.35), smoothstep(0.6, 0.95, along))
+	wing.emit(tool)
 	tool.generate_normals()
 	return tool.commit()
 

@@ -199,6 +199,10 @@ func _initialize() -> void:
 	_check_the_animals_keep_off_the_playing_places()
 	_check_the_four_animals_are_smooth_painted_skins()
 	_check_legs_grow_out_of_the_body_and_all_six_animals_and_the_horse_and_ducks_are_lofts()
+	_check_the_horse_has_a_horses_lines_and_its_reins_clear_the_neck()
+	_check_the_horses_tail_is_slim_and_about_a_third_of_the_body()
+	_check_a_cat_and_a_dog_wear_their_coat_down_the_top_of_the_leg()
+	_check_the_squirrel_sits_upright_with_full_ears_and_the_birds_are_lofts()
 	_check_a_ball_keeps_floating_while_the_goal_is_cheered()
 	_check_the_tails_are_joined_to_the_rump()
 	_check_the_ticket_booth_faces_the_queue()
@@ -18694,4 +18698,225 @@ func _check_legs_grow_out_of_the_body_and_all_six_animals_and_the_horse_and_duck
 		# The bill is the flattest, foremost thing on it, and the tail is cocked up.
 		_expect(box.position.z < -0.3 and box.end.z > 0.28, "a duck is %.2f m long" % box.size.z)
 		duck.free()
+
+## Whether a point is inside a closed mesh moved by `offset`, by counting how
+## many of its triangles a ray from the point crosses: an odd number is inside.
+func _point_in_mesh(mesh: Mesh, offset: Vector3, point: Vector3) -> bool:
+	var arrays := mesh.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices = arrays[Mesh.ARRAY_INDEX]
+	var count: int = points.size() if indices == null else (indices as PackedInt32Array).size()
+	var way := Vector3(0.31, 1.0, 0.17).normalized()
+	var crossed := 0
+	for corner in range(0, count - 2, 3):
+		var a: Vector3 = points[corner] if indices == null else points[(indices as PackedInt32Array)[corner]]
+		var b: Vector3 = points[corner + 1] if indices == null else points[(indices as PackedInt32Array)[corner + 1]]
+		var c: Vector3 = points[corner + 2] if indices == null else points[(indices as PackedInt32Array)[corner + 2]]
+		if Geometry3D.ray_intersects_triangle(point, way, a + offset, b + offset, c + offset) != null:
+			crossed += 1
+	return crossed % 2 == 1
+## The mean of one axis (0 x, 1 y, 2 z) of the mesh's vertices that lie in a
+## band of height.
+func _mean_in_band(mesh: Mesh, axis: int, low: float, high: float) -> float:
+	var sum := 0.0
+	var count := 0
+	for point: Vector3 in mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if point.y >= low and point.y <= high:
+			sum += point[axis]
+			count += 1
+	_expect(count > 0, "the mesh has vertices between %.2f and %.2f m" % [low, high])
+	return sum / float(maxi(count, 1))
+
+## The horse is deeper than it is broad, its back is level, its hind leg has a
+## hock that points behind with a long cannon below it, its foreleg is straight,
+## the tops of its legs lie inside its flank, and its reins run outside its neck
+## from the bit to the saddle rather than through it.
+func _check_the_horse_has_a_horses_lines_and_its_reins_clear_the_neck() -> void:
+	print("the horse has a horse's lines, and its reins clear the neck")
+	var hide := MountKinds.colour(MountKinds.HORSE)
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	HorseNatural.body(tool, hide)
+	var barrel := tool.commit() as ArrayMesh
+	var box := barrel.get_aabb()
+	# It was as broad as a cask: a metre across and about as deep.
+	_expect(box.size.x < box.size.y * 0.85, "the barrel is deeper than it is broad (%.2f across, %.2f deep)" % [box.size.x, box.size.y])
+	# Level from the withers to the croup: the highest point of the back at
+	# the shoulder and at the rump differ by a hand's breadth at the most.
+	var withers := 0.0
+	var croup := 0.0
+	var body_points := barrel.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	for point in body_points:
+		if absf(point.x) < 0.1:
+			if point.z > -0.9 and point.z < -0.3:
+				withers = maxf(withers, point.y)
+			elif point.z > 0.6 and point.z < 1.1:
+				croup = maxf(croup, point.y)
+	_expect(absf(withers - croup) < 0.12, "the back is level: withers %.2f m, croup %.2f m" % [withers, croup])
+
+	# The hind leg: the hock stands well behind the stifle, and the cannon
+	# below it comes forward again. The foreleg goes straight down.
+	var s := HorseNatural.S
+	var hind := MountKinds.horse_leg(hide, 2)
+	var stifle := _mean_in_band(hind, 2, -0.45 * s, -0.25 * s)
+	# (The hock is a hand higher than it was: nearer where a real horse's is.)
+	var hock := _mean_in_band(hind, 2, -0.85 * s, -0.65 * s)
+	var fetlock_hind := _mean_in_band(hind, 2, -1.2 * s, -1.1 * s)
+	_expect(hock - stifle > 0.25, "the hind leg's hock is %.2f m behind its stifle" % (hock - stifle))
+	_expect(hock - fetlock_hind > 0.1, "and its cannon comes forward again, %.2f m, to the fetlock" % (hock - fetlock_hind))
+	var fore := MountKinds.horse_leg(hide, 0)
+	var knee := _mean_in_band(fore, 2, -0.8 * s, -0.6 * s)
+	var fetlock := _mean_in_band(fore, 2, -1.2 * s, -1.0 * s)
+	_expect(absf(knee - fetlock) < 0.06, "the foreleg is straight, its knee and fetlock %.3f m apart fore and aft" % absf(knee - fetlock))
+
+	# No lump where a leg meets the body: every vertex of a leg above its hip
+	# is inside the barrel's outline at that height and place.
+	for i in MountKinds.HORSE_HIPS.size():
+		var hip: Vector3 = MountKinds.HORSE_HIPS[i]
+		var worst := -1.0
+		for point: Vector3 in MountKinds.horse_leg(hide, i).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+			if point.y < 0.0:
+				continue
+			var at := hip + point
+			var flank := 0.0
+			for body_point in body_points:
+				if absf(body_point.y - at.y) < 0.2 and absf(body_point.z - at.z) < 0.25:
+					flank = maxf(flank, absf(body_point.x))
+			worst = maxf(worst, absf(at.x) - flank)
+		_expect(worst < 0.0, "the top of the horse's leg %d lies inside its flank (%.3f m out)" % [i, worst])
+
+	# The reins: from the bit to the pommel, every point between the two ends
+	# lies outside the neck and the head and clear of the barrel.
+	var head := MountKinds.horse_part("head") as ArrayMesh
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var way := MountKinds.horse_rein_way(side)
+		var inside := 0
+		for leg_of_it in way.size() - 1:
+			for step in 12:
+				var at := way[leg_of_it].lerp(way[leg_of_it + 1], float(step) / 12.0)
+				if at.distance_to(way[0]) < 0.25 or at.distance_to(way[way.size() - 1]) < 0.25:
+					continue
+				if _point_in_mesh(head, MountKinds.HORSE_HEAD_PIVOT, at) or _point_in_mesh(barrel, Vector3.ZERO, at):
+					inside += 1
+		_expect(inside == 0, "the %s rein runs outside the neck and the body (%d points inside)" % ["left" if side < 0.0 else "right", inside])
+	var drawn := _triangle_count(MountKinds.build_mesh(MountKinds.HORSE))
+	_expect(drawn <= 1850, "and the horse is %d triangles, under about 1,800" % drawn)
+
+## The top of a cat's or a dog's leg is painted as the body is at that height
+## and place — the bands, the darker back, the paler belly — so that no line
+## shows where the leg comes out.
+func _check_a_cat_and_a_dog_wear_their_coat_down_the_top_of_the_leg() -> void:
+	print("a cat and a dog wear their coat down the top of the leg")
+	for kind: StringName in [AnimalKinds.CAT, AnimalKinds.DOG]:
+		var s := AnimalKinds.size_of(kind)
+		var coat := AnimalKinds.tint(kind, 0)
+		var cat := kind == AnimalKinds.CAT
+		var flank := AnimalNatural._cat_paint(0, coat, s) if cat else AnimalNatural._dog_paint(coat, s)
+		var middle := 1.03 if cat else 1.3
+		var depth := 0.5 if cat else 0.56
+		for front: bool in [true, false]:
+			var arrays := (AnimalKinds.leg_mesh(kind, front, 0, 1.0) as ArrayMesh).surface_get_arrays(0)
+			var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+			var height := AnimalKinds.hips(kind)[0 if front else 2].y
+			var along := float(AnimalKinds._shape(kind)["long"]) * 0.6 * s * (-1.0 if front else 1.0)
+			var worst := 0.0
+			var tested := 0
+			var plain := 0.0
+			for i in points.size():
+				var on_body := points[i] + Vector3(0.0, height, along)
+				if on_body.y / s <= middle + 0.02:
+					continue
+				var wanted: Color = flank.call(on_body, 0.0, acos(clampf((on_body.y / s - middle) / depth, 0.0, 1.0)))
+				# A colour is kept in eight bits.
+				worst = maxf(worst, maxf(absf(colours[i].r - wanted.r), maxf(absf(colours[i].g - wanted.g), absf(colours[i].b - wanted.b))))
+				plain = maxf(plain, absf(colours[i].get_luminance() - coat.darkened(0.1).get_luminance()))
+				tested += 1
+			_expect(tested > 0, "the %s's %s leg has a top above the middle of her flank" % [kind, "front" if front else "hind"])
+			_expect(worst < 0.02, "the top of the %s's %s leg is the colour of her body there (%.3f off)" % [kind, "front" if front else "hind", worst])
+
+## A squirrel sits nearly upright, with fuller ears than a pair of slivers,
+## and the birds that circle a grove are smooth skins like the animals.
+func _check_the_squirrel_sits_upright_with_full_ears_and_the_birds_are_lofts() -> void:
+	print("the squirrel sits upright with full ears, and the birds are lofts")
+	var kind := AnimalKinds.SQUIRREL
+	var s := AnimalKinds.size_of(kind)
+	var body := AnimalKinds.body_mesh(kind) as ArrayMesh
+	var points := body.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	var box := body.get_aabb()
+	var top_z := 0.0
+	var bottom_z := 0.0
+	var top_count := 0
+	var bottom_count := 0
+	for point in points:
+		if point.y > box.position.y + box.size.y * 0.75:
+			top_z += point.z
+			top_count += 1
+		elif point.y < box.position.y + box.size.y * 0.25:
+			bottom_z += point.z
+			bottom_count += 1
+	var lean := rad_to_deg(atan2(bottom_z / float(bottom_count) - top_z / float(top_count), box.size.y * 0.5))
+	_expect(lean < 28.0, "the squirrel's spine leans %.0f degrees from upright, less than 28" % lean)
+	var head := AnimalKinds.head_mesh(kind) as ArrayMesh
+	var low := 1000.0
+	var high := -1000.0
+	var top := head.get_aabb().end.y
+	for point: Vector3 in head.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if point.y > top - 0.62 * s and point.x > 0.0:
+			low = minf(low, point.x)
+			high = maxf(high, point.x)
+	_expect(high - low > 0.33 * s, "a squirrel's ear is %.2f of her size across, not a sliver" % ((high - low) / s))
+
+	var birds := Birds.new()
+	for i in birds._bodies.size():
+		var mesh: Mesh = birds._bodies[i]
+		_expect(_open_edges(mesh) == 0, "bird %d is one closed skin" % i)
+		_expect(_triangle_count(mesh) <= 300, "and its body is %d triangles" % _triangle_count(mesh))
+		var wing := birds._wings[i] as ArrayMesh
+		var root := Vector2(1000.0, -1000.0)
+		var tip := Vector2(1000.0, -1000.0)
+		for point: Vector3 in wing.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+			if point.x < 0.05:
+				root = Vector2(minf(root.x, point.z), maxf(root.y, point.z))
+			elif point.x > 0.3:
+				tip = Vector2(minf(tip.x, point.z), maxf(tip.y, point.z))
+		_expect(
+			root.y - root.x > 0.12 and tip.y - tip.x < 0.5 * (root.y - root.x),
+			"and its wing is %.2f m of chord at the shoulder and %.2f at the tip" % [root.y - root.x, tip.y - tip.x]
+		)
+	birds.free()
+
+## The horse's tail is a slim dock with long hair hanging from it: about a
+## third of the body's length, and much thinner than the head. It was as thick
+## at the root as the face and half as long again as it should be, so that a
+## tail looked as big as a head.
+func _check_the_horses_tail_is_slim_and_about_a_third_of_the_body() -> void:
+	print("the horse's tail is slim and about a third of the body")
+	var body := MountKinds.horse_part("body") as ArrayMesh
+	var tail := MountKinds.horse_part("tail") as ArrayMesh
+	var head := MountKinds.horse_part("head") as ArrayMesh
+	var body_length := body.get_aabb().size.z
+	var tail_points := tail.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	# How long it hangs: root to the tip of the hair, straight.
+	var box := tail.get_aabb()
+	var length := Vector3(0.0, box.position.y, box.end.z).length()
+	_expect(
+		length > 0.25 * body_length and length < 0.42 * body_length,
+		"the tail is %.2f m of a %.2f m body, about a third" % [length, body_length]
+	)
+	# The width of the face, across the head beyond the poll, and of the tail
+	# at its widest and at the dock.
+	var face := 0.0
+	for point: Vector3 in head.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if point.z + MountKinds.HORSE_HEAD_PIVOT.z < -1.35 * HorseNatural.S:
+			face = maxf(face, absf(point.x))
+	var widest := 0.0
+	var dock := 0.0
+	for point in tail_points:
+		widest = maxf(widest, absf(point.x))
+		if point.y > -0.1:
+			dock = maxf(dock, absf(point.x))
+	_expect(widest < 0.5 * face, "the tail is %.2f m across at its fullest and the face %.2f" % [widest * 2.0, face * 2.0])
+	_expect(dock < 0.35 * face, "and the dock %.2f m, a slim bone" % (dock * 2.0))
+
 

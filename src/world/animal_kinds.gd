@@ -278,7 +278,7 @@ static func hips(kind: StringName) -> Array[Vector3]:
 				height = scale * (reach + PAW_DEPTH * float(shape["leg_slim"]))
 			# A squirrel's arms hang from its chest, which is the tall body
 			# leaning up and forward, not out at the end of a long one.
-			var along := 0.3 if kind == SQUIRREL and front < 0.0 else 0.6
+			var along := 0.05 if kind == SQUIRREL and front < 0.0 else 0.6
 			out.append(Vector3(
 				side * scale * 0.44 * float(shape["slim"]),
 				height,

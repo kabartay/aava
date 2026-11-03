@@ -282,11 +282,23 @@ func _build(drake: bool, cast := 0.0) -> Mesh:
 		AnimalLoft.key(Vector3(0.0, 0.14, -0.19), 0.07, 0.085, 0.075),
 	], Vector3.UP, 8, 2, 0.03, 0.02)
 	var dusk := body_colour.darkened(0.25)
+	var speculum := Color(0.20, 0.32, 0.62)
 	body.paint = func(_p: Vector3, along: float, angle: float) -> Color:
 		# Darker on the back and paler under the breast, and darker again on
 		# the raised tail.
 		var c := body_colour.darkened(0.12 * maxf(cos(angle), 0.0)).lightened(0.15 * maxf(-cos(angle), 0.0))
-		return c.lerp(dusk, smoothstep(0.3, 0.12, along))
+		c = c.lerp(dusk, smoothstep(0.3, 0.12, along))
+		# The folded wing lies along the side: a little darker than the flank,
+		# with the blue patch every mallard shows at its hind edge, and a white
+		# bar either side of it. Without it the back is one bare, plain skin.
+		var side := smoothstep(0.35, 0.8, absf(sin(angle))) * smoothstep(-0.5, 0.0, cos(angle))
+		var wing := side * smoothstep(0.2, 0.3, along) * smoothstep(0.78, 0.66, along)
+		c = c.darkened(0.14 * wing)
+		# (The skin has a ring every sixteenth of its length, so a band is as
+		# wide as that or it falls between two and is not drawn.)
+		var from_patch := absf(along - 0.375)
+		c = c.lerp(Color(0.94, 0.94, 0.92), side * smoothstep(0.02, 0.06, from_patch) * smoothstep(0.11, 0.07, from_patch) * 0.45)
+		return c.lerp(speculum, side * smoothstep(0.06, 0.02, from_patch))
 	body.emit(tool)
 	# The neck and head, forward and up, in one skin with a collar painted on
 	# the drake's neck.
@@ -305,9 +317,9 @@ func _build(drake: bool, cast := 0.0) -> Mesh:
 	neck.emit(tool)
 	# The bill, flat and broad, with a rounded tip.
 	var beak := AnimalLoft.make([
-		AnimalLoft.key(Vector3(0.0, 0.262, -0.27), 0.028, 0.009, 0.009),
-		AnimalLoft.key(Vector3(0.0, 0.256, -0.31), 0.033, 0.007, 0.007),
-		AnimalLoft.key(Vector3(0.0, 0.25, -0.34), 0.026, 0.006, 0.006),
+		AnimalLoft.key(Vector3(0.0, 0.262, -0.27), 0.03, 0.013, 0.012),
+		AnimalLoft.key(Vector3(0.0, 0.256, -0.31), 0.034, 0.011, 0.01),
+		AnimalLoft.key(Vector3(0.0, 0.25, -0.34), 0.026, 0.008, 0.007),
 	], Vector3.UP, 6, 1, 0.0, 0.012)
 	beak.paint = func(_p: Vector3, _along: float, _angle: float) -> Color: return bill
 	beak.emit(tool)

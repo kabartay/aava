@@ -67,7 +67,22 @@ func _initialize() -> void:
 		"horse":
 			# Not one of the valley's animals but a mount, seen the same way.
 			animal = MountKinds.build_node(MountKinds.horse_id(_variant))
-			size = 1.3
+			size = 1.35
+		"bird":
+			# One of the birds that circle a grove, wings spread level.
+			var birds := Birds.new()
+			animal = Node3D.new()
+			var shape := MeshInstance3D.new()
+			shape.mesh = birds._bodies[_variant % birds._bodies.size()]
+			animal.add_child(shape)
+			for side in PackedFloat32Array([-1.0, 1.0]):
+				var wing := MeshInstance3D.new()
+				wing.mesh = birds._wings[_variant % birds._wings.size()]
+				wing.scale.x = side
+				wing.rotation.z = side * 0.25
+				animal.add_child(wing)
+			animal.position.y = 0.3
+			size = 0.25
 		"drake", "hen":
 			# A duck is a mesh of its own, a third of a metre long.
 			var ducks := Ducks.new()
@@ -89,6 +104,11 @@ func _initialize() -> void:
 	_centre = Vector3(0.0, size * 1.0, 0.0)
 	var far := size * 6.5
 	var near := size * 5.0
+	if _kind == "horse":
+		# Four metres from nose to tail: the standard distance is for animals
+		# a metre long.
+		far = size * 3.4
+		near = size * 3.6
 	if _head:
 		var pivot := MountKinds.HORSE_HEAD_PIVOT if _kind == "horse" else (
 			Vector3(0.0, 0.2, -0.2) if size == 0.25 else AnimalKinds.head_pivot(StringName(_kind))
@@ -96,6 +116,17 @@ func _initialize() -> void:
 		_centre = pivot + Vector3(0.0, size * 0.3, 0.0)
 		far = size * 3.2
 		near = size * 3.2
+		# Framed on the head itself, ears and all: a squirrel's stand a long
+		# way above the pivot, and a fixed offset cut them off.
+		var head_box := AABB()
+		if _kind == "horse":
+			head_box = (MountKinds.horse_part("head") as ArrayMesh).get_aabb()
+		elif size != 0.25:
+			head_box = AnimalKinds.head_mesh(StringName(_kind), _variant).get_aabb()
+		if head_box.size != Vector3.ZERO:
+			_centre = pivot + head_box.get_center()
+			far = maxf(head_box.size.length() * 1.15, size * 1.5)
+			near = far
 	# The animal faces -Z: the side is +X, the front -Z.
 	_views = [
 		_centre + Vector3(far, 0.0, 0.0),

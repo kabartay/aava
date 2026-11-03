@@ -21,11 +21,17 @@ static func _rings(rows: Array) -> Array:
 ## The barrel, shoulders, withers and rump as one body from the chest to the
 ## dock.
 static func body(tool: SurfaceTool, hide: Color) -> void:
+	# A horse is deep and not wide: the chest drops lowest behind the
+	# shoulder, the belly tucks up towards the flank, the back runs level from
+	# the withers to a rounded croup and the rump turns down to the dock. The
+	# barrel is narrower than it is deep; it was as broad as a cask, and the
+	# tops of the legs stood out of its sides as lumps.
 	var loft := AnimalLoft.make(AnimalNatural._section(S, [
-		[-1.18, 1.52, 1.10, 0.30], [-0.80, 1.76, 0.98, 0.40], [-0.40, 1.84, 0.94, 0.42],
-		[0.05, 1.78, 0.92, 0.43], [0.50, 1.76, 0.98, 0.42], [0.88, 1.72, 1.06, 0.44],
-		[1.22, 1.52, 1.20, 0.32],
-	]), Vector3.UP, 10, 2, 0.2 * S, 0.2 * S)
+		[-1.0, 1.50, 0.98, 0.25], [-0.78, 1.80, 0.86, 0.32], [-0.46, 1.84, 0.82, 0.35],
+		[-0.05, 1.78, 0.88, 0.34], [0.40, 1.79, 0.97, 0.35], [0.80, 1.83, 0.98, 0.39],
+		[1.12, 1.74, 1.02, 0.35], [1.32, 1.56, 1.15, 0.24],
+	]), Vector3.UP, 10, 2, 0.2 * S, 0.16 * S)
+	loft.cap_rings = [0.7]
 	loft.paint = func(_p: Vector3, _along: float, a: float) -> Color:
 		return AnimalNatural._shade(hide, a, 0.05, 0.1)
 	loft.emit(tool)
@@ -34,6 +40,8 @@ static func body(tool: SurfaceTool, hide: Color) -> void:
 ## about `pivot`, the foot of the neck.
 static func head(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
 	var dark := hide.darkened(0.3)
+	# The hair is darker than the hide, so a mane shows against a neck.
+	var hair := hide.darkened(0.55)
 	var pale := Color(0.93, 0.90, 0.84)
 	var mine := SurfaceTool.new()
 	mine.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -65,11 +73,11 @@ static func head(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
 			AnimalNatural._flat(dark))
 	# The mane: a ridge of hair along the crest from the poll to the withers.
 	var mane := AnimalLoft.make(_rings([
-		[0.0, 2.40, -1.18, 0.035, 0.07, 0.04], [0.0, 2.30, -1.02, 0.045, 0.10, 0.06],
-		[0.0, 2.12, -0.84, 0.05, 0.12, 0.07], [0.0, 1.98, -0.68, 0.05, 0.12, 0.07],
-		[0.0, 1.90, -0.50, 0.04, 0.08, 0.05],
+		[0.0, 2.43, -1.18, 0.05, 0.09, 0.05], [0.0, 2.33, -1.02, 0.065, 0.14, 0.07],
+		[0.0, 2.15, -0.84, 0.07, 0.17, 0.08], [0.0, 2.0, -0.68, 0.07, 0.16, 0.08],
+		[0.0, 1.9, -0.50, 0.05, 0.10, 0.06],
 	]), Vector3.UP, 6, 1, 0.04 * S, 0.04 * S)
-	mane.paint = AnimalNatural._flat(dark)
+	mane.paint = AnimalNatural._flat(hair)
 	mane.emit(mine)
 	# The forelock, falling between the ears over the brow.
 	var forelock := AnimalLoft.make(_rings([
@@ -77,7 +85,7 @@ static func head(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
 		[0.0, 2.24, -1.34, 0.03, 0.03, 0.03],
 	]), Vector3.UP, 5, 1, 0.0, 0.03 * S)
 	forelock.cap_rings = [0.7]
-	forelock.paint = AnimalNatural._flat(dark)
+	forelock.paint = AnimalNatural._flat(hair)
 	forelock.emit(mine)
 	mine.generate_normals()
 	tool.append_from(mine.commit(), 0, Transform3D(Basis(), -pivot))
@@ -85,27 +93,30 @@ static func head(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
 ## The tail, from its root on the rump down the chain of joints that `MountKinds`
 ## keeps, and ending in a switch of long hair, drawn about `pivot`.
 static func tail(tool: SurfaceTool, pivot: Vector3, hide: Color) -> void:
-	var dark := hide.darkened(0.3)
 	var mine := SurfaceTool.new()
 	mine.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var joints := MountKinds.horse_tail_joints()
 	var chain := MountKinds.HORSE_TAIL_CHAIN
 	var stride := MountKinds.HORSE_TAIL_STRIDE
 	var rows: Array = []
-	var last := chain[chain.size() - 1] * S * 0.7
+	var last := chain[chain.size() - 1] * S * 0.8
 	for i in joints.size():
 		var at := joints[i] + MountKinds.HORSE_TAIL_PIVOT
-		# Each joint is as thick as the piece that starts there; the last,
-		# which has no piece, as thin as the chain tapers to.
+		# Each joint is as thick as the piece that starts there: a slim dock
+		# at the rump, which the long hair then fills out. The last, which
+		# has no piece, is as full as the hair gets.
 		var r := (chain[i * stride + 2] * S) if i * stride + 2 < chain.size() else last
-		rows.append(AnimalLoft.key(at, r * 1.35, r * 1.35, r * 1.35))
-	# The switch: the hair carries on down past the last joint, fuller before
-	# it thins.
+		# The tail is swept downwards with the reference across it, so a
+		# ring's "across" runs fore and aft and its "up" from side to side:
+		# the hair is wider than it is deep.
+		rows.append(AnimalLoft.key(at, r * 0.85, r * 1.1, r * 1.1))
+	# The switch: the hair carries on down past the last joint, thinning to
+	# a point.
 	var end := joints[joints.size() - 1] + MountKinds.HORSE_TAIL_PIVOT
-	rows.append(AnimalLoft.key(end + Vector3(0.0, -0.22, 0.04) * S, last * 2.2, last * 2.2, last * 2.2))
-	rows.append(AnimalLoft.key(end + Vector3(0.0, -0.42, 0.05) * S, last * 0.9, last * 0.9, last * 0.9))
-	var loft := AnimalLoft.make(rows, Vector3.RIGHT, 6, 2, 0.0, 0.08 * S)
-	loft.paint = AnimalNatural._flat(dark)
+	rows.append(AnimalLoft.key(end + Vector3(0.0, -0.1, 0.02) * S, last * 0.9, last * 1.15, last * 1.15))
+	rows.append(AnimalLoft.key(end + Vector3(0.0, -0.2, 0.025) * S, last * 0.4, last * 0.5, last * 0.5))
+	var loft := AnimalLoft.make(rows, Vector3.RIGHT, 6, 1, 0.0, 0.1 * S)
+	loft.paint = AnimalNatural._flat(hide.darkened(0.55))
 	loft.emit(mine)
 	mine.generate_normals()
 	tool.append_from(mine.commit(), 0, Transform3D(Basis(), -pivot))
@@ -120,27 +131,41 @@ static func leg(tool: SurfaceTool, front: bool, hip: Vector3, pivot: Vector3, hi
 	var h := hip.y / S + 0.04
 	var sole := 0.08
 	var rows: Array
+	# The numbers are as drawn: no row is blown up afterwards, because a top
+	# swollen to fit the flank stood out of it as a lump. The foreleg is
+	# straight down from the shoulder to a knee and a long cannon; the hind leg
+	# has the stifle forward, the gaskin running back to a hock that points
+	# behind, and a long cannon slanting forward again to the fetlock. (Across
+	# is how thick the leg is from side to side; up and down are how far it
+	# reaches behind and before.)
 	if front:
+		# Straight down from the shoulder: the elbow, a long forearm, a knee
+		# that stands out a little before and behind, a slim cannon, the
+		# fetlock and the hoof.
 		rows = [
-			[0.0, 0.30, 0.0, 0.17, 0.22, 0.22], [0.0, -0.15, 0.0, 0.15, 0.18, 0.18],
-			[0.0, -0.50, 0.0, 0.095, 0.11, 0.11], [0.0, -0.64, -0.01, 0.085, 0.09, 0.09],
-			[0.0, -0.95, 0.0, 0.062, 0.07, 0.07],
-			[0.0, -(h - sole), -0.02, 0.095, 0.10, 0.13],
+			[0.0, 0.22, 0.0, 0.11, 0.19, 0.19], [0.0, -0.12, 0.0, 0.11, 0.16, 0.16],
+			[0.0, -0.45, 0.0, 0.082, 0.10, 0.10], [0.0, -0.74, 0.0, 0.07, 0.07, 0.07],
+			[0.0, -0.82, 0.0, 0.066, 0.078, 0.088], [0.0, -1.1, -0.005, 0.05, 0.056, 0.056],
+			[0.0, -1.16, -0.01, 0.062, 0.07, 0.07],
+			[0.0, -(h - sole), -0.035, 0.088, 0.09, 0.12],
 		]
 	else:
+		# The thigh is the heaviest thing on a horse and tapers down the
+		# gaskin to a hock that points behind; the cannon below it is long
+		# and runs straight, a little forward, to the fetlock, and the foot
+		# comes back under the hip.
 		rows = [
-			[0.0, 0.30, 0.08, 0.20, 0.28, 0.28], [0.0, -0.10, 0.05, 0.18, 0.24, 0.22],
-			[0.0, -0.45, -0.02, 0.11, 0.14, 0.12], [0.0, -0.72, 0.10, 0.09, 0.12, 0.09],
-			[0.0, -1.0, 0.05, 0.062, 0.07, 0.07],
-			[0.0, -(h - sole), 0.0, 0.095, 0.10, 0.13],
+			[0.0, 0.28, 0.02, 0.15, 0.24, 0.26], [0.0, 0.0, 0.03, 0.14, 0.23, 0.26],
+			[0.0, -0.32, 0.0, 0.11, 0.15, 0.17], [0.0, -0.58, 0.15, 0.08, 0.10, 0.14],
+			[0.0, -0.74, 0.26, 0.062, 0.115, 0.07],
+			[0.0, -1.1, 0.11, 0.05, 0.056, 0.056], [0.0, -1.16, 0.08, 0.062, 0.07, 0.075],
+			[0.0, -(h - sole), 0.04, 0.088, 0.09, 0.12],
 		]
+	# Only the top is drawn in towards the middle, so that it lies within the
+	# flank and the leg comes out from under it.
 	for row: Array in rows:
-		var grown := smoothstep(-0.55, 0.05, float(row[1]))
-		row[0] = -side * 0.12 * grown
-		row[3] = float(row[3]) * (1.0 - 0.25 * grown)
-		row[4] = float(row[4]) * (1.0 + 0.3 * grown)
-		row[5] = float(row[5]) * (1.0 + 0.3 * grown)
-	var loft := AnimalLoft.make(_rings(rows), Vector3(0.0, 0.0, 1.0), 8, 1, 0.14 * S, sole * S)
+		row[0] = -side * 0.17 * smoothstep(-0.75, 0.1, float(row[1]))
+	var loft := AnimalLoft.make(_rings(rows), Vector3(0.0, 0.0, 1.0), 7, 1, 0.1 * S, sole * S)
 	loft.cap_rings = [0.7]
 	loft.origin = hip - pivot
 	var dark := hide.darkened(0.3)
@@ -148,5 +173,5 @@ static func leg(tool: SurfaceTool, front: bool, hip: Vector3, pivot: Vector3, hi
 	# The hide runs down to the knee, the dark legs below it, and a hoof.
 	loft.paint = func(p: Vector3, _t: float, _a: float) -> Color:
 		var y := (p.y - (hip.y - pivot.y)) / S
-		return hide.darkened(0.05).lerp(dark, smoothstep(-0.4, -0.7, y)).lerp(hoof, smoothstep(-(h - 0.22), -(h - 0.1), y))
+		return hide.lerp(dark, smoothstep(-0.4, -0.7, y)).lerp(hoof, smoothstep(-(h - 0.22), -(h - 0.1), y))
 	loft.emit(tool)
