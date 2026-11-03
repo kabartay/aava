@@ -213,6 +213,7 @@ func _initialize() -> void:
 	_check_rising_from_deep_water_is_the_same_at_any_frame_rate()
 	_check_the_roads_have_names()
 	_check_the_fairground()
+	_check_a_new_machine_finds_a_free_stand_and_a_loaded_rider_is_not_inside_theirs()
 	await _check_the_rides_carry_a_child()
 	await _check_a_walkway_carries_at_its_own_speed()
 	_check_the_coaster_stands_on_the_ground()
@@ -484,6 +485,8 @@ func _initialize() -> void:
 	await _check_a_child_walks_up_the_stairs_onto_the_upper_floor()
 	_check_the_chair_does_not_snag()
 	_check_the_camera_looks_past_a_childs_furniture()
+	await _check_a_stray_tap_does_not_fell_a_planted_tree()
+	_check_nothing_is_built_on_a_trunk()
 	_check_the_looks_of_the_pony_rider_neck_and_carousel_pink()
 	await _check_the_cafe_menu_gives_way_to_building()
 	await _check_a_wandering_animal_does_not_cover_the_palette_or_the_kick()
@@ -24875,4 +24878,127 @@ func _check_the_looks_of_the_pony_rider_neck_and_carousel_pink() -> void:
 	# blue near its red is lit to lilac.
 	var pink: Color = Carousel.HORSE_PAINT[3][0]
 	_expect(pink.r - pink.b > 0.4 and pink.g >= pink.b, "the pink carousel horse's coat has its red well ahead of its blue (%.2f, %.2f, %.2f)" % [pink.r, pink.g, pink.b])
+
+## Two bicycles bought, the one at the door sold, a third bought: the count of
+## bicycles says one, so it was put on row one, where the second still stood.
+## And a game saved while riding put the machine, solid, under the child's feet.
+func _check_a_new_machine_finds_a_free_stand_and_a_loaded_rider_is_not_inside_theirs() -> void:
+	print("a new machine finds a free stand and a loaded rider is not inside theirs")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var base := Vector3(30.0, 0.0, -20.0)
+	var kind := MountKinds.BICYCLE
+	for row in 2:
+		mounts.place(
+			mounts.free_id(kind), Places.machine_stand(base, mounts.free_row(base, Places.STANDS_ROW))
+		)
+	var first := mounts.position_of(&"bicycle:0")
+	var second := mounts.position_of(&"bicycle:1")
+	_expect(first.distance_to(second) > 2.0, "two bicycles bought in a row stand apart (%.1f m)" % first.distance_to(second))
+	# The one at the door is sold, which leaves the second where it was.
+	mounts._forget(&"bicycle:0")
+	_expect(mounts.count_of_kind(kind) == 1, "one bicycle is left")
+	var row := mounts.free_row(base, Places.STANDS_ROW)
+	var spot := Places.machine_stand(base, row)
+	_expect(row == 0, "the next one takes the row that is free, not row %d" % row)
+	_expect(
+		Vector2(spot.x - second.x, spot.z - second.z).length() > 2.0,
+		"and stands %.1f m from the one still there" % Vector2(spot.x - second.x, spot.z - second.z).length()
+	)
+	# A game loaded with the child at a saved machine's feet.
+	mounts.place(&"quad:0", Vector3(0.0, 0.0, 0.0))
+	_expect(mounts.is_solid(&"quad:0"), "a machine placed from a save is solid")
+	mounts.make_room_at(Vector3(0.5, 0.0, 0.5))
+	_expect(not mounts.is_solid(&"quad:0"), "but not under the child who was riding it")
+	_expect(mounts.is_solid(&"bicycle:1"), "a machine far away is left solid")
+	mounts.watch(Vector3(6.0, 0.0, 6.0))
+	_expect(mounts.is_solid(&"quad:0"), "it is solid again once they have walked clear")
+	mounts.queue_free()
+
+## The axe on a tree somebody planted and grew was a tap, so one stray tap of a
+## three-year-old felled a tree that a child (or a brother) had raised, and the
+## seed did not come back. A wild tree stays a tap; a planted one is held.
+func _check_a_stray_tap_does_not_fell_a_planted_tree() -> void:
+	print("a stray tap does not fell a planted tree")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var chopped: Array = []
+	hud.chop_pressed.connect(func() -> void: chopped.append(true))
+	var ring: HoldRing = null
+	for child in hud._chop_button.get_children():
+		if child is HoldRing:
+			ring = child
+	_expect(ring != null, "the axe button has a hold ring")
+	if ring == null:
+		hud.queue_free()
+		return
+	hud.set_tree_in_reach(true, false)
+	hud._chop_button.pressed.emit()
+	_expect(chopped.size() == 1, "a wild tree is still felled with a tap")
+	chopped.clear()
+	hud.set_tree_in_reach(true, true)
+	hud._chop_button.pressed.emit()
+	_expect(chopped.is_empty(), "a tap does not fell a tree that was planted")
+	hud._chop_button.button_down.emit()
+	ring._process(0.5)
+	hud._chop_button.button_up.emit()
+	_expect(chopped.is_empty(), "nor does half a second")
+	hud._chop_button.button_down.emit()
+	ring._process(1.1)
+	hud._chop_button.button_up.emit()
+	_expect(chopped.size() == 1, "a held press does")
+	hud.queue_free()
+
+	# The game tells the hud which kind of tree the axe would fall on.
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		loop.contains("hud.set_tree_in_reach(") and loop.contains("nearest_grown_tree(player.global_position, CHOP_REACH).is_empty()"),
+		"the game says whether the nearest tree is a planted one"
+	)
+
+## A fence, a fire, a feeder or a sapling could be put up on a wild tree's
+## trunk: only a house piece was refused there. A path is flat and still goes
+## over a root.
+func _check_nothing_is_built_on_a_trunk() -> void:
+	print("nothing is built on a trunk")
+	var yard := _a_yard(300)
+	var origin: Vector3 = yard["origin"]
+	var build: BuildMode = yard["build"]
+	var field: HeightField = yard["field"]
+	var structures: Structures = yard["structures"]
+	if not origin.is_finite():
+		_fail("no ground near the spawn to build on")
+		_free_the_yard(yard)
+		return
+	var stand := Vector3(origin.x, field.height_at(origin.x, origin.z + BuildMode.REACH), origin.z + BuildMode.REACH)
+	var trunk := Vector3.ZERO
+	for kind: StringName in BuildKinds.ALL:
+		build.select(kind)
+		build.set_tree_finder(func(_at: Vector3, _reach: float) -> Array[Vector3]:
+			return [])
+		build.aim(stand, 0.0)
+		trunk = build.target()
+		build.set_tree_finder(func(_at: Vector3, _reach: float) -> Array[Vector3]:
+			return [trunk])
+		build.aim(stand, 0.0)
+		if kind == BuildKinds.PATH:
+			_expect(
+				build._reason != Text.of("why_tree"),
+				"a path goes over a root"
+			)
+			continue
+		_expect(
+			not build._valid and build._reason == Text.of("why_tree"),
+			"%s is not put up on a trunk: %s" % [kind, build._reason]
+		)
+		_expect(not build.place() and structures.positions().is_empty(), "and the tap builds nothing")
+	# With the tree a few strides off, the same sapling goes in.
+	build.select(BuildKinds.SAPLING)
+	build.set_tree_finder(func(_at: Vector3, _reach: float) -> Array[Vector3]:
+		return [trunk + Vector3(6.0, 0.0, 0.0)])
+	build.aim(stand, 0.0)
+	_expect(build._reason != Text.of("why_tree"), "a tree six metres off is not in the way: %s" % build._reason)
+	_free_the_yard(yard)
 

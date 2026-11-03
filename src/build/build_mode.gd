@@ -650,9 +650,10 @@ func _evaluate() -> void:
 		# sapling planted beside the trampoline became a tree standing in it.
 		_valid = false
 		_reason = Text.of("why_reserved")
-	elif _is_house() and not _trees_in_the_way(selected, _target, _spin, _extent).is_empty():
-		# A trunk in the middle of a room. The axe clears it, or the house
-		# can go a step to one side; either way the child is told.
+	elif not _trees_in_the_way(selected, _target, _spin, _extent).is_empty():
+		# A trunk in the middle of a room, or a fence, a fire or a sapling
+		# standing in one. The axe clears it, or the piece can go a step to
+		# one side; either way the child is told.
 		_valid = false
 		_reason = Text.of("why_tree")
 	elif not _problem.is_empty():
@@ -817,7 +818,13 @@ func _blocks(kind: StringName, at: Vector3, spin: float, extent: Vector2i, tree:
 	if HouseParts.is_roof(kind) or kind == HouseParts.RUG:
 		return false
 	var half := Vector2(HouseParts.HALF, HouseParts.HALF)
-	if HouseParts.seat(kind) == HouseParts.Seat.EDGE:
+	if not HouseParts.is_house_part(kind):
+		# A path is stones laid flat, which a root does not mind; everything
+		# else takes up the ground its footprint says.
+		if kind == BuildKinds.PATH:
+			return false
+		half = Vector2.ONE * BuildKinds.footprint(kind) * 0.5
+	elif HouseParts.seat(kind) == HouseParts.Seat.EDGE:
 		half = Vector2(HouseParts.HALF, HouseParts.WALL_THICKNESS * 0.5)
 	elif HouseParts.seat(kind) == HouseParts.Seat.CORNER:
 		half = Vector2(0.1, 0.1)

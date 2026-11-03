@@ -229,6 +229,7 @@ var _drink_button: Button
 var _dive_button: Button
 var _whistle_button: Button
 var _chop_button: Button
+var _chop_ring: HoldRing
 var _ride_button: Button
 var _shoot_button: Button
 var _visit_button: Button
@@ -538,7 +539,14 @@ func _init() -> void:
 	# so it never invites a press that does nothing.
 	_chop_button = _icon_button(ActionIcon.Kind.CHOP)
 	_chop_button.visible = false
-	_chop_button.pressed.connect(func() -> void: chop_pressed.emit())
+	# A wild tree is a tap; a tree a child planted and grew is their work, and
+	# one stray tap of a toddler's must not fell it. The ring is told which this
+	# is by set_tree_in_reach.
+	_chop_ring = _hold(_chop_button, func() -> void: chop_pressed.emit())
+	_chop_ring.needed = false
+	_chop_button.pressed.connect(func() -> void:
+		if not _chop_ring.needed:
+			chop_pressed.emit())
 	add_child(_chop_button)
 
 	# The same button gets on and gets off, because they are the same thought.
@@ -1670,7 +1678,11 @@ func set_mount_in_reach(
 		_layout()
 
 ## Whether a tree is close enough to cut, given that the axe is owned.
-func set_tree_in_reach(within_reach: bool) -> void:
+##
+## `planted` is whether the axe would fall on a tree a child planted, which has
+## to be held rather than tapped.
+func set_tree_in_reach(within_reach: bool, planted := false) -> void:
+	_chop_ring.needed = planted
 	if _chop_button.visible != within_reach:
 		_chop_button.visible = within_reach
 		_layout()

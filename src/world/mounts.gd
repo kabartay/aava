@@ -396,6 +396,45 @@ func free_id(kind: StringName) -> StringName:
 			return id
 	return StringName("%s:%d" % [kind, 16])
 
+## Which row of a shop stand to leave the next machine on: the first whose spot
+## has nothing standing on it.
+##
+## It was "how many of the kind are in the valley", which is only the same thing
+## while every machine is still where it was left. Buy two bicycles (rows 0 and
+## 1), sell the one at the door, and the count says one: the next purchase was
+## put on row 1, exactly where the second bicycle still stood, and the two were
+## one picture and one solid box again. `base` is the first row's spot in the
+## world and `gap` the distance between rows, along the same line the rows run.
+func free_row(base: Vector3, gap: float, rows := 16) -> int:
+	for row in rows:
+		var spot := base + Vector3(0.0, 0.0, -gap * float(row))
+		var taken := false
+		for id in _nodes:
+			if not is_instance_valid(_nodes[id]):
+				continue
+			var there: Vector3 = _positions.get(id, Vector3.ZERO)
+			if Vector2(there.x - spot.x, there.z - spot.z).length() < gap * 0.75:
+				taken = true
+				break
+		if not taken:
+			return row
+	return rows
+
+## A child who is put down where they were riding, as a game loaded mid-ride
+## does, is standing on the machine: it is saved at their feet, and a machine
+## placed solid under somebody is the physics pushing them into the air with it
+## stuck beneath them (see `dismount`). Everything standing within reach of
+## `at` is left unsolid until they step clear, as a machine just got off is.
+func make_room_at(at: Vector3) -> void:
+	for id in _nodes:
+		if not exists(id) or not is_solid(id):
+			continue
+		var flat: Vector3 = _positions[id] - at
+		flat.y = 0.0
+		if flat.length() <= CLEAR_OF_IT:
+			_set_solid(id, false)
+			_waiting_to_be_solid[id] = true
+
 func nearest(player_position: Vector3) -> StringName:
 	if riding != &"":
 		return &""

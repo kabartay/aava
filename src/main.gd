@@ -378,7 +378,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 			world.mounts.place(
 				world.mounts.free_id(machine[1]),
 				_outside_the_shop(Places.machine_stand(
-					machine[2], world.mounts.count_of_kind(machine[1])
+					machine[2], _free_row(machine[2])
 				))
 			)
 
@@ -423,6 +423,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# a solid thing that appears around somebody traps them there.
 	start = world.signpost.push_clear(start)
 	player.position = start + Vector3.UP * SPAWN_CLEARANCE
+	# A game saved mid-ride has its machine at the child's feet.
+	world.mounts.make_room_at(start)
 	# Terrain arrives a few chunks per frame, so for the first instants there is
 	# nothing under the player's feet. Physics stays off until the ground they
 	# are standing on exists, or the game opens with a fall.
@@ -1280,9 +1282,15 @@ func _process(delta: float) -> void:
 	)
 
 	# The axe only offers itself when there is a tree to use it on.
-	hud.set_tree_in_reach(
+	var tree_in_reach := (
 		wallet.has(ShopStock.AXE)
 		and bool(world.vegetation.nearest_tree_found(player.global_position, CHOP_REACH)[1])
+	)
+	# A tree somebody planted is felled first (see _on_chop), and is somebody's
+	# work: it takes a held press, where a wild tree takes a tap.
+	hud.set_tree_in_reach(
+		tree_in_reach,
+		tree_in_reach and not structures.nearest_grown_tree(player.global_position, CHOP_REACH).is_empty()
 	)
 
 	# The care button says what the animal in front of you wants, at the moment
@@ -2899,6 +2907,10 @@ var _bad_ground := 0.0
 var _held_last := Player.NOT_HELD
 var _held_rate := 0.0
 
+## The first row of a machine's stand at the shop with nothing standing on it.
+func _free_row(offset: Vector3) -> int:
+	return world.mounts.free_row(_outside_the_shop(Vector3.ZERO) + offset, Places.STANDS_ROW)
+
 func _outside_the_shop(offset: Vector3) -> Vector3:
 	var spot := world.places.position_of(Places.SHOP)
 	if spot == Vector3.ZERO:
@@ -3074,7 +3086,7 @@ func _on_buy(item: StringName) -> void:
 			world.mounts.place(
 				world.mounts.free_id(machine[1]),
 				_outside_the_shop(Places.machine_stand(
-					machine[2], world.mounts.count_of_kind(machine[1])
+					machine[2], _free_row(machine[2])
 				))
 			)
 			hud.announce(
