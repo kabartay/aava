@@ -78,7 +78,10 @@ enum Phase { STILL, SPIN_UP, RIDING, SLOWING }
 
 const DRUM_PAINT := Color(0.30, 0.52, 0.78)
 const MIRROR := Color(0.74, 0.86, 0.94)
-const PIG_PINK := Color(1.0, 0.72, 0.74)
+## The pig's pink has its red well ahead of its blue and its green not below
+## it: the sky's light is blue, and the first pink (1.0, 0.72, 0.74), with the
+## green under the blue, was lit to a mauve grey.
+const PIG_PINK := Color(1.0, 0.70, 0.58)
 const RAMP_COLOUR := Color(0.62, 0.46, 0.32)
 const GOLD := Color(0.96, 0.78, 0.22)
 const FLOOR_COLOUR := Color(0.88, 0.38, 0.34)
@@ -248,6 +251,9 @@ func _init(at: Vector3) -> void:
 	_music.bus = Mix.WORLD
 	_music.max_distance = MUSIC_REACH
 	_music.unit_size = 4.0
+	# Standing by the centre pole the distance law would lift the tune above its
+	# own level, up to the default +3 dB ceiling; held at a gentle one instead.
+	_music.max_db = -6.0
 	_music.volume_db = MUSIC_STILL_DB
 	_music.position = Vector3(0.0, CANOPY_HEIGHT * 0.5, 0.0)
 	add_child(_music)
@@ -567,7 +573,9 @@ func _build_animal(horse: int, turning: SurfaceTool, roof_base: Vector3, rim: fl
 ## A gilded chariot: a tub with a high back and a scrolled front, on a skirt
 ## and two wheels, its seat at the height of a saddle.
 func _draw_swan(figure: SurfaceTool, frame: Transform3D, gilt: Color) -> void:
-	var white := Color(0.99, 0.99, 1.0)
+	# A warm white: a pure or bluish one is lit by the blue sky to a cold grey,
+	# where one with its blue a little under its red reads as white.
+	var white := Color(1.0, 0.98, 0.93)
 	var beak := Color(1.0, 0.58, 0.16)
 	# The tub: a rounded hull, blunt at the stern and drawn out to a prow that
 	# sweeps up at the front, on a rounded skirt, with the gold edging following
@@ -604,7 +612,7 @@ func _draw_swan(figure: SurfaceTool, frame: Transform3D, gilt: Color) -> void:
 		)
 		_ball(
 			figure, frame, Vector3(-0.52, 0.62, side * 0.44), Vector3(0.3, 0.14, 0.04),
-			Color(0.90, 0.94, 1.0), Basis(Vector3.BACK, deg_to_rad(30.0))
+			Color(0.97, 0.95, 0.90), Basis(Vector3.BACK, deg_to_rad(30.0))
 		)
 	# Tail feathers, fanned up behind the backrest.
 	for fan in 3:

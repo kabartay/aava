@@ -122,8 +122,8 @@ const POSES := {
 	# and a hand either side of it, and the horse's mane, which rises to 0.48
 	# at 0.38 ahead, well clear of the body. The barrel is 0.5 across.
 	&"carousel": {
-		"seat": Vector3(0.0, 0.0, 0.18), "lean": 0.4, "nod": 0.2,
-		"hand": Vector3(-0.08, 0.52, -0.02), "reach": 1.0,
+		"seat": Vector3(0.0, 0.0, 0.18), "lean": 0.05, "nod": 0.05,
+		"hand": Vector3(-0.07, 0.58, -0.02), "reach": 1.1,
 		"foot": Vector3(-0.30, -0.22, 0.10), "toe": -0.3,
 		"knee": Vector3(-0.2, 0.6, -1.0), "elbow": Vector3(-1.0, -0.2, 0.3),
 		"style": &"",

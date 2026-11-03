@@ -467,7 +467,9 @@ func nearest(player_position: Vector3) -> StringName:
 	return best
 
 func mount(kind: StringName) -> bool:
-	if riding != &"" or not exists(kind):
+	# Nor one somebody on the other phone is already riding: two children on
+	# one machine, each carrying it to themselves, is a tug of war.
+	if riding != &"" or not exists(kind) or _remote.has(kind):
 		return false
 	riding = kind
 	# A horse the child has only just got off is still easing back to standing,
@@ -924,13 +926,72 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 func _where_to_leave_it(kind: StringName, at: Vector3, facing: float) -> Vector3:
 	var right := Vector3(cos(facing), 0.0, -sin(facing))
 	var ahead := Vector3(-sin(facing), 0.0, -cos(facing))
-	for way: Vector3 in [right, -right, ahead, -ahead]:
+	var ways: Array[Vector3] = [right, -right, ahead, -ahead]
+	# Somewhere it can stand *and* nothing else is standing: tried a stride
+	# aside first and then a stride and a half further out, which is what
+	# a child does with a bicycle when there is a tree where it would go.
+	for reach: float in [STEP_ASIDE, STEP_ASIDE * 1.6]:
+		for way: Vector3 in ways:
+			var spot := at + way * reach
+			if can_ride_over(kind, spot) and spot_is_clear(kind, spot):
+				return spot
+	# Nowhere is both rideable and clear, so it stays where the old answer
+	# puts it, and stays unsolid there until the ground is clear (see `watch`)
+	# rather than being a solid box in a tree, a wall or another machine.
+	for way: Vector3 in ways:
 		var spot := at + way * STEP_ASIDE
 		if can_ride_over(kind, spot):
 			return spot
 	# Nowhere beside them is any good, so the old answer stands unless their
 	# own spot is better.
 	return at if can_ride_over(kind, at) else at + right * STEP_ASIDE
+
+## Things that stand in the world and that the mounts have no list of: the
+## trees, the boulders, what the child has built. Each is asked "is anything
+## of yours within `radius` of `at`?", as `func(at: Vector3, radius: float) ->
+## bool`, and is wired up by whoever owns the thing (see World and Main), so
+## that this script needs to know no more of them than a question.
+var in_the_way: Array[Callable] = []
+
+## How much room a machine takes on the ground, as the radius of a circle
+## round it that holds the whole of it, wheels and nose included.
+func footprint_radius(kind: StringName) -> float:
+	var box: Vector3 = MountKinds.body_box(kind)[0]
+	return maxf(box.x, box.z) * 0.5
+
+## Could this mount be put down at `at` without standing in something?
+##
+## A mount left a stride aside was only ever asked about water, slope, the
+## shop and the pool, and so ended up inside a tree, a boulder, a wall the
+## child had built, another machine or a ride's fence: unreachable at best, and
+## at worst a solid box round somebody's legs. The ridden one never counts.
+func spot_is_clear(kind: StringName, at: Vector3) -> bool:
+	# A boat has the water to itself: nothing grows in a pond, and the boats
+	# are moored close enough that they would refuse each other for ever.
+	if MountKinds.floats(kind):
+		return true
+	var radius := footprint_radius(kind)
+	for id in _nodes:
+		if id == kind or id == riding or _remote.has(id) or not is_instance_valid(_nodes[id]):
+			continue
+		var there: Vector3 = _positions.get(id, (_nodes[id] as Node3D).global_position)
+		if Vector2(there.x - at.x, there.z - at.z).length() < radius + footprint_radius(id) + 0.2:
+			return false
+	# The ground that belongs to the places: their furniture, the fairground
+	# and its fence, the scoreboard and the signs. Not the bridge or the pitch,
+	# which are somewhere a child may well get off.
+	var camp := field.camp_centre()
+	if PlaceSpec.reserved(at.x, at.z, camp) or KeepOut.inside_the_park(at.x, at.z):
+		return false
+	if Pitch.under_scoreboard(at.x, at.z, KeepOut.KEEP_BACK):
+		return false
+	var post := camp + Signpost.OFFSET
+	if Vector2(at.x - post.x, at.z - post.z).length() < Signpost.KEEP_CLEAR + radius:
+		return false
+	for query in in_the_way:
+		if query.is_valid() and query.call(at, radius):
+			return false
+	return true
 
 ## Turn `count` horses out across the valley: one near the camp, so the first
 ## afternoon has one to find, and the rest spread evenly round it at a
@@ -1111,7 +1172,10 @@ func watch(player_position: Vector3) -> void:
 			continue
 		var flat: Vector3 = _positions[kind] - player_position
 		flat.y = 0.0
-		if flat.length() > CLEAR_OF_IT:
+		# Clear of the child *and* of everything else. A machine that had
+		# nowhere clear to go (see `_where_to_leave_it`) stays a picture the
+		# child can walk through until it is somewhere it can be solid.
+		if flat.length() > CLEAR_OF_IT and spot_is_clear(kind, _positions[kind]):
 			_set_solid(kind, true)
 			_waiting_to_be_solid.erase(kind)
 

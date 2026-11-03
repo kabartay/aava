@@ -122,22 +122,40 @@ var _exhaust: AudioStreamPlayer
 ## gets louder reads as a volume knob rather than as an engine.
 func engine(effort: float, delta := 0.0, heavy := false) -> void:
 	if effort < 0.0:
-		_apply(_engine, 0.0, ENGINE_DB)
-		_apply(_exhaust, 0.0, EXHAUST_DB)
-		_revs = 0.0
+		# Let go of gently. Stopping a player outright at the revs the rider
+		# got off at is a click, in the one sound that is at its loudest at
+		# that moment; the note is held where it was and dies away over a
+		# third of a second. With no frame time given (a rider waiting for the
+		# ground) there is no frame to spread it over, and it stops at once.
+		_engine_gain = 0.0 if delta <= 0.0 else maxf(_engine_gain - delta / ENGINE_FADE, 0.0)
+		if _engine_gain <= 0.0:
+			_apply(_engine, 0.0, ENGINE_DB)
+			_apply(_exhaust, 0.0, EXHAUST_DB)
+			_revs = 0.0
+			return
+		_sound_engine(_revs, _engine_heavy)
 		return
+	# Faded in over a moment for the same reason: a loop that starts at full
+	# strength on the first sample is a knock.
+	_engine_gain = 1.0 if delta <= 0.0 else minf(_engine_gain + delta / ENGINE_FADE_IN, 1.0)
+	_engine_heavy = heavy
 	# Smoothed, because the number handed in is worked out from the machine's
 	# speed and that jitters from frame to frame — an engine note wobbling at
 	# the frame rate sounds broken rather than fast.
 	var weight := 1.0 if delta <= 0.0 else clampf(delta * 6.0, 0.0, 1.0)
 	_revs = lerpf(_revs, clampf(effort, 0.0, 1.0), weight)
 
+	_sound_engine(_revs, heavy)
+
+## The engine's voices at the revs given: their pitch and their loudness,
+## scaled by how far the engine has faded in or out.
+func _sound_engine(revs: float, heavy: bool) -> void:
 	# Gears. The note climbs, drops as it changes up, and climbs again: three
 	# of them across the machine's range. A single ramp from idle to flat out
 	# is a siren, and a child knows what a gearbox sounds like long before
 	# they know what one is.
-	var gear := mini(int(_revs * float(GEARS)), GEARS - 1)
-	var through := _revs * float(GEARS) - float(gear)
+	var gear := mini(int(revs * float(GEARS)), GEARS - 1)
+	var through := revs * float(GEARS) - float(gear)
 	var note := 0.30 + 0.70 * through
 	# A quad is the same engine in a heavier machine: lower, slower to rise,
 	# and more of it coming out of the pipe than out of the top end. One set
@@ -153,15 +171,23 @@ func engine(effort: float, delta := 0.0, heavy := false) -> void:
 	# up: at rest you hear the thump and almost no top end, and at full pelt
 	# the top end is most of it. That trade is the difference between an engine
 	# and a pitch-shifted buzz.
-	_apply(_engine, 0.14 + 0.86 * _revs, ENGINE_DB)
+	_apply(_engine, (0.14 + 0.86 * revs) * _engine_gain, ENGINE_DB)
 	# The exhaust climbs far less: a thump pitched up an octave is not a
 	# thump, and the low beat has to stay low or the machine loses its weight.
 	_exhaust.pitch_scale = (EXHAUST_PITCH + EXHAUST_PITCH_RANGE * note) * bigger
-	_apply(_exhaust, (1.1 if heavy else 0.95) - 0.45 * _revs, EXHAUST_DB)
+	_apply(_exhaust, ((1.1 if heavy else 0.95) - 0.45 * revs) * _engine_gain, EXHAUST_DB)
 
 ## How many gears the note climbs through between a standstill and full pelt.
 const GEARS := 3
 var _revs := 0.0
+
+## How long the engine takes to die away when the rider gets off, and to come
+## up when they get on. Short: a machine that lingers after it is left reads as
+## a fault, but one that is cut off at speed clicks.
+const ENGINE_FADE := 0.35
+const ENGINE_FADE_IN := 0.15
+var _engine_gain := 0.0
+var _engine_heavy := false
 
 ## Is the engine running? For the checks.
 func engine_is_running() -> bool:

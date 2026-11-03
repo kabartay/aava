@@ -92,6 +92,12 @@ func _init() -> void:
 		player.bus = Mix.WORLD
 		player.max_distance = AUDIBLE
 		player.unit_size = 6.0
+		# Within unit_size the distance law makes a sound louder than it was
+		# recorded, up to the player's default ceiling of +3 dB: a bark at the
+		# loudest the file allows, an arm's length from the child, through a
+		# phone speaker. Capped a few decibels above what is heard at the
+		# unit distance, so close is clearer and never a shout.
+		player.max_db = -3.0
 		player.volume_db = -8.0
 		add_child(player)
 		_players.append(player)

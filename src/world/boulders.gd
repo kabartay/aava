@@ -209,6 +209,15 @@ func _build_tile(coord: Vector2i) -> void:
 			"tile": coord,
 		})
 
+## Is a rock within `radius` of `at`? Of the rocks standing now, which are the
+## ones round the child. For whatever is about to be put down near one.
+func blocks(at: Vector3, radius: float) -> bool:
+	for record in _active:
+		var there: Vector3 = record["position"]
+		if Vector2(there.x - at.x, there.z - at.z).length() < float(record["reach"]) + radius:
+			return true
+	return false
+
 ## Where a rock belongs: on open ground, out of the water, off the pitch, and
 ## not so steep that it would be half buried.
 ## How far from the signpost no rock may sit: the square around its foot.

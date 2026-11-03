@@ -233,6 +233,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# A tray set down in front of a chair the child built is turned to it, on
 	# this phone as on the other child's (see Places.set_down).
 	world.places.chair_yaw_finder = structures.plate_yaw_near
+	# A machine got off is not left in a wall the child built (see Mounts.in_the_way).
+	world.mounts.in_the_way.append(structures.blocks)
 	if save.has("structures"):
 		structures.from_data(save["structures"])
 
@@ -1163,7 +1165,13 @@ func _process(delta: float) -> void:
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.
 	if riding != &"":
-		world.mounts.carry(player.global_position, player.facing_angle())
+		# Carried to where the rider is *drawn* (as the camera follows them),
+		# not to where the physics last left them: the mount is not
+		# interpolated, so carried to the tick's position it lagged the
+		# rider by up to a tick of travel, a quarter of a metre on the
+		# motorcycle, and showed as jitter under the seat.
+		var drawn := player.drawn_pose()
+		world.mounts.carry(drawn["at"], drawn["facing"])
 		# Told after it is carried, so the seat follows the ground the horse is
 		# lying on this frame rather than the ground it was on last one.
 		player.set_seat_up(world.mounts.up_of(player.riding))
@@ -2249,11 +2257,17 @@ const BUILDING_HEARD_EVERY := 0.25
 var _building_heard := -BUILDING_HEARD_EVERY
 
 func _hear_building(sound: Sounds.Sound, at: Vector3) -> void:
+	var metres := _metres_to_spot(at)
+	# A knock too far away to be heard does not use up the place: a plan going
+	# up out of earshot, then one beside the child a moment later, left the
+	# near one silent.
+	if Sounds.falloff_db(metres) <= -79.0:
+		return
 	var now := Time.get_ticks_msec() * 0.001
 	if now - _building_heard < BUILDING_HEARD_EVERY:
 		return
 	_building_heard = now
-	sounds.play_at(sound, _metres_to_spot(at))
+	sounds.play_at(sound, metres)
 
 ## Somebody in the other valley took something down.
 ##

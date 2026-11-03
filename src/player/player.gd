@@ -1209,6 +1209,19 @@ func bow_shown() -> bool:
 func facing_angle() -> float:
 	return _visual.rotation.y
 
+## Where the body is drawn this frame and which way it is drawn facing, which
+## is not where the physics last put it: the engine draws a body at a point
+## between its last two ticks, so at thirty frames a second against sixty ticks
+## the drawn child is up to a tick ahead of `global_position`, and a machine
+## carried by the latter trails its own rider. `at` and `facing` are what to
+## carry a mount to.
+func drawn_pose() -> Dictionary:
+	var forward := -_visual.get_global_transform_interpolated().basis.z
+	return {
+		"at": get_global_transform_interpolated().origin,
+		"facing": atan2(-forward.x, -forward.z),
+	}
+
 func facing() -> Vector3:
 	return Vector3(-sin(_visual.rotation.y), 0.0, -cos(_visual.rotation.y))
 

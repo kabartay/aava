@@ -100,6 +100,32 @@ func is_clear(
 			return false
 	return true
 
+## Is something solid that a child has built within `radius` of `at`: a wall,
+## a fence, a grown tree, a table? Each is taken as a circle round its centre
+## as wide as its footprint, which is a little generous to a wall (two metres
+## long and thin) and errs on the side of putting a machine somewhere else.
+## Asked by the mounts, which are put down beside a child.
+func blocks(at: Vector3, radius: float) -> bool:
+	var ground := _ground_under(at)
+	for record in _records:
+		var other: Vector3 = record["position"]
+		var kind: StringName = record["kind"]
+		var half: float
+		if HouseParts.is_house_part(kind):
+			if not HouseParts.is_solid(kind):
+				continue
+			half = HouseParts.footprint(kind) * 0.5
+		else:
+			if not BuildKinds.is_solid(kind, int(record["stage"])):
+				continue
+			half = BuildKinds.footprint(kind) * 0.5
+		# A wall on the first floor is not in the way of the ground.
+		if other.y - ground > HouseParts.STOREY * 1.5:
+			continue
+		if Vector2(other.x - at.x, other.z - at.z).length() < half + radius:
+			return true
+	return false
+
 ## Whether a floor or stairs at `at` and a record of the floor layer make a
 ## staircase with something over it: the one is stairs, and the other is a
 ## storey above it in the same square.

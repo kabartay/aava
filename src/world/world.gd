@@ -98,6 +98,10 @@ func _ready() -> void:
 	mounts = Mounts.new(field)
 	mounts.name = "Mounts"
 	add_child(mounts)
+	# What a machine got off must not be left standing in. The built things are
+	# added by Main, which owns them.
+	mounts.in_the_way.append(vegetation.has_tree_within)
+	mounts.in_the_way.append(boulders.blocks)
 	animals = Animals.new(field, world_seed)
 	animals.name = "Animals"
 	# The animals steer round what the places build — a cat walked straight

@@ -264,6 +264,15 @@ func trunks_near(world_position: Vector3, reach: float) -> Array[Vector4]:
 		))
 	return found
 
+## Is a tree within `radius` of `at`, counting how thick its trunk is? Asked of
+## the forest itself rather than of the trunks made solid round the child, which
+## are only the nearest few and are not where a machine is about to be put.
+func has_tree_within(at: Vector3, radius: float) -> bool:
+	for trunk in trunks_near(at, radius + 2.5):
+		if Vector2(trunk.x - at.x, trunk.z - at.z).length() < radius + trunk.w + 0.1:
+			return true
+	return false
+
 func _search_tree(world_position: Vector3, reach: float) -> Array:
 	var best := Vector3.ZERO
 	var found := false

@@ -29,6 +29,9 @@ extends Node3D
 ##   --mounts=1  put a horse and a bicycle in front of the camera
 ##   --ride=KIND    seat a child on that mount (horse, bicycle...), placed
 ##                  at --look, with --rider=N for the character (0 simple, -1 none)
+##   --ride=carousel  seat the child on the park's carousel instead, on the
+##                  figure --figure=N (0..7: horse, pig, horse, swan, horse,
+##                  rooster, horse, swan), and print where its saddle is
 ##   --character=C,SKIN,HAIR  with --player=1, dress the player as that
 ##                  character (0 plain, 1 boy, 2 girl, 3 cap, 4 bear)
 ##   --chop=N  fell the N nearest trees before the shot, to show a clearing
@@ -101,6 +104,7 @@ var _chop := 0
 var _mounts := false
 var _ride: StringName = &""
 var _rider := 0
+var _figure := 0
 ## --character=C,SKIN,HAIR: dress the player as this character.
 var _look: Array = []
 var _dam := false
@@ -787,6 +791,8 @@ func _parse_arguments() -> void:
 				_ride = StringName(value)
 			"rider":
 				_rider = value.to_int()
+			"figure":
+				_figure = value.to_int()
 			"character":
 				_look = Array(value.split(",")).map(func(part: String) -> int: return part.to_int())
 			"dam":
@@ -890,6 +896,9 @@ func _fell_nearby() -> void:
 ## look at the seat pose. The rig sits where the game puts it: the mount's own
 ## origin lifted by MountKinds.eye_lift, and is posed by the same RigMotion.
 func _seat_a_rider() -> void:
+	if _ride == &"carousel":
+		_seat_a_rider_on_the_carousel()
+		return
 	var spot := _look_at
 	spot.y = _world.field.height_at(spot.x, spot.z)
 	_world.mounts.place(_ride, spot)
@@ -900,6 +909,24 @@ func _seat_a_rider() -> void:
 	_world.mounts.node_of(_ride).add_child(rig)
 	var motion := RigMotion.new(rig)
 	motion.seat = MountKinds.kind_of(_ride)
+	for _i in 90:
+		motion.step(1.0 / 60.0)
+
+## A child on one of the carousel's figures, put where the ride puts them: at
+## the saddle's own transform, posed by the same RigMotion with the carousel's
+## pose. The ride is still, so the saddle is at its resting height.
+func _seat_a_rider_on_the_carousel() -> void:
+	var saddle := _world.park.carousel.saddles()[_figure % Carousel.HORSES]
+	print("carousel figure %d (%s): saddle at (%.2f, %.2f, %.2f)" % [
+		_figure, Carousel.KINDS[_figure % Carousel.HORSES],
+		saddle.origin.x, saddle.origin.y, saddle.origin.z])
+	if _rider < 0:
+		return
+	var rig := Character.build(_rider, 1, 1, Visitors.SHIRTS[2])
+	_world.add_child(rig)
+	rig.global_transform = saddle
+	var motion := RigMotion.new(rig)
+	motion.seat = &"carousel"
 	for _i in 90:
 		motion.step(1.0 / 60.0)
 

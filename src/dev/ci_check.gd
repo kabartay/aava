@@ -489,18 +489,23 @@ func _initialize() -> void:
 	await _check_a_child_walks_up_the_stairs_onto_the_upper_floor()
 	_check_the_chair_does_not_snag()
 	_check_the_camera_looks_past_a_childs_furniture()
+	_check_a_machine_got_off_is_not_left_in_a_tree_a_wall_or_another_machine()
+	_check_a_machine_with_nowhere_clear_stays_unsolid_until_there_is()
+	_check_a_mount_is_carried_to_where_its_rider_is_drawn()
 	_check_a_plate_is_put_in_front_of_whoever_sits_at_a_cafe_table()
 	_check_a_built_chairs_plate_is_in_front_of_its_sitter()
 	await _check_a_built_chair_is_solid_and_lets_its_sitter_out()
 	await _check_a_stray_tap_does_not_fell_a_planted_tree()
 	_check_nothing_is_built_on_a_trunk()
 	_check_the_looks_of_the_pony_rider_neck_and_carousel_pink()
+	_check_a_carousel_rider_sits_nearly_upright_and_the_pale_figures_read_warm()
 	_check_the_other_childs_work_is_not_this_childs_lesson_and_a_reset_reaches_the_guest()
 	_check_nothing_of_the_hosts_is_applied_before_the_valley_arrives()
 	_check_hostile_valley_input_is_bounded()
 	await _check_the_cafe_menu_gives_way_to_building()
 	await _check_a_wandering_animal_does_not_cover_the_palette_or_the_kick()
 	await _check_switching_voice_off_lets_go_of_a_held_talk_button()
+	_check_the_engine_dies_away_and_close_voices_are_capped()
 	await _check_a_child_is_saved_and_loaded_on_safe_ground()
 
 	if _failures > 0:
@@ -25792,4 +25797,192 @@ func _check_a_child_is_saved_and_loaded_on_safe_ground() -> void:
 	hearths.queue_free()
 	structures.queue_free()
 	await process_frame
+
+## A child getting off was always put a stride to the right, asked only about
+## water, slope, the shop and the pool. So a machine could be left inside a
+## tree, a wall they had built or another machine: unreachable, or a solid box
+## that threw them into the air. The right-hand side here is a trunk, the left
+## a wall, ahead another machine, and only behind is clear.
+func _check_a_machine_got_off_is_not_left_in_a_tree_a_wall_or_another_machine() -> void:
+	print("a machine got off is not left in a tree, a wall or another machine")
+	var field := HeightField.new(20260903)
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	mounts.in_the_way.append(forest.has_tree_within)
+	mounts.in_the_way.append(structures.blocks)
+
+	var quad := &"quad:0"
+	var radius := mounts.footprint_radius(quad)
+	# A tree on open, rideable ground, with the ground behind the child clear.
+	var tree := Vector3.INF
+	var here := Vector3.ZERO
+	for centre: Vector3 in [Vector3(-200.0, 0.0, -200.0), Vector3(150.0, 0.0, -120.0), Vector3(-120.0, 0.0, 160.0), Vector3(300.0, 0.0, 260.0)]:
+		var tried := 0
+		for candidate in forest.trees_near(centre, 60.0):
+			tried += 1
+			if tried > 200:
+				break
+			var stand := Vector3(candidate.x - 1.8, field.height_at(candidate.x - 1.8, candidate.z), candidate.z)
+			var back := stand + Vector3(0.0, 0.0, 1.8)
+			var open := true
+			for way: Vector3 in [Vector3.ZERO, Vector3(-1.8, 0.0, 0.0), Vector3(0.0, 0.0, -1.8), Vector3(0.0, 0.0, 1.8), Vector3(0.0, 0.0, 3.0)]:
+				var at := stand + way
+				if not mounts.can_ride_over(quad, at) or PlaceSpec.reserved(at.x, at.z, field.camp_centre()):
+					open = false
+			# Nothing behind them, which is where it should end up.
+			if open and not forest.has_tree_within(back, radius + 0.3):
+				tree = candidate
+				here = stand
+				break
+		if tree != Vector3.INF:
+			break
+	_expect(tree != Vector3.INF, "there is a tree on open ground to stand beside")
+	if tree == Vector3.INF:
+		for node: Node in [forest, structures, mounts]:
+			node.queue_free()
+		return
+
+	var wall_at := here + Vector3(-1.8, 0.0, 0.0)
+	structures.place(HouseParts.WALL, wall_at, 0.0, false)
+	var other := mounts.free_id(MountKinds.MOTORCYCLE)
+	var other_at := here + Vector3(0.0, 0.0, -1.8)
+	mounts.place(other, other_at)
+	mounts.place(quad, here + Vector3(0.0, 0.0, 9.0))
+	_expect(mounts.mount(quad), "the quad can be got on")
+	var right_hand := here + Vector3(1.8, 0.0, 0.0)
+	_expect(Vector2(right_hand.x - tree.x, right_hand.z - tree.z).length() < 0.1, "the old answer, a stride to the right, is the tree's own trunk")
+	mounts.dismount(here, 0.0)
+	var left_at := mounts.position_of(quad)
+	var trunk_width := 0.0
+	for trunk in forest.trunks_near(tree, 1.0):
+		trunk_width = maxf(trunk_width, trunk.w)
+	_expect(
+		Vector2(left_at.x - tree.x, left_at.z - tree.z).length() > radius + trunk_width,
+		"it is not inside the tree: %.1f m from the trunk" % Vector2(left_at.x - tree.x, left_at.z - tree.z).length()
+	)
+	_expect(
+		Vector2(left_at.x - wall_at.x, left_at.z - wall_at.z).length() > radius + HouseParts.MODULE * 0.5,
+		"nor in the wall the child built: %.1f m from it" % Vector2(left_at.x - wall_at.x, left_at.z - wall_at.z).length()
+	)
+	_expect(
+		Vector2(left_at.x - other_at.x, left_at.z - other_at.z).length() > radius + mounts.footprint_radius(other),
+		"nor in the other machine: %.1f m from it" % Vector2(left_at.x - other_at.x, left_at.z - other_at.z).length()
+	)
+	_expect(mounts.spot_is_clear(quad, left_at), "and the world agrees that the spot is clear")
+	_expect(Vector2(left_at.x - here.x, left_at.z - here.z).length() < 4.0, "but it is still within a few strides of the child")
+	for node: Node in [forest, structures, mounts]:
+		node.queue_free()
+
+## With nowhere clear at all, the machine is left where the old rule put it and
+## stays a picture the child can walk through, becoming solid only when its
+## spot is clear: not a box in a boulder that is solid the moment they step off.
+func _check_a_machine_with_nowhere_clear_stays_unsolid_until_there_is() -> void:
+	print("a machine with nowhere clear stays unsolid until there is")
+	var field := HeightField.new(20260903)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var jammed := [true]
+	mounts.in_the_way.append(func(_at: Vector3, _radius: float) -> bool: return jammed[0])
+	var spot := field.find_spawn_point() + Vector3(6.0, 0.0, 4.0)
+	mounts.place(MountKinds.HORSE, spot + Vector3(2.0, 0.0, 0.0))
+	mounts.mount(MountKinds.HORSE)
+	mounts.dismount(spot, 0.0)
+	_expect(not mounts.is_solid(MountKinds.HORSE), "got off with everything in the way, it is not solid")
+	mounts.watch(spot + Vector3(0.0, 0.0, -20.0))
+	_expect(not mounts.is_solid(MountKinds.HORSE), "and is still not solid when the child has walked far off")
+	jammed[0] = false
+	mounts.watch(spot + Vector3(0.0, 0.0, -20.0))
+	_expect(mounts.is_solid(MountKinds.HORSE), "and becomes solid once what was in the way is gone")
+	mounts.queue_free()
+
+## The mount is not interpolated by the engine (it is moved from _process) and
+## the child is: drawn between the last two physics ticks, so at thirty frames
+## a second on sixty ticks a mount carried to the physics position trails its
+## rider by up to a tick of travel. It is carried to the drawn pose, the one
+## the camera follows too.
+func _check_a_mount_is_carried_to_where_its_rider_is_drawn() -> void:
+	print("a mount is carried to where its rider is drawn")
+	_expect(
+		bool(ProjectSettings.get_setting("physics/common/physics_interpolation", false)),
+		"physics interpolation is on, so the child is drawn between ticks"
+	)
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var at := game.find("world.mounts.carry(")
+	var line := game.substr(at, game.find("\n", at) - at)
+	_expect(line.contains("drawn[") and not line.contains("global_position"), "the ridden machine is carried to the drawn pose, not the physics position")
+	var player := Player.new()
+	get_root().add_child(player)
+	player.global_position = Vector3(50.0, 3.0, -20.0)
+	var pose := player.drawn_pose()
+	_expect((pose["at"] as Vector3).distance_to(player.global_position) < 0.01, "a child standing still is drawn where they stand")
+	_expect(absf(angle_difference(float(pose["facing"]), player.facing_angle())) < 0.01, "and facing the way they face")
+	player.queue_free()
+
+## An engine stopped outright at the revs the rider got off at is a click, and a
+## bark or a tune lifted by the distance law past its own level, an arm's length
+## from the child, is a shout. The engine dies away over a few frames, a knock
+## out of earshot does not use up the place of one beside the child, and the
+## close-up voices are held below the player's default +3 dB ceiling.
+func _check_the_engine_dies_away_and_close_voices_are_capped() -> void:
+	print("the engine dies away, and close voices are capped")
+	var sound := Ambience.new()
+	get_root().add_child(sound)
+	sound.engine(1.0, 0.016)
+	for _i in 30:
+		sound.engine(1.0, 0.016)
+	_expect(sound.engine_is_running(), "a rider at full pelt hears the engine")
+	var loud_db := sound._engine.volume_db
+	sound.engine(-1.0, 0.016)
+	_expect(sound.engine_is_running(), "one frame after getting off the engine is still sounding, not cut")
+	_expect(sound._engine.volume_db < loud_db, "and already quieter (%.1f dB, was %.1f)" % [sound._engine.volume_db, loud_db])
+	for _i in 40:
+		sound.engine(-1.0, 0.016)
+	_expect(not sound.engine_is_running(), "and a little over half a second later it has stopped")
+	sound.engine(0.5)
+	sound.engine(-1.0)
+	_expect(not sound.engine_is_running(), "with no frame time given it stops at once, as a rider waiting for ground needs")
+	sound.queue_free()
+
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var hear := game.substr(game.find("func _hear_building"))
+	hear = hear.substr(0, hear.find("\nfunc ", 1))
+	_expect(
+		hear.contains("falloff_db") and hear.find("falloff_db") < hear.find("_building_heard = now"),
+		"a knock out of earshot is dropped before it uses up the place for the next"
+	)
+
+	var animals := AnimalVoices.new()
+	get_root().add_child(animals)
+	for player: AudioStreamPlayer3D in animals._players:
+		_expect(player.max_db < 0.0, "an animal's voice is capped below full scale up close (%.1f dB)" % player.max_db)
+	animals.bake_now()
+	animals.queue_free()
+	var ride := _code_only(FileAccess.get_file_as_string("res://src/world/carousel.gd"))
+	_expect(ride.contains("_music.max_db ="), "the carousel's tune is capped up close too")
+
+## A child on a carousel figure leaned 23 degrees forward: the pose's own lean,
+## which no check read, with the hands low on the pole. The pole is at the
+## middle of the saddle and the hips 0.18 behind it, so the hands are held at
+## the chest, a little higher, and the body is nearly upright. The pig's pink
+## and the swan's white were lit by the sky to mauve and cold grey; each has
+## its blue under its red, as the pink horse's coat has.
+func _check_a_carousel_rider_sits_nearly_upright_and_the_pale_figures_read_warm() -> void:
+	print("a carousel rider sits nearly upright, and the pig and swan read pink and white")
+	for which in Character.KEYS.size():
+		var made := _seated(which, &"carousel")
+		var torso := (made[0] as Node3D).find_child("Torso", true, false) as Node3D
+		var lean := rad_to_deg(-torso.rotation.x)
+		_expect(lean < 10.0, "carousel, %s: sits upright, leaning %.1f degrees (under 10)" % [Character.KEYS[which], lean])
+		(made[2] as Node3D).queue_free()
+	_expect(float(SeatPose.POSES[&"carousel"]["reach"]) <= 1.1, "and without the arms drawn longer than 1.10 times")
+	var pig := Carousel.PIG_PINK
+	_expect(pig.r - pig.b > 0.3 and pig.g >= pig.b, "the pig's pink has its red well ahead of its blue (%.2f, %.2f, %.2f)" % [pig.r, pig.g, pig.b])
+	# The swan's white is the colour drawn in _draw_swan; it is read from the
+	# source so that a bluish white put back there is caught.
+	var source := FileAccess.get_file_as_string("res://src/world/carousel.gd")
+	_expect(source.contains("var white := Color(1.0, 0.98, 0.93)"), "the swan's white has its blue under its red")
 
