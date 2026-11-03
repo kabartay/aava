@@ -126,6 +126,79 @@ func blocks(at: Vector3, radius: float) -> bool:
 			return true
 	return false
 
+## Whether a piece of this kind is something a body cannot share the ground
+## with once it is up: a wall, a fence, a table, a tree that has grown. A floor,
+## a rug, a path and the stairs are walked over, and a roof is above heads. A
+## sapling counts as what it will become, because a child left standing on one
+## would be inside the tree the day it matured.
+static func holds_a_body_out(kind: StringName) -> bool:
+	if HouseParts.is_house_part(kind):
+		return HouseParts.is_solid(kind) and not HouseParts.is_roof(kind)
+	return BuildKinds.is_solid(kind, BuildKinds.GROWTH_STAGES - 1)
+
+## Half the width and depth of the ground a piece takes, in its own space (x
+## along it, z across it): a wall is a thin strip along its edge, a post a
+## small square at its corner, the rest the square their footprint says.
+static func footprint_half(kind: StringName) -> Vector2:
+	if not HouseParts.is_house_part(kind):
+		return Vector2.ONE * BuildKinds.footprint(kind) * 0.5
+	match HouseParts.seat(kind):
+		HouseParts.Seat.EDGE:
+			return Vector2(HouseParts.HALF, HouseParts.WALL_THICKNESS * 0.5)
+		HouseParts.Seat.CORNER:
+			return Vector2(0.1, 0.1)
+	return Vector2(HouseParts.HALF, HouseParts.HALF)
+
+## Does a body (a circle of `radius` round `centre`) overlap the ground a piece
+## takes, seen from above? The nearest point of the piece's rectangle to the
+## body's middle is within the radius. Walk-over kinds never overlap.
+static func body_overlaps(
+	kind: StringName, at: Vector3, spin: float, centre: Vector3, radius: float
+) -> bool:
+	if not holds_a_body_out(kind):
+		return false
+	var half := footprint_half(kind)
+	var local := Basis(Vector3.UP, spin).inverse() * Vector3(centre.x - at.x, 0.0, centre.z - at.z)
+	var nearest := Vector2(clampf(local.x, -half.x, half.x), clampf(local.z, -half.y, half.y))
+	return Vector2(local.x, local.z).distance_to(nearest) < radius
+
+## Where a body that a piece has been built on can stand clear of it: beside
+## the piece on each of its four sides, the nearest side first, the first spot
+## where a capsule of the body's size touches nothing in `space` that `mask`
+## names (leaving out `exclude`). The nearest side if none is free, rather than
+## nowhere. The piece's own collider may not be in the world yet; the spots lie
+## outside its footprint, so it does not matter. The chairs have their own
+## way out (`chair_exit`), which knows about the table in front of them.
+static func exit_beside(
+	kind: StringName, at: Vector3, spin: float, body: Vector3,
+	space: PhysicsDirectSpaceState3D, mask: int, exclude: Array[RID]
+) -> Vector3:
+	var half := footprint_half(kind)
+	var turn := Basis(Vector3.UP, spin)
+	var gap := Player.RADIUS + 0.15
+	var sides: Array[Vector3] = [
+		Vector3(half.x + gap, 0.0, 0.0), Vector3(-half.x - gap, 0.0, 0.0),
+		Vector3(0.0, 0.0, half.y + gap), Vector3(0.0, 0.0, -half.y - gap),
+	]
+	var spots: Array[Vector3] = []
+	for side: Vector3 in sides:
+		var spot: Vector3 = at + turn * side
+		spots.append(Vector3(spot.x, body.y + 0.05, spot.z))
+	spots.sort_custom(func(a: Vector3, b: Vector3) -> bool:
+		return Vector2(a.x - body.x, a.z - body.z).length() < Vector2(b.x - body.x, b.z - body.z).length())
+	var shape := CapsuleShape3D.new()
+	shape.radius = Player.RADIUS
+	shape.height = Player.HEIGHT
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.collision_mask = mask
+	query.exclude = exclude
+	for spot: Vector3 in spots:
+		query.transform = Transform3D(Basis(), spot + Vector3(0.0, Player.HEIGHT * 0.5, 0.0))
+		if space.intersect_shape(query, 1).is_empty():
+			return spot
+	return spots[0]
+
 ## Whether a floor or stairs at `at` and a record of the floor layer make a
 ## staircase with something over it: the one is stairs, and the other is a
 ## storey above it in the same square.

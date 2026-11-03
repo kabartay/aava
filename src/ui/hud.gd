@@ -237,6 +237,10 @@ var _dive_button: Button
 var _whistle_button: Button
 var _chop_button: Button
 var _chop_ring: HoldRing
+## What the axe is in reach of, and the coins in the purse: between them they
+## decide whether the axe button must be held.
+var _tree_is_planted := false
+var _coin_count := 0
 var _ride_button: Button
 var _shoot_button: Button
 var _visit_button: Button
@@ -546,9 +550,10 @@ func _init() -> void:
 	# so it never invites a press that does nothing.
 	_chop_button = _icon_button(ActionIcon.Kind.CHOP)
 	_chop_button.visible = false
-	# A wild tree is a tap; a tree a child planted and grew is their work, and
-	# one stray tap of a toddler's must not fell it. The ring is told which this
-	# is by set_tree_in_reach.
+	# A wild tree is a tap for a child with no coins; a tree a child planted and
+	# grew is their work, and a felled wild tree is paid for in coins, so one
+	# stray tap of a toddler's must not fell either. The ring is told which this
+	# is by set_tree_in_reach, and by set_coins, which can change the answer.
 	_chop_ring = _hold(_chop_button, func() -> void: chop_pressed.emit())
 	_chop_ring.needed = false
 	_chop_button.pressed.connect(func() -> void:
@@ -604,7 +609,9 @@ func _init() -> void:
 	# Only shown at a dam site, with a stick in the bag.
 	_dam_button = _icon_button(ActionIcon.Kind.GIVE_STICK)
 	_dam_button.visible = false
-	_dam_button.pressed.connect(func() -> void: dam_stick.emit())
+	# Held: a stick given to the dam is gone for good, and sticks are what a
+	# child went into the forest for.
+	_hold(_dam_button, func() -> void: dam_stick.emit())
 	add_child(_dam_button)
 
 	# Shown at a campfire, with wood in the bag.
@@ -621,7 +628,9 @@ func _init() -> void:
 
 	_fire_button = _icon_button(ActionIcon.Kind.FEED_FIRE)
 	_fire_button.visible = false
-	_fire_button.pressed.connect(func() -> void: fire_fed.emit())
+	# Held: a log on the fire is burnt, and a toddler beside a campfire presses
+	# whatever is lit until the wood is gone.
+	_hold(_fire_button, func() -> void: fire_fed.emit())
 	add_child(_fire_button)
 
 	# Shown at a bed, and only when there is a night to sleep through.
@@ -1689,10 +1698,17 @@ func set_mount_in_reach(
 ## `planted` is whether the axe would fall on a tree a child planted, which has
 ## to be held rather than tapped.
 func set_tree_in_reach(within_reach: bool, planted := false) -> void:
-	_chop_ring.needed = planted
+	_tree_is_planted = planted
+	_chop_needs_a_hold()
 	if _chop_button.visible != within_reach:
 		_chop_button.visible = within_reach
 		_layout()
+
+## A tree is felled by a hold when it was planted, or when felling it would
+## take coins from the purse (the game charges for a wild tree too). With nothing
+## to lose, a wild tree is still a tap.
+func _chop_needs_a_hold() -> void:
+	_chop_ring.needed = _tree_is_planted or _coin_count > 0
 
 ## Show the controls that only exist once bought.
 func set_owned(owned: Dictionary) -> void:
@@ -1719,6 +1735,8 @@ func set_animal_in_reach(wish: String) -> void:
 ## this is the panel keeping its own promise rather than trusting the caller.
 func set_coins(total: int) -> void:
 	_coins_label.text = str(clampi(total, 0, Wallet.MAX_COINS))
+	_coin_count = total
+	_chop_needs_a_hold()
 	_layout()
 
 func _toggle_map() -> void:

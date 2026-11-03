@@ -774,6 +774,10 @@ const STRINGS := {
 	"why_tree": {
 		EN: "a tree is in the way", FR: "un arbre gêne", RU: "тут растёт дерево",
 	},
+	# Somebody, something with legs or a parked machine where the piece would go up.
+	"why_someone": {
+		EN: "someone is standing there", FR: "quelqu'un est là", RU: "там кто-то стоит",
+	},
 	# What a ready-made plan still lacks; %s is the list of materials.
 	# FR and RU follow with a name and a number ("палка ×23"), not a counted noun,
 	# so the colon is what makes it a list and not a broken sentence.

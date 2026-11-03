@@ -69,6 +69,22 @@ var _seen_first_grove := false
 ## write over the child's own save with it.
 var _may_save := true
 
+## True once the valley has appeared and the child's save has been laid over it.
+## Until then the player, the structures and the bag hold only their blank
+## starting state, and writing them down would replace a child's valley with an
+## empty one.
+var _world_ready := false
+
+## The wall-clock second the game was put away at (APPLICATION_PAUSED), or 0.0
+## when it is in the child's hands. The sleeping time is measured against it.
+var _paused_at := 0.0
+
+## Frames still to run with the clock stopped after a resume, and the speed to
+## give it back at. See _hush_the_resume_frame.
+var _resume_hush_frames := 0
+var _resume_time_scale := 1.0
+const RESUME_HUSH_FRAMES := 2
+
 ## The game's own frame runs after everything it reads.
 ##
 ## A rider in a coaster car is put where the car is, and that has to be where
@@ -235,6 +251,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.places.chair_yaw_finder = structures.plate_yaw_near
 	# A machine got off is not left in a wall the child built (see Mounts.in_the_way).
 	world.mounts.in_the_way.append(structures.blocks)
+	# And an animal is not born in one (tiles loaded from here on).
+	world.animals.built_blocks = structures.blocks
 	if save.has("structures"):
 		structures.from_data(save["structures"])
 
@@ -484,6 +502,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# to know about.
 	build_mode.set_tree_finder(func(at: Vector3, reach: float) -> Array[Vector3]:
 		return world.vegetation.trees_near(at, reach))
+	# Nor on top of anyone: the child's own feet, an animal, a parked horse.
+	build_mode.set_body_finder(_bodies_near)
+	build_mode.set_mount_finder(func(at: Vector3, margin: float) -> bool:
+		return world.mounts.blocks(at.x, at.z, margin))
 	# The undo list is this child's, kept in their own save, and found again
 	# among the structures that were restored above.
 	build_mode.restore_history(save.get("undo", []))
@@ -517,6 +539,9 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	_show_the_state()
 
 	world.follow(start)
+	# Everything the save holds is back in place: from here a save is the child's
+	# valley and not a blank one.
+	_world_ready = true
 	# Home from a visit: said once the world has appeared, and why it did.
 	if not _come_home_note.is_empty():
 		var note := Text.of(_come_home_note)
@@ -953,6 +978,7 @@ func _seat_at(at: Vector3) -> Dictionary:
 	return seat
 
 func _process(delta: float) -> void:
+	_end_resume_hush()
 	if player == null:
 		return
 
@@ -1814,6 +1840,11 @@ func _display_name() -> String:
 func _own_shirt_color() -> Color:
 	if _shirt >= 0:
 		return Visitors.SHIRTS[_shirt]
+	# One is the id of a machine nobody has joined, which is also what a game
+	# started without any network peer at all has to be taken as: asking for the
+	# id of no peer prints an error on every start.
+	if not multiplayer.has_multiplayer_peer():
+		return visitors.shirt_for(1, -1)
 	return visitors.shirt_for(multiplayer.get_unique_id(), -1)
 
 ## The network id changes when a visit begins and ends, and an unshirted
@@ -1869,7 +1900,7 @@ func _on_look_offer_closed() -> void:
 ## carries the bag, the coins and the journal across; the world itself is
 ## keyed by the valley rather than by the child and does not move at all.
 func _on_name_chosen(typed: String) -> void:
-	var name := typed.strip_edges()
+	var name := Profiles.tidy(typed)
 	if name == profiles.current_player:
 		return
 	if not Profiles.is_valid_name(name):
@@ -1888,7 +1919,7 @@ func _on_name_chosen(typed: String) -> void:
 	# over either way: this child is saved under their own name first, and then
 	# the game opens again as the other one, exactly as they left it.
 	var known := profiles.player_named(name)
-	if not known.is_empty():
+	if not known.is_empty() and known != profiles.current_player:
 		_become(known)
 		return
 
@@ -1916,6 +1947,11 @@ func _on_name_chosen(typed: String) -> void:
 ## certain to read all of it.
 func _become(other: String) -> void:
 	_write_save()
+	# Nothing may write again before the reload. The save path now follows
+	# `other`, while everything in memory is still this child's: an autosave
+	# or the pause notification landing in that gap wrote this child's bag and
+	# coins over their brother's save.
+	_may_save = false
 	# The connection is ended here and not left to the reload: it belongs to the
 	# scene tree and outlives this scene, so the other phone would go on holding
 	# a child who had handed the tablet to a brother. Going home is the reload
@@ -2236,6 +2272,23 @@ func _on_session_failed(reason: String) -> void:
 	# wrong, and that both phones must be on the same Wi-Fi.
 	hud.announce(Text.of(words), 7.0 if words == &"fail_unreachable" else 4.0)
 
+## The child and the animals within reach of a point, each as (x, feet y, z,
+## radius), for the build ghost to keep clear (see BuildMode.body_finder). An
+## animal is taken as the circle that holds its body.
+func _bodies_near(at: Vector3, reach: float) -> Array[Vector4]:
+	var found: Array[Vector4] = []
+	var here := player.global_position
+	if Vector2(here.x - at.x, here.z - at.z).length() <= reach + Player.RADIUS:
+		found.append(Vector4(here.x, here.y, here.z, Player.RADIUS))
+	for animal in world.animals.living_near(at, reach + 3.0):
+		var node := animal["node"] as Node3D
+		var size := AnimalKinds.body_size(animal["kind"])
+		found.append(Vector4(
+			node.global_position.x, node.global_position.y, node.global_position.z,
+			maxf(size.x, size.z) * 0.5
+		))
+	return found
+
 func _footprint_of_kind(kind: StringName) -> float:
 	return HouseParts.footprint(kind) if HouseParts.is_house_part(kind) else BuildKinds.footprint(kind)
 
@@ -2269,6 +2322,9 @@ func _on_remote_built(
 		kind, at, spin, false, extent if kind == HouseParts.ROOF_ROOM else Vector2i.ONE,
 		material if HouseParts.is_wall(kind) else HouseParts.DEFAULT_MATERIAL
 	)
+	# Not refused, or the two phones would stop agreeing about what stands. If
+	# it landed on this child, it is the child who is set beside it.
+	_step_out_of_a_remote_piece(kind, at, spin)
 	if kind == BuildKinds.CAMPFIRE:
 		_refresh_fires()
 	_note_venues_quietly()
@@ -2706,6 +2762,23 @@ func _step_out_of_chairs() -> void:
 		player.global_position = spot
 		player.velocity = Vector3.ZERO
 
+## A solid piece the other child built that came down on this one's feet. The
+## chairs are lifted clear by `_step_out_of_chairs`, which the new piece's
+## revision sets going; everything else is stepped aside here, to the nearest
+## free spot beside it (Structures.exit_beside).
+func _step_out_of_a_remote_piece(kind: StringName, at: Vector3, spin: float) -> void:
+	if player.riding != &"" or kind == HouseParts.CHAIR:
+		return
+	var feet := player.global_position
+	if absf(feet.y - at.y) > HouseParts.STOREY * 0.5 or not Structures.body_overlaps(kind, at, spin, feet, Player.RADIUS):
+		return
+	var spot := Structures.exit_beside(
+		kind, at, spin, feet, player.get_world_3d().direct_space_state,
+		TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS, [player.get_rid()]
+	)
+	player.global_position = spot
+	player.velocity = Vector3.ZERO
+
 func _finish_eating(seat: Dictionary) -> void:
 	_refresh_vitals()
 	# The meal is served at the nearest seat, and the child is sat down at it
@@ -3084,6 +3157,8 @@ func _catch_a_fall(at: Vector3) -> void:
 const STUCK_GROUND := 0.45
 ## The most one frame can add to that count, however long the frame was.
 const MAX_STUCK_STEP := 0.1
+## Shorter than this in the background and the saplings are left as they were.
+const MIN_AWAY_FOR_GROWTH := 30.0
 ## Whether the camera was under the surface last frame, so crossing it is heard.
 var _eye_was_under := false
 
@@ -3802,6 +3877,11 @@ func _on_groves_changed(centres: Array) -> void:
 func _notification(what: int) -> void:
 	# A phone is put down at night and picked up in the morning without the
 	# game ever closing, so the day it began on can be yesterday.
+	if what == NOTIFICATION_APPLICATION_PAUSED:
+		_paused_at = Time.get_unix_time_from_system()
+	if what == NOTIFICATION_APPLICATION_RESUMED:
+		_hush_the_resume_frame()
+		_grow_while_away()
 	if what == NOTIFICATION_APPLICATION_RESUMED and today != null and hud != null:
 		_turn_the_day()
 	# The first two arrive when the game is closing: the desktop window button,
@@ -3837,6 +3917,52 @@ func _notification(what: int) -> void:
 		if today.day_number() != was and hud != null:
 			hud.set_task(_task_line())
 
+## Android stops the main loop while the game is in the background and does not
+## tell the clock: the first frame back can be minutes or hours long, and every
+## animal, timer, cooldown, the sky and the vitals integrate that frame as if
+## it had been lived. A child who put the phone down mid-ride found the day
+## already at dusk, hungry, and every creature somewhere else.
+##
+## The engine's own clock is held at zero for a couple of frames, which makes
+## the delta every node sees zero, including the long one and the timers made
+## with create_timer. Two frames, because the notification can land either side
+## of the frame that carries the long delta; a zero-length frame is harmless.
+func _hush_the_resume_frame() -> void:
+	if _resume_hush_frames <= 0:
+		_resume_time_scale = Engine.time_scale
+	_resume_hush_frames = RESUME_HUSH_FRAMES
+	Engine.time_scale = 0.0
+
+## Counted down at the top of every frame; gives the clock back when done.
+func _end_resume_hush() -> void:
+	if _resume_hush_frames <= 0:
+		return
+	_resume_hush_frames -= 1
+	if _resume_hush_frames == 0:
+		Engine.time_scale = _resume_time_scale
+
+## What a closed game does at start-up (see _greet_on_arrival), done for one
+## that was only put down: saplings are aged by the time spent in the
+## background, capped as Structures.advance_offline caps it. The child sees the
+## same thing either way. Not counted twice with the start-up path: that works
+## from the journal's last_seen, which is moved up to now here, and a process
+## that is killed after a resume starts again from there.
+func _grow_while_away() -> void:
+	var paused_at := _paused_at
+	_paused_at = 0.0
+	if paused_at <= 0.0 or not _world_ready or structures == null or _visiting:
+		return
+	var now := Time.get_unix_time_from_system()
+	var away := maxf(now - paused_at, 0.0)
+	if journal != null:
+		journal.last_seen = maxi(journal.last_seen, int(now))
+	# A glance away is not a night's sleep; nothing to announce or age.
+	if away < MIN_AWAY_FOR_GROWTH:
+		return
+	var grown := structures.advance_offline(away)
+	if grown > 0 and hud != null:
+		hud.announce(Text.of("back_grown"), 5.0)
+
 ## Let go of everything a hand could be holding down: the stick, sprint and
 ## jump. A hand that is still there will press them again with its next touch.
 func _let_go_of_the_controls() -> void:
@@ -3855,8 +3981,14 @@ func _turn_the_day() -> void:
 	today.arrive()
 	hud.set_task(_task_line())
 
+func _exit_tree() -> void:
+	# The clock is not left stopped by a scene that goes in the middle of a resume.
+	if _resume_hush_frames > 0:
+		Engine.time_scale = _resume_time_scale
+		_resume_hush_frames = 0
+
 func _write_save() -> void:
-	if player == null or world == null or not _may_save:
+	if player == null or world == null or not _may_save or not _world_ready:
 		return
 	# What was done this session becomes what the greeting reports next time.
 	journal.depart()
@@ -3929,7 +4061,13 @@ func _profile_from_command_line() -> String:
 			return argument.substr(9).strip_edges()
 	return ""
 
+## Set by a harness that boots this scene inside another SceneTree script, where
+## there is no command line to carry `--seed=`. Zero means "not forced".
+static var forced_seed := 0
+
 func _seed_from_command_line() -> int:
+	if forced_seed != 0:
+		return forced_seed
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--seed="):
 			return argument.substr(7).to_int()

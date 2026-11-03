@@ -78,6 +78,7 @@ func _initialize() -> void:
 	_check_an_unshirted_child_looks_the_same_to_everyone()
 	_check_an_unshirted_colour_does_not_depend_on_who_else_is_here()
 	_check_a_child_can_say_who_they_are()
+	_check_profile_names_renames_and_handovers_keep_every_childs_files()
 	await _check_a_tap_in_the_name_moves_its_caret()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
@@ -511,9 +512,15 @@ func _initialize() -> void:
 	await _check_the_cafe_menu_gives_way_to_building()
 	await _check_a_wandering_animal_does_not_cover_the_palette_or_the_kick()
 	await _check_switching_voice_off_lets_go_of_a_held_talk_button()
+	await _check_a_stray_tap_does_not_burn_wood_or_give_sticks_or_fell_for_coins()
+	await _check_a_toddler_tapping_at_random_loses_nothing()
 	_check_a_phone_put_away_lets_go_of_the_stick_and_a_long_frame_ejects_nobody()
+	_check_coming_back_from_the_background_holds_the_clock_and_grows_the_saplings()
 	_check_the_engine_dies_away_and_close_voices_are_capped()
 	await _check_a_child_is_saved_and_loaded_on_safe_ground()
+	_check_nothing_solid_is_built_on_anyone()
+	_check_a_remote_piece_on_the_child_sets_them_beside_it()
+	_check_an_animal_is_not_born_in_a_built_piece()
 	_check_the_chunk_under_a_fast_child_always_has_collision()
 
 	if _failures > 0:
@@ -26656,4 +26663,386 @@ func _check_the_busy_frame_does_its_work_on_change() -> void:
 	)
 	_expect(best >= 0, "and there was one in reach to find")
 	animals.queue_free()
+
+## One child per name, a rename that takes every file with it, and a handover
+## that cannot write one child's afternoon into another's save.
+##
+## "Amir  Ali" (two spaces) and "Amir Ali" were two children with two files that
+## looked the same on screen; a child could not change the capitals of their own
+## name, because their own old name counted as taken; a rename left the
+## `.previous` copy behind when the save itself was absent, and skipped the
+## whole move when anything sat at the new name, so the child came back to an
+## empty valley. The game also moved the saving path to the new child in
+## _become() and then let the autosave run in the gap before the reload.
+func _check_profile_names_renames_and_handovers_keep_every_childs_files() -> void:
+	print("profile names, renames and handovers keep every child's files")
+	var had_index := FileAccess.file_exists(Profiles.INDEX)
+	var index_was := FileAccess.get_file_as_string(Profiles.INDEX) if had_index else ""
+
+	var family := Profiles.new()
+	family.maps = {Profiles.HOME_MAP: Profiles.HOME_SEED}
+	_expect(family.add_player("Zed Quill"), "a name with a space is added")
+	_expect(not family.add_player("Zed  Quill"), "and the same with two spaces is the same child")
+	_expect(not family.add_player("zed-quill"), "and so is one with a hyphen and other capitals")
+	_expect(Profiles.tidy("  A   b ") == "A b", "tidying trims the ends and joins runs of spaces")
+
+	var world_id := family.create_world(Profiles.HOME_MAP, "Zed Quill")
+	var old_path := ProjectSettings.globalize_path(family.save_path_for("Zed Quill", world_id))
+	var new_path := ProjectSettings.globalize_path(family.save_path_for("Zed Quillen", world_id))
+	for leftover: String in [old_path, old_path + ".previous", new_path, new_path + ".previous"]:
+		DirAccess.remove_absolute(leftover)
+	# A crash between the two renames in SaveGame.write: only the copy is left.
+	var only_previous := FileAccess.open(old_path + ".previous", FileAccess.WRITE)
+	only_previous.store_string("{}")
+	only_previous.close()
+	# And something already sitting at the new name.
+	var stray := FileAccess.open(new_path, FileAccess.WRITE)
+	stray.store_string("{}")
+	stray.close()
+	var mine := FileAccess.open(old_path, FileAccess.WRITE)
+	mine.store_string("{\"mine\": 1}")
+	mine.close()
+
+	_expect(family.rename_player("Zed Quill", "Zed Quillen"), "a child can be renamed")
+	_expect(
+		FileAccess.file_exists(new_path) and FileAccess.get_file_as_string(new_path).contains("mine"),
+		"their own save is the one at the new name, not the stray that was there"
+	)
+	_expect(FileAccess.file_exists(new_path + ".previous"), "the copy beside it moved even though it travelled alone")
+	_expect(not FileAccess.file_exists(old_path) and not FileAccess.file_exists(old_path + ".previous"), "nothing is left under the old name")
+
+	_expect(family.rename_player("Zed Quillen", "zed quillen"), "a child may change the capitals of their own name")
+	_expect(family.players.has("zed quillen"), "and it is stored as typed")
+	_expect(family.add_player("Other Kid"), "a second child exists")
+	_expect(not family.rename_player("zed quillen", "other kid"), "but nobody can take a sibling's name")
+
+	# Removing the child the game is in hands it to someone who may enter it.
+	family.choose_player("zed quillen")
+	family.choose_world(world_id)
+	var sibling_world := family.create_world(Profiles.HOME_MAP, "Other Kid")
+	_expect(family.remove_player("zed quillen"), "a child can be removed")
+	_expect(family.current_player == "Other Kid", "the game is handed to the child that is left")
+	_expect(family.current_world_is_enterable(), "and to a valley that child may be in")
+	_expect(family.current_world == sibling_world, "their own")
+
+	# An index edited by hand cannot point a world at a path outside the folder.
+	var hostile := FileAccess.open(Profiles.INDEX, FileAccess.WRITE)
+	hostile.store_string(JSON.stringify({
+		"version": Profiles.VERSION, "players": ["Ok"], "maps": {"../x": 5},
+		"worlds": {"../../evil": {"map": "home", "owner": "Ok", "guests": []}},
+	}))
+	hostile.close()
+	var reloaded := Profiles.new()
+	reloaded.load_index()
+	_expect(not reloaded.worlds.has("../../evil") and not reloaded.maps.has("../x"), "a world id or map name that climbs out of the folder is dropped")
+
+	# The handover: after choosing the other child, nothing may write.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var handover := game.substr(game.find("func _become"))
+	handover = handover.substr(0, handover.find("\nfunc ", 1))
+	_expect(
+		handover.find("_may_save = false") > handover.find("_write_save()")
+		and handover.find("_may_save = false") < handover.find("profiles.choose_player"),
+		"the old child is saved first, then saving is switched off before the save path moves to the next child"
+	)
+
+	for leftover: String in [new_path, new_path + ".previous", old_path, old_path + ".previous", new_path + ".unreadable"]:
+		DirAccess.remove_absolute(leftover)
+	for each: String in family.worlds.keys():
+		for who: String in ["Zed Quill", "Zed Quillen", "zed quillen", "Other Kid"]:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(family.save_path_for(who, each)))
+	if had_index:
+		var restore := FileAccess.open(Profiles.INDEX, FileAccess.WRITE)
+		if restore != null:
+			restore.store_string(index_was)
+			restore.close()
+	else:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(Profiles.INDEX))
+
+## A phone put down for an hour hands the first frame back an hour long, which
+## every animal, timer and the sky would take at its word; and its saplings
+## should grow as they would have had the game been closed. A save is written
+## when the game is put away, but never while the valley is still a blank one.
+func _check_coming_back_from_the_background_holds_the_clock_and_grows_the_saplings() -> void:
+	print("coming back from the background holds the clock and grows the saplings")
+	var game: Node = (load("res://src/main.gd") as GDScript).new()
+	var before := Engine.time_scale
+	game._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	_expect(Engine.time_scale == 0.0, "the first frames after a resume run on a stopped clock")
+	game._process(0.0)
+	_expect(Engine.time_scale == 0.0, "which is held for more than one frame")
+	game._process(0.0)
+	_expect(is_equal_approx(Engine.time_scale, before), "and given back at the speed it had")
+	_expect(game._resume_hush_frames == 0, "with nothing left to count down")
+	game._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	game._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	game._process(0.0)
+	game._process(0.0)
+	_expect(is_equal_approx(Engine.time_scale, before), "a second resume before the first has ended does not keep the stopped clock")
+	Engine.time_scale = before
+
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var at := field.camp_centre() + Vector3(3.0, 0.0, 3.0)
+	at.y = field.height_at(at.x, at.z)
+	structures.place(BuildKinds.SAPLING, at, 0.0)
+	var age_of := func() -> float:
+		var found := 0.0
+		for record in structures._records:
+			found = maxf(found, float(record["age"]))
+		return found
+	game.structures = structures
+	game.journal = Journal.new()
+	var now := Time.get_unix_time_from_system()
+
+	# Not ready: nothing is aged, and nothing is written.
+	game._paused_at = now - 600.0
+	game._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	_expect(float(age_of.call()) == 0.0, "a resume before the valley is ready ages nothing")
+	game._process(0.0)
+	game._process(0.0)
+
+	game._world_ready = true
+	# A glance away.
+	game._paused_at = now - 5.0
+	game._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	_expect(float(age_of.call()) == 0.0, "a few seconds in the background ages nothing")
+	game._process(0.0)
+	game._process(0.0)
+
+	# An hour: as much as the start-up path grants, and no more.
+	game._paused_at = now - 3600.0
+	game._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	game._process(0.0)
+	game._process(0.0)
+	_expect(
+		is_equal_approx(float(age_of.call()), Structures.MAX_OFFLINE_GROWTH),
+		"an hour in the background ages a sapling by the same capped amount as an hour with the game closed (%.0f s)" % float(age_of.call())
+	)
+	_expect(game.journal.last_seen >= int(now), "and the journal is told, so a restart does not count that time again")
+	var aged := float(age_of.call())
+	game._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	game._process(0.0)
+	game._process(0.0)
+	_expect(float(age_of.call()) == aged, "a resume with no pause before it ages nothing twice")
+	structures.queue_free()
+
+	var source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var at_write := source.find("func _write_save()")
+	var writing := source.substr(at_write, source.find("\nfunc ", at_write + 1) - at_write)
+	_expect(writing.contains("not _world_ready"), "no save is written before the valley is ready")
+	game._notification(Node.NOTIFICATION_APPLICATION_PAUSED)
+	_expect(game._paused_at > 0.0, "the moment of putting the phone down is kept")
+	_expect(
+		source.contains("what == NOTIFICATION_APPLICATION_PAUSED\n\t):\n\t\t_write_save()"),
+		"and being put away writes the save"
+	)
+	game.free()
+
+## Nothing solid goes up on the child, an animal or a parked machine, for one
+## piece or a whole plan; what is walked over still can.
+func _check_nothing_solid_is_built_on_anyone() -> void:
+	print("nothing solid is built on the child, an animal or a parked machine")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	var yard := _a_yard(300)
+	var origin: Vector3 = yard["origin"]
+	var build: BuildMode = yard["build"]
+	var structures: Structures = yard["structures"]
+	var field: HeightField = yard["field"]
+	if not origin.is_finite():
+		_fail("no ground near the spawn to build on")
+		_free_the_yard(yard)
+		return
+	var stand := Vector3(origin.x, field.height_at(origin.x, origin.z + BuildMode.REACH), origin.z + BuildMode.REACH)
+	var here := [Vector3.ZERO]
+	var radius := [Player.RADIUS]
+	for kind: StringName in [HouseParts.WALL, HouseParts.TABLE, BuildKinds.FENCE]:
+		build.select(kind)
+		build.set_body_finder(func(_at: Vector3, _reach: float) -> Array[Vector4]:
+			return [])
+		build.aim(stand, 0.0)
+		var aimed := build.target()
+		here[0] = aimed
+		build.set_body_finder(func(_at: Vector3, _reach: float) -> Array[Vector4]:
+			return [Vector4(here[0].x, here[0].y, here[0].z, radius[0])])
+		build.aim(stand, 0.0)
+		_expect(
+			not build._valid and build._reason == Text.of("why_someone"),
+			"%s is refused on a body standing on it: %s" % [kind, build._reason]
+		)
+		_expect(not build.place() and structures.positions().is_empty(), "and the tap builds nothing")
+		# A body well clear of it does not matter.
+		here[0] = aimed + Vector3(6.0, 0.0, 0.0)
+		build.set_body_finder(build.body_finder)  # forget the answer given a moment ago
+		build.aim(stand, 0.0)
+		_expect(build._reason != Text.of("why_someone"), "%s is not refused for a body six metres off" % kind)
+	# What is walked over is allowed, even on top of somebody.
+	here[0] = origin
+	for kind: StringName in [HouseParts.FLOOR, HouseParts.RUG, BuildKinds.PATH]:
+		build.select(kind)
+		build.aim(stand, 0.0)
+		here[0] = build.target()
+		build.aim(stand, 0.0)
+		_expect(build._reason != Text.of("why_someone"), "%s may be laid under a body: %s" % [kind, build._reason])
+	# A machine, asked by the game's own question (Mounts.blocks).
+	build.select(HouseParts.WALL)
+	build.set_body_finder(Callable())
+	build.set_mount_finder(func(_at: Vector3, _margin: float) -> bool:
+		return true)
+	build.aim(stand, 0.0)
+	_expect(not build._valid and build._reason == Text.of("why_someone"), "a wall is refused on a parked machine: %s" % build._reason)
+	build.select(HouseParts.FLOOR)
+	build.aim(stand, 0.0)
+	_expect(build._reason != Text.of("why_someone"), "but a floor may go under one")
+	build.set_mount_finder(Callable())
+	# A whole plan, with the child at its front wall.
+	build.select(Plans.SHOP)
+	build.aim(stand, 0.0)
+	var in_wall := Vector3.INF
+	for piece: Dictionary in build._plan_pieces:
+		if Structures.holds_a_body_out(piece["kind"]):
+			in_wall = piece["position"]
+			break
+	_expect(in_wall.is_finite(), "the shop has a solid piece to stand in")
+	here[0] = in_wall
+	build.set_body_finder(func(_at: Vector3, _reach: float) -> Array[Vector4]:
+		return [Vector4(here[0].x, here[0].y, here[0].z, radius[0])])
+	build.aim(stand, 0.0)
+	_expect(not build._valid and build._reason == Text.of("why_someone"), "a shop is refused with the child in its wall: %s" % build._reason)
+	_expect(not build.place() and structures.positions().is_empty(), "and none of it goes up")
+	# Moves away: the same plan goes up, and the finder is asked afresh for the tap.
+	here[0] = in_wall + Vector3(40.0, 0.0, 0.0)
+	build.set_body_finder(build.body_finder)
+	_expect(TestHouse.build_plan(build, field, origin, Plans.SHOP), "with the child out of the way the shop goes up")
+	_expect(Text.of("why_someone") != "why_someone", "and the refusal has words")
+	_free_the_yard(yard)
+
+## A solid piece from the other phone is never refused (the two would stop
+## agreeing), so it is the child who is set beside it.
+func _check_a_remote_piece_on_the_child_sets_them_beside_it() -> void:
+	print("a piece from the other phone that lands on the child sets them beside it")
+	var space := get_root().world_3d.direct_space_state
+	var at := Vector3(10.0, 3.0, 10.0)
+	var body := Vector3(10.05, 3.0, 10.02)
+	_expect(Structures.body_overlaps(HouseParts.WALL, at, 0.0, body, Player.RADIUS), "a child on the line of a wall is in it")
+	_expect(not Structures.body_overlaps(HouseParts.FLOOR, at, 0.0, body, Player.RADIUS), "a floor is walked over")
+	_expect(not Structures.body_overlaps(HouseParts.WALL, at, 0.0, Vector3(10.0, 3.0, 12.0), Player.RADIUS), "a child two metres off is not")
+	for kind: StringName in [HouseParts.WALL, HouseParts.TABLE, BuildKinds.FENCE, HouseParts.POST]:
+		for spin: float in [0.0, 0.7, PI * 0.5]:
+			var spot := Structures.exit_beside(kind, at, spin, body, space, TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS, [])
+			_expect(
+				not Structures.body_overlaps(kind, at, spin, spot, Player.RADIUS) and spot.distance_to(body) < 2.5,
+				"%s turned %.1f sets the child beside it, close by (%.2f m)" % [kind, spin, spot.distance_to(body)]
+			)
+	var source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var built := source.substr(source.find("func _on_remote_built"))
+	built = built.substr(0, built.find("\nfunc ", 1))
+	_expect(
+		built.contains("_step_out_of_a_remote_piece(") and built.find("_step_out_of_a_remote_piece(") > built.find("structures.place("),
+		"the other child's piece is placed, then the child is moved clear of it"
+	)
+
+## An animal is not born inside a wall the child has built, and leaving it out
+## does not change who else is born where (both phones must agree).
+func _check_an_animal_is_not_born_in_a_built_piece() -> void:
+	print("an animal is not born in a built piece, and the rest of the tile is unchanged")
+	var field := HeightField.new(20260903)
+	var free := Animals.new(field, 20260903)
+	get_root().add_child(free)
+	var coord := Vector2i.ZERO
+	var found := false
+	for x in range(-6, 7):
+		for y in range(-6, 7):
+			free._build_tile(Vector2i(x, y))
+			if free._living.size() >= 3 and not found:
+				coord = Vector2i(x, y)
+				found = true
+	if not found:
+		_fail("no tile with three animals to test")
+		free.free()
+		return
+	var all: Array[Vector3] = []
+	var headings: Dictionary = {}
+	for animal: Dictionary in free._living:
+		if animal["tile"] == coord:
+			all.append(animal["born"])
+			headings[animal["born"]] = animal["heading"]
+	var victim := all[0]
+	free.free()
+	var walled := Animals.new(field, 20260903)
+	walled.built_blocks = func(at: Vector3, _radius: float) -> bool:
+		return Vector2(at.x - victim.x, at.z - victim.z).length() < 0.05
+	get_root().add_child(walled)
+	walled._build_tile(coord)
+	var born: Array[Vector3] = []
+	for animal: Dictionary in walled._living:
+		born.append(animal["born"])
+	_expect(not born.has(victim), "the animal that would have been born in the wall is not")
+	_expect(born.size() == all.size() - 1, "and only that one: %d of %d" % [born.size(), all.size()])
+	for spot in born:
+		_expect(headings.get(spot, -1.0) == (walled._living[born.find(spot)]["heading"]), "the others are born where and as they were")
+	walled.free()
+
+## A three-year-old tapping at random must never destroy anything.
+##
+## The whole game, booted on a fixed seed with saving off, is given a child with
+## a lot to lose, and short taps (a tenth to a third of a second) are delivered
+## at random to every visible button, to the stick and to anywhere on the screen,
+## near home, with the build palette open and shut, at a campfire, at the
+## fairground kiosk with its question showing, and with the settings open. Coins,
+## things owned, items in the bag, built pieces, planted trees, felled trees and
+## standing machines must all be as they were, the child must not end up under the
+## ground or unable to walk, and a hold that is made on purpose must still work.
+## This is the short run, kept near home so it fits the suite; the stand-alone
+## `src/dev/toddler_fuzz_run.gd` takes thousands of frames and also goes to the
+## cafe and the shop. Every loss it finds is printed with the tap that caused it.
+func _check_a_toddler_tapping_at_random_loses_nothing() -> void:
+	print("a toddler tapping at random loses nothing")
+	var fuzz = preload("res://src/dev/toddler_fuzz.gd").new()
+	await fuzz.run(self, 350, false, [&"home", &"home_building", &"campfire", &"fairground", &"settings"])
+	_expect(int(fuzz.report.get("taps", 0)) >= 40, "the fuzz really tapped (%d taps)" % int(fuzz.report.get("taps", 0)))
+	_expect(int(fuzz.report.get("holds_completed", 0)) >= 1, "and a hold made on purpose still went through")
+	_expect(int(fuzz.report.get("house_pieces", 0)) > 10, "the child had a house to lose (%d pieces)" % int(fuzz.report.get("house_pieces", 0)))
+	for line: String in fuzz.failures:
+		_fail(line)
+	_expect(fuzz.failures.is_empty(), "the child lost nothing and was never stuck")
+## The three buttons the fuzz found that a tap could spend something through:
+## a log on the fire, a stick to the dam, and the axe on a wild tree while there
+## are coins in the purse to be charged for it.
+func _check_a_stray_tap_does_not_burn_wood_or_give_sticks_or_fell_for_coins() -> void:
+	print("a stray tap does not burn wood, give a stick to the dam, or fell a tree that costs coins")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var emitted := {"fire": 0, "dam": 0, "chop": 0}
+	hud.fire_fed.connect(func() -> void: emitted["fire"] += 1)
+	hud.dam_stick.connect(func() -> void: emitted["dam"] += 1)
+	hud.chop_pressed.connect(func() -> void: emitted["chop"] += 1)
+	hud.set_coins(10)
+	hud.set_tree_in_reach(true, false)
+	# Shown, because a ring lets go of a button that is hidden under a finger.
+	hud.set_fire_offer(true)
+	hud.set_dam_offer(true)
+	for pair: Array in [["fire", hud._fire_button], ["dam", hud._dam_button], ["chop", hud._chop_button]]:
+		var button: Button = pair[1]
+		button.pressed.emit()
+		_expect(int(emitted[pair[0]]) == 0, "a tap on the %s button does nothing" % pair[0])
+		var ring: HoldRing = null
+		for child in button.get_children():
+			if child is HoldRing:
+				ring = child
+		_expect(ring != null, "the %s button has a hold ring" % pair[0])
+		if ring == null:
+			continue
+		button.button_down.emit()
+		ring._process(HoldRing.SECONDS + 0.1)
+		button.button_up.emit()
+		_expect(int(emitted[pair[0]]) == 1, "and holding it does the thing")
+	# With nothing in the purse to be charged, a wild tree is still a tap.
+	hud.set_coins(0)
+	emitted["chop"] = 0
+	hud._chop_button.pressed.emit()
+	_expect(int(emitted["chop"]) == 1, "a wild tree costs nothing with no coins, so a tap still fells it")
+	hud.queue_free()
 

@@ -96,6 +96,17 @@ var material: StringName = HouseParts.DEFAULT_MATERIAL
 ## set_tree_finder(); with nothing set there are no trees to be in the way.
 var tree_finder := Callable()
 
+## Who is standing about: given a point and a reach, the child, the animals and
+## whatever else has a body within it, each as (x, feet y, z, radius). Set by
+## the game, which knows them, through set_body_finder(); with nothing set no
+## one is in the way. Nothing solid goes up on anyone.
+var body_finder := Callable()
+
+## Whether a parked machine or horse stands within `margin` of a point, as
+## `func(at: Vector3, margin: float) -> bool` (the mounts' own `blocks`). Set
+## through set_mount_finder(), like the trees.
+var mount_finder := Callable()
+
 ## The pieces of the plan being aimed, in the world as it would be built.
 var _plan_pieces: Array[Dictionary] = []
 ## What was found wrong with the plan, and for which aim and which valley —
@@ -656,6 +667,14 @@ func _evaluate() -> void:
 		# one side; either way the child is told.
 		_valid = false
 		_reason = Text.of("why_tree")
+	elif _someone_in_the_way(
+		selected, _target, _spin,
+		_bodies_round(_target, Structures.footprint_half(selected).length() + BODY_REACH)
+	):
+		# The child's own feet, a lamb or a parked horse: a wall put up on them
+		# is a wall they are inside, and nothing could get them out again.
+		_valid = false
+		_reason = Text.of("why_someone")
 	elif not _problem.is_empty():
 		_valid = false
 		_reason = _problem
@@ -699,13 +718,17 @@ func _plan_refusal() -> String:
 	var centre := _target + Basis(Vector3.UP, _spin) * Plans.centre_of(selected)
 	var size := Plans.size_of(selected)
 	var trees := _trees_round(centre, float(maxi(size.x, size.y)) * HouseParts.MODULE + 2.0)
-	var key := "%s|%s|%s|%s|%d|%d" % [
-		selected, _target, _spin, material, structures.revision, trees.size()
+	var bodies := _bodies_round(centre, float(maxi(size.x, size.y)) * HouseParts.MODULE + 2.0)
+	# Who stands where is part of the question: a lamb that wanders under the
+	# ghost turns it red, and one that wanders off turns it green again.
+	var key := "%s|%s|%s|%s|%d|%d|%s" % [
+		selected, _target, _spin, material, structures.revision, trees.size(),
+		_stands_key(bodies)
 	]
 	if key == _plan_check_key:
 		return _plan_check_reason
 	_plan_check_key = key
-	_plan_check_reason = _find_plan_refusal(trees)
+	_plan_check_reason = _find_plan_refusal(trees, bodies)
 	return _plan_check_reason
 
 ## How far the ground under a plan may lie from the level the plan is built at:
@@ -715,16 +738,18 @@ const PLAN_LEEWAY := 0.7
 
 ## The words for what can be wrong with one piece of a plan, most serious first:
 ## the line said is the most serious of all the pieces'.
-const PLAN_WHY := ["why_wet", "why_steep", "why_reserved", "why_tree", "why_no_room"]
+const PLAN_WHY := [
+	"why_wet", "why_steep", "why_reserved", "why_tree", "why_no_room", "why_someone"
+]
 
 ## Find which pieces cannot go up where the plan is aimed (kept in
 ## _plan_blocked, for the ghost) and say why in the most serious one's words.
-func _find_plan_refusal(trees: Array[Vector3]) -> String:
+func _find_plan_refusal(trees: Array[Vector3], bodies: Array[Vector4] = []) -> String:
 	_plan_blocked = []
 	var worst := PLAN_WHY.size()
 	for index in _plan_pieces.size():
 		var piece := _plan_pieces[index]
-		var problem := _piece_problem(piece, trees)
+		var problem := _piece_problem(piece, trees, bodies)
 		if problem < 0:
 			continue
 		_plan_blocked.append(index)
@@ -733,7 +758,9 @@ func _find_plan_refusal(trees: Array[Vector3]) -> String:
 
 ## What stops one piece of a plan, as a place in PLAN_WHY, or -1 for nothing.
 ## The questions a single piece is asked, in the order they are said.
-func _piece_problem(piece: Dictionary, trees: Array[Vector3]) -> int:
+func _piece_problem(
+	piece: Dictionary, trees: Array[Vector3], bodies: Array[Vector4] = []
+) -> int:
 	var at: Vector3 = piece["position"]
 	if field.is_pond(at.x, at.z) or at.y < field.water_level_at(at.x, at.z) + 0.15:
 		return 0
@@ -749,6 +776,8 @@ func _piece_problem(piece: Dictionary, trees: Array[Vector3]) -> int:
 		at, HouseParts.MODULE, piece["kind"], float(piece["spin"]), piece["extent"]
 	):
 		return 4
+	if _someone_in_the_way(piece["kind"], at, float(piece["spin"]), bodies):
+		return 5
 	return -1
 
 ## Draw the plan's ghost: whole when it can all go up, or when the bag cannot
@@ -800,6 +829,89 @@ var _trees_found: Array[Vector3] = []
 func set_tree_finder(finder: Callable) -> void:
 	tree_finder = finder
 	_trees_for = []
+	_plan_check_key = ""
+
+## Whether the child, an animal or a parked machine stands where a piece would
+## go up. Only what is solid once it is up counts (floors, rugs and paths are
+## walked over, a roof is above heads), and only bodies on the piece's own
+## level: a child on the ground floor is not under a wall of the storey above.
+## `bodies` is who to look at: those the finder found near the piece, or near
+## the whole plan it is one of.
+func _someone_in_the_way(
+	kind: StringName, at: Vector3, spin: float, bodies: Array[Vector4]
+) -> bool:
+	if not Structures.holds_a_body_out(kind):
+		return false
+	var half := Structures.footprint_half(kind)
+	var top := HouseParts.STOREY if HouseParts.is_house_part(kind) else 1.5
+	for body in bodies:
+		# The body's feet against the piece's foot and head: a lamb is half a
+		# metre high, a child over a metre and a half, and the walls of a
+		# neighbouring storey are a whole storey up.
+		if body.y + BODY_HEIGHT < at.y - 0.3 or body.y > at.y + top:
+			continue
+		if Structures.body_overlaps(kind, at, spin, Vector3(body.x, body.y, body.z), body.w):
+			return true
+	return _mount_in_the_way(kind, at, spin, half)
+
+## A machine is asked about with points, because the mounts only answer for a
+## circle. A grid of them half a metre apart over the piece's
+## ground, a hand's breadth of margin each.
+func _mount_in_the_way(kind: StringName, at: Vector3, spin: float, half: Vector2) -> bool:
+	if not mount_finder.is_valid():
+		return false
+	# Machines stand on the ground; a piece a storey up is not over them.
+	if at.y - field.height_at(at.x, at.z) > HouseParts.STOREY * 0.5:
+		return false
+	var turn := Basis(Vector3.UP, spin)
+	var across := maxi(ceili(half.x * 4.0), 1)
+	var along := maxi(ceili(half.y * 4.0), 1)
+	for i in range(-across, across + 1):
+		for j in range(-along, along + 1):
+			var spot: Vector3 = at + turn * Vector3(half.x * float(i) / float(across), 0.0, half.y * float(j) / float(along))
+			if mount_finder.call(spot, 0.15):
+				return true
+	return false
+
+## How far from a piece's middle a body can be and still touch it, beyond its
+## own half-width: the biggest animal's circle.
+const BODY_REACH := 2.0
+## How tall a body is taken to be, for what lies above or below it.
+const BODY_HEIGHT := 0.5
+
+## The bodies standing within reach of a point, or none when the game has not
+## said where they are.
+func _bodies_round(at: Vector3, reach: float) -> Array[Vector4]:
+	var now := Time.get_ticks_msec()
+	if _bodies_for == [at, reach] and now - _bodies_asked < 150:
+		return _bodies_found
+	var found: Array[Vector4] = []
+	if body_finder.is_valid():
+		for body: Vector4 in body_finder.call(at, reach):
+			found.append(body)
+	_bodies_for = [at, reach]
+	_bodies_asked = now
+	_bodies_found = found
+	return found
+
+var _bodies_for := []
+var _bodies_asked := -1000
+var _bodies_found: Array[Vector4] = []
+
+## Where the bodies are, to the nearest tenth of a metre, for a cache key.
+func _stands_key(bodies: Array[Vector4]) -> String:
+	var parts := PackedStringArray()
+	for body in bodies:
+		parts.append("%d,%d" % [roundi(body.x * 10.0), roundi(body.z * 10.0)])
+	return ",".join(parts)
+
+func set_body_finder(finder: Callable) -> void:
+	body_finder = finder
+	_bodies_for = []
+	_plan_check_key = ""
+
+func set_mount_finder(finder: Callable) -> void:
+	mount_finder = finder
 	_plan_check_key = ""
 
 ## The trees a piece would be built on top of.
@@ -865,6 +977,13 @@ func _cost_text(cost: Dictionary) -> String:
 func place() -> bool:
 	_placed = []
 	if not active or not _valid:
+		return false
+	# The ghost was judged a moment ago, and a lamb can wander under it in
+	# that moment: who stands there is asked afresh for the tap itself.
+	_bodies_for = []
+	_plan_check_key = ""
+	_evaluate()
+	if not _valid:
 		return false
 	if not inventory.spend(preview_cost()):
 		return false

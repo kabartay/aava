@@ -118,6 +118,12 @@ var obstacles: Places = null
 ## which is the sort of thing that makes a valley feel like a diorama.
 var keep_out: Array[Vector3] = []
 
+## What the child has built that is solid, asked as `func(at: Vector3, radius:
+## float) -> bool` (Structures.blocks): an animal is not born inside a wall,
+## a table or a fence. Optional, like the places: a check builds animals
+## without a village.
+var built_blocks := Callable()
+
 ## The machines and horses standing about, so an animal walks round them.
 var parked: Mounts = null
 
@@ -311,10 +317,20 @@ func _build_tile(coord: Vector2i) -> void:
 		if kind == &"":
 			continue
 
+		# Every draw is made before any is thrown away. Who is born where is
+		# the same on both phones (see key_of) and the walls are not: skipping
+		# a spot early would move the dice of every animal after it.
+		var heading := rng.randf() * TAU
+		var rest := rng.randf() * 3.0
+		var bob := rng.randf() * TAU
+		# Not inside something built. A valley loaded with a house standing on
+		# a spot where a sheep was born put her in the middle of the kitchen,
+		# boxed in by walls with nothing to walk out through.
+		if built_blocks.is_valid() and built_blocks.call(Vector3(x, 0.0, z), AnimalKinds.body_size(kind).z * 0.5):
+			continue
 		var home := Vector3(x, _footing(x, z), z)
 		var node := AnimalKinds.build_node(kind, AnimalKinds.variant_at(x, z))
 		node.position = home
-		var heading := rng.randf() * TAU
 		node.rotation.y = heading
 		holder.add_child(node)
 
@@ -325,9 +341,9 @@ func _build_tile(coord: Vector2i) -> void:
 			"home": home,
 			"target": home,
 			"tile": coord,
-			"rest": rng.randf() * 3.0,
+			"rest": rest,
 			"cooldown": 0.0,
-			"bob": rng.randf() * TAU,
+			"bob": bob,
 			"heading": heading,
 			"velocity": 0.0,
 		})

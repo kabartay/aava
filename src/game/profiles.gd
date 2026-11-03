@@ -101,13 +101,13 @@ func load_index() -> void:
 	var saved_maps = data.get("maps", {})
 	if saved_maps is Dictionary:
 		for key in saved_maps:
-			if saved_maps[key] is float or saved_maps[key] is int:
+			if (saved_maps[key] is float or saved_maps[key] is int) and _is_safe_id(String(key)):
 				maps[String(key)] = int(saved_maps[key])
 
 	var saved_worlds = data.get("worlds", {})
 	if saved_worlds is Dictionary:
 		for id in saved_worlds:
-			if saved_worlds[id] is not Dictionary:
+			if saved_worlds[id] is not Dictionary or not _is_safe_id(String(id)):
 				continue
 			var entry: Dictionary = saved_worlds[id]
 			var map_name := String(entry.get("map", HOME_MAP))
@@ -182,14 +182,24 @@ static func is_valid_name(name: String) -> bool:
 ## The player already on this phone whose name is this one, as far as their
 ## file is concerned — "Amir" and "amir" are one file — or an empty string.
 func player_named(name: String) -> String:
-	var wanted := _slug(name)
+	var wanted := _key(name)
 	for each in players:
-		if _slug(each) == wanted:
+		if _key(each) == wanted:
 			return each
 	return ""
 
+## A name as it is stored: the ends trimmed and every run of spaces made one.
+## "Amir  Ali" and "Amir Ali" read as the same name to a six-year-old and to
+## a sibling, so they must not be two children. Only new names are tidied; a
+## name already in the index keeps the spelling its files were made under.
+static func tidy(name: String) -> String:
+	var out := name.strip_edges()
+	while out.contains("  "):
+		out = out.replace("  ", " ")
+	return out
+
 func add_player(name: String) -> bool:
-	var trimmed := name.strip_edges()
+	var trimmed := tidy(name)
 	if not is_valid_name(trimmed) or not player_named(trimmed).is_empty():
 		return false
 	players.append(trimmed)
@@ -210,12 +220,17 @@ func remove_player(name: String) -> bool:
 		var path := save_path_for(name, String(id))
 		# The copy kept beside it goes too, or a child of the same name made
 		# later would be handed the removed one's valley back.
-		for leftover: String in [path, path + ".previous"]:
+		for leftover: String in [path, path + ".previous", path + ".writing"]:
 			if FileAccess.file_exists(leftover):
 				DirAccess.remove_absolute(ProjectSettings.globalize_path(leftover))
 	for id in worlds:
 		var guests: Array = worlds[id]["guests"]
 		guests.erase(name)
+	# The world remembered must still be one the child now playing may enter,
+	# or the next start would be walking about in the removed child's valley.
+	if not current_world_is_enterable():
+		var theirs := worlds_for(current_player)
+		current_world = theirs[0] if not theirs.is_empty() else ""
 	save_index()
 	return true
 
@@ -230,8 +245,14 @@ func remove_player(name: String) -> bool:
 ##
 ## `old_name` may be empty: the child playing before anyone had chosen a name.
 func rename_player(old_name: String, new_name: String) -> bool:
-	var trimmed := new_name.strip_edges()
-	if not is_valid_name(trimmed) or not player_named(trimmed).is_empty():
+	var trimmed := tidy(new_name)
+	if not is_valid_name(trimmed):
+		return false
+	# Taken by somebody else is a refusal; taken by this child themselves is a
+	# change of capitals or spaces ("amir" to "Amir"), which was refused as
+	# "already used" by the child's own old name.
+	var existing := player_named(trimmed)
+	if not existing.is_empty() and existing != old_name:
 		return false
 	var at := players.find(old_name)
 	if at >= 0:
@@ -248,10 +269,20 @@ func rename_player(old_name: String, new_name: String) -> bool:
 			guests[guest_at] = trimmed
 		var from := ProjectSettings.globalize_path(save_path_for(old_name, String(id)))
 		var to := ProjectSettings.globalize_path(save_path_for(trimmed, String(id)))
-		if FileAccess.file_exists(from) and not FileAccess.file_exists(to):
-			DirAccess.rename_absolute(from, to)
-			if FileAccess.file_exists(from + ".previous"):
-				DirAccess.rename_absolute(from + ".previous", to + ".previous")
+		if from == to:
+			continue
+		# The save and the copy beside it move on their own: a phone killed
+		# between the two renames inside SaveGame.write leaves only the copy,
+		# and that was left behind under the old name.
+		for suffix: String in ["", ".previous"]:
+			if not FileAccess.file_exists(from + suffix):
+				continue
+			# Anything already at the new name (a leftover from a crash) is
+			# kept aside, never written over and never the reason this child's
+			# own save stays behind under a name nobody plays as.
+			if FileAccess.file_exists(to + suffix):
+				SaveGame.set_aside(to + suffix)
+			DirAccess.rename_absolute(from + suffix, to + suffix)
 	if current_player == old_name:
 		current_player = trimmed
 	save_index()
@@ -387,3 +418,20 @@ func current_world_path() -> String:
 ## that need no escaping, so this only has to be tidy.
 static func _slug(name: String) -> String:
 	return name.strip_edges().to_lower().replace(" ", "-")
+
+
+## The identity of a name for "is this child already here": the slug with runs
+## of spaces made one, so "Amir  Ali", "amir ali" and "Amir-Ali" are one child.
+static func _key(name: String) -> String:
+	return _slug(tidy(name))
+
+## Map names and world ids come out of the index file, which a parent may edit
+## by hand, and are used to build paths. Anything that could leave the folder
+## is dropped rather than followed.
+static func _is_safe_id(id: String) -> bool:
+	if id.is_empty():
+		return false
+	for bad: String in ["/", "\\", ":", "."]:
+		if id.contains(bad):
+			return false
+	return true
