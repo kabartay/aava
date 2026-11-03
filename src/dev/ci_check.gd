@@ -308,6 +308,8 @@ func _initialize() -> void:
 	_check_the_host_passes_a_guests_changes_to_the_other_guests()
 	_check_the_host_does_not_pass_on_what_the_network_already_relays()
 	_check_odd_numbers_and_names_in_saves_do_no_harm()
+	_check_a_damaged_save_goes_back_to_the_one_before()
+	_check_a_save_keeps_the_dish_and_the_ice_cream_and_skips_junk_pieces()
 	_check_a_held_sidestep_keeps_its_side()
 	await _check_an_animal_inside_a_new_building_can_walk_out()
 	await _check_the_characters_build_fit_and_travel()
@@ -482,6 +484,7 @@ func _initialize() -> void:
 	_check_a_free_meal_at_home_comes_once_in_a_while()
 	_check_the_wall_buttons_show_the_material_chosen()
 	await _check_the_build_hud_keeps_clear_of_the_map()
+	await _check_the_top_bar_is_a_thumb_wide_and_clear_of_everything_else()
 	await _check_a_child_walks_up_the_stairs_onto_the_upper_floor()
 	_check_the_chair_does_not_snag()
 	_check_the_camera_looks_past_a_childs_furniture()
@@ -23017,7 +23020,7 @@ func _check_the_bow_and_the_care_button_do_not_share_a_spot() -> void:
 	get_root().add_child(hud)
 	await process_frame
 	hud.set_on_shooting_line(true)
-	hud.set_animal_in_reach("wants a stroke")
+	hud.set_animal_in_reach("хочет, чтобы её погладили")
 	hud._layout()
 	var bow := Rect2(hud._shoot_button.position, hud._shoot_button.get_combined_minimum_size())
 	var care := Rect2(hud._care_button.position, hud._care_button.get_combined_minimum_size())
@@ -25001,4 +25004,228 @@ func _check_nothing_is_built_on_a_trunk() -> void:
 	build.aim(stand, 0.0)
 	_expect(build._reason != Text.of("why_tree"), "a tree six metres off is not in the way: %s" % build._reason)
 	_free_the_yard(yard)
+
+## A save the phone hands back unreadable must not mean a new valley when the
+## one before it is still whole; and a child removed from the family must not
+## leave a copy for a later child of the same name to inherit.
+func _check_a_damaged_save_goes_back_to_the_one_before() -> void:
+	print("a damaged save goes back to the one before it")
+	var folder := "user://aava-previous-check"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(folder))
+	var path := folder + "/save.json"
+	_expect(SaveGame.write({"wallet": {"coins": 11}}, path), "the first save is written")
+	_expect(SaveGame.write({"wallet": {"coins": 12}}, path), "and the second")
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string("{\"version\": 1, \"wallet\": {\"coi")
+	file.close()
+	var back := SaveGame.read(path)
+	_expect(
+		int((back.get("wallet", {}) as Dictionary).get("coins", 0)) == 11,
+		"a truncated save reads as the one before it, not as nothing"
+	)
+	_expect(FileAccess.file_exists(path + ".unreadable"), "and the damaged file is still kept")
+	# Killed between the two renames: no file under the real name at all.
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	_expect(
+		int((SaveGame.read(path).get("wallet", {}) as Dictionary).get("coins", 0)) == 11,
+		"a save missing its name is read from the copy beside it"
+	)
+	for leftover in DirAccess.get_files_at(folder):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(folder + "/" + leftover))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(folder))
+
+## The dish on the menu and the ice cream's half minute are written to the save
+## and read back from it, and a structure list with junk in it still builds the
+## pieces that are whole.
+func _check_a_save_keeps_the_dish_and_the_ice_cream_and_skips_junk_pieces() -> void:
+	print("a save keeps the dish and the ice cream, and skips junk pieces")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var saved := game.substr(game.find("func _save_data("))
+	saved = saved.substr(0, saved.find("\nfunc ", 1))
+	_expect(saved.contains("\"dish\"") and saved.contains("\"cooled_for\""), "the dish and the cooling are written")
+	_expect(
+		game.contains("save.get(\"dish\"") and game.contains("save.get(\"cooled_for\""),
+		"and read back when the valley opens"
+	)
+	var field := HeightField.new(20260903)
+	var built := Structures.new(field)
+	get_root().add_child(built)
+	built.from_data([5, "text", null, {"kind": "tree", "x": "4", "y": 0.0, "z": 3.0}])
+	_expect(built.to_data().size() <= 1, "pieces that are not records are skipped without an error")
+	built.queue_free()
+
+## The top-row buttons, the storey buttons and the flags were 63 to 67 pixels,
+## which on a 360 dp tall phone (one base pixel is half a dp) is about 32 to 34
+## dp: under the 48 dp Android asks of a touch target, and small for a child of
+## three. They are now Hud.BUTTON (96 px, 48 dp) with Hud.TOP_GAP (16 px, 8 dp)
+## between them, and nothing else on the screen may sit on them. Measured at the
+## 16:9 phone, a 4:3 tablet and a 20:9 phone, in all four languages, with the
+## longest instruction line, an announcement, the score chip with its side row
+## and the bag all showing.
+func _check_the_top_bar_is_a_thumb_wide_and_clear_of_everything_else() -> void:
+	print("the top bar is a thumb wide and nothing sits on it")
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var map := Minimap.new(HeightField.new(20260903))
+	hud.attach_minimap(map)
+	map.show_map()
+	hud.set_at_the_pitch(true)
+	hud.set_side(1)
+	hud.set_voice(true, false)
+	hud.set_animal_in_reach("хочет, чтобы её погладили")
+	hud.set_on_shooting_line(true)
+	var shapes := {"16:9": Vector2i(1280, 720), "4:3": Vector2i(1280, 960), "20:9": Vector2i(1600, 720)}
+	for shape: String in shapes:
+		window.size = shapes[shape]
+		window.content_scale_size = shapes[shape]
+		await process_frame
+		for code: StringName in Text.LANGUAGES:
+			Text.set_language(code)
+			# The longest instruction there is in this language, by drawn width.
+			var font := hud._task_label.get_theme_font("font")
+			var task := ""
+			var task_width := 0.0
+			for key: String in Text.STRINGS.keys():
+				if key.begins_with("task_") or key.begins_with("today"):
+					var line := Text.of(key)
+					var drawn := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
+					if drawn > task_width:
+						task_width = drawn
+						task = line
+			# The longest announcement in this language, the same way.
+			var announcement := ""
+			var announcement_width := 0.0
+			for key: String in Text.STRINGS.keys():
+				if key.begins_with("say_"):
+					var spoken := Text.of(key)
+					var spoken_width := font.get_string_size(spoken, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
+					if spoken_width > announcement_width and spoken_width < 1100.0:
+						announcement_width = spoken_width
+						announcement = spoken
+			for building in [false, true]:
+				hud.set_building(building)
+				hud.set_task(task)
+				hud.announce(announcement, 60.0)
+				if building:
+					hud._show_group(&"walls")
+					hud.set_storey(1, true)
+				else:
+					hud.set_storey(0, false)
+				hud._menu.visible = false
+				await process_frame
+				hud._layout()
+				await process_frame
+				var view := hud.get_viewport().get_visible_rect().size
+				var where := "%s, %s, %s" % [shape, code, "building" if building else "walking"]
+				var bar: Array[Button] = [
+					hud._menu_button, hud._map_button, hud._view_button,
+					hud._voice_button, hud._together_button,
+				]
+				var named := {}
+				var names := ["menu", "map", "view", "mic", "together"]
+				for i in bar.size():
+					named[names[i]] = Rect2(bar[i].position, bar[i].size)
+					_expect(
+						bar[i].size.x >= Hud.BUTTON and bar[i].size.y >= Hud.BUTTON,
+						"%s: the %s button is %.0f x %.0f px, at least %.0f" % [where, names[i], bar[i].size.x, bar[i].size.y, Hud.BUTTON]
+					)
+					if i > 0:
+						var gap := bar[i].position.x - (bar[i - 1].position.x + bar[i - 1].size.x)
+						_expect(gap >= Hud.TOP_GAP, "%s: %.0f px between the %s and %s buttons, at least %.0f" % [where, gap, names[i - 1], names[i], Hud.TOP_GAP])
+				var top_count := named.size()
+
+				# Counters, the chip and the lines of words, as drawn: a label's
+				# own rectangle is the width of the screen, so the text is what
+				# is measured.
+				named["chip"] = Rect2(hud._score.position, hud._score.size)
+				named["purse"] = Rect2(hud._purse.position, hud._purse.size)
+				named["vitals"] = Rect2(hud._vitals.position, hud._vitals.size)
+				named["bag"] = Rect2(hud._backpack.position, Vector2(hud._backpack.custom_minimum_size.x, hud._backpack.shut_height()))
+				var task_label: Label = hud._task_label
+				var task_size := Vector2(minf(task_width, task_label.size.x), task_label.get_combined_minimum_size().y)
+				if task_width > task_label.size.x:
+					task_size = Vector2(task_label.size.x, task_label.size.y)
+				named["task line"] = Rect2(task_label.position + Vector2((task_label.size.x - task_size.x) * 0.5, 0.0), task_size)
+				var message: Label = hud._message
+				var message_font := message.get_theme_font("font")
+				var message_drawn := minf(message_font.get_string_size(message.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x, message.size.x)
+				named["announcement"] = Rect2(message.position + Vector2((message.size.x - message_drawn) * 0.5, 0.0), Vector2(message_drawn, maxf(message.size.y, 36.0)))
+				named["map small"] = Rect2(map.position, map.size)
+				for other: String in ["_stick", "_talk_button", "_build_button", "_jump_button", "_kick_button", "_care_button", "_shoot_button"]:
+					var control: Control = hud.get(other)
+					if control.visible or other == "_stick":
+						named[other] = Rect2(control.position, control.size)
+				if building:
+					# The two lines of words above the tabs, as drawn.
+					hud.set_build_state(HouseParts.WALL, false, Text.of("why_no_room"))
+					hud._layout()
+					for line_name: String in ["_hint", "_status"]:
+						var line_label: Label = hud.get(line_name)
+						if line_label.text.is_empty():
+							line_label.text = Text.of("why_no_room")
+						var line_font := line_label.get_theme_font("font")
+						var line_wide := minf(line_font.get_string_size(line_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x, line_label.size.x)
+						named[line_name] = Rect2(line_label.position + Vector2((line_label.size.x - line_wide) * 0.5, 0.0), Vector2(line_wide, line_label.size.y))
+					named["place"] = Rect2(hud._place_button.position, hud._place_button.size)
+					named["remove"] = Rect2(hud._remove_button.position, hud._remove_button.size)
+					named["undo"] = Rect2(hud._undo_button.position, hud._undo_button.size)
+					named["palette"] = Rect2(hud._palette.position, hud._palette.size)
+					named["tabs"] = Rect2(hud._tabs.position, hud._tabs.get_combined_minimum_size())
+					for i in hud._storey_row.get_child_count():
+						var part := hud._storey_row.get_child(i) as Control
+						if part is Button:
+							named["storey %d" % i] = Rect2(hud._storey_row.position + part.position, part.size)
+							_expect(
+								part.size.x >= Hud.BUTTON and part.size.y >= Hud.BUTTON,
+								"%s: a storey button is %.0f x %.0f px" % [where, part.size.x, part.size.y]
+							)
+				var scoped := names + ["chip", "purse", "vitals", "bag", "task line"]
+				var touching: Array[String] = []
+				var keys := named.keys()
+				for i in keys.size():
+					for j in range(i + 1, keys.size()):
+						# Only pairs the top of the screen is part of, or the two
+						# controls this change moved. The stick, the palette and
+						# the other bottom controls are as they were.
+						var in_scope := (
+							scoped.has(keys[i]) or scoped.has(keys[j])
+							or (["_care_button", "_shoot_button", "map small", "_talk_button", "storey 0", "storey 2"].has(keys[i]) and ["_care_button", "_shoot_button", "map small", "_talk_button", "storey 0", "storey 2", "_hint", "_status"].has(keys[j]))
+						)
+						if not in_scope:
+							continue
+						if "announcement" in [keys[i], keys[j]] and not (scoped.has(keys[i]) and scoped.has(keys[j])):
+							continue
+						if (named[keys[i]] as Rect2).intersects(named[keys[j]] as Rect2):
+							touching.append("%s/%s" % [keys[i], keys[j]])
+				_expect(touching.is_empty(), "%s: no HUD controls overlap: %s" % [where, ", ".join(touching)])
+				for key: String in keys:
+					if key == "announcement" or key == "task line":
+						continue
+					_expect(Rect2(Vector2.ZERO, view).encloses(named[key] as Rect2), "%s: %s is on the screen (%s of %s)" % [where, key, str(named[key]), str(view)])
+				hud.set_building(false)
+		# The language flags, in the settings panel, as tall as a thumb.
+		hud._menu.visible = true
+		await process_frame
+		await process_frame
+		for child in hud._menu.get_children():
+			if child is HBoxContainer:
+				for flag_button in child.get_children():
+					var flag_control := flag_button as Control
+					_expect(
+						flag_control.size.y >= Hud.BUTTON and flag_control.size.x >= Hud.BUTTON,
+						"%s: a language flag is %.0f x %.0f px" % [shape, flag_control.size.x, flag_control.size.y]
+					)
+		hud._menu.visible = false
+	hud.set_animal_in_reach("")
+	hud.set_on_shooting_line(false)
+	Text.set_language(Text.EN)
+	window.size = was_size
+	window.content_scale_size = was_content
+	await process_frame
+	hud.queue_free()
+	map.queue_free()
 

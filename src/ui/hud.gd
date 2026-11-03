@@ -12,7 +12,14 @@ extends CanvasLayer
 ## Diameter of the thumbstick. Deliberately large: a small thumb is imprecise
 ## and the stick has to be findable without looking down at it.
 const STICK_SIZE := 250.0
+## The size of a thumb target. project.godot stretches the 1280 by 720 base to
+## the screen's height, so on a 360 dp tall phone one base pixel is half a dp and
+## 96 of them are the 48 dp that Android asks of a touch target. Taller screens
+## scale it up, never down: a 4:3 tablet is wider and shorter per pixel only in
+## the other direction, so the phone is the case that sets this.
 const BUTTON := 96.0
+## The space kept between neighbouring thumb targets, 8 dp on that phone.
+const TOP_GAP := 16.0
 
 ## The purse: a coin, a gap, and four digits at font 26.
 const PURSE_WIDTH := 132.0
@@ -645,7 +652,6 @@ func _init() -> void:
 	_cafe_menu.resized.connect(_layout)
 
 	_menu_button = _icon_button(ActionIcon.Kind.SETTINGS)
-	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_menu_button.pressed.connect(_toggle_menu)
 	add_child(_menu_button)
 
@@ -673,7 +679,6 @@ func _init() -> void:
 	# A toggle of its own, next to the menu, so the map can always be brought
 	# back. It shows its state: filled when the map is open.
 	_map_button = _icon_button(ActionIcon.Kind.MAP)
-	_map_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_map_button.pressed.connect(_toggle_map)
 	add_child(_map_button)
 
@@ -681,7 +686,6 @@ func _init() -> void:
 	# map because it belongs to the same family — things about looking at the
 	# valley rather than things about doing something in it.
 	_view_button = _icon_button(ActionIcon.Kind.VIEW_FIRST)
-	_view_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_view_button.pressed.connect(func() -> void: view_toggled.emit())
 	add_child(_view_button)
 
@@ -694,12 +698,10 @@ func _init() -> void:
 	# invite a brother in happens mid-game, and it used to be two taps down
 	# inside the menu.
 	_together_button = _icon_button(ActionIcon.Kind.TOGETHER)
-	_together_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_together_button.pressed.connect(_open_together)
 	add_child(_together_button)
 
 	_voice_button = _icon_button(ActionIcon.Kind.MIC_ON)
-	_voice_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
 	_voice_button.pressed.connect(func() -> void:
 		set_voice_allowed(not _voice_allowed)
 		voice_allowed_changed.emit(_voice_allowed))
@@ -830,7 +832,9 @@ func _palette_button(kind: StringName, named: String, shown: bool) -> Button:
 ## One of the two storey buttons: an arrow, and a step up or down.
 func _storey_button(arrow: StringName, step: int) -> Button:
 	var button := _button("", Color(0.72, 0.90, 1.0))
-	button.custom_minimum_size = Vector2(BUTTON * 0.66, BUTTON * 0.66)
+	# The same size as every other thumb target: at 0.66 of it these were 63
+	# pixels, about 32 dp on a phone, and a three-year-old's fingertip is wider.
+	button.custom_minimum_size = Vector2(BUTTON, BUTTON)
 	var face := PartIcon.new(arrow)
 	face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button.add_child(face)
@@ -949,7 +953,7 @@ func _build_menu() -> VBoxContainer:
 	# the game readable — and a child who cannot yet read "Русский" can pick
 	# the white-blue-red one out of a row without being taught.
 	var flags := HBoxContainer.new()
-	flags.add_theme_constant_override("separation", 8)
+	flags.add_theme_constant_override("separation", int(TOP_GAP))
 	for code: StringName in Text.LANGUAGES:
 		var button := Button.new()
 		button.focus_mode = Control.FOCUS_NONE
@@ -957,7 +961,10 @@ func _build_menu() -> VBoxContainer:
 		# survive being tiny; the Circassian one is twelve stars and three
 		# arrows over a green field, and at fifty pixels across it was a green
 		# rectangle with nothing on it at all.
-		button.custom_minimum_size = Vector2(BUTTON * 0.95, BUTTON * 0.66)
+		# Tall enough to be a thumb target (BUTTON, which is 48 dp on a 360 dp
+		# tall phone) and still the flags' own three-to-two shape, so the
+		# pictures are scaled and not squashed.
+		button.custom_minimum_size = Vector2(BUTTON * 1.4, BUTTON)
 		button.tooltip_text = Text.ENDONYM[code]
 		var flag := FlagIcon.new(FlagIcon.for_language(code))
 		flag.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2390,7 +2397,8 @@ func _layout() -> void:
 	# anywhere. Larger than small, it is centred between the stick and the
 	# buttons, where it covers neither thumb.
 	if _minimap != null:
-		var map_top := safe.position.y + MARGIN + BUTTON * 0.7 + 10.0
+		# Under the top row, which is a full thumb target tall now.
+		var map_top := safe.position.y + MARGIN + BUTTON + TOP_GAP
 		# The small map is its picture plus the panel's margins all round, so it
 		# is wider than SMALL_PIXELS by those: compared with the picture alone,
 		# every map counted as opened up and the small one sat in the middle of
@@ -2401,19 +2409,24 @@ func _layout() -> void:
 				safe.position.x + safe.size.x * 0.5 - _minimap.size.x * 0.5
 				if opened_up else safe.position.x + MARGIN
 			),
-			map_top
+			# Opened up it is centred and would cover the instruction line, so it
+			# starts under that instead.
+			map_top + 44.0 + 10.0 if opened_up else map_top
 		)
 		_map_button.modulate = (
 			Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
 		)
-	_map_button.position = _menu_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
-	_view_button.position = _map_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
-	_voice_button.position = _view_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
-	_together_button.position = _voice_button.position + Vector2(BUTTON * 0.7 + 10.0, 0.0)
+	_map_button.position = _menu_button.position + Vector2(BUTTON + TOP_GAP, 0.0)
+	_view_button.position = _map_button.position + Vector2(BUTTON + TOP_GAP, 0.0)
+	_voice_button.position = _view_button.position + Vector2(BUTTON + TOP_GAP, 0.0)
+	_together_button.position = _voice_button.position + Vector2(BUTTON + TOP_GAP, 0.0)
 	# Bottom left, above the stick, where a thumb already rests — and far from
 	# the buttons on the right that a child presses while playing.
+	# Right of the small map, not under it: the top row is a full thumb target
+	# tall now, so the map hangs down to y 344 and the old spot, at 332, was
+	# under its bottom edge.
 	_talk_button.position = Vector2(
-		safe.position.x + MARGIN,
+		safe.position.x + MARGIN + Minimap.SMALL_PIXELS + Minimap.PANEL_MARGINS + TOP_GAP,
 		safe.position.y + safe.size.y - STICK_SIZE - BUTTON - MARGIN * 1.6
 	)
 
@@ -2463,7 +2476,7 @@ func _layout() -> void:
 			safe.position.y + safe.size.y * 0.30 - _mic_notice.size.y * 0.5
 		)
 
-	_menu.position = _menu_button.position + Vector2(0.0, BUTTON * 0.7 + 10.0)
+	_menu.position = _menu_button.position + Vector2(0.0, BUTTON + TOP_GAP)
 	_danger.position = _menu.position
 	if _offer != null:
 		_offer.size = Vector2.ZERO
@@ -2536,13 +2549,31 @@ func _layout() -> void:
 	_aim_label.size.x = view.x
 	_aim_label.position = Vector2(0.0, _power_bar.position.y - 36.0)
 
-	_score.position = Vector2(view.x * 0.5 - SCORE_CHIP.x * 0.5, safe.position.y + MARGIN)
+	# Centred, unless the five top buttons reach it: on a 1280 wide screen they
+	# end at 570 and a centred chip would start at 556, so it steps right.
+	var top_row_end := _together_button.position.x + _together_button.size.x
+	_score.position = Vector2(
+		maxf(view.x * 0.5 - SCORE_CHIP.x * 0.5, top_row_end + TOP_GAP),
+		safe.position.y + MARGIN
+	)
 
-	_task_label.size.x = view.x
 	# Under the chip, which is a row taller while a side is shown: the
-	# instruction was written over "you: red" when two were playing.
+	# instruction was written over "you: red" when two were playing. And under
+	# the top row of buttons, which is taller than the chip: the line used to
+	# share their height and the buttons stood over its first words.
+	#
+	# Between the small map's width and the same distance from the right edge,
+	# so a long line in Russian cannot run over the map, which hangs under the
+	# buttons on the left; wrapped in that width if it is ever longer still.
+	var task_edge := safe.position.x + MARGIN + Minimap.SMALL_PIXELS + Minimap.PANEL_MARGINS + TOP_GAP
+	_task_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_task_label.size = Vector2(maxf(view.x - task_edge * 2.0, 120.0), 0.0)
 	_task_label.position = Vector2(
-		0.0, safe.position.y + MARGIN + 44.0 + (SIDE_ROW if _side_shown >= 0 else 0.0)
+		task_edge,
+		maxf(
+			safe.position.y + MARGIN + 44.0 + (SIDE_ROW if _side_shown >= 0 else 0.0),
+			safe.position.y + MARGIN + BUTTON + 6.0
+		)
 	)
 
 
@@ -2613,6 +2644,10 @@ func _layout() -> void:
 	# left edge where a narrow button's would be, and a wish like "wants a
 	# stroke" then hung out to the right over the jump button. Nothing laid
 	# the screen out again once it had grown.
+	# Unwrapped and at its natural width to start with; the end of this function
+	# wraps it again when it has to while building.
+	_care_button.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_care_button.custom_minimum_size.x = BUTTON
 	_care_button.size = _care_button.get_combined_minimum_size()
 	# Not on the palette's row while building. The palette is centred on that
 	# very row, so an animal wandering up to a child laying walls put the
@@ -2738,12 +2773,12 @@ func _layout() -> void:
 	# Above the status line, once the status line is where it is going to be.
 	# It was placed from the status line's position before that was worked out
 	# for this layout, so it trailed one layout behind.
-	_storey_row.size = Vector2(view.x, BUTTON * 0.66)
-	_storey_row.position = Vector2(0.0, _status.position.y - BUTTON * 0.66 - 8.0)
+	_storey_row.size = Vector2(view.x, BUTTON)
+	_storey_row.position = Vector2(0.0, _status.position.y - BUTTON - 4.0)
 	# Above the storey buttons, whether or not they are showing, so it stays
 	# where the eye found it when a plan is chosen and they appear.
 	_hint.size = Vector2(view.x, 32.0)
-	_hint.position = Vector2(0.0, _storey_row.position.y - 38.0)
+	_hint.position = Vector2(0.0, _storey_row.position.y - 36.0)
 
 	# Wrapped inside the safe area, so a long line in Russian runs onto a
 	# second row instead of off both edges of a narrow phone. The height is
@@ -2751,6 +2786,37 @@ func _layout() -> void:
 	# announcement, and would go on being tall for a short one.
 	_message.size = Vector2(safe.size.x, 0.0)
 	_message.position = Vector2(safe.position.x, safe.position.y + safe.size.y * 0.26)
+
+	# While building, the care and bow buttons stand level with the storey
+	# buttons instead of under the task line, where they were put to keep them
+	# off the palette: the storey buttons are a full thumb target tall now and
+	# fill the rows below the task line, so the two met there.
+	#
+	# The care button takes the room to the right of the storey buttons, up to
+	# the column of carried things; a wish that is longer than that, which in
+	# Russian it is, wraps onto a second line rather than run into the column.
+	# The bow's button, when both show, goes to the left of the storey buttons,
+	# where the small map ends well short of it.
+	if _building:
+		var row_width := _storey_row.get_combined_minimum_size().x
+		var right_start := view.x * 0.5 + row_width * 0.5 + TOP_GAP
+		var right_limit := safe.position.x + safe.size.x - MARGIN - BUTTON - TOP_GAP
+		var care_room := right_limit - right_start
+		_care_button.autowrap_mode = TextServer.AUTOWRAP_OFF
+		_care_button.custom_minimum_size.x = BUTTON
+		_care_button.size = _care_button.get_combined_minimum_size()
+		if _care_button.visible and _care_button.size.x > care_room:
+			_care_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_care_button.custom_minimum_size.x = care_room
+			_care_button.size = Vector2(care_room, _care_button.get_combined_minimum_size().y)
+		_care_button.position = Vector2(right_start, _storey_row.position.y)
+		if _care_button.visible:
+			_shoot_button.position = Vector2(
+				view.x * 0.5 - row_width * 0.5 - TOP_GAP - _shoot_button.size.x,
+				_storey_row.position.y
+			)
+		else:
+			_shoot_button.position = Vector2(right_start, _storey_row.position.y)
 
 ## The safe area arrives in physical screen pixels, so it has to be pulled
 ## through the stretch transform to mean anything in the HUD's coordinates —

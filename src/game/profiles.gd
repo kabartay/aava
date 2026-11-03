@@ -208,8 +208,11 @@ func remove_player(name: String) -> bool:
 	# Only their own progress files go, since nothing else can read them.
 	for id in worlds:
 		var path := save_path_for(name, String(id))
-		if FileAccess.file_exists(path):
-			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+		# The copy kept beside it goes too, or a child of the same name made
+		# later would be handed the removed one's valley back.
+		for leftover: String in [path, path + ".previous"]:
+			if FileAccess.file_exists(leftover):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(leftover))
 	for id in worlds:
 		var guests: Array = worlds[id]["guests"]
 		guests.erase(name)
@@ -247,6 +250,8 @@ func rename_player(old_name: String, new_name: String) -> bool:
 		var to := ProjectSettings.globalize_path(save_path_for(trimmed, String(id)))
 		if FileAccess.file_exists(from) and not FileAccess.file_exists(to):
 			DirAccess.rename_absolute(from, to)
+			if FileAccess.file_exists(from + ".previous"):
+				DirAccess.rename_absolute(from + ".previous", to + ".previous")
 	if current_player == old_name:
 		current_player = trimmed
 	save_index()

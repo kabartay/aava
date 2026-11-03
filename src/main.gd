@@ -492,6 +492,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.set_voice_allowed(_voice_allowed)
 	hud.set_first_person(_first_person)
 	hud.set_cafe_paid(_cafe_paid)
+	hud.restore_cafe_choices(_cafe_paid, StringName(str(save.get("dish", Dishes.USUAL))))
+	_cooled_for = clampf(float(save.get("cooled_for", 0.0)), 0.0, Dishes.COOL_SECONDS)
 	# Turning up is the whole of a visiting day, and nothing was ever telling
 	# today that anybody had: one day in six asks only that a child opens the
 	# game, and on that day the task sat there uncompletable and its eight
@@ -3653,6 +3655,10 @@ func _save_data() -> Dictionary:
 		"voice_allowed": _voice_allowed,
 		"first_person": _first_person,
 		"cafe_paid": _cafe_paid,
+		# The dish a child chose from the menu, and what is left of an ice
+		# cream's half minute of cooling down; both used to start over.
+		"dish": String(hud.chosen_dish()) if hud != null else String(Dishes.USUAL),
+		"cooled_for": snappedf(_cooled_for, 0.1),
 		"shirt": _shirt,
 		"look": Character.to_data(_look),
 		"look_offered": _look_offered,

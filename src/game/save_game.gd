@@ -62,9 +62,21 @@ static func write(data: Dictionary, path := PATH, version := VERSION) -> bool:
 		push_warning("could not reach %s to save into" % path.get_base_dir())
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(scratch))
 		return false
+	# The save being replaced is kept for one more round as `.previous`. The
+	# rename above makes a half-written save unlikely, not impossible: a flash
+	# chip can still hand back a file that parses as nothing, and without a
+	# second copy the game then starts a new valley beside the unreadable one.
+	# With it, `read()` has the last whole afternoon to go back to.
+	var previous := path + ".previous"
+	var kept_previous := false
+	if FileAccess.file_exists(path):
+		kept_previous = folder_access.rename(path.get_file(), previous.get_file()) == OK
 	var renamed := folder_access.rename(scratch.get_file(), path.get_file())
 	if renamed != OK:
 		push_warning("could not put %s in place: %s" % [path, error_string(renamed)])
+		# The save that was moved aside goes back where it was.
+		if kept_previous:
+			folder_access.rename(previous.get_file(), path.get_file())
 		# The scratch file is a whole copy of the save; left behind it is
 		# clutter, so it goes.
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(scratch))
@@ -96,23 +108,42 @@ static func _finite(value: Variant) -> Variant:
 	return value
 
 static func read(path := PATH) -> Dictionary:
+	var previous := path + ".previous"
 	if not FileAccess.file_exists(path):
-		return {}
+		# Killed between the two renames in `write()`: the save is only
+		# missing its name, and the last whole copy is sitting beside it.
+		return _read_whole(previous) if FileAccess.file_exists(previous) else {}
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return {}
 	var parsed = parse_quietly(file.get_as_text())
 	file.close()
 	if parsed is not Dictionary:
-		push_warning("%s is not valid JSON; starting a new world" % path)
 		set_aside(path)
-		return {}
+		var earlier := _read_whole(previous)
+		if earlier.is_empty():
+			push_warning("%s is not valid JSON; starting a new world" % path)
+		else:
+			push_warning("%s is not valid JSON; went back to the save before it" % path)
+		return earlier
 	var data: Dictionary = parsed
 	if int(data.get("version", 0)) != VERSION:
 		push_warning("save file is version %s, expected %d; starting a new world" % [data.get("version"), VERSION])
 		set_aside(path)
 		return {}
 	return data
+
+## The previous copy of a save, if it is whole and of this version; otherwise
+## nothing, and the game starts afresh as it would have without one.
+static func _read_whole(path: String) -> Dictionary:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return {}
+	var parsed = parse_quietly(file.get_as_text())
+	file.close()
+	if parsed is Dictionary and int((parsed as Dictionary).get("version", 0)) == VERSION:
+		return parsed
+	return {}
 
 ## Move a save that cannot be read out of the way, under a name of its own,
 ## and never delete it.

@@ -1028,12 +1028,16 @@ func from_data(data: Array) -> void:
 	_records.clear()
 
 	for entry in data:
+		# A hand-edited or damaged save may hold something that is not a record;
+		# it is skipped, and the pieces around it are still built.
+		if entry is not Dictionary:
+			continue
 		var kind := StringName(entry.get("kind", ""))
 		if not BuildKinds.INFO.has(kind) and not HouseParts.is_house_part(kind):
 			continue
 		var record := {
 			"kind": kind,
-			"position": Vector3(entry.get("x", 0.0), entry.get("y", 0.0), entry.get("z", 0.0)),
+			"position": Vector3(float(entry.get("x", 0.0)), float(entry.get("y", 0.0)), float(entry.get("z", 0.0))),
 			"spin": float(entry.get("spin", 0.0)),
 			"age": maxf(0.0, float(entry.get("age", 0.0))),
 			"stage": 0,
