@@ -38,7 +38,16 @@ func _init(height_field: HeightField) -> void:
 
 ## The dam site within reach, or NAN.
 func site_near(at: Vector3) -> float:
-	return DamSpec.nearest_site(at.z, REACH)
+	var site := DamSpec.nearest_site(at.z, REACH)
+	if is_nan(site):
+		return site
+	# A site is a depth along the river, so depth alone put it on the whole line
+	# of land across the valley: a child on a hilltop level with the dam was
+	# offered the button, and a stick went into a river hundreds of metres away.
+	# Within the wall's own width of the river, which is where the beavers work.
+	if absf(at.x - field.river_centre_x(site)) > DamSpec.POND_HALF_WIDTH:
+		return NAN
+	return site
 
 func is_built(site: float) -> bool:
 	for done in built:

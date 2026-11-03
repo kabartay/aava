@@ -52,6 +52,10 @@ func stride_phase() -> float:
 ## that the hips are on the seat and not where the child happened to be
 ## standing. A mount needs none: the rig is already at its saddle.
 var seat_placed := false
+## How long ago the plate in front of a child sitting at a table was set down, in
+## seconds, or negative when there is none: the right hand takes a bite to the
+## mouth for each one the plate loses (see `bite_lift`).
+var meal_age := -1.0
 var seat_place := Transform3D()
 ## Reaching out to an animal, when the child feeds, strokes, milks or shears
 ## one: where in the world its head is, whether the hand strokes (and not holds
@@ -190,6 +194,17 @@ func kick() -> void:
 ## The child's side has scored.
 func cheer() -> void:
 	_cheer = CHEER_FOR
+
+## How far the hand is raised to the mouth for a bite, 0 (down on the table) to 1
+## (at the mouth), `age` seconds after the plate was set down. It is at the mouth
+## at the very moment each bite leaves the plate (Places.bites_eaten steps up at
+## EAT_FROM, then every EAT_BITE), and is down again half way between, so four
+## bites are four trips and not one long raising of the arm.
+static func bite_lift(age: float) -> float:
+	var through := (age - Places.EAT_FROM) / Places.EAT_BITE
+	if through < -0.5 or through > float(Dishes.BITES) - 0.5:
+		return 0.0
+	return 0.5 + 0.5 * cos(TAU * through)
 
 ## The child has just landed, this hard (metres a second).
 func land(impact: float) -> void:
@@ -562,6 +577,11 @@ func _seat_step(delta: float, sitting: bool) -> void:
 		var mirror := -1.0 if side == 0 else 1.0
 		# The left side is what the pose says, the right its mirror.
 		var hand_goal := Vector3(grip.x * -mirror, grip.y, grip.z)
+		if side == 1 and meal_age >= 0.0 and pose.get("eats", false):
+			# The fork hand goes up to the mouth: a hand's breadth ahead of the
+			# neck and a little above it, turned with the body.
+			var mouth := shoulder_origin + torso_basis * (_head.position + Vector3(0.0, 0.08, -0.10))
+			hand_goal = hand_goal.lerp(mouth, bite_lift(meal_age) * w)
 		var foot_goal := Vector3(ankle.x * -mirror, ankle.y, ankle.z)
 		if style == &"pedal":
 			# The right pedal is half a turn from the left, and the crank

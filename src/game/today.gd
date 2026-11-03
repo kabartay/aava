@@ -66,6 +66,10 @@ func begin(now: int) -> void:
 	if day != _saved_day:
 		_progress = 0
 	_day = day
+	# A count saved against a bigger ask than today's, or edited, would print
+	# "-3 left"; one short of the ask is the most that can be true unfinished.
+	if not is_finished():
+		_progress = mini(_progress, needed() - 1)
 	# Remembered, so that beginning again on the same day (the phone woken from
 	# its pocket) keeps the count, and beginning on a later one starts it afresh.
 	_saved_day = day

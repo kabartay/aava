@@ -2100,10 +2100,18 @@ func set_side(side: int) -> void:
 	_score.size.y = SCORE_CHIP.y + (SIDE_ROW if side >= 0 else 0.0)
 	if side >= 0:
 		_score_side.add_theme_color_override("font_color", Goal.SIDE_COLOURS[side].lightened(0.25))
+	_layout()
 
 var _side_shown := -1
 ## Room under the chip for "you: red".
 const SIDE_ROW := 26.0
+
+## Where the instruction line sits, and where the score chip ends, for the checks.
+func task_label_top() -> float:
+	return _task_label.position.y
+
+func score_bottom() -> float:
+	return _score.position.y + _score.size.y
 
 ## What the chip says about the side, for the checks.
 func side_text() -> String:
@@ -2492,7 +2500,11 @@ func _layout() -> void:
 	_score.position = Vector2(view.x * 0.5 - SCORE_CHIP.x * 0.5, safe.position.y + MARGIN)
 
 	_task_label.size.x = view.x
-	_task_label.position = Vector2(0.0, safe.position.y + MARGIN + 44.0)
+	# Under the chip, which is a row taller while a side is shown: the
+	# instruction was written over "you: red" when two were playing.
+	_task_label.position = Vector2(
+		0.0, safe.position.y + MARGIN + 44.0 + (SIDE_ROW if _side_shown >= 0 else 0.0)
+	)
 
 
 	# The things you carry, down the right-hand edge under the gauges.

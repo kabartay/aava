@@ -63,6 +63,10 @@ func set_girth(half_width: float) -> void:
 	if is_equal_approx(half_width, _girth):
 		return
 	_girth = half_width
+	# The pool was chosen for the old reach. Climbing onto a horse at a
+	# standstill left it at fourteen metres, with the longer reach waiting on
+	# the first two paces.
+	_last_refresh = Vector3(1e9, 1e9, 1e9)
 	# Capped. A quad is three quarters of a metre to the side of its rider, and
 	# a trunk that wide is a wood a machine cannot be ridden through at all —
 	# which is what "it gets stuck" was. Half a metre of extra trunk is enough

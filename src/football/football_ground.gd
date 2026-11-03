@@ -244,7 +244,10 @@ func _carry_guests(delta: float) -> void:
 	var told: Dictionary = {}
 	if _session != null and _session.is_host():
 		for id: int in _session.guest_positions:
-			if _session.guests.has(id):
+			# Not one in the saddle: the host's own child rides over a ball
+			# without touching it (see let_pass and Main's dribble), and a
+			# brother on a horse dragged the balls about like a sheepdog.
+			if _session.guests.has(id) and not _session.guest_mounts.has(id):
 				var at: Vector3 = _session.guest_positions[id]
 				if Pitch.is_beside(at.x, at.z, BODY_RANGE):
 					told[id] = at

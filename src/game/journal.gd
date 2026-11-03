@@ -117,7 +117,9 @@ func arrive(now: int) -> void:
 	if last_seen > 0:
 		var elapsed := now - last_seen
 		seconds_away = maxf(0.0, float(elapsed))
-		days_away = int(floor(float(elapsed) / 86400.0))
+		# Never below nought: a phone whose clock was set back reads as minus
+		# one day away, which nothing downstream expects.
+		days_away = maxi(0, int(floor(float(elapsed) / 86400.0)))
 	last_seen = now
 	for key in ALL:
 		session[key] = 0

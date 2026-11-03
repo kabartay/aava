@@ -227,8 +227,10 @@ func follow(world_position: Vector3) -> void:
 	vegetation.follow(world_position)
 	PerfLog.note("forest follow", stamp)
 	stamp = PerfLog.stamp()
-	tree_collision.follow(world_position)
+	# The girth first: the reach and the refresh step both depend on it, and
+	# the pool was being chosen for whoever was riding a frame ago.
 	tree_collision.set_girth(MountKinds.girth(riding))
+	tree_collision.follow(world_position)
 	PerfLog.note("trunks", stamp)
 	stamp = PerfLog.stamp()
 	pickups.follow(world_position)

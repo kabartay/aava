@@ -651,6 +651,12 @@ const STRINGS := {
 		FR: "vends-le dans ta propre vallée",
 		RU: "продай его в своей долине",
 	},
+	# Said to a guest who tries to buy a machine in somebody else's valley.
+	"say_buy_at_home": {
+		EN: "buy it in your own valley",
+		FR: "achète-le dans ta propre vallée",
+		RU: "купи его в своей долине",
+	},
 	# Said when every one of the machine is being ridden, so none can be taken.
 	"say_machine_in_use": {
 		EN: "somebody is riding it — sell it when they get off",

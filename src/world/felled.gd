@@ -137,10 +137,16 @@ func fell(world_position: Vector3) -> void:
 	# The same spot felled twice is one stump: both children in a shared valley
 	# can swing at one tree before either hears of the other's cut, and each
 	# phone then records it. Two records would be saved twice and drawn twice.
-	if _stumps.has(key):
-		for stump in _stumps[key] as PackedVector2Array:
-			if Vector2(world_position.x, world_position.z).distance_to(stump) < 0.05:
-				return
+	# Neighbouring cells too: two cuts a hair apart can lie either side of a
+	# cell edge, and each would then be the only stump in its own cell.
+	for dx: int in [-1, 0, 1]:
+		for dz: int in [-1, 0, 1]:
+			var near := Vector2i(key.x + dx, key.y + dz)
+			if not _stumps.has(near):
+				continue
+			for stump in _stumps[near] as PackedVector2Array:
+				if Vector2(world_position.x, world_position.z).distance_to(stump) < 0.05:
+					return
 	if not _stumps.has(key):
 		_stumps[key] = PackedVector2Array()
 	var bucket: PackedVector2Array = _stumps[key]

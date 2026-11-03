@@ -19,6 +19,7 @@ extends Node3D
 ##                  the player, so a screenshot shows the whole game rather
 ##                  than an empty valley
 ##   --build=1      open build mode with the ghost preview showing
+##   --atcafe=1     read --pos and --look as metres from the café's site
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
@@ -79,6 +80,7 @@ var _rig: CameraRig
 var _demo := false
 var _build := false
 var _at_pitch := false
+var _at_cafe := false
 var _kick_after := 0.0
 var _kick_strength := 1.0
 var _kick_loft := 0.25
@@ -128,6 +130,14 @@ func _ready() -> void:
 
 	_world = World.new(_seed)
 	add_child(_world)
+	if _at_cafe:
+		# --pos and --look are metres from the middle of the café's site, x
+		# along its front and z towards its back wall (the building is
+		# centred a little behind the origin: the bar is about z 5).
+		var cafe_site := PlaceSpec.centre_of(&"cafe", _world.field.camp_centre())
+		cafe_site.y = _world.field.height_at(cafe_site.x, cafe_site.z)
+		_camera_position += cafe_site
+		_look_at += cafe_site
 	if _hide_water:
 		_world.water.visible = false
 	if _unshaded:
@@ -702,6 +712,8 @@ func _parse_arguments() -> void:
 				_demo = value.to_int() != 0
 			"build":
 				_build = value.to_int() != 0
+			"atcafe":
+				_at_cafe = value.to_int() != 0
 			"atpitch":
 				_at_pitch = value.to_int() != 0
 			"kick":

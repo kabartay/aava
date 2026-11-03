@@ -415,6 +415,25 @@ func seat_near(at: Vector3) -> Dictionary:
 		}
 	return best
 
+## Whether somebody is sitting in one of the chairs the child has built, from
+## where they are alone (they are kept `sink` below the top of it while they
+## eat, see Main._carry): the pose, and the seat in the world turned to face its
+## table, or an empty record. A chair is drawn 0.48 up and the seat above is
+## where the rest of the game puts it, 0.5; the body is sat on the drawing.
+func seat_under(at: Vector3, sink: float, across: float, about: float) -> Dictionary:
+	_find_venues()
+	for chair: Dictionary in _chairs:
+		var seat: Vector3 = chair["seat"]
+		if Vector2(seat.x - at.x, seat.z - at.z).length() > across:
+			continue
+		if absf(at.y - (seat.y - sink)) > about:
+			continue
+		return {
+			"pose": &"chair",
+			"place": Transform3D(Basis(Vector3.UP, float(chair["facing"])), seat - Vector3(0.0, 0.02, 0.0)),
+		}
+	return {}
+
 ## The foot of the table nearest a point that belongs to a cafe, for a plate to
 ## be set on, or NAN if there is none within reach.
 func table_near(at: Vector3) -> Vector3:
@@ -431,6 +450,8 @@ func table_near(at: Vector3) -> Vector3:
 var _venues_revision := -1
 var _cafe_tables: Array[Vector3] = []
 var _shop_counters: Array[Vector3] = []
+## Every chair there is, as the seat and which way it faces, for `seat_under`.
+var _chairs: Array[Dictionary] = []
 
 func _find_venues() -> void:
 	if _venues_revision == revision:
@@ -438,6 +459,7 @@ func _find_venues() -> void:
 	_venues_revision = revision
 	_cafe_tables.clear()
 	_shop_counters.clear()
+	_chairs.clear()
 	var counters: Array[Vector3] = []
 	var tables: Array[Vector3] = []
 	var shelves: Array[Vector3] = []
@@ -449,6 +471,9 @@ func _find_venues() -> void:
 				counters.append(at)
 			HouseParts.TABLE:
 				tables.append(at)
+			HouseParts.CHAIR:
+				var spin := float(record["spin"])
+				_chairs.append({"seat": at + Basis(Vector3.UP, spin) * Vector3(0.0, 0.5, 0.68), "facing": spin})
 			HouseParts.SHELF:
 				shelves.append(at)
 			_:
@@ -1010,7 +1035,7 @@ func from_data(data: Array) -> void:
 			"kind": kind,
 			"position": Vector3(entry.get("x", 0.0), entry.get("y", 0.0), entry.get("z", 0.0)),
 			"spin": float(entry.get("spin", 0.0)),
-			"age": float(entry.get("age", 0.0)),
+			"age": maxf(0.0, float(entry.get("age", 0.0))),
 			"stage": 0,
 			"node": null,
 			"shared": false,

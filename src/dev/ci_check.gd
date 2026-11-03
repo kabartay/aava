@@ -73,6 +73,7 @@ func _initialize() -> void:
 	_check_every_kind_of_day_can_be_finished()
 	_check_every_button_glyph_is_drawn()
 	_check_an_unshirted_child_looks_the_same_to_everyone()
+	_check_an_unshirted_colour_does_not_depend_on_who_else_is_here()
 	_check_a_child_can_say_who_they_are()
 	await _check_a_tap_in_the_name_moves_its_caret()
 	_check_the_opening_leads_somewhere()
@@ -226,6 +227,27 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_mounting_widens_the_wood_at_once()
+	_check_a_wheeled_machine_is_collided_as_wide_as_it_is_drawn()
+	_check_every_key_the_code_asks_for_has_words()
+	_check_the_task_line_clears_the_score_chip_and_its_side()
+	_check_one_stump_across_a_cell_edge()
+	_check_odd_saved_values_are_read_back_sanely()
+	_check_a_ticket_buys_one_go_of_a_ride()
+	_check_a_held_child_is_not_still_running()
+	_check_a_child_pushes_a_basketball_the_way_they_push_a_football()
+	_check_the_animals_near_a_guest_are_looked_after()
+	_check_a_guest_cannot_make_up_mounts()
+	_check_the_dam_is_offered_only_at_the_river()
+	_check_a_second_machine_does_not_stand_inside_the_first()
+	_check_the_task_line_clears_the_side_row()
+	_check_a_plan_built_here_is_whole_on_the_other_phone()
+	_check_a_dog_asking_and_greeting_barks_once()
+	_check_the_animals_keep_off_the_cafe_the_shop_and_the_range()
+	_check_a_child_sits_at_the_cafe_table_and_the_other_phone_sees_it()
+	_check_the_bites_are_in_time_with_the_plate()
+	_check_there_is_no_way_round_the_cafe_bar()
+	_check_the_carousel_is_softer_and_has_the_same_nodes()
 	_check_the_foot_is_where_the_ball_is_when_it_leaves()
 	_check_a_kick_goes_where_the_child_faces_from_beside_and_behind()
 	await _check_a_child_running_into_the_ball_pushes_it_ahead()
@@ -236,6 +258,7 @@ func _initialize() -> void:
 	await _check_counts_read_right_and_a_new_interface_keeps_the_cafe_choices()
 	_check_nobody_climbs_on_a_mount_from_a_ride_seat()
 	_check_a_guests_body_is_only_the_balls_to_meet()
+	await _check_a_guest_in_the_saddle_has_no_body_on_the_pitch()
 	_check_per_frame_lookups_are_remembered()
 	_check_the_day_turns_over_and_a_reset_undoes_felling_and_dams()
 	await _check_the_bow_and_the_care_button_do_not_share_a_spot()
@@ -245,6 +268,7 @@ func _initialize() -> void:
 	_check_no_french_article_is_put_before_a_machine_whatever_its_gender()
 	_check_every_thing_on_the_shelf_has_a_picture_and_the_shelf_is_above_the_map()
 	_check_a_guest_cannot_reset_the_valley_they_are_visiting()
+	_check_a_guest_cannot_buy_a_machine_in_the_hosts_valley()
 	_check_the_cafe_price_is_kept_across_a_restart_and_a_change_of_language()
 	_check_what_was_built_on_the_pitch_is_moved_off_it()
 	await _check_a_host_who_becomes_a_guest_leaves_no_bodies_behind()
@@ -402,6 +426,7 @@ func _initialize() -> void:
 	await _check_the_feelers_are_cheap_and_steady()
 	await _check_a_broad_animal_does_not_clip_a_post()
 	_check_a_sidestep_does_not_outlast_the_errand()
+	await _check_a_long_step_does_not_jump_a_thin_fence()
 	_check_the_coaster_runs_a_lap()
 	_check_the_loops_hold_the_train_in()
 	_check_the_wheel_stops_when_the_button_is_pressed()
@@ -429,6 +454,7 @@ func _initialize() -> void:
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
 	_check_a_rider_stays_on_a_bank()
 	_check_the_bridge_carries_what_crosses_it()
+	_check_the_bridge_sides_face_outwards()
 	await _check_a_child_builds_a_whole_house_from_the_ground()
 	_check_walls_stack_and_old_walls_stay_put()
 	_check_a_plan_the_bag_cannot_afford_is_refused()
@@ -20280,6 +20306,8 @@ func _check_a_child_sits_in_every_seat_they_are_carried_in() -> void:
 	var poses: Array[StringName] = []
 	poses.append_array(MountKinds.ALL)
 	poses.append_array([&"carousel", &"wheel", &"coaster", &"drop_tower", &"pirate_ship", &"swing"])
+	# And the café's seats: a chair at a table, and a stool or the sofa.
+	poses.append_array([&"chair", &"lap"])
 	for pose in poses:
 		_expect(SeatPose.POSES.has(pose), "there is a pose for %s" % pose)
 	_expect(SeatPose.POSES.size() == poses.size(), "and none for anything that is not a way of being carried")
@@ -23637,3 +23665,731 @@ func _check_the_guest_sees_the_same_kick() -> void:
 	_expect(apart < 1.5, "and ends where the host's ball is, within %.2f m" % apart)
 	_free_football_pair(pair)
 	(made[0] as Node).queue_free()
+
+## A child who orders at the café is sat on the chair, at the seat's height and
+## facing the table with their hands on it, and is known to be sitting from where
+## they are alone, so that the other phone draws them sitting too.
+func _check_a_child_sits_at_the_cafe_table_and_the_other_phone_sees_it() -> void:
+	print("a child sits on the café chair facing the table, and the other phone sees it")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.CAFE]
+	var chair := {}
+	for seat: Dictionary in places._cafe_seats:
+		if seat["pose"] == &"chair" and chair.is_empty():
+			chair = seat
+	_expect(not chair.is_empty(), "the café has chairs a child sits on")
+	var top: Vector3 = spot + (chair["seat"] as Vector3)
+	# The seat as it is drawn: the top of the chair's own solid seat.
+	var drawn_top := -1.0
+	for shape in places._cafe_solid.get_children():
+		var collider := shape as CollisionShape3D
+		if collider != null and collider.shape is BoxShape3D:
+			var box := collider.shape as BoxShape3D
+			if is_equal_approx(box.size.x, 0.56) and is_equal_approx(box.size.z, 0.56) and box.size.y < 0.5:
+				drawn_top = spot.y + collider.transform.origin.y + box.size.y * 0.5
+				break
+	_expect(absf(top.y - drawn_top) < 0.01, "the seat a child is sat at is the chair's drawn seat (%.3f against %.3f)" % [top.y, drawn_top])
+
+	# Where the body is kept while they eat is a chair's depth into it, and that
+	# alone says they are sitting.
+	var kept := top - Vector3(0.0, Places.DINING_SINK, 0.0)
+	var seated := places.cafe_seat_near(kept)
+	_expect(not seated.is_empty() and seated["pose"] == &"chair", "a child kept in the chair is sitting in it, as a chair")
+	var place: Transform3D = seated.get("place", Transform3D())
+	_expect(place.origin.distance_to(top) < 0.01, "at the height of the seat, not the floor or the table")
+	var table: Vector3 = spot + (chair["table"] as Vector3)
+	var to_table := Vector3(table.x - top.x, 0.0, table.z - top.z).normalized()
+	var ahead := place.basis * Vector3.FORWARD
+	_expect(ahead.dot(to_table) > 0.99, "facing the table (%.2f)" % ahead.dot(to_table))
+	_expect(places.cafe_seat_near(top).is_empty(), "a child standing on the seat is not sitting in it")
+	_expect(places.cafe_seat_near(kept + Vector3(0.5, 0.0, 0.0)).is_empty() and places.cafe_seat_near(Vector3(top.x, spot.y, top.z)).is_empty(), "nor one beside it or on the floor under it")
+	for stool: Dictionary in places._cafe_seats:
+		if stool["pose"] == &"lap":
+			var stool_at: Vector3 = spot + (stool["seat"] as Vector3) - Vector3(0.0, Places.DINING_SINK, 0.0)
+			_expect(places.cafe_seat_near(stool_at).get("pose", &"") == &"lap", "a stool or the sofa seats a child with their hands in their lap")
+			break
+
+	# The hands are on the table: the pose's grip, turned to the way they face,
+	# is above the table's disc and at its top.
+	var centre := top + ahead * 1.05
+	var grip: Vector3 = SeatPose.POSES[&"chair"]["hand"]
+	for side: float in [-1.0, 1.0]:
+		var hand := place * Vector3(grip.x * side, grip.y, grip.z)
+		_expect(Vector2(hand.x - centre.x, hand.z - centre.z).length() < 0.6, "a hand is over the table's top")
+		_expect(absf(hand.y - table.y) < 0.08, "and on it, not in the air or through it (%.2f m off)" % (hand.y - table.y))
+	_expect(absf((SeatPose.POSES[&"chair"]["seat"] as Vector3).y) < 0.001, "the hips are at the seat's top")
+
+	# The game asks the same question of the other child's place as of its own,
+	# and sits them by it; a built chair is asked as well.
+	var main_source := FileAccess.get_file_as_string("res://src/main.gd")
+	_expect(main_source.contains("world.places.cafe_seat_near(at)") and main_source.contains("structures.seat_under(at, Places.DINING_SINK"), "the game finds a child at the café's table or a built chair from where they are")
+	_expect(main_source.contains("player.carried_to = _dining_seat + Vector3(0.0, -Places.DINING_SINK, 0.0)"), "and keeps the diner exactly where that finds them")
+	_expect(main_source.contains("player.meal_age = seated.get(") and FileAccess.get_file_as_string("res://src/net/visitors.gd").contains("motion.meal_age = seated.get("), "and tells each child's rig how old their plate is")
+	places.queue_free()
+
+	# The child's own chair, a built one: found the same way.
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var seat_at := Vector3(20.0, 4.0, 20.0)
+	structures._records.append({"kind": HouseParts.CHAIR, "position": seat_at, "spin": PI * 0.5})
+	structures.revision += 1
+	var built := structures.seat_under(seat_at + Basis(Vector3.UP, PI * 0.5) * Vector3(0.0, 0.5 - Places.DINING_SINK, 0.68), Places.DINING_SINK, Places.DINING_ACROSS, Places.DINING_ABOUT)
+	_expect(not built.is_empty() and built["pose"] == &"chair", "a child kept in a chair of their own building is sitting in it")
+	_expect(structures.seat_under(seat_at, Places.DINING_SINK, Places.DINING_ACROSS, Places.DINING_ABOUT).is_empty(), "and one walking by it is not")
+	structures.queue_free()
+
+## The four bites the plate shows are four trips of the hand to the mouth, the
+## hand at the mouth at the moment each leaves the plate and back down between.
+func _check_the_bites_are_in_time_with_the_plate() -> void:
+	print("the bites are in time with the plate")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.CAFE]
+	var chair := {}
+	for seat: Dictionary in places._cafe_seats:
+		if seat["pose"] == &"chair":
+			chair = seat
+			break
+	var served := places.serve_meal(spot + (chair["seat"] as Vector3), Dishes.PIZZA)
+	_expect(not served.is_empty(), "a meal is served at the chair")
+	var kept: Vector3 = (served["seat"] as Vector3) - Vector3(0.0, Places.DINING_SINK, 0.0)
+	_expect(is_zero_approx(float(places.cafe_seat_near(kept)["meal_age"])), "the plate is new when it is set down")
+	var peaks := 0
+	var worst_off := 0.0
+	var age := 0.0
+	var eaten_before := 0
+	while age < Places.MEAL_SHOWN * 0.8:
+		var eaten := Places.bites_eaten(age)
+		if eaten > eaten_before:
+			# The moment a bite leaves the plate is the moment the hand is at the mouth.
+			worst_off = maxf(worst_off, 1.0 - RigMotion.bite_lift(age))
+			peaks += 1
+			eaten_before = eaten
+		age += 0.01
+	_expect(peaks == Dishes.BITES, "a bite for each of the %d the plate loses (%d)" % [Dishes.BITES, peaks])
+	_expect(worst_off < 0.02, "with the hand at the mouth as each goes (%.3f short at worst)" % worst_off)
+	for bite in Dishes.BITES - 1:
+		var between := Places.EAT_FROM + (float(bite) + 0.5) * Places.EAT_BITE
+		_expect(RigMotion.bite_lift(between) < 0.02, "and down on the table between one and the next")
+	_expect(RigMotion.bite_lift(0.0) == 0.0 and RigMotion.bite_lift(Places.MEAL_SHOWN * 0.8) == 0.0, "and still before the first and after the last")
+
+	# The plate on the table really is that old, and the child's rig really lifts.
+	places._tick_meals(2.0)
+	var age_now := float(places.cafe_seat_near(kept)["meal_age"])
+	_expect(absf(age_now - 2.0) < 0.001, "the seat reports how long the plate has been there (%.2f s)" % age_now)
+	_expect(Places.bites_eaten(age_now) == 1 and absf(float(places.meals_on_tables()[0]["left"]) - 0.75) < 0.001, "of which a quarter is gone")
+	places.queue_free()
+	for which in Character.KEYS.size():
+		var heights: Array[float] = []
+		var grip: Vector3 = SeatPose.POSES[&"chair"]["hand"]
+		var down_off := 0.0
+		for plate_age: float in [Places.EAT_FROM, Places.EAT_FROM + Places.EAT_BITE * 0.5]:
+			var parent := Node3D.new()
+			get_root().add_child(parent)
+			var rig := Character.build(which, 1, 1, Visitors.SHIRTS[2])
+			parent.add_child(rig)
+			var motion := RigMotion.new(rig)
+			motion.seat = &"chair"
+			motion.meal_age = plate_age
+			for _frame in 80:
+				motion.step(1.0 / 60.0)
+			var hand := _in_rig(rig.find_child("HandR", true, false), rig)
+			heights.append(hand.y)
+			if plate_age > Places.EAT_FROM:
+				down_off = (hand - Vector3(-grip.x, grip.y, grip.z)).length()
+			parent.queue_free()
+		_expect(heights[0] - heights[1] > 0.15, "%s: the fork hand is up at the mouth for a bite and down between (%.2f m higher)" % [Character.KEYS[which], heights[0] - heights[1]])
+		_expect(down_off < 0.11, "%s: and down on the table (%.2f m off)" % [Character.KEYS[which], down_off])
+
+## The bar runs 6 m along the back, with a strip between it and the wall that was
+## open at both ends. Each end is closed back to the wall, drawn and solid.
+func _check_there_is_no_way_round_the_cafe_bar() -> void:
+	print("there is no way round the end of the café's bar")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	# The bar's own box is 6 by 1.15 by 1.0, found by its size; the strip behind
+	# it runs from its rear to the wall's inner face.
+	var bar_x := 0.0
+	var bar_rear := 0.0
+	var bar_half := 0.0
+	for shape in places._cafe_solid.get_children():
+		var collider := shape as CollisionShape3D
+		if collider != null and collider.shape is BoxShape3D and is_equal_approx((collider.shape as BoxShape3D).size.x, 6.0):
+			var box := collider.shape as BoxShape3D
+			bar_x = collider.transform.origin.x
+			bar_half = box.size.x * 0.5
+			bar_rear = collider.transform.origin.z + box.size.z * 0.5
+	_expect(bar_half > 0.0, "the bar's own solid is found")
+	var wall_face := Places.CAFE_MID_Z + Places.CAFE_DEPTH * 0.5 - 0.2
+	var strip := (bar_rear + wall_face) * 0.5
+	_expect(wall_face - bar_rear < Player.RADIUS * 2.0, "the strip behind it is narrower than a child (%.2f m)" % (wall_face - bar_rear))
+	# A line walked along the middle of the strip, at knee height, from one end
+	# of the bar to the other, is stopped by a solid on the way.
+	var stopped_at: Array[float] = []
+	var covers_it := 0
+	for shape in places._cafe_solid.get_children():
+		var collider := shape as CollisionShape3D
+		if collider == null or not (collider.shape is BoxShape3D):
+			continue
+		var box := collider.shape as BoxShape3D
+		var at := collider.transform.origin
+		if absf(at.z - strip) > box.size.z * 0.5 or absf(at.y - 0.5) > box.size.y * 0.5:
+			continue
+		if at.x - box.size.x * 0.5 < bar_x - bar_half - 0.5 or at.x + box.size.x * 0.5 > bar_x + bar_half + 0.5:
+			continue
+		stopped_at.append(at.x)
+		# Whole way across the strip, so that nothing slips between it and the
+		# bar or the wall.
+		if at.z - box.size.z * 0.5 <= bar_rear + 0.01 and at.z + box.size.z * 0.5 >= wall_face - 0.01:
+			covers_it += 1
+	_expect(stopped_at.size() >= 2, "a solid crosses the strip behind the bar (%d)" % stopped_at.size())
+	var left := false
+	var right := false
+	for x in stopped_at:
+		left = left or x < bar_x
+		right = right or x > bar_x
+	_expect(left and right, "at the left end and at the right")
+	_expect(covers_it >= 2, "each right across, from the bar to the wall")
+	places.queue_free()
+
+## The carousel keeps every node it had, its canopy casts no shadow over the deck,
+## and the chariot's tub is a rounded hull that comes to a prow.
+func _check_the_carousel_is_softer_and_has_the_same_nodes() -> void:
+	print("the carousel keeps its nodes, its canopy casts no hard shadow and its swan is a boat")
+	var ride := Carousel.new(Vector3.ZERO)
+	get_root().add_child(ride)
+	var names: Array[String] = []
+	for child in ride.get_children():
+		# Not the sign's two labels, which the engine names for itself.
+		if not child is Label3D:
+			names.append(String(child.name))
+	names.sort()
+	_expect(names == ["Floor", "GlowLight", "Horses", "Music", "Still", "Turntable"], "the ride has the same six parts (%s)" % [names])
+	_expect(ride.get_node("Turntable").get_child_count() == Carousel.HORSES + 2, "the turntable carries the animals, the turning part and the bulbs' glow (%d)" % ride.get_node("Turntable").get_child_count())
+	_expect(ride.get_node("Horses").get_child_count() == Carousel.HORSES, "and each animal has its barrel")
+	var turning := ride.get_node("Turntable/Turning") as MeshInstance3D
+	_expect(turning.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "the canopy and deck cast no shadow of their own over what is under them")
+	var animals_cast := true
+	for horse in Carousel.HORSES:
+		animals_cast = animals_cast and (ride.get_node("Turntable/Animal%d" % horse) as MeshInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_expect(animals_cast, "while each animal still shades the deck")
+	ride.queue_free()
+	var stern := Carousel._hull_at(-1.0)
+	var middle := Carousel._hull_at(0.0)
+	var prow := Carousel._hull_at(1.0)
+	_expect(float(stern["beam"]) > 0.3 and float(middle["beam"]) > float(stern["beam"]) and float(prow["beam"]) < 0.05, "the tub is blunt at the stern, widest amidships and a point at the prow")
+	_expect(float(prow["rim"]) > float(middle["rim"]) + 0.1 and float(prow["keel"]) < float(middle["keel"]), "and the prow lifts while the keel rises to it, as a boat's")
+
+## The café, the shop and the archery range are kept for people like the
+## playground and the pool, and no animal is ever put down on a shop's floor.
+## They were missing from the animals' own list of such ground.
+func _check_the_animals_keep_off_the_cafe_the_shop_and_the_range() -> void:
+	print("the animals keep off the café, the shop and the range")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var camp := field.camp_centre()
+	for place: StringName in [&"cafe", &"shop", &"range"]:
+		var centre := PlaceSpec.centre_of(place, camp)
+		_expect(animals.kept_for_people(centre.x, centre.z), "the %s is kept for people" % place)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99
+	var inside := 0
+	var strays := 0
+	for place: StringName in [&"cafe", &"shop"]:
+		var centre := PlaceSpec.centre_of(place, camp)
+		for step in 400:
+			var at := centre + Vector3(rng.randf_range(-9.0, 9.0), 0.0, rng.randf_range(-9.0, 9.0))
+			var kind := animals._kind_at(at.x, at.z, rng)
+			if kind == &"":
+				continue
+			if PlaceSpec.indoors(at.x, at.z, camp):
+				inside += 1
+			if not Animals.belongs_at(kind, true):
+				strays += 1
+	_expect(inside == 0, "nothing is placed on a floor (%d)" % inside)
+	_expect(strays == 0, "and only cats and dogs near the café and the shop (%d strays)" % strays)
+	animals.queue_free()
+
+## A long step must not jump a thin fence the feeler stopped short of: a hitch
+## in the frame rate, or a flight at full pace, can take most of a metre.
+func _check_a_long_step_does_not_jump_a_thin_fence() -> void:
+	print("a long step does not jump a thin fence")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+	var wall := StaticBody3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(30.0, 1.2, 0.05)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	wall.add_child(collider)
+	wall.position = spot + Vector3(0.0, 0.6, -0.8)
+	get_root().add_child(wall)
+	await physics_frame
+	await physics_frame
+	animals.follow(spot)
+	var dog := animals.put_one_at(AnimalKinds.DOG, spot)
+	var node: Node3D = dog["node"]
+	dog["velocity"] = 3.0
+	dog["target"] = spot + Vector3(0.0, 0.0, -30.0)
+	dog["rest"] = 5.0
+	dog["speed"] = Animals.FLEE_SPEED
+	animals._step(dog, 0.25)
+	_expect(
+		node.global_position.z > spot.z - 0.8,
+		"a dog taking a 0.25 s step stops at a fence 0.8 m ahead: it ended %.2f m beyond it" % (spot.z - 0.8 - node.global_position.z)
+	)
+	wall.queue_free()
+	animals.queue_free()
+
+func _check_a_dog_asking_and_greeting_barks_once() -> void:
+	print("a dog that asks and then greets is one bark")
+	var voices := AnimalVoices.new()
+	get_root().add_child(voices)
+	voices.bake_now()
+	var dog := Node3D.new()
+	get_root().add_child(dog)
+	dog.global_position = Vector3(300.0, 0.0, 300.0)
+	var herd: Array[Dictionary] = [{"kind": &"dog", "node": dog}]
+
+	# Seven metres off the dog asks for its stick; a step later, inside the
+	# greeting distance, it would say hello over the top of that.
+	var barked := voices._beg(herd, dog.global_position + Vector3(6.5, 0.0, 0.0), 0.1)
+	_expect(barked, "a dog asks for its stick from across the grass")
+	var played := voices._next
+	voices._greet(herd, dog.global_position + Vector3(4.0, 0.0, 0.0))
+	_expect(voices._next == played, "and does not greet over its own bark")
+
+	# Stroking is somebody's doing, and is always answered.
+	voices.speak(&"dog", dog.global_position, 1.0)
+	_expect(voices._next != played, "though being asked to speak is always answered")
+	dog.queue_free()
+	voices.queue_free()
+
+## A plan is sent a piece at a time and judged piece by piece on the other
+## phone, in the order it went up, against only what has arrived (see
+## Main._on_remote_built). Here it was judged all at once against nothing, so
+## the two could disagree: a brother would be left a house of walls with no roof.
+func _check_a_plan_built_here_is_whole_on_the_other_phone() -> void:
+	print("a plan built here arrives whole on the other phone")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	for plan: StringName in Plans.ALL:
+		var yard := _a_yard(200)
+		var field: HeightField = yard["field"]
+		var built := TestHouse.build_plan(yard["build"], field, yard["origin"], plan)
+		_expect(built, "%s goes up here" % plan)
+		var there := Structures.new(field)
+		get_root().add_child(there)
+		var refused := 0
+		for entry: Dictionary in (yard["structures"] as Structures).to_data():
+			var kind := StringName(entry["kind"])
+			var at := Vector3(entry["x"], entry["y"], entry["z"])
+			var extent := Vector2i(int(entry.get("across", 1)), int(entry.get("along", 1)))
+			if not there.is_clear(at, HouseParts.footprint(kind), kind, float(entry["spin"]), extent):
+				refused += 1
+				continue
+			there.place(kind, at, float(entry["spin"]), false, extent)
+		_expect(refused == 0, "%s: every piece is let in over there (%d refused)" % [plan, refused])
+		there.free()
+		_free_the_yard(yard)
+
+## Two machines in one valley must agree on what colour an unshirted child is.
+##
+## The fallback used to step past every colour the asking machine already saw
+## worn. The host asked it about itself with the guest on its list, the guest
+## asked it about the host with nobody on its list, and ids 1 and 13 (both
+## colour 1 of twelve) came out as two different shirts: each child saw
+## themselves in one colour and the other child saw them in another.
+func _check_an_unshirted_colour_does_not_depend_on_who_else_is_here() -> void:
+	print("an unshirted colour does not depend on who else is here")
+	var hosts_screen := Visitors.new()
+	hosts_screen.add(13, "Aida")
+	var guests_screen := Visitors.new()
+	guests_screen.add(1, "Amir")
+	_expect(
+		hosts_screen.shirt_for(1, -1) == guests_screen.shirt_of(1),
+		"the host is the colour on their own screen that the guest sees them in"
+	)
+	_expect(
+		hosts_screen.shirt_of(13) == guests_screen.shirt_for(13, -1),
+		"and the guest is the colour on theirs that the host sees them in"
+	)
+	var before := hosts_screen.shirt_for(1, -1)
+	hosts_screen.relook(13, 0, [0, 0, 0])
+	_expect(
+		hosts_screen.shirt_for(1, -1) == before,
+		"and a brother choosing a shirt does not move anybody else's"
+	)
+	hosts_screen.free()
+	guests_screen.free()
+
+## The mirror of the refusal to sell: a guest buying a machine in the host's valley
+## would be charged, and the machine would stand in a world file that is never written.
+func _check_a_guest_cannot_buy_a_machine_in_the_hosts_valley() -> void:
+	print("a guest cannot buy a machine in the host's valley")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var buying := game.substr(game.find("func _on_buy"))
+	buying = buying.substr(0, buying.find("\nfunc ", 1))
+	var gate := buying.find("_visiting and _is_a_machine(item)")
+	_expect(
+		gate >= 0 and gate < buying.find("wallet.buy(item"),
+		"a visiting child is refused before the purse is touched"
+	)
+	for code in Text.LANGUAGES:
+		Text.set_language(code)
+		_expect(
+			Text.of("say_buy_at_home") != "say_buy_at_home"
+			and Text.of("say_buy_at_home") != Text.of("say_sell_at_home"),
+			"the refusal to buy is worded in %s" % code
+		)
+	Text.set_language(Text.EN)
+
+## "you: red" is a row under the score chip while two play; the instruction line
+## used to sit at a fixed height and was written over it.
+func _check_the_task_line_clears_the_side_row() -> void:
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.set_at_the_pitch(true)
+	hud.set_side(1)
+	_expect(hud.task_label_top() >= hud.score_bottom(), "the instruction line (%.0f) starts below the chip with its side row (%.0f)" % [hud.task_label_top(), hud.score_bottom()])
+	hud.set_side(-1)
+	_expect(hud.task_label_top() >= hud.score_bottom(), "and below the plain chip")
+	hud.queue_free()
+
+## A second bicycle was bought at the same counter and left on exactly the spot
+## the first stood on, facing the same way, so the two were one picture and one
+## solid box: coins paid and nothing visibly arrived. Each one of a kind is left
+## a row further out, in the shop and when a world is loaded.
+func _check_a_second_machine_does_not_stand_inside_the_first() -> void:
+	print("a second machine does not stand inside the first")
+	var stands := {
+		MountKinds.BICYCLE: [ShopStock.BICYCLE, Places.BICYCLE_STANDS_AT],
+		MountKinds.MOTORCYCLE: [ShopStock.MOTORCYCLE, Places.MOTORCYCLE_STANDS_AT],
+		MountKinds.QUAD: [ShopStock.QUAD, Places.QUAD_STANDS_AT],
+	}
+	for kind: StringName in stands:
+		var entry: Array = stands[kind]
+		var length: float = (MountKinds.body_box(kind)[0] as Vector3).z
+		var spots: Array[Vector3] = []
+		for standing in ShopStock.limit(entry[0]):
+			spots.append(Places.machine_stand(entry[1], standing))
+		for i in spots.size():
+			for j in range(i + 1, spots.size()):
+				_expect(
+					spots[i].distance_to(spots[j]) > length,
+					"two %s from the shop clear each other (%.1f m apart)" % [kind, spots[i].distance_to(spots[j])]
+				)
+	_expect(
+		Places.machine_stand(Places.BICYCLE_STANDS_AT, 0) == Places.BICYCLE_STANDS_AT,
+		"the first stands where it always did"
+	)
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.count("Places.machine_stand(") == 2 and not game.contains("_outside_the_shop(machine[2])"),
+		"both the purchase and the reload leave a machine by how many already stand"
+	)
+
+func _check_the_dam_is_offered_only_at_the_river() -> void:
+	var field := HeightField.new(20260903)
+	var dams := Dams.new(field)
+	var site: float = DamSpec.SITES[0]
+	var river_x := field.river_centre_x(site)
+	_expect(not is_nan(dams.site_near(Vector3(river_x + 5.0, 0.0, site + 2.0))),
+		"beside the river at the dam site, the dam is offered")
+	_expect(is_nan(dams.site_near(Vector3(river_x + 300.0, 0.0, site))),
+		"level with the dam but far across the valley, it is not")
+	dams.free()
+
+## A guest parking "bicycle:+3" or "horse:5000" would put a new machine into the
+## host's valley, saved with it: the ids a mount may have are the ones the game
+## itself writes.
+func _check_a_guest_cannot_make_up_mounts() -> void:
+	print("a guest cannot make up mounts")
+	for odd: String in ["bicycle:+3", "bicycle:03", "horse:-1", "horse:5000", "horse: 3", "boat:64"]:
+		_expect(Session.mount_named(odd) == &"", "'%s' is not a mount the game numbers" % odd)
+	for good: String in ["horse:19", "bicycle:16", "boat:0", "quad:63"]:
+		_expect(Session.mount_named(good) == StringName(good), "'%s' still is" % good)
+
+## The host's animals near a guest are stepped and felt for like those near the
+## host's own child: the far-off cadence and the fence feelers were measured from
+## the host's child alone.
+func _check_the_animals_near_a_guest_are_looked_after() -> void:
+	print("the animals near a guest are looked after")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	animals.follow(Vector3.ZERO)
+	var far := Vector3(100.0, 0.0, 0.0)
+	_expect(not animals._worth_feeling_for(far), "alone, an animal 100 m off is not felt for")
+	var cat := animals.put_one_at(AnimalKinds.CAT, far)
+	_expect(animals._step_every(cat) == 4, "alone, it is stepped every fourth frame")
+	animals.companions.append(Vector3(95.0, 0.0, 0.0))
+	_expect(animals._worth_feeling_for(far), "with a guest beside it, it is felt for")
+	_expect(animals._step_every(cat) == 1, "and stepped every frame")
+	animals.queue_free()
+
+## The playground's basketballs meet a child the way the footballs do: by the
+## push the game works out, not by the capsule and the ball colliding. Only the
+## football ground was told to let the child pass, so a child ran dead against a
+## basketball and, pushing on, climbed it.
+func _check_a_child_pushes_a_basketball_the_way_they_push_a_football() -> void:
+	print("a child pushes a basketball the way they push a football")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(Vector3(0.0, field.height_at(0.0, 0.0), 0.0))
+	var child := Player.new()
+	get_root().add_child(child)
+	places.let_pass(child)
+	var passes := places.ball_count() > 0
+	for lying: Ball in places._balls:
+		passes = passes and child.get_collision_exceptions().has(lying)
+	_expect(passes, "the child's body passes through every basketball")
+	# Running at a ball lying just ahead, at a pace past the gentle touch.
+	var ball: Ball = places._balls[0]
+	ball.linear_velocity = Vector3.ZERO
+	var from := ball.position - Vector3(0.5, Ball.RADIUS, 0.0)
+	places.dribble(from, Vector3(6.0, 0.0, 0.0), 0.016)
+	_expect(ball.linear_velocity.x > 3.0, "and a run into it sends it on (%.1f m/s)" % ball.linear_velocity.x)
+	var main_source := FileAccess.get_file_as_string("res://src/main.gd")
+	_expect(
+		main_source.contains("world.places.let_pass(player)") and main_source.contains("world.places.dribble("),
+		"and the game hands both to the playground"
+	)
+	child.free()
+	places.free()
+
+## A trimesh is solid only from its front, so every side of the bridge's swept
+## deck and rails has to face away from the strip it closes. Both sides were
+## wound the same way, which faced one of them inwards: a child on that side
+## of a handrail could walk straight through it.
+func _check_the_bridge_sides_face_outwards() -> void:
+	print("the bridge's sides face outwards")
+	var field := HeightField.new(20260903)
+	var bridge := Bridge.new(field)
+	get_root().add_child(bridge)
+	var body := bridge.get_node("Solid") as StaticBody3D
+	var inward := 0
+	var sides := 0
+	for child in body.get_children():
+		var collider := child as CollisionShape3D
+		var sweep := collider.shape as ConcavePolygonShape3D if collider != null else null
+		if sweep == null:
+			continue
+		var faces := sweep.get_faces()
+		var nearest := INF
+		var furthest := -INF
+		for point in faces:
+			nearest = minf(nearest, point.z)
+			furthest = maxf(furthest, point.z)
+		var middle := (nearest + furthest) * 0.5
+		for i in range(0, faces.size(), 3):
+			# Godot's front faces are clockwise, so outwards is minus the
+			# right-handed normal.
+			var normal := -(faces[i + 1] - faces[i]).cross(faces[i + 2] - faces[i])
+			if absf(normal.z) < 0.5 * normal.length():
+				continue
+			sides += 1
+			if signf(normal.z) != signf(faces[i].z - middle):
+				inward += 1
+	_expect(sides > 0, "the bridge has side faces to judge")
+	_expect(inward == 0, "no side of the deck or its rails faces into it (%d of %d do)" % [inward, sides])
+	bridge.queue_free()
+
+## A child who runs onto a ride, or into a chair, and is then held by it is
+## not running. The strapped-in and carried branches of the player's physics
+## return before is_running and is_moving are worked out, so the last answer
+## from the run up stood for the whole ride and the energy bar drained, and
+## refused a run afterwards, while the child sat still in a car or a chair.
+func _check_a_held_child_is_not_still_running() -> void:
+	print("a held child is not still running")
+	var player := Player.new()
+	get_root().add_child(player)
+	player.is_running = true
+	player.is_moving = true
+	player.strapped_in = true
+	player._physics_process(1.0 / 60.0)
+	_expect(not player.is_running and not player.is_moving,
+		"strapped into a car the child is neither running nor moving")
+	player.strapped_in = false
+	player.is_running = true
+	player.is_moving = true
+	player.is_carried = true
+	player._physics_process(1.0 / 60.0)
+	_expect(not player.is_running and not player.is_moving,
+		"carried on a swing or to a chair the child is neither running nor moving")
+	player.queue_free()
+
+## A ticket buys one go. A child who stays in the tower's or ship's seat, or in
+## the wheel's gondola, while it comes back to rest must be asked again, not
+## carried round a second time for nothing.
+func _check_a_ticket_buys_one_go_of_a_ride() -> void:
+	print("a ride's ticket is spent when its go is over")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var body := game.substr(game.find("func _physics_process"))
+	body = body.substr(0, body.find("\nfunc ", 1))
+	var gone := body.find("_ride_gone_paid = _ride_waiting_paid")
+	var asked := body.find("_riding_without_a_ticket = true\n\t\t\t_offer_a_ride(aboard)")
+	_expect(gone >= 0 and asked > gone, "a tower or ship that has gone with a paid rider asks again when it is back at rest")
+	_expect(
+		body.contains("_wheel_went_round and world.park.wheel.waiting() > 0.0")
+		and body.contains("_wheel_rider_paid = false\n\t\t\t_riding_without_a_ticket = true"),
+		"a gondola's ticket is spent once it has set its rider down at the boards"
+	)
+
+## A save with odd values in it: a clock set back, a count bigger than today's
+## ask. Each is read back as something that can be true.
+func _check_odd_saved_values_are_read_back_sanely() -> void:
+	var journal := Journal.new()
+	journal.arrive(1_700_000_000 + 86400 * 2)
+	journal.arrive(1_700_000_000)
+	_expect(journal.days_away == 0, "a clock set back is not minus days away (%d)" % journal.days_away)
+	var today := Today.new()
+	today.from_data({"day": 5, "progress": 99})
+	var bias: int = Time.get_time_zone_from_system().get("bias", 0)
+	today.begin(5 * 86400 + 43200 - bias * 60)
+	_expect(today.day_number() == 5 and today.done() < today.needed(), "a saved count past the ask is held one short (%d of %d)" % [today.done(), today.needed()])
+
+func _check_a_guest_in_the_saddle_has_no_body_on_the_pitch() -> void:
+	print("a guest on a mount does not push the host's balls")
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var host: Session = pair[0]
+	var guest: Session = pair[1]
+	var host_ground: FootballGround = pair[2]
+	var centre := Pitch.centre()
+	var at := Vector3(centre.x, field.height_at(centre.x, centre.z), centre.z)
+	host._take_position(guest._link_id, at, 0.0, "", 0)
+	await get_root().get_tree().physics_frame
+	await get_root().get_tree().physics_frame
+	_expect(host_ground.body_count() == 1, "on foot a guest has a body on the pitch")
+	host._take_position(guest._link_id, at, 0.0, "horse:0", 0)
+	await get_root().get_tree().physics_frame
+	await get_root().get_tree().physics_frame
+	_expect(host.guest_mounts.get(guest._link_id, &"") == &"horse:0", "the mount a guest is on is kept")
+	_expect(host_ground.body_count() == 0, "in the saddle none, as for the host's own child")
+	host._take_position(guest._link_id, at, 0.0, "", 0)
+	await get_root().get_tree().physics_frame
+	await get_root().get_tree().physics_frame
+	_expect(host_ground.body_count() == 1, "and a body again on getting off")
+	_free_football_pair(pair)
+
+func _check_one_stump_across_a_cell_edge() -> void:
+	# Two phones swinging at one tree record it a hair apart; if that hair lies
+	# across a cell boundary the old duplicate test (own cell only) kept both.
+	var record := Felled.new()
+	record.fell(Vector3(3.99, 0.0, 1.0))
+	record.fell(Vector3(4.01, 0.0, 1.0))
+	_expect(record.count() == 1, "a tree felled twice either side of a cell edge is one stump (%d)" % record.count())
+	_expect(record.to_data().size() == 1, "and is saved once (%d entries)" % record.to_data().size())
+
+## Every literal key the code asks Text for must have words. The completeness
+## check above walks the table, so it cannot see a key that was never put in it;
+## that one only shows on screen, as "?key", on the one path that says it.
+func _check_every_key_the_code_asks_for_has_words() -> void:
+	print("every key the code asks for has words")
+	var asked := RegEx.new()
+	asked.compile("Text\\.(?:of|format)\\(\\s*\"([a-z_0-9]+)\"\\s*[,)]")
+	var everything := ""
+	var used := {}
+	for path in _find_scripts("res://src"):
+		if path.ends_with("i18n/text.gd"):
+			continue
+		var source := _code_only(FileAccess.get_file_as_string(path))
+		everything += source
+		for found in asked.search_all(source):
+			used[found.get_string(1)] = path
+	for key: String in used:
+		_expect(Text.STRINGS.has(key), "'%s' (asked for in %s) has words" % [key, used[key]])
+	# Keys built from a prefix ("item_" + name) are never named whole, so the
+	# other way round is only a note, and only for the ones with no such prefix.
+	var idle := PackedStringArray()
+	for key: String in Text.STRINGS:
+		if everything.contains("\"%s\"" % key):
+			continue
+		var built := false
+		for stem: String in ["item_", "build_", "part_", "animal_", "shop_", "mount_", "place_", "back_", "today_"]:
+			built = built or key.begins_with(stem)
+		if not built:
+			idle.append(key)
+	_expect(idle.is_empty(), "every other string is used somewhere (idle: %s)" % ", ".join(idle))
+
+## "you: red" sits under the score on a chip that grows to hold it, and the
+## day's task is written across the top just below where the chip used to end.
+## Two children at the pitch therefore had the task drawn through their side.
+func _check_the_task_line_clears_the_score_chip_and_its_side() -> void:
+	print("the task line clears the score chip")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.set_task("today: score a goal")
+	hud.set_at_the_pitch(true)
+	hud.set_side(0)
+	var chip_bottom: float = hud._score.position.y + hud._score.size.y
+	_expect(
+		hud._task_label.position.y >= chip_bottom - 1.0,
+		"the task line starts at %.0f, below the chip's foot at %.0f" % [hud._task_label.position.y, chip_bottom]
+	)
+	hud.set_side(-1)
+	var alone_foot: float = hud._score.position.y + hud._score.size.y
+	_expect(
+		hud._task_label.position.y >= alone_foot - 1.0,
+		"and alone, below the smaller chip too (%.0f)" % alone_foot
+	)
+	hud.queue_free()
+
+## A child bumps into what they see. The quad's box was drawn from a design of
+## 1.35 m across and then the wheels were put on outside it, so a child walked
+## twenty centimetres into each tyre.
+func _check_a_wheeled_machine_is_collided_as_wide_as_it_is_drawn() -> void:
+	print("a wheeled machine is collided as wide as it is drawn")
+	for kind: StringName in [&"bicycle:0", &"motorcycle:0", &"quad:0"]:
+		var node := MountKinds.build_node(kind)
+		var box: Array = MountKinds.body_box(kind)
+		var half_across := (box[0] as Vector3).x * 0.5
+		var widest := 0.0
+		for child in node.get_children():
+			var wheel := child as MeshInstance3D
+			if wheel == null or not wheel.name.begins_with("Wheel") or wheel.mesh == null:
+				continue
+			var drawn: AABB = wheel.transform * wheel.mesh.get_aabb()
+			widest = maxf(widest, maxf(absf(drawn.position.x), absf(drawn.end.x)))
+		_expect(widest > 0.0, "%s has wheels to measure" % kind)
+		_expect(half_across >= widest - 0.02, "%s: its tyres (%.2f m out) are inside its collision box (%.2f m)" % [kind, widest, half_across])
+		node.free()
+
+func _check_mounting_widens_the_wood_at_once() -> void:
+	print("climbing onto a horse reaches further at once")
+	var field := HeightField.new(20260903)
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+	var trunks := TreeCollision.new(forest)
+	get_root().add_child(trunks)
+	var wooded := Vector3.ZERO
+	var best := 0.0
+	for z in range(-300, 301, 20):
+		for x in range(-300, 301, 20):
+			var density := field.forest_density_at(float(x), float(z))
+			if density > best:
+				best = density
+				wooded = Vector3(float(x), 0.0, float(z))
+	trunks.follow(wooded)
+	var on_foot := trunks.solid_count()
+	var within_ride := forest.trees_near(wooded, TreeCollision.RIDDEN_REACH).size()
+	var within_walk := forest.trees_near(wooded, TreeCollision.REACH).size()
+	_expect(within_ride > within_walk and within_walk < TreeCollision.BODIES, "there are trees between the two reaches to find")
+	trunks.set_girth(MountKinds.girth(MountKinds.HORSE))
+	trunks.follow(wooded)
+	_expect(trunks.solid_count() > on_foot, "mounting without moving reaches the further trunks (%d, was %d)" % [trunks.solid_count(), on_foot])
+	trunks.queue_free()
+	forest.queue_free()
+

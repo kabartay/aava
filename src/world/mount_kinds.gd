@@ -105,7 +105,10 @@ static func body_box(kind: StringName) -> Array:
 			# Wider than it is long, which is what a quad is and what makes it
 			# read as one from behind. Grown with the mesh, so the room it
 			# takes up and the thing a child sees stay the same object.
-			return [Vector3(1.35, 1.25, 1.95) * QUAD_SCALE, 0.6 * QUAD_SCALE]
+			#
+			# 1.7 across, because that is where the outside of the tyres is:
+			# at 1.35 a child walked twenty centimetres into each wheel.
+			return [Vector3(1.7, 1.25, 2.3) * QUAD_SCALE, 0.6 * QUAD_SCALE]
 		_:
 			return [Vector3(0.5, 1.0, 1.9), 0.55]
 

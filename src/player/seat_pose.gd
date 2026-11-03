@@ -3,7 +3,8 @@ extends RefCounted
 
 ## How a child sits in each of the ways they are carried: on a horse, a bicycle,
 ## a motorcycle, a quad or in a boat, and on the carousel, the big wheel, the
-## coaster, the drop tower, the pirate ship and the swing.
+## coaster, the drop tower, the pirate ship and the swing, and at a café table
+## on a chair, or on a stool or the sofa.
 ##
 ## A pose is where the body goes, in the rig's own frame (x to the child's right,
 ## y up, -z ahead), and the rig's origin is the point on the carrier the child's
@@ -34,6 +35,8 @@ extends RefCounted
 ##   toe     which way the sole is turned: up positive, down negative.
 ##   knee    the way the knees point, as a direction for the left leg.
 ##   elbow   the same for the left elbow.
+##   eats    whether the right hand takes a bite to the mouth for each one the
+##           plate in front of them loses (RigMotion.bite_lift keeps the time).
 ##   style   what moves while carried: &"rock" a stride's rocking, &"pedal" legs
 ##           turning with the wheel, &"paddle" a stroke on either side,
 ##           &"pump" the legs thrown out and tucked in with a swing's tilt
@@ -177,5 +180,30 @@ const POSES := {
 		# Pumping: the legs are tucked back under the seat as it swings back
 		# and thrown out and up as it swings forward, added to the foot above.
 		"style": &"pump", "tuck": Vector3(0.0, -0.06, 0.26), "stretch": Vector3(0.0, 0.14, -0.08),
+	},
+	# A café chair: the seat is 0.56 square and 0.45 up (Places._build_table), the
+	# table's edge 0.45 in front of its middle and its top 0.78 up, so 0.33 above
+	# the seat. The child sits forward on it, a hand's breadth ahead of its
+	# middle, with the back at their shoulders, the hands flat on the table's
+	# near edge either side of the plate, and the legs over the front with the
+	# feet hanging: the floor is further down than a child's leg reaches. The
+	# built chair (HouseParts._chair, 0.48 up beside a table 0.76 up) is the same
+	# to within a couple of centimetres.
+	&"chair": {
+		"seat": Vector3(0.0, 0.0, -0.08), "lean": 0.3, "nod": 0.1,
+		"hand": Vector3(-0.20, 0.32, -0.50), "reach": 1.2,
+		"foot": Vector3(-0.12, -0.25, -0.32), "toe": -0.5,
+		"knee": Vector3(-0.1, 0.8, -1.0), "elbow": Vector3(-1.0, -0.2, 0.3),
+		"style": &"", "eats": true,
+	},
+	# A stool at the bar (0.62 up) or a place on the sofa (0.42 up): the table is
+	# a metre away or more, further than an arm, so the hands rest in the lap
+	# and the plate is eaten from there, the legs hanging over the front.
+	&"lap": {
+		"seat": Vector3(0.0, 0.0, 0.0), "lean": 0.12, "nod": 0.05,
+		"hand": Vector3(-0.19, 0.16, -0.26), "reach": 1.1,
+		"foot": Vector3(-0.12, -0.27, -0.20), "toe": -0.5,
+		"knee": Vector3(-0.1, 0.6, -1.0), "elbow": Vector3(-1.0, -0.2, 0.3),
+		"style": &"", "eats": true,
 	},
 }

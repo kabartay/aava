@@ -123,6 +123,11 @@ var guests: Dictionary = {}
 ## Where each guest last said they were, for the host to judge a kick by.
 var guest_positions: Dictionary = {}
 
+## What each guest said they are riding, by peer id, and nothing for one on foot.
+## Kept with the positions, because what a guest is doing on a mount is part of
+## where they are: the football judges a guest's body by it.
+var guest_mounts: Dictionary = {}
+
 ## The host's peer id, which is always 1 in Godot's multiplayer.
 const HOST_ID := 1
 
@@ -257,6 +262,7 @@ func close() -> void:
 		guests.clear()
 		guest_looks.clear()
 		guest_positions.clear()
+		guest_mounts.clear()
 		return
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer = null
@@ -271,6 +277,7 @@ func close() -> void:
 	guests.clear()
 	guest_looks.clear()
 	guest_positions.clear()
+	guest_mounts.clear()
 	if was != Role.ALONE:
 		closed.emit()
 
@@ -628,11 +635,22 @@ static func believable(at: Vector3) -> bool:
 func _send_position(at: Vector3, facing: float, mount := "", motion := 0) -> void:
 	if not believable(at) or not is_finite(facing):
 		return
-	var from := multiplayer.get_remote_sender_id()
+	_take_position(multiplayer.get_remote_sender_id(), at, facing, mount, motion)
+
+func _take_position(from: int, at: Vector3, facing: float, mount: String, motion: int) -> void:
 	guest_positions[from] = at
+	var riding := mount_named(mount)
+	if riding == &"":
+		guest_mounts.erase(from)
+	else:
+		guest_mounts[from] = riding
 	# Eight bits and no more: anything else a stranger sends is not a pace.
 	guest_moving.emit(from, motion & 255)
-	guest_moved.emit(from, at, facing, mount_named(mount))
+	guest_moved.emit(from, at, facing, riding)
+
+## The highest number in a mount's id: a herd of twenty is the most the valley
+## has, and a machine bought is numbered from nought (see Mounts.free_id).
+const MAX_MOUNT_NUMBER := 63
 
 ## What somebody says they are riding, or nothing. An id is "horse:3" or
 ## "bicycle:0": a kind this game has, and at most a number after it. Anything
@@ -644,8 +662,16 @@ static func mount_named(text: String) -> StringName:
 	var kind := text if colon < 0 else text.substr(0, colon)
 	if not MountKinds.ALL.has(StringName(kind)):
 		return &""
-	if colon >= 0 and not text.substr(colon + 1).is_valid_int():
-		return &""
+	if colon >= 0:
+		# A number as the game writes one: no sign, no padding, and no more than
+		# a valley has ever numbered. A parked mount of an id this phone has not
+		# heard of is put into the valley (and saved with it), so "bicycle:+3"
+		# and "bicycle:3" were two machines and "horse:99999" a new one each.
+		var number := text.substr(colon + 1)
+		if not number.is_valid_int() or str(number.to_int()) != number:
+			return &""
+		if number.to_int() < 0 or number.to_int() > MAX_MOUNT_NUMBER:
+			return &""
 	return StringName(text)
 
 ## Does the network itself carry a guest's message to the other guests? Godot's
@@ -1013,6 +1039,7 @@ func _on_peer_connected(id: int) -> void:
 func _on_peer_disconnected(id: int) -> void:
 	peer_gone.emit(id)
 	guest_positions.erase(id)
+	guest_mounts.erase(id)
 	# Somebody who dropped before saying who they were was never announced, so
 	# there is nobody to say has left: "? left" came from a child nobody saw.
 	if not guests.has(id):

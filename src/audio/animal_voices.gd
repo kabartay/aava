@@ -213,7 +213,7 @@ func _greet(near: Array[Dictionary], listener: Vector3) -> void:
 func speak(kind: StringName, at: Vector3, pitch := 1.0) -> void:
 	# The same recording twice in a row is the fastest way to hear that it is
 	# one: a little off the given pitch each time.
-	_play(kind, at, pitch * _rng.randf_range(0.94, 1.08))
+	_play(kind, at, pitch * _rng.randf_range(0.94, 1.08), true)
 	# Stroking a cat: it answers, then settles into a purr. The purr arrives a
 	# moment after the meow rather than under it, which is the order a real
 	# one does things in.
@@ -225,13 +225,35 @@ func _purr_later(at: Vector3) -> void:
 	if is_inside_tree():
 		_play(&"cat_purr", at, 1.0)
 
-func _play(kind: StringName, at: Vector3, pitch: float) -> void:
+## An animal that has only just called does not call again from the same spot
+## for this long unless somebody asked it to.
+const SAME_CALL_MSEC := 1500
+const SAME_CALL_REACH := 4.0
+
+var _called: Dictionary = {}
+
+## `asked` is for a call somebody has just caused, by stroking or milking: that
+## one is always answered. The ones the animals start themselves — the hello,
+## the dog asking for its stick, the idle chatter — are three timers that know
+## nothing of each other, and a dog walked up to was heard to ask from seven
+## metres and then greet from five, two barks overlapping in the same breath.
+func _play(kind: StringName, at: Vector3, pitch: float, asked := false) -> void:
 	_collect_baked()
+	var now := Time.get_ticks_msec()
+	var before: Dictionary = _called.get(kind, {})
+	if (
+		not asked and not before.is_empty()
+		and now - int(before["at"]) < SAME_CALL_MSEC
+		and (before["where"] as Vector3).distance_to(at) < SAME_CALL_REACH
+	):
+		return
 	if kind == &"cat" and _sounds.has(&"cat_short") and _rng.randf() < 0.4:
 		# Two cries, a long and a short, so the cat is not a doorbell.
+		_called[kind] = {"at": now, "where": at}
 		kind = &"cat_short"
 	if not _sounds.has(kind):
 		return
+	_called[kind] = {"at": now, "where": at}
 	var player := _players[_next]
 	_next = (_next + 1) % _players.size()
 	player.stream = _sounds[kind]

@@ -320,10 +320,16 @@ func _sweep(
 		Bridge._quad(faces,
 			Vector3(near_x, near + bottom, far_z), Vector3(far_x, far + bottom, far_z),
 			Vector3(far_x, far + bottom, near_z), Vector3(near_x, near + bottom, near_z))
-		for z: float in [near_z, far_z]:
-			Bridge._quad(faces,
-				Vector3(near_x, near + bottom, z), Vector3(far_x, far + bottom, z),
-				Vector3(far_x, far + top, z), Vector3(near_x, near + top, z))
+		# Each side wound to face outwards: the same winding on both faced one
+		# of them into the strip, and a trimesh is only solid from its front,
+		# so that handrail (and that edge of the deck) could be walked through
+		# from outside.
+		Bridge._quad(faces,
+			Vector3(near_x, near + bottom, near_z), Vector3(far_x, far + bottom, near_z),
+			Vector3(far_x, far + top, near_z), Vector3(near_x, near + top, near_z))
+		Bridge._quad(faces,
+			Vector3(near_x, near + top, far_z), Vector3(far_x, far + top, far_z),
+			Vector3(far_x, far + bottom, far_z), Vector3(near_x, near + bottom, far_z))
 
 	var shape := ConcavePolygonShape3D.new()
 	shape.set_faces(faces)

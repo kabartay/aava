@@ -226,7 +226,16 @@ func _init(at: Vector3) -> void:
 	# Drawn once, on the turntable. It was committed to the horses' body as
 	# well, so every vertex of the ride went to the card twice, one copy on
 	# top of the other, turning in step.
-	Park.commit(turning, _turntable, "Turning")
+	#
+	# The turning part casts no shadow. At midday the canopy threw one hard
+	# shadow over the whole deck, and what stood in it was lit by the blue of
+	# the sky alone: the pale horses went lilac and the red deck maroon. (A warm
+	# light under the canopy was tried, and only warmed the sides of the horses
+	# that face the middle, and put a hot patch on the stripes.) The animals are
+	# meshes of their own, so they still shade the deck and one another, and the
+	# still part, the ramps and the sign, still shades the sand.
+	var turning_drawn := Park.commit(turning, _turntable, "Turning")
+	turning_drawn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	Park.commit(still, self, "Still")
 	_commit_glow(glowing, roof_base)
 
@@ -560,18 +569,14 @@ func _build_animal(horse: int, turning: SurfaceTool, roof_base: Vector3, rim: fl
 func _draw_swan(figure: SurfaceTool, frame: Transform3D, gilt: Color) -> void:
 	var white := Color(0.99, 0.99, 1.0)
 	var beak := Color(1.0, 0.58, 0.16)
-	# The tub, a prow that sweeps up at the front, and the gold edging.
-	_block(figure, frame, Vector3(0.0, 0.10, 0.0), Vector3(1.5, 0.42, 0.8), gilt)
-	_block(figure, frame, Vector3(0.0, -0.36, 0.0), Vector3(1.2, 0.5, 0.6), TRIM)
-	_block(
-		figure, frame, Vector3(0.70, 0.30, 0.0), Vector3(0.3, 0.12, 0.7), gilt.darkened(0.12),
-		Basis(Vector3.BACK, deg_to_rad(28.0))
-	)
+	# The tub: a rounded hull, blunt at the stern and drawn out to a prow that
+	# sweeps up at the front, on a rounded skirt, with the gold edging following
+	# the hull's own rim (see `_tub`).
+	_tub(figure, frame, gilt)
+	_ball(figure, frame, Vector3(0.0, -0.34, 0.0), Vector3(0.62, 0.27, 0.30), TRIM)
 	_block(
 		figure, frame, Vector3(-0.68, 0.62, 0.0), Vector3(0.1, 0.56, 0.8), gilt.darkened(0.15)
 	)
-	for side: float in [-1.0, 1.0]:
-		_rod(figure, frame, Vector3(-0.72, 0.32, side * 0.41), Vector3(0.78, 0.32, side * 0.41), 0.03, 0.03, GOLD, 5)
 	# The cushion is a saddle's height and colour, which is what the seat is.
 	_block(
 		figure, frame, Vector3(-0.05, 0.31, 0.0), Vector3(1.2, 0.08, 0.62),
@@ -624,6 +629,56 @@ func _draw_swan(figure: SurfaceTool, frame: Transform3D, gilt: Color) -> void:
 			GOLD
 		)
 
+## Where the swan's hull is, at `along` (-1 at the stern to 1 at the prow): how
+## far forward of the animal's middle, how wide either side of it, how high the
+## rim stands and how deep the keel hangs below the rim. In the animal's own
+## frame. The stern is blunt and the prow comes to a point and lifts, as a boat's.
+static func _hull_at(along: float) -> Dictionary:
+	var half_beam := 0.40 - 0.04 * along * along if along < 0.0 else 0.40 * pow(1.0 - along * along, 0.6)
+	return {
+		"x": -0.64 + (along + 1.0) * 0.72,
+		"beam": half_beam,
+		"rim": 0.31 + 0.2 * pow(maxf(along, 0.0), 3.0),
+		"keel": 0.42 * (1.0 - 0.55 * along * along),
+	}
+
+## The chariot's tub as one lofted skin: stations from the stern to the prow,
+## each a half ellipse across, with a deck closing the top (the cushion lies on
+## it) and a transom closing the stern. The gold rail runs along the rim.
+func _tub(figure: SurfaceTool, frame: Transform3D, gilt: Color) -> void:
+	var stations := 8
+	var round_ways := 6
+	var deck := gilt.darkened(0.12)
+	var previous: Array[Vector3] = []
+	var last_rim: Array[Vector3] = []
+	for index in stations + 1:
+		var hull := _hull_at(-1.0 + 2.0 * float(index) / float(stations))
+		var ring: Array[Vector3] = []
+		for way in round_ways + 1:
+			var angle := PI * float(way) / float(round_ways)
+			ring.append(frame * Vector3(
+				float(hull["x"]),
+				float(hull["rim"]) - float(hull["keel"]) * sin(angle),
+				float(hull["beam"]) * cos(angle)
+			))
+		var rim: Array[Vector3] = [ring[0], ring[round_ways]]
+		if index == 0:
+			# The transom: a flat face, fanned from the middle of the stern.
+			var middle := frame * Vector3(float(hull["x"]), float(hull["rim"]) - float(hull["keel"]) * 0.5, 0.0)
+			var backwards := frame.basis * Vector3.LEFT
+			for way in round_ways:
+				_quad(figure, middle, ring[way], ring[way + 1], middle, backwards, gilt)
+		else:
+			for way in round_ways:
+				var centre := (ring[way] + ring[way + 1] + previous[way] + previous[way + 1]) * 0.25
+				var axis := frame * Vector3(float(hull["x"]), float(hull["rim"]), 0.0)
+				_quad(figure, previous[way], previous[way + 1], ring[way + 1], ring[way], centre - axis, gilt)
+			_quad(figure, last_rim[0], ring[0], ring[round_ways], last_rim[1], frame.basis * Vector3.UP, deck)
+			for side in 2:
+				_strut(figure, last_rim[side], rim[side], 0.03, 0.03, GOLD, 5)
+		previous = ring
+		last_rim = rim
+
 ## A pig: round and pink, a saddle cloth on its back, a snout with two nostrils,
 ## floppy ears, a curl of tail and four short legs on little dark trotters.
 func _draw_pig(figure: SurfaceTool, frame: Transform3D, cloth: Color) -> void:
@@ -637,8 +692,12 @@ func _draw_pig(figure: SurfaceTool, frame: Transform3D, cloth: Color) -> void:
 	for side: float in [-1.0, 1.0]:
 		_ball(figure, frame, Vector3(0.795, 0.03, side * 0.05), Vector3(0.02, 0.035, 0.022), DARK_EYE)
 		_ball(figure, frame, Vector3(0.69, 0.17, side * 0.13), Vector3.ONE * 0.04, DARK_EYE)
-		# An ear, pricked up and a little forward.
-		_rod(figure, frame, Vector3(0.50, 0.24, side * 0.12), Vector3(0.60, 0.42, side * 0.2), 0.09, 0.025, dark, 4)
+		# An ear, a flat flap that folds forward and hangs down over the side of
+		# the head, as a pig's do: a rod pricked up from the crown read as a horn.
+		_ball(
+			figure, frame, Vector3(0.58, 0.19, side * 0.20), Vector3(0.115, 0.03, 0.085), dark,
+			Basis(Vector3.BACK, deg_to_rad(-25.0)) * Basis(Vector3.RIGHT, side * deg_to_rad(52.0))
+		)
 	# A curl of tail: three short sticks that turn on themselves.
 	_rod(figure, frame, Vector3(-0.70, 0.06, 0.0), Vector3(-0.77, 0.15, 0.0), 0.04, 0.035, dark, 4)
 	_rod(figure, frame, Vector3(-0.77, 0.15, 0.0), Vector3(-0.74, 0.26, 0.0), 0.035, 0.03, dark, 4)

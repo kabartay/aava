@@ -42,6 +42,11 @@ var _animal_at := 1.0
 var _frames := 0
 ## `--closed=1` shuts the ride's harness or bar, as it is while it is going.
 var _closed := false
+## `--ride=chair` sits the figure at a café table as drawn there (turn the row
+## with `--yaw=90` to see it side on), and `--meal=SECONDS` is how long ago the
+## plate was set down, which is what times the bites (a bite is at 1.2 and then
+## every 1.1).
+var _meal := -1.0
 
 func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -67,6 +72,7 @@ func _initialize() -> void:
 			"animal": _animal = parts[1]
 			"animalat": _animal_at = parts[1].to_float()
 			"closed": _closed = parts[1] != "0"
+			"meal": _meal = parts[1].to_float()
 
 ## Built on the first frame and not in `_initialize`, where the root is not yet
 ## in the tree and a ride has no global transform to give a seat.
@@ -116,7 +122,7 @@ func _build() -> void:
 		rides.position = -(row.global_transform.affine_inverse() * found.origin)
 		_ride_place = (
 			Transform3D(row.global_transform.basis * found.basis, Vector3.ZERO)
-			if _ride == "swing" else _seat_of_ride(_ride_node)
+			if _ride == "swing" or _ride == "chair" else _seat_of_ride(_ride_node)
 		)
 	var tool := Visitors.new()
 	for i in shown.size():
@@ -171,11 +177,51 @@ func _build_ride(parent: Node3D) -> Transform3D:
 		"coaster": _ride_node = RollerCoaster.new(Vector3.ZERO)
 		"drop_tower": _ride_node = DropTower.new(Vector3.ZERO)
 		"pirate_ship": _ride_node = PirateShip.new(Vector3.ZERO)
+		"chair": _ride_node = _cafe_chair()
 		_: _ride_node = Node3D.new()
 	parent.add_child(_ride_node)
 	if _closed:
 		close_restraints(_ride_node)
 	return _seat_of_ride(_ride_node)
+
+## A café chair and the table in front of it, as Places._build_table draws them,
+## facing -Z like a figure does: the seat at 0.45, the back behind it, the table's
+## top 0.78 up and 1.05 ahead of the middle of the seat.
+func _cafe_chair() -> Node3D:
+	var furniture := Node3D.new()
+	var timber := StandardMaterial3D.new()
+	timber.albedo_color = Color(0.54, 0.38, 0.24)
+	for part: Array in [
+		[Vector3(0.56, 0.05, 0.56), Vector3(0.0, 0.425, 0.0)],
+		[Vector3(0.56, 0.45, 0.05), Vector3(0.0, 0.7, 0.26)],
+		[Vector3(0.04, 0.45, 0.04), Vector3(-0.23, 0.225, -0.23)], [Vector3(0.04, 0.45, 0.04), Vector3(0.23, 0.225, -0.23)],
+		[Vector3(0.04, 0.45, 0.04), Vector3(-0.23, 0.225, 0.23)], [Vector3(0.04, 0.45, 0.04), Vector3(0.23, 0.225, 0.23)],
+	]:
+		var box := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = part[0]
+		box.mesh = mesh
+		box.material_override = timber
+		box.position = part[1]
+		furniture.add_child(box)
+	var top := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.6
+	disc.bottom_radius = 0.6
+	disc.height = 0.05
+	top.mesh = disc
+	top.material_override = timber
+	top.position = Vector3(0.0, 0.755, -1.05)
+	furniture.add_child(top)
+	var plate := MeshInstance3D.new()
+	var dish := CylinderMesh.new()
+	dish.top_radius = 0.15
+	dish.bottom_radius = 0.12
+	dish.height = 0.02
+	plate.mesh = dish
+	plate.position = Vector3(0.0, 0.79, -1.05 + 0.5)
+	furniture.add_child(plate)
+	return furniture
 
 ## Shut every harness and bar of a ride the way its own process does while it
 ## is running, so that the child can be judged as they are carried.
@@ -199,6 +245,7 @@ func _seat_of_ride(ride: Node3D) -> Transform3D:
 		"coaster": return (ride as RollerCoaster).seat_of(_seat_no)
 		"drop_tower": return (ride as DropTower).seats()[_seat_no]
 		"pirate_ship": return (ride as PirateShip).seats()[_seat_no]
+		"chair": return Transform3D(Basis(), Vector3(0.0, 0.45, 0.0))
 	# The swing: a seat on its chains, with the bar 2.75 above.
 	var bar := Node3D.new()
 	ride.add_child(bar)
@@ -236,6 +283,7 @@ func _strike(figure: Node3D) -> void:
 		motion.riding = true
 		motion.seat_placed = true
 		motion.seat_place = _ride_place
+		motion.meal_age = _meal
 	match _pose:
 		"walk": motion.speed = 3.4
 		"run": motion.speed = 6.6

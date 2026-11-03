@@ -105,20 +105,15 @@ func add(id: int, who: String, chose := -1, look := []) -> void:
 func shirt_for(id: int, chose: int) -> Color:
 	if chose >= 0 and chose < SHIRTS.size():
 		return SHIRTS[chose]
-	# Everyone else's shirt, and deliberately not this child's own. Counting
-	# their current colour as taken meant that asking again — which is what
-	# happens when they type their name, because the name and the shirt travel
-	# together — was guaranteed to hand back a different one, and a brother
-	# changed colour every time he renamed himself.
-	var worn := {}
-	for other_id: int in _visitors:
-		if other_id == id:
-			continue
-		worn[_visitors[other_id]["shirt"]] = true
-	for step in SHIRTS.size():
-		var candidate := SHIRTS[(absi(id) + step) % SHIRTS.size()]
-		if not worn.has(candidate):
-			return candidate
+	# A pure function of the id, and nothing else. It used to step past the
+	# colours already worn by everyone else here, which made the answer depend
+	# on who this machine happened to know about: the host worked out its own
+	# colour with the guest counted as worn, the guest worked out the host's
+	# with nobody counted, and whenever the two ids landed on one colour each
+	# child was drawn in a different shirt on their own screen from the one the
+	# other saw. A brother who later picked the colour you were wearing moved
+	# yours on his screen only. Two ids sharing a colour one time in twelve is
+	# the lesser harm.
 	return SHIRTS[absi(id) % SHIRTS.size()]
 
 ## What somebody is actually wearing, as opposed to what they would be given if
@@ -445,6 +440,7 @@ func _animate(record: Dictionary, motion: RigMotion, node: Node3D, delta: float,
 		motion.seat = seated.get("pose", &"")
 		motion.seat_placed = not seated.is_empty()
 		motion.seat_place = seated.get("place", motion.seat_place)
+		motion.meal_age = seated.get("meal_age", -1.0)
 		motion.gait = 0.0
 		motion.riding = motion.seat != &""
 	motion.step(minf(waited, 0.25))

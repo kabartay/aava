@@ -40,7 +40,7 @@ const MEAL_SHOWN := 8.0
 const CAFE_WIDTH: float = PlaceSpec.BUILDINGS[&"cafe"][0]
 const CAFE_DEPTH: float = PlaceSpec.BUILDINGS[&"cafe"][1]
 const CAFE_HEIGHT := 3.5
-const CAFE_MID_Z := 1.6
+const CAFE_MID_Z: float = PlaceSpec.BUILDINGS[&"cafe"][2]
 ## The café's chimney stack, measured up from the top of its walls: its foot is
 ## well inside the roof, its top a little over the ridge.
 const CAFE_CHIMNEY_FOOT := 0.6
@@ -189,6 +189,16 @@ const SHOP_LIGHTS: Array[Vector3] = [
 const BICYCLE_STANDS_AT := Vector3(4.2, 0.0, -8.6)
 const MOTORCYCLE_STANDS_AT := Vector3(6.8, 0.0, -8.6)
 const QUAD_STANDS_AT := Vector3(9.4, 0.0, -8.6)
+## How much further out each machine after the first of its kind is left. They
+## all faced the same way on the same spot, so a second bicycle was bought,
+## stood exactly inside the first and looked as if nothing had arrived. A
+## motorcycle is 2.3 m long, hence a little more than that.
+const STANDS_ROW := 2.6
+
+## Where the machine bought after `standing` others of its kind are already in
+## the valley is left: the same stand, a row further from the door each time.
+static func machine_stand(base: Vector3, standing: int) -> Vector3:
+	return base + Vector3(0.0, 0.0, -STANDS_ROW * float(maxi(standing, 0)))
 
 ## The hitching rail outside, because nothing is ridden through a doorway.
 const SHOP_RAIL_X := -10.4
@@ -198,6 +208,9 @@ const SHOP_RAIL_Z := -4.4
 const SHOP_LAMPS: Array[Vector3] = [
 	Vector3(-8.4, 0.0, -8.6), Vector3(8.4, 0.0, -8.6),
 ]
+
+## How thick the panel is that closes each end of the café's bar.
+const BAR_END_THICKNESS := 0.1
 
 ## How far from a seat a child may be and still be sat down at it.
 const CAFE_SEAT_REACH := 6.0
@@ -3018,6 +3031,26 @@ func _build_cafe(at: Vector3) -> void:
 	var bar_shape := BoxShape3D.new()
 	bar_shape.size = Vector3(6.0, 1.15, 1.0)
 	_collide(solid, bar_shape, Transform3D(Basis(), Vector3(bar_x, 0.575, bar_z)))
+	# The ends closed. The bar is solid for its own depth, but between it and
+	# the back wall there is a strip 0.5 m wide that was open at both ends: too
+	# narrow for a child to walk into (a body is 0.68 across), but open to
+	# anything smaller, to the other child's avatar where the two phones
+	# disagree by a step, and a slot to be wedged in by a jump from the bar's top.
+	# A panel at each end, its outer face flush with the bar's, takes the end of
+	# the counter back to the wall, and is solid for the part the bar's own box
+	# does not already fill.
+	var bar_rear := bar_z + bar_shape.size.z * 0.5
+	var wall_face := back - thick
+	var end_panel_height := 1.10 - 0.06
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var end_x := bar_x + side * (bar_shape.size.x * 0.5 - BAR_END_THICKNESS * 0.5)
+		var drawn_front := bar_z - 0.45
+		var closing := BoxMesh.new()
+		closing.size = Vector3(BAR_END_THICKNESS, end_panel_height, wall_face - drawn_front)
+		_add(tool, closing, Transform3D(Basis(), Vector3(end_x, 0.06 + end_panel_height * 0.5, (drawn_front + wall_face) * 0.5)), timber.darkened(0.15))
+		var strip := BoxShape3D.new()
+		strip.size = Vector3(BAR_END_THICKNESS, end_panel_height, wall_face - bar_rear)
+		_collide(solid, strip, Transform3D(Basis(), Vector3(end_x, 0.06 + end_panel_height * 0.5, (bar_rear + wall_face) * 0.5)))
 	_lay_the_counter(tool, Vector3(bar_x, 1.1, bar_z))
 	_stand_the_till_and_the_coffee_machine(tool, at, Vector3(bar_x, 1.1, bar_z))
 	# Shelves of jars and cups behind it, and the menu board above them.
@@ -3053,7 +3086,7 @@ func _build_cafe(at: Vector3) -> void:
 		stool_shape.height = 0.62
 		_collide(solid, stool_shape, Transform3D(Basis(), stool_at + Vector3(0.0, 0.31, 0.0)))
 		# Facing the bar (+Z): a body faces -Z at rotation 0, so PI.
-		_cafe_seats.append({"seat": stool_at + Vector3(0.0, 0.62, 0.0), "table": Vector3(x, 1.1, bar_z - 0.3), "facing": PI})
+		_cafe_seats.append({"seat": stool_at + Vector3(0.0, 0.62, 0.0), "table": Vector3(x, 1.1, bar_z - 0.3), "facing": PI, "pose": &"lap"})
 
 	# Tables and chairs inside, and the sofa corner.
 	for table_at in CAFE_TABLES:
@@ -3364,7 +3397,7 @@ func _build_table(tool: SurfaceTool, local: Vector3, canopy: Color, solid: Stati
 		_cafe_seats.append({
 			"seat": seat_at + Vector3(0.0, 0.45, 0.0),
 			"table": local + Vector3(side * 0.42, 0.78, 0.0),
-			"facing": side * PI * 0.5,
+			"facing": side * PI * 0.5, "pose": &"chair",
 		})
 
 ## A sofa against the wall, facing -X, with cushions and a low table in front
@@ -3446,7 +3479,7 @@ func _build_sofa(tool: SurfaceTool, local: Vector3, solid: StaticBody3D) -> void
 		_cafe_seats.append({
 			"seat": local + Vector3(0.0, 0.42, dz),
 			"table": table_at + Vector3(0.3, 0.5, dz),
-			"facing": PI * 0.5,
+			"facing": PI * 0.5, "pose": &"lap",
 		})
 
 ## A pendant light: a cord from the ceiling, a shade, a bulb that glows and
@@ -3669,6 +3702,53 @@ func serve_meal(near: Vector3, dish: StringName = Dishes.USUAL) -> Dictionary:
 ## The tray most recently set down by `serve_meal`, for the game to say aloud
 ## to the other child: the dish and where it stands. Empty before any.
 var last_tray: Dictionary = {}
+
+## How far below the top of its seat the body of a child sat at a table is kept
+## (Main._carry): down in the chair, whose furniture the body ignores meanwhile.
+## It is also how a child is known to be sitting, from where they are alone.
+const DINING_SINK := 0.3
+## How close to the middle of a seat, across, and how near that height, a child
+## has to be to be taken as sitting in it. Tight enough that nobody walking,
+## jumping or standing on the seat is: the seat is solid, and its top is higher.
+const DINING_ACROSS := 0.12
+const DINING_ABOUT := 0.06
+
+## How a child at one of the café's seats is sitting, if they are: the pose
+## (SeatPose), where the seat is in the world, turned to face the table, and how
+## old the plate on it is (-1 when there is none). Worked from where the child
+## is rather than from who sat them, as the rides' seats are, so that the other
+## phone sees them sit as well. Empty otherwise.
+func cafe_seat_near(at: Vector3) -> Dictionary:
+	if not _spots.has(CAFE):
+		return {}
+	var spot: Vector3 = _spots[CAFE]
+	for seat in _cafe_seats:
+		var top: Vector3 = spot + seat["seat"]
+		if Vector2(at.x - top.x, at.z - top.z).length() > DINING_ACROSS:
+			continue
+		if absf(at.y - (top.y - DINING_SINK)) > DINING_ABOUT:
+			continue
+		return {
+			"pose": seat["pose"],
+			"place": Transform3D(Basis(Vector3.UP, float(seat["facing"])), top),
+			"meal_age": meal_age_near(spot + (seat["table"] as Vector3), 0.05),
+		}
+	return {}
+
+## How long ago the nearest plate within `reach` of a point (across, not up) was
+## set down, or -1 when there is none.
+func meal_age_near(at: Vector3, reach: float) -> float:
+	var best := -1.0
+	var nearest := reach
+	for meal in _meals:
+		var node := meal["node"] as Node3D
+		if not is_instance_valid(node):
+			continue
+		var distance := Vector2(node.position.x - at.x, node.position.z - at.z).length()
+		if distance <= nearest:
+			nearest = distance
+			best = float(meal["age"])
+	return best
 
 ## A dish set down on a table somebody else is sat at, or at a café a child
 ## built: the same tray, from a dish and a place. Nothing is charged here and
@@ -3966,6 +4046,25 @@ func ball_near(from: Vector3) -> Ball:
 
 func ball_count() -> int:
 	return _balls.size()
+
+## Let a child's body and the basketballs pass through one another in the
+## physics server, so that all they do to each other is `Ball.touch_velocity`,
+## as on the football pitch (see FootballGround.let_pass). Left to the capsule
+## alone, a child ran dead against a basketball and, pushing on, climbed it.
+func let_pass(body: PhysicsBody3D) -> void:
+	for ball in _balls:
+		body.add_collision_exception_with(ball)
+		ball.add_collision_exception_with(body)
+
+## The same touch the football pitch gives, for the playground's basketballs: a
+## child on foot at `from` moving at `velocity` shoves or dribbles whatever
+## they are walking into, since the server no longer does it for them.
+func dribble(from: Vector3, velocity: Vector3, delta: float) -> void:
+	for ball in _balls:
+		var now := Ball.touch_velocity(ball.position, ball.linear_velocity, from, velocity, delta)
+		if now != ball.linear_velocity:
+			ball.sleeping = false
+			ball.linear_velocity = now
 
 func has_hoop() -> bool:
 	return _has_hoop

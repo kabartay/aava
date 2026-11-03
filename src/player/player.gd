@@ -424,6 +424,9 @@ var strapped_in := false
 ## SeatPose) and where it is in the world. The body is sat down on it.
 var seat_pose: StringName = &""
 var seat_place := Transform3D()
+## How long ago the plate in front of a child at a table was set down, or
+## negative if there is none: the bites they take are timed by it.
+var meal_age := -1.0
 
 ## How quickly a carried child (swing, slide, café chair) closes on the seat,
 ## per second: the 0.35 of the gap a tick that it used to be at sixty hertz,
@@ -468,6 +471,7 @@ func _animate(delta: float) -> void:
 		_motion.seat = seat_pose
 		_motion.seat_placed = seat_pose != &""
 		_motion.seat_place = seat_place
+		_motion.meal_age = meal_age
 		_motion.gait = 0.0
 	_motion.winding = _charging and not bow_shown()
 	_motion.charge = kick_charge
@@ -528,6 +532,11 @@ func _physics_process(delta: float) -> void:
 		_boards_horse = false
 		_swim_sink = 0.0
 		velocity = Vector3.ZERO
+		# Sitting in a car is neither running nor moving, whatever the last
+		# frame on foot said: the game reads both for the energy bar, and
+		# they were only ever worked out further down.
+		is_running = false
+		is_moving = false
 		return
 
 	if _was_strapped:
@@ -548,6 +557,10 @@ func _physics_process(delta: float) -> void:
 		var closes := 1.0 - exp(-CARRY_FOLLOW * delta)
 		velocity = to_seat / maxf(delta, 0.001) * closes
 		move_and_slide()
+		# As when strapped in: carried to a seat, the child is not running.
+		# Left at what the run up to it said, the bar drained all meal.
+		is_running = false
+		is_moving = false
 		return
 
 	# get_gravity() is zero on the first physics frame, before the server has

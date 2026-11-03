@@ -155,7 +155,7 @@ func _ready() -> void:
 		_may_save = false
 
 	inventory = Inventory.new()
-	if save.has("inventory"):
+	if save.get("inventory") is Dictionary:
 		inventory.from_data(save["inventory"])
 
 	# Sound is created before the world, so the very first pickup is audible.
@@ -169,7 +169,7 @@ func _ready() -> void:
 	add_child(tasks)
 
 	wallet = Wallet.new()
-	if save.has("wallet"):
+	if save.get("wallet") is Dictionary:
 		wallet.from_data(save["wallet"])
 
 	vitals = Vitals.new()
@@ -177,7 +177,7 @@ func _ready() -> void:
 	# still carries it.
 	if wallet.has(ShopStock.BOTTLE):
 		vitals.grant_bottle()
-	if save.has("vitals"):
+	if save.get("vitals") is Dictionary:
 		vitals.from_data(save["vitals"])
 		# The purse is the authority on the bottle: a vitals record without one
 		# would leave a bought bottle that cannot be filled.
@@ -193,12 +193,12 @@ func _ready() -> void:
 	lantern.name = "Lantern"
 
 	journal = Journal.new()
-	if save.has("journal"):
+	if save.get("journal") is Dictionary:
 		journal.from_data(save["journal"])
 	journal.arrive(int(Time.get_unix_time_from_system()))
 
 	today = Today.new()
-	if save.has("today"):
+	if save.get("today") is Dictionary:
 		today.from_data(save["today"])
 	today.begin(int(Time.get_unix_time_from_system()))
 	today.completed.connect(_on_today_done)
@@ -321,7 +321,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.boulders.jumped.connect(_on_boulder_jumped)
 	if save.has("boulders"):
 		world.boulders.from_data(save["boulders"])
-	if save.has("tasks"):
+	if save.get("tasks") is Dictionary:
 		tasks.from_data(save["tasks"])
 	if save.has("animals"):
 		world.animals.from_data(save["animals"])
@@ -375,7 +375,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		var wanted := wallet.count_of(machine[0])
 		while world.mounts.count_of_kind(machine[1]) < wanted:
 			world.mounts.place(
-				world.mounts.free_id(machine[1]), _outside_the_shop(machine[2])
+				world.mounts.free_id(machine[1]),
+				_outside_the_shop(Places.machine_stand(
+					machine[2], world.mounts.count_of_kind(machine[1])
+				))
 			)
 
 	world.archery.hit_target.connect(_on_arrow_hit)
@@ -407,8 +410,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	player.name = "Player"
 	var start := spawn
 	if save.has("player"):
-		var at: Dictionary = save["player"]
-		start = Vector3(at.get("x", spawn.x), at.get("y", spawn.y), at.get("z", spawn.z))
+		var at: Dictionary = save["player"] if save["player"] is Dictionary else {}
+		start = Vector3(float(at.get("x", spawn.x)), float(at.get("y", spawn.y)), float(at.get("z", spawn.z)))
 	# Never below the ground as it is *now*. A saved height is only as good as
 	# the terrain it was saved against, and the terrain can change between
 	# sessions: the day the playground stopped being a thirty-metre pit, a child
@@ -427,6 +430,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# The footballs and this child meet by a push the game works out, not by the
 	# capsule and the ball colliding; see FootballGround.let_pass.
 	world.football.let_pass(player)
+	world.places.let_pass(player)
 	player.moved.connect(world.follow)
 	player.jumped.connect(func() -> void: sounds.play(Sounds.Sound.JUMP))
 	player.landed.connect(func(speed: float) -> void:
@@ -544,6 +548,14 @@ var _carousel_seated := false
 ## The tower or the ship, when its ticket was taken while it stood waiting to
 ## go: the ride has not begun, so a child who steps off gets the ticket back.
 var _ride_waiting_paid: StringName = &""
+## The tower or the ship, once it has gone with a child aboard on that ticket.
+## A ticket buys one go: a child who stays in the seat while it comes back to
+## rest is on the next one without having paid for it, so this is how the game
+## knows to ask again.
+var _ride_gone_paid: StringName = &""
+## Whether the wheel has carried the child once round on the ticket they paid
+## for. At the boards again, with the bar up, that ticket is spent.
+var _wheel_went_round := false
 
 ## Offer a ride at a ride's own button: use a ticket if there is one, buy one
 ## with coins if there is not, and say so plainly if neither.
@@ -654,6 +666,15 @@ func _physics_process(delta: float) -> void:
 	# next time for nothing — and, never boarded, it is given back as a ticket.
 	if aboard == &"wheel" and _wheel_rider_paid:
 		_wheel_boarded = true
+		if world.park.wheel.ridden() > 0.5:
+			_wheel_went_round = true
+		# Set down at the boards after its turn and still sitting there: the
+		# ticket bought that turn, and the wheel would otherwise carry them
+		# round again, and again, for nothing.
+		elif _wheel_went_round and world.park.wheel.waiting() > 0.0:
+			_wheel_went_round = false
+			_wheel_rider_paid = false
+			_riding_without_a_ticket = true
 	if _wheel_rider_paid and aboard != &"wheel" and (
 		not ParkSpec.inside(player.global_position.x, player.global_position.z)
 		or (not world.park.wheel.called() and world.park.wheel.waiting() <= 0.0)
@@ -680,9 +701,25 @@ func _physics_process(delta: float) -> void:
 	# The tower and the ship run on their own clocks. Once one has gone, the
 	# ticket has bought its ride; until then it is only a place in the queue.
 	if _ride_waiting_paid == &"drop_tower" and not world.park.drop_tower.at_rest():
+		_ride_gone_paid = _ride_waiting_paid
 		_ride_waiting_paid = &""
 	elif _ride_waiting_paid == &"pirate_ship" and not world.park.pirate_ship.at_rest():
+		_ride_gone_paid = _ride_waiting_paid
 		_ride_waiting_paid = &""
+	# Back at rest with the child still in the seat: that go is over. `aboard`
+	# does not change, so the step-on question below would never be asked
+	# again, and the next climb or swing was carried for nothing.
+	if _ride_gone_paid != &"":
+		var back := (
+			world.park.drop_tower.at_rest() if _ride_gone_paid == &"drop_tower"
+			else world.park.pirate_ship.at_rest()
+		)
+		if aboard != _ride_gone_paid:
+			_ride_gone_paid = &""
+		elif back:
+			_ride_gone_paid = &""
+			_riding_without_a_ticket = true
+			_offer_a_ride(aboard)
 	if aboard != _aboard:
 		# Paid on the tower or the ship and stepped off before it went: the
 		# ticket comes back, as the carousel's does, or the child's next step
@@ -846,6 +883,16 @@ func _seat_at(at: Vector3) -> Dictionary:
 		var swing := world.places.swing_seat_near(at)
 		if not is_nan(swing.origin.x):
 			return {"pose": &"swing", "place": swing}
+	# At a table, sat in the chair they are kept in while they eat: in the
+	# valley's café, or in a chair of the child's own (whose plate, if one is on
+	# the table in front of it, is what the bites are timed by).
+	if seat.is_empty() and world.places != null:
+		seat = world.places.cafe_seat_near(at)
+	if seat.is_empty() and structures != null:
+		seat = structures.seat_under(at, Places.DINING_SINK, Places.DINING_ACROSS, Places.DINING_ABOUT)
+		if not seat.is_empty() and world.places != null:
+			var top: Vector3 = (seat["place"] as Transform3D).origin
+			seat["meal_age"] = world.places.meal_age_near(top, 1.0)
 	return seat
 
 func _process(delta: float) -> void:
@@ -868,6 +915,7 @@ func _process(delta: float) -> void:
 	var seated := _seat_at(player.global_position)
 	player.seat_pose = seated.get("pose", &"")
 	player.seat_place = seated.get("place", Transform3D())
+	player.meal_age = seated.get("meal_age", -1.0)
 
 	world.pickups.check_reach(player.global_position)
 	# The rocks watch the player rather than the player reporting to them, so
@@ -1241,6 +1289,7 @@ func _process(delta: float) -> void:
 			world.football.feel(player.global_position, on_foot, delta)
 		else:
 			world.football.dribble(player.global_position, on_foot, delta)
+		world.places.dribble(player.global_position, on_foot, delta)
 
 	# The kick button appears only with a ball at your feet. The keyboard runs
 	# through the same two calls as the button, so the two controls cannot end
@@ -1573,7 +1622,7 @@ func _carry(delta: float, at: Vector3) -> void:
 
 	if _dining > 0.0:
 		_dining -= delta
-		player.carried_to = _dining_seat + Vector3(0.0, -0.3, 0.0)
+		player.carried_to = _dining_seat + Vector3(0.0, -Places.DINING_SINK, 0.0)
 		player.is_carried = true
 		player.face(Vector3(-sin(_dining_facing), 0.0, -cos(_dining_facing)), delta)
 		if _dining <= 0.0:
@@ -1896,8 +1945,11 @@ var _since_animals_told := 0.0
 ## says; the host tells each guest about those near anybody in the valley.
 func _share_the_animals(delta: float) -> void:
 	world.animals.following = session.is_following()
+	world.animals.companions.clear()
 	if not session.is_host() or not session.has_company():
 		return
+	for at: Vector3 in session.guest_positions.values():
+		world.animals.companions.append(at)
 	_since_animals_told += delta
 	if _since_animals_told < ANIMAL_TELLING:
 		return
@@ -2931,6 +2983,16 @@ func _on_buy(item: StringName) -> void:
 		sounds.play(Sounds.Sound.PICKUP, 1.2)
 		hud.set_shop_open(true, wallet.coins, wallet.owned)
 		return
+	# Nor a machine in somebody else's valley. It would be stood outside the
+	# host's shop and the coins taken, but the guest's own world file is not
+	# written while visiting: at home the purse would say a bicycle was owned
+	# and no bicycle stood anywhere — and the shop would count it against the
+	# limit. The mirror of the refusal to sell one there.
+	if _visiting and _is_a_machine(item):
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_buy_at_home"), 3.0)
+		hud.set_shop_open(true, wallet.coins, wallet.owned)
+		return
 	# Not without end. Things are objects here and a second one is a fair
 	# purchase, but three of anything is a spare and a spare for the spare —
 	# and a machine left at the far side of the valley is still yours, so it
@@ -2966,7 +3028,9 @@ func _on_buy(item: StringName) -> void:
 			# own.
 			world.mounts.place(
 				world.mounts.free_id(machine[1]),
-				_outside_the_shop(machine[2])
+				_outside_the_shop(Places.machine_stand(
+					machine[2], world.mounts.count_of_kind(machine[1])
+				))
 			)
 			hud.announce(
 				Text.format("say_waiting_outside", [MountKinds.label(machine[1])]), 4.0
@@ -3210,6 +3274,7 @@ func _on_answered(yes: bool) -> void:
 				&"wheel":
 					_wheel_rider_paid = true
 					_wheel_boarded = false
+					_wheel_went_round = false
 					world.park.wheel.book()
 					hud.announce(Text.of("say_wheel_called"), 2.2)
 				_:

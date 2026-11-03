@@ -132,7 +132,12 @@ func kept_for_people(x: float, z: float) -> bool:
 	var camp := field.camp_centre()
 	if PlaceSpec.inside_the_pool_fence(x, z, camp):
 		return true
-	return PlaceSpec.influence_of(&"playground", x, z, camp) > 0.45
+	if PlaceSpec.influence_of(&"playground", x, z, camp) > 0.45:
+		return true
+	# The café, the shop and the archery range are places for people just as
+	# much, and were left off this list when they were added: a sheep or a cow
+	# could be put down on the café's terrace or the shooting line.
+	return PlaceSpec.reserved_by(x, z, camp) != &""
 
 ## May this kind be here at all?
 static func belongs_at(kind: StringName, kept: bool) -> bool:
@@ -164,6 +169,10 @@ var _living: Array[Dictionary] = []
 ## for with physics: nobody sees them, and no collider is built out there.
 var _player := Vector3.ZERO
 var _has_player := false
+## Where the guests are, on the host's phone. The host's animals are the animals
+## for everybody, so what is near a guest has to be stepped and felt for as
+## carefully as what is near the host's own child.
+var companions: Array[Vector3] = []
 ## One shape query for every feeler, refilled each time, not one made per look.
 var _feeler_shape := BoxShape3D.new()
 var _feeler := _make_feeler()
@@ -273,7 +282,7 @@ func _step_every(animal: Dictionary) -> int:
 	var node: Node3D = animal["node"]
 	if not is_instance_valid(node):
 		return 1
-	var away := Vector2(node.position.x - _player.x, node.position.z - _player.z).length_squared()
+	var away := _nearest_watcher_squared(node.position)
 	if away < STEP_NEAR * STEP_NEAR:
 		return 1
 	if away < STEP_MID * STEP_MID:
@@ -417,6 +426,10 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	if field.is_pond(x, z) or height < field.water_level_at(x, z) + 0.2:
 		return &""
 	if Pitch.is_levelled(x, z):
+		return &""
+	# Nobody lives on somebody's floor: the shop and the café are rooms, and an
+	# animal put down in one is placed before any wall can be felt for.
+	if PlaceSpec.indoors(x, z, field.camp_centre()):
 		return &""
 
 	# Which kinds could live at this spot at all, and then how likely each of
@@ -564,7 +577,7 @@ func _step(animal: Dictionary, delta: float) -> void:
 			# found the fence again, and the animal flickered along it.
 			var hold := float(animal.get("hold", 0.0))
 			var base: Vector3 = animal.get("way", forward) if hold > 0.0 else forward
-			var way := _clear_way(animal, node, base, direction)
+			var way := _clear_way(animal, node, base, direction, moving * delta)
 			if way != Vector3.ZERO and (way != forward) and (hold <= 0.0 or way != base):
 				animal["way"] = way
 				hold = SIDESTEP_HOLD
@@ -1019,11 +1032,11 @@ const SIDESTEPS: Array[float] = [0.6, 1.2, 1.8]
 ## were on the animals' own lists: a cat walked through the fairground's gate,
 ## sheep stood inside the rides' platforms. Asking the physics world means a
 ## thing built tomorrow is walked round without anybody remembering to say so.
-func _clear_way(animal: Dictionary, node: Node3D, forward: Vector3, toward: Vector3) -> Vector3:
+func _clear_way(animal: Dictionary, node: Node3D, forward: Vector3, toward: Vector3, stride := 0.0) -> Vector3:
 	if not node.is_inside_tree():
 		return forward
 	var at := node.global_position
-	if not _solid_ahead(animal, at, forward):
+	if not _solid_ahead(animal, at, forward, stride):
 		# Only when it is the way the animal was going anyway that is clear. A
 		# sidestep being held is clear by definition, and forgetting the side
 		# then let the next look at the fence pick it afresh from the target's
@@ -1037,7 +1050,7 @@ func _clear_way(animal: Dictionary, node: Node3D, forward: Vector3, toward: Vect
 	for turn in SIDESTEPS:
 		for sign: float in [side, -side]:
 			var way := forward.rotated(Vector3.UP, turn * sign)
-			if not _solid_ahead(animal, at, way):
+			if not _solid_ahead(animal, at, way, stride):
 				animal["side"] = sign
 				return way
 	# Boxed in on every side by something it is standing in: a house raised
@@ -1053,12 +1066,25 @@ func _clear_way(animal: Dictionary, node: Node3D, forward: Vector3, toward: Vect
 func _worth_feeling_for(at: Vector3) -> bool:
 	if not _has_player:
 		return true
-	var gap := at - _player
-	return gap.x * gap.x + gap.z * gap.z <= FEEL_RANGE * FEEL_RANGE
+	return _nearest_watcher_squared(at) <= FEEL_RANGE * FEEL_RANGE
+
+## Flat distance squared from a point to whichever child is nearest it: this
+## phone's own, or a guest's. Without the guests, the host's animals near a
+## guest were stepped a quarter as often and walked through the fences the
+## guest was standing beside, and the guest was told so.
+func _nearest_watcher_squared(at: Vector3) -> float:
+	var best := Vector2(at.x - _player.x, at.z - _player.z).length_squared()
+	for other in companions:
+		best = minf(best, Vector2(at.x - other.x, at.z - other.z).length_squared())
+	return best
 
 ## Is there something solid within a stride ahead of this animal? Felt at two
 ## heights, a low one for platforms and kerbs and one at the body, for rails.
-func _solid_ahead(animal: Dictionary, at: Vector3, way: Vector3) -> bool:
+##
+## `stride` is how far the animal is about to move. The box is lengthened to
+## reach that far: a long step (a hitch in the frame rate, a flight at full
+## pace) otherwise jumped clean over a thin fence the box ended short of.
+func _solid_ahead(animal: Dictionary, at: Vector3, way: Vector3, stride := 0.0) -> bool:
 	var space := _space()
 	if space == null:
 		return false
@@ -1069,12 +1095,12 @@ func _solid_ahead(animal: Dictionary, at: Vector3, way: Vector3) -> bool:
 	# pass a post a hand's breadth off it with her flank in the post.
 	var low := 0.15
 	var high := maxf(AnimalKinds.size_of(kind) * 0.45 + size.y * 0.5, low + 0.1)
-	var depth := 0.4
+	var depth := 0.4 + maxf(stride, 0.0)
 	_feeler_shape.size = Vector3(maxf(size.x, 0.1), high - low, depth)
 	var query := _feeler
 	var facing := Basis(Vector3.UP, atan2(-way.x, -way.z))
 	query.transform = Transform3D(
-		facing, at + way * (size.z * 0.5 + 0.05) + Vector3(0.0, (low + high) * 0.5, 0.0)
+		facing, at + way * (size.z * 0.5 - 0.15 + depth * 0.5) + Vector3(0.0, (low + high) * 0.5, 0.0)
 	)
 	query.collision_mask = FEEL_MASK
 	query.exclude = []
