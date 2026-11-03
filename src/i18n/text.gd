@@ -67,11 +67,11 @@ const STRINGS := {
 	# Russian is a different form of the word. English and French do not
 	# decline, so those repeat the name; the key exists so that every
 	# language has somewhere to put its accusative.
-	"item_stick_object": {EN: "stick", FR: "bâton", RU: "палку"},
-	"item_stone_object": {EN: "stone", FR: "pierre", RU: "камень"},
-	"item_reed_object": {EN: "reed", FR: "roseau", RU: "тростник"},
-	"item_seed_object": {EN: "seed", FR: "graine", RU: "семечко"},
-	"item_cone_object": {EN: "cone", FR: "pomme de pin", RU: "шишку"},
+	"item_stick_object": {EN: "stick", FR: "un bâton", RU: "палку"},
+	"item_stone_object": {EN: "stone", FR: "une pierre", RU: "камень"},
+	"item_reed_object": {EN: "reed", FR: "un roseau", RU: "тростник"},
+	"item_seed_object": {EN: "seed", FR: "une graine", RU: "семечко"},
+	"item_cone_object": {EN: "cone", FR: "une pomme de pin", RU: "шишку"},
 
 	# Things you can build.
 	"build_sapling": {EN: "sapling", FR: "jeune arbre", RU: "саженец"},
@@ -83,7 +83,7 @@ const STRINGS := {
 	"say_slept": {
 		EN: "morning already — you slept well",
 		FR: "déjà le matin — tu as bien dormi",
-		RU: "уже утро — ты хорошо выспался",
+		RU: "уже утро — хорошо спалось!",
 	},
 	"say_not_tired": {
 		EN: "it is daylight — there is a whole valley out there",
@@ -95,7 +95,7 @@ const STRINGS := {
 	# actually saw at the worst possible moment was the literal "?say_caught".
 	"say_caught": {
 		EN: "caught you — back on solid ground",
-		FR: "rattrapé — te revoilà sur la terre ferme",
+		FR: "on t'a rattrapé — te revoilà sur la terre ferme",
 		RU: "поймали — снова на твёрдой земле",
 	},
 	"ui_feed_fire": {
@@ -104,7 +104,7 @@ const STRINGS := {
 	"say_fire_fed": {
 		EN: "burning for %d more min",
 		FR: "brûle encore %d min",
-		RU: "гореть ещё минут: %d",
+		RU: "горит ещё %d мин",
 	},
 	"say_fire_out": {
 		EN: "the fire went out", FR: "le feu s'est éteint", RU: "костёр погас",
@@ -112,7 +112,7 @@ const STRINGS := {
 	"say_felled_cost": {
 		EN: "+%d wood, but the tree is gone: −%d",
 		FR: "+%d bois, mais l'arbre n'est plus là : −%d",
-		RU: "+%d дерева, но дерева больше нет: −%d",
+		RU: "древесина: +%d, но дерева больше нет: −%d",
 	},
 	"say_grown_fir": {
 		EN: "your fir is grown! +%d", FR: "ton sapin a poussé ! +%d",
@@ -169,12 +169,12 @@ const STRINGS := {
 	"ui_material_blue": {EN: "blue", FR: "bleu", RU: "синий"},
 	"ui_material_red": {EN: "red", FR: "rouge", RU: "красный"},
 	# What a child's own cafe asks for a meal when it asks nothing.
-	"ui_cafe_free": {EN: "free", FR: "gratuit", RU: "даром"},
+	"ui_cafe_free": {EN: "free", FR: "gratuit", RU: "бесплатно"},
 	# Said once, when a building first becomes a cafe or a shop.
 	"say_own_cafe": {
 		EN: "your cafe is open — sit at a table and eat",
-		FR: "ton café est ouvert — assieds-toi à une table",
-		RU: "твоё кафе открыто — садись за стол",
+		FR: "ton café est ouvert — assieds-toi à une table et mange",
+		RU: "твоё кафе открыто — садись за стол и ешь",
 	},
 	"say_own_shop": {
 		EN: "your shop is open — sell your wool at the counter",
@@ -296,47 +296,47 @@ const STRINGS := {
 	"animal_beaver": {EN: "beaver", FR: "castor", RU: "бобр"},
 	"wish_shear": {EN: "can be sheared", FR: "peut être tondu", RU: "можно постричь"},
 	"wish_milk": {EN: "has milk to spare", FR: "a du lait", RU: "можно подоить"},
-	"wish_stroke": {EN: "wants a stroke", FR: "veut une caresse", RU: "хочет, чтобы её погладили"},
+	"wish_stroke": {EN: "wants a stroke", FR: "veut une caresse", RU: "хочет, чтобы погладили"},
 	# The item goes in as its object form — Russian declines it: "хочет палку".
 	"wish_give": {EN: "wants a %s", FR: "veut %s", RU: "хочет %s"},
 	"say_fed": {EN: "+%d", FR: "+%d", RU: "+%d"},
 	"say_friend": {
 		EN: "%s is your friend now",
-		FR: "%s est ton ami maintenant",
+		FR: "%s et toi, vous êtes amis",
 		RU: "%s теперь твой друг",
 	},
 
 	# The shop, and what each thing is for. Descriptions say what it does rather
 	# than what it is, because a child buys a verb.
 	"back_built": {
-		EN: "Last time you built %d things",
-		FR: "La dernière fois tu as construit %d choses",
-		RU: "В прошлый раз ты построил: %d",
+		EN: "Last time you built %d{thing|things}",
+		FR: "La dernière fois tu as construit %d{chose|choses}",
+		RU: "В прошлый раз построено: %d",
 	},
 	"back_cared": {
-		EN: "Last time you looked after %d animals",
-		FR: "La dernière fois tu t'es occupé de %d animaux",
-		RU: "В прошлый раз ты позаботился о зверях: %d",
+		EN: "Last time you looked after %d{animal|animals}",
+		FR: "La dernière fois tu t'es occupé de %d{animal|animaux}",
+		RU: "В прошлый раз о зверях позаботились: %d",
 	},
 	"back_goals": {
-		EN: "Last time you scored %d goals",
-		FR: "La dernière fois tu as marqué %d buts",
-		RU: "В прошлый раз ты забил голов: %d",
+		EN: "Last time you scored %d{goal|goals}",
+		FR: "La dernière fois tu as marqué %d{but|buts}",
+		RU: "В прошлый раз забито голов: %d",
 	},
 	"back_planted": {
-		EN: "Last time you planted %d trees",
-		FR: "La dernière fois tu as planté %d arbres",
-		RU: "В прошлый раз ты посадил деревьев: %d",
+		EN: "Last time you planted %d{tree|trees}",
+		FR: "La dernière fois tu as planté %d{arbre|arbres}",
+		RU: "В прошлый раз посажено деревьев: %d",
 	},
 	"back_rocks": {
-		EN: "Last time you cleared %d rocks",
-		FR: "La dernière fois tu as sauté %d rochers",
-		RU: "В прошлый раз ты перепрыгнул камней: %d",
+		EN: "Last time you cleared %d{rock|rocks}",
+		FR: "La dernière fois tu as sauté %d{rocher|rochers}",
+		RU: "В прошлый раз перепрыгнуто камней: %d",
 	},
 	"back_coins": {
-		EN: "Last time you earned %d coins",
-		FR: "La dernière fois tu as gagné %d pièces",
-		RU: "В прошлый раз ты заработал монет: %d",
+		EN: "Last time you earned %d{coin|coins}",
+		FR: "La dernière fois tu as gagné %d{pièce|pièces}",
+		RU: "В прошлый раз заработано монет: %d",
 	},
 	"back_grown": {
 		EN: "Your trees grew while you were away",
@@ -349,28 +349,28 @@ const STRINGS := {
 		RU: "Сегодня: приходи посмотреть на долину",
 	},
 	"today_care": {
-		EN: "Today: look after %d animals",
-		FR: "Aujourd'hui : occupe-toi de %d animaux",
+		EN: "Today: look after %d{animal|animals} more",
+		FR: "Aujourd'hui : occupe-toi encore de %d{animal|animaux}",
 		RU: "Сегодня: позаботься о зверях — осталось %d",
 	},
 	"today_build": {
-		EN: "Today: build %d more pieces",
-		FR: "Aujourd'hui : construis encore %d pièces",
+		EN: "Today: build %d{piece|pieces} more",
+		FR: "Aujourd'hui : construis encore %d{pièce|pièces}",
 		RU: "Сегодня: построй ещё деталей — %d",
 	},
 	"today_score": {
-		EN: "Today: score %d more goals",
-		FR: "Aujourd'hui : marque encore %d buts",
+		EN: "Today: score %d{goal|goals} more",
+		FR: "Aujourd'hui : marque encore %d{but|buts}",
 		RU: "Сегодня: забей ещё голов — %d",
 	},
 	"today_shoot": {
-		EN: "Today: hit the targets %d more times",
+		EN: "Today: hit the target %d{time|times} more",
 		FR: "Aujourd'hui : touche les cibles encore %d fois",
-		RU: "Сегодня: попади по мишеням ещё %d раз",
+		RU: "Сегодня: попади по мишеням ещё %d{раз|раза|раз}",
 	},
 	"today_plant": {
-		EN: "Today: plant %d more trees",
-		FR: "Aujourd'hui : plante encore %d arbres",
+		EN: "Today: plant %d{tree|trees} more",
+		FR: "Aujourd'hui : plante encore %d{arbre|arbres}",
 		RU: "Сегодня: посади ещё деревьев — %d",
 	},
 	"today_done": {
@@ -488,11 +488,11 @@ const STRINGS := {
 		RU: "не удалось подключиться",
 	},
 	"say_joined": {
-		EN: "%s came to your valley", FR: "%s est venu dans ta vallée",
-		RU: "%s пришёл в твою долину",
+		EN: "%s came to your valley", FR: "%s a rejoint ta vallée",
+		RU: "%s теперь у тебя в долине",
 	},
 	"say_left": {
-		EN: "%s went home", FR: "%s est rentré", RU: "%s ушёл домой",
+		EN: "%s went home", FR: "%s rentre à la maison", RU: "%s уходит домой",
 	},
 	"back_welcome": {
 		EN: "Welcome back", FR: "Bon retour", RU: "С возвращением",
@@ -510,7 +510,7 @@ const STRINGS := {
 	"say_lantern_on": {EN: "the lantern is lit", FR: "la lanterne est allumée", RU: "фонарь зажжён"},
 	"say_lantern_off": {EN: "the lantern is out", FR: "la lanterne est éteinte", RU: "фонарь погашен"},
 	"say_sheared": {
-		EN: "sheared: +%d wool", FR: "tondu : +%d laine", RU: "острижена: +%d шерсти",
+		EN: "sheared: +%d wool", FR: "tondu : +%d laine", RU: "острижена: шерсть +%d",
 	},
 	"say_milk": {
 		EN: "fresh milk", FR: "du lait frais", RU: "парное молоко",
@@ -518,11 +518,11 @@ const STRINGS := {
 	"say_waiting_outside": {
 		EN: "your %s is waiting outside the door",
 		FR: "%s : ton engin t'attend devant la porte",
-		RU: "твой %s ждёт снаружи у двери",
+		RU: "%s ждёт тебя снаружи у двери",
 	},
 	"say_sold": {
-		EN: "sold %d for %d coins", FR: "%d vendus pour %d pièces",
-		RU: "продано %d за %d монет",
+		EN: "sold %d for %d{coin|coins}", FR: "%d{vendu|vendus} pour %d{pièce|pièces}",
+		RU: "продано %d за %d{монету|монеты|монет}",
 	},
 	# Said when a sale would be paid into a purse with no room left for it.
 	"say_purse_full": {
@@ -553,7 +553,7 @@ const STRINGS := {
 		EN: "not hungry yet", FR: "pas encore faim", RU: "пока не хочется есть",
 	},
 	"say_no_coins": {
-		EN: "you need %d coins", FR: "il te faut %d pièces", RU: "нужно монет: %d",
+		EN: "you need %d{coin|coins}", FR: "il te faut %d{pièce|pièces}", RU: "нужно монет: %d",
 	},
 	"say_gold": {
 		EN: "gold! +%d", FR: "dans l'or ! +%d", RU: "в золото! +%d",
@@ -583,32 +583,32 @@ const STRINGS := {
 	},
 	# "you are riding the horse": Russian wants the mount in the prepositional
 	# case after "на".
-	"mount_horse_on": {EN: "horse", FR: "cheval", RU: "на коне"},
-	"mount_bicycle_on": {EN: "bicycle", FR: "vélo", RU: "на велосипеде"},
-	"mount_motorcycle_on": {EN: "motorcycle", FR: "moto", RU: "на мотоцикле"},
-	"mount_quad_on": {EN: "quad bike", FR: "quad", RU: "на квадроцикле"},
-	"mount_boat_on": {EN: "boat", FR: "barque", RU: "на лодке"},
+	"mount_horse_on": {EN: "horse", FR: "à cheval", RU: "на коне"},
+	"mount_bicycle_on": {EN: "bicycle", FR: "à vélo", RU: "на велосипеде"},
+	"mount_motorcycle_on": {EN: "motorcycle", FR: "à moto", RU: "на мотоцикле"},
+	"mount_quad_on": {EN: "quad bike", FR: "en quad", RU: "на квадроцикле"},
+	"mount_boat_on": {EN: "boat", FR: "en barque", RU: "на лодке"},
 	"say_mounted": {
 		# No article in French: the moto and the barque are feminine, and the
 		# label is all the sentence has to go on.
-		EN: "you are riding the %s", FR: "en route : %s", RU: "ты едешь %s",
+		EN: "you are on the %s", FR: "te voilà %s", RU: "ты едешь %s",
 	},
 	"ui_chop": {
 		EN: "chop", FR: "couper", RU: "срубить",
 	},
 	"say_felled": {
-		EN: "timber! +%d wood", FR: "et voilà ! +%d bois", RU: "готово! +%d дерева",
+		EN: "timber! +%d wood", FR: "et voilà ! +%d bois", RU: "готово! древесина: +%d",
 	},
 	"say_whistled": {
-		EN: "they heard you", FR: "ils t'ont entendu", RU: "тебя услышали",
+		EN: "they heard you", FR: "ils ont entendu ton appel", RU: "тебя услышали",
 	},
 	"say_filled": {
-		EN: "bottle full", FR: "gourde pleine", RU: "бутылка полная",
+		EN: "bottle full", FR: "gourde pleine", RU: "фляга полная",
 	},
 	"say_tired": {
 		EN: "too tired to run — rest, or have a drink",
-		FR: "trop fatigué pour courir — repose-toi, ou bois un coup",
-		RU: "устал бежать — отдохни или попей",
+		FR: "plus de souffle pour courir — repose-toi, ou bois un peu",
+		RU: "нет сил бежать — отдохни или попей",
 	},
 	"say_rested": {
 		EN: "you can run again", FR: "tu peux courir à nouveau",
@@ -623,14 +623,14 @@ const STRINGS := {
 	"ui_buy": {EN: "buy", FR: "acheter", RU: "купить"},
 	"ui_sell": {EN: "sell", FR: "vendre", RU: "продать"},
 	"shop_buys": {
-		EN: "the shop buys it, %d a piece",
+		EN: "the shop buys it, %d{coin|coins} each",
 		# Plural in French for every price the shop pays (it pays two), and
 		# the count after the noun in Russian, as the other coin texts do:
 		# "по 4 монете" is wrong for anything but one.
-		FR: "la boutique l'achète, %d pièces l'unité",
+		FR: "la boutique l'achète, %d{pièce|pièces} l'unité",
 		RU: "магазин берёт, монет за штуку: %d",
 	},
-	"say_bought": {EN: "%s is yours", FR: "%s est à toi", RU: "%s теперь твой"},
+	"say_bought": {EN: "%s is yours", FR: "%s est à toi", RU: "%s теперь у тебя"},
 	# %d is how many of the thing a child may have at once.
 	"say_enough_of_those": {
 		EN: "you have %d already — go and fetch one",
@@ -639,17 +639,17 @@ const STRINGS := {
 	},
 	# %s is the thing, %d what the shop gave for it.
 	"say_sold_back": {
-		EN: "sold the %s back for %d",
-		FR: "%s revendu pour %d",
-		RU: "продал обратно: %s за %d",
+		EN: "sold the %s back for %d{coin|coins}",
+		FR: "revente : %s, %d{pièce|pièces}",
+		RU: "обратно в магазин: %s, монет: %d",
 	},
 	# %s is the machine. Said when it is standing on ground it cannot be
 	# ridden over, so that it is refused before a child gets on rather than a
 	# stride afterwards.
 	"say_not_ridden_here": {
 		EN: "the %s cannot go from here — push it clear first",
-		FR: "%s : on ne part pas d'ici — pousse l'engin au clair",
-		RU: "отсюда на нём не проехать: откати %s в сторону",
+		FR: "%s : impossible de partir d'ici — pousse-le sur le côté",
+		RU: "%s: отсюда не уехать — отодвинь в сторону",
 	},
 	# Said to a guest who tries to sell a machine in somebody else's valley.
 	"say_sell_at_home": {
@@ -700,11 +700,11 @@ const STRINGS := {
 	},
 	"shop_chocolate": {EN: "chocolate", FR: "chocolat", RU: "шоколадка"},
 	"shop_chocolate_what": {
-		EN: "a penny a bar, eat it anywhere",
+		EN: "one coin a bar, eat it anywhere",
 		FR: "une pièce, à manger n'importe où",
 		RU: "монета за плитку, съешь где угодно",
 	},
-	"shop_shears": {EN: "shears", FR: "tondeuse", RU: "ножницы"},
+	"shop_shears": {EN: "shears", FR: "cisailles", RU: "ножницы"},
 	"shop_shears_what": {
 		EN: "shear the sheep for their wool",
 		FR: "tonds les moutons pour leur laine",
@@ -774,18 +774,18 @@ const STRINGS := {
 	# A stack of walls already as tall as a house may be.
 	"why_too_high": {EN: "as high as it goes", FR: "on ne peut pas plus haut", RU: "выше нельзя"},
 	# The pool's turnstile.
-	"say_ticket": {EN: "pool: %d coins to go in", FR: "piscine : %d pièces pour entrer", RU: "бассейн: вход %d монет"},
+	"say_ticket": {EN: "pool: %d{coin|coins} to go in", FR: "piscine : %d{pièce|pièces} pour entrer", RU: "бассейн: вход %d{монета|монеты|монет}"},
 	"ask_buy_ride": {
-		EN: "buy a ride for %d coins?", FR: "acheter un tour pour %d pièces ?",
-		RU: "купить поездку за %d монет?"
+		EN: "buy a ride for %d{coin|coins}?", FR: "acheter un tour pour %d{pièce|pièces} ?",
+		RU: "купить поездку за %d{монету|монеты|монет}?"
 	},
 	"ask_use_ticket": {
 		EN: "use a ticket for this ride?", FR: "utiliser un billet pour ce manège ?",
 		RU: "потратить билет на этот аттракцион?"
 	},
 	"say_park_ticket": {
-		EN: "rides: %d coins each", FR: "manèges : %d pièces le tour",
-		RU: "аттракционы: %d монет за поездку"
+		EN: "rides: %d{coin|coins} each", FR: "manèges : %d{pièce|pièces} le tour",
+		RU: "аттракционы: %d{монета|монеты|монет} за поездку"
 	},
 	"say_park_bought": {
 		EN: "ticket bought — you have %d", FR: "billet acheté — tu en as %d",
@@ -827,7 +827,7 @@ const STRINGS := {
 	# Which storey the ghost is on. %d counts from 1 for the ground floor,
 	# because "floor 0" means nothing to a child.
 	"ui_ground_floor": {EN: "ground floor", FR: "rez-de-chaussée", RU: "первый этаж"},
-	"ui_upper_floor": {EN: "floor %d", FR: "étage %d", RU: "этаж %d"},
+	"ui_upper_floor": {EN: "floor %d", FR: "niveau %d", RU: "этаж %d"},
 
 	# Aiming a kick.
 	"aim_ground": {EN: "along the ground", FR: "au ras du sol", RU: "низом"},
@@ -851,15 +851,15 @@ const STRINGS := {
 	"say_goal": {EN: "GOAL", FR: "BUT", RU: "ГОЛ"},
 	# %d is the wood taken, %d the coins the tree's growing had paid.
 	"say_felled_own": {
-		EN: "your own tree: %d wood, and the %d it grew for",
-		FR: "ton propre arbre : %d bois, et les %d de sa pousse",
-		RU: "своё дерево: %d древесины, и %d монет за рост назад",
+		EN: "your own tree: +%d wood, but −%d: the coins it grew for",
+		FR: "ton propre arbre : +%d bois, mais −%d : les pièces de sa pousse",
+		RU: "своё дерево: древесина +%d, но −%d: монеты за его рост",
 	},
 	# %d is the coins the tree's growing had paid, taken back as the axe does.
 	"say_took_tree": {
 		EN: "tree taken down: −%d, the coins it grew for",
 		FR: "arbre retiré : −%d, les pièces de sa pousse",
-		RU: "дерево убрано: −%d монет, что оно принесло",
+		RU: "дерево убрано: −%d — монеты, которые оно принесло",
 	},
 	"say_grown": {EN: "your tree has grown", FR: "ton arbre a poussé", RU: "твоё дерево выросло"},
 	"say_grove": {
@@ -868,7 +868,7 @@ const STRINGS := {
 		RU: "роща — и птицы её нашли",
 	},
 	# %d is how many rocks have been cleared in total.
-	"say_cleared": {EN: "cleared it — %d", FR: "franchi — %d", RU: "перепрыгнул — %d"},
+	"say_cleared": {EN: "cleared it — %d", FR: "franchi — %d", RU: "перепрыгнуто — %d"},
 	"say_not_here": {EN: "not here", FR: "pas ici", RU: "не сюда"},
 	"say_nothing_here": {
 		EN: "nothing to take down here",
@@ -915,7 +915,7 @@ const STRINGS := {
 		RU: "И в конце кровать, чтобы спать",
 	},
 	# %s is the name of the piece.
-	"say_took_back": {EN: "took the %s back", FR: "%s récupéré", RU: "разобрано: %s"},
+	"say_took_back": {EN: "took the %s back", FR: "tu as repris : %s", RU: "разобрано: %s"},
 }
 
 static func language() -> StringName:
@@ -943,5 +943,60 @@ static func of(key: String) -> String:
 
 ## The same, with arguments — so a caller never has to remember which strings
 ## take a value and format them by hand in two places.
+##
+## A number that sits beside a noun can carry its plural right after the
+## placeholder: "%d{coin|coins}" reads "1 coin" and "2 coins", and a Russian
+## text gives three forms, "%d{монета|монеты|монет}". That keeps the agreement
+## in the one file a parent opens to fix a clumsy phrase, and out of the
+## callers, which just pass the number. A text that would rather dodge the
+## question still can, with the "noun: %d" shape the Russian already uses.
 static func format(key: String, values: Array) -> String:
-	return Text.of(key) % values
+	return _with_plurals(Text.of(key), values) % values
+
+## Rewrites each "%d{one|many}" as "%d" plus the right word for that number,
+## leaving every other placeholder, and "%%", exactly as they were. The number
+## each group belongs to is the one its placeholder will be given, found by
+## counting placeholders from the left.
+static func _with_plurals(template: String, values: Array) -> String:
+	if not template.contains("{"):
+		return template
+	var out := ""
+	var arg := 0
+	var at := 0
+	while at < template.length():
+		var c := template[at]
+		if c != "%" or at + 1 >= template.length():
+			out += c
+			at += 1
+			continue
+		var spec := template.substr(at, 2)
+		out += spec
+		at += 2
+		if spec == "%%":
+			continue
+		if spec == "%d" and at < template.length() and template[at] == "{":
+			var close := template.find("}", at)
+			if close > at and arg < values.size() and typeof(values[arg]) in [TYPE_INT, TYPE_FLOAT]:
+				var forms := template.substr(at + 1, close - at - 1).split("|")
+				out += " " + forms[_plural_form(forms.size(), int(values[arg]))]
+				at = close + 1
+		arg += 1
+	return out
+
+## Which of a group's forms a number takes. Three forms are Russian's: 1, 21
+## and 101 take the first, 2 to 4 (but not 12 to 14) the second, the rest the
+## third. Two forms are English's, except in French, where nought is singular
+## too ("0 pièce").
+static func _plural_form(forms: int, count: int) -> int:
+	var n := absi(count)
+	if forms >= 3:
+		var last := n % 10
+		var last_two := n % 100
+		if last == 1 and last_two != 11:
+			return 0
+		if last >= 2 and last <= 4 and (last_two < 12 or last_two > 14):
+			return 1
+		return 2
+	if _language == FR:
+		return 0 if n < 2 else 1
+	return 0 if n == 1 else 1

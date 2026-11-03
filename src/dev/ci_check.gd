@@ -234,6 +234,7 @@ func _initialize() -> void:
 	_check_mounting_widens_the_wood_at_once()
 	_check_a_wheeled_machine_is_collided_as_wide_as_it_is_drawn()
 	_check_every_key_the_code_asks_for_has_words()
+	_check_text_placeholders_and_plurals_agree()
 	_check_the_task_line_clears_the_score_chip_and_its_side()
 	_check_one_stump_across_a_cell_edge()
 	_check_odd_saved_values_are_read_back_sanely()
@@ -26059,4 +26060,133 @@ func _check_a_phone_put_away_lets_go_of_the_stick_and_a_long_frame_ejects_nobody
 
 func game_const(name: String) -> Variant:
 	return (load("res://src/main.gd") as GDScript).get_script_constant_map().get(name)
+
+## The placeholders a text takes, in order, as "d" and "s" letters: "%d%%" is
+## one number, "%d{coin|coins}" is one number, "%%" is none.
+func _text_slots(text: String) -> String:
+	var slots := ""
+	var at := 0
+	while at < text.length():
+		if text[at] != "%" or at + 1 >= text.length():
+			at += 1
+			continue
+		if text[at + 1] != "%":
+			slots += text[at + 1]
+		at += 2
+	return slots
+
+## A text that takes a number takes the same numbers, of the same type, in every
+## language and as many as the code passes; one that does not must not carry a
+## stray "%". Text.format is `Text.of(key) % values`, so a mismatch is not a
+## blank but a crash on a child's screen, in whichever language nobody tried.
+## The plural groups ("%d{coin|coins}") are checked for shape, and the helper
+## for what it gives for the numbers that go wrong in Russian.
+func _check_text_placeholders_and_plurals_agree() -> void:
+	print("text placeholders and plurals agree")
+	var bad := PackedStringArray()
+	for key: String in Text.STRINGS:
+		var entry: Dictionary = Text.STRINGS[key]
+		var expected := _text_slots(String(entry[Text.EN]))
+		for code: StringName in Text.LANGUAGES:
+			if not entry.has(code):
+				continue
+			var text := String(entry[code])
+			if _text_slots(text) != expected:
+				bad.append("%s/%s takes '%s', English takes '%s'" % [key, code, _text_slots(text), expected])
+			for slot in _text_slots(text):
+				if slot != "d" and slot != "s":
+					bad.append("%s/%s has an unsupported placeholder %%%s" % [key, code, slot])
+			# Every group sits straight after a %d and has two or three forms.
+			var group := text.find("{")
+			while group >= 0:
+				var close := text.find("}", group)
+				var forms := text.substr(group + 1, maxi(close - group - 1, 0)).split("|")
+				if close < 0 or not text.substr(0, group).ends_with("%d") or forms.size() < 2 or forms.size() > 3:
+					bad.append("%s/%s has a malformed plural group" % [key, code])
+					break
+				if code != Text.RU and forms.size() != 2:
+					bad.append("%s/%s: only Russian has three forms" % [key, code])
+				group = text.find("{", close)
+	_expect(bad.is_empty(), "all %d texts take the same placeholders in every language" % Text.STRINGS.size())
+	for line in bad:
+		_fail(line)
+
+	# What the code passes. Looks at each Text.format("literal", [ ... ]) and
+	# counts the top-level items in the list; a key built at run time is passed
+	# over, and Text.of() of a key that takes values would print "%d" raw.
+	var called := RegEx.new()
+	called.compile("Text\\.(of|format)\\(\\s*\"([a-z_0-9]+)\"\\s*([,)])")
+	var checked := 0
+	for path in _find_scripts("res://src"):
+		if path.ends_with("i18n/text.gd") or path.ends_with("ci_check.gd"):
+			continue
+		var source := _code_only(FileAccess.get_file_as_string(path))
+		for found in called.search_all(source):
+			var key := found.get_string(2)
+			if not Text.STRINGS.has(key):
+				continue
+			var slots := _text_slots(String(Text.STRINGS[key][Text.EN]))
+			if found.get_string(1) == "of":
+				_expect(found.get_string(3) == ")" and slots.is_empty(),
+					"%s asked for with Text.of takes no values (%s)" % [key, path])
+				continue
+			var passed := 0
+			var depth := 0
+			var at := source.find("[", found.get_end() - 1)
+			var started := at >= 0 and source.substr(found.get_end(), at - found.get_end()).strip_edges().is_empty()
+			if not started:
+				continue
+			var items := 0
+			var index := at + 1
+			while index < source.length():
+				var c := source[index]
+				if c == "]" and depth == 0:
+					break
+				if not c.strip_edges().is_empty() and c != ",":
+					passed = 1
+				if c == "[" or c == "(" or c == "{":
+					depth += 1
+				elif c == "]" or c == ")" or c == "}":
+					depth -= 1
+				elif c == "\"":
+					index = source.find("\"", index + 1)
+					if index < 0:
+						break
+				elif c == "," and depth == 0:
+					items += 1
+				index += 1
+			if passed > 0:
+				items += 1
+			checked += 1
+			_expect(items == slots.length(),
+				"%s is given %d values and takes %d (%s)" % [key, items, slots.length(), path])
+	_ok("%d literal Text calls pass as many values as their text takes" % checked)
+
+	# The plural helper, on the numbers that go wrong.
+	var cases := [
+		[Text.EN, "say_no_coins", 1, "you need 1 coin"],
+		[Text.EN, "say_no_coins", 2, "you need 2 coins"],
+		[Text.FR, "say_no_coins", 0, "il te faut 0 pièce"],
+		[Text.FR, "say_no_coins", 1, "il te faut 1 pièce"],
+		[Text.FR, "say_no_coins", 2, "il te faut 2 pièces"],
+		[Text.RU, "ask_buy_ride", 1, "купить поездку за 1 монету?"],
+		[Text.RU, "ask_buy_ride", 2, "купить поездку за 2 монеты?"],
+		[Text.RU, "ask_buy_ride", 5, "купить поездку за 5 монет?"],
+		[Text.RU, "ask_buy_ride", 11, "купить поездку за 11 монет?"],
+		[Text.RU, "ask_buy_ride", 12, "купить поездку за 12 монет?"],
+		[Text.RU, "ask_buy_ride", 21, "купить поездку за 21 монету?"],
+		[Text.RU, "ask_buy_ride", 22, "купить поездку за 22 монеты?"],
+		[Text.RU, "ask_buy_ride", 100, "купить поездку за 100 монет?"],
+		[Text.RU, "ask_buy_ride", 101, "купить поездку за 101 монету?"],
+		[Text.EN, "dish_gives", 25, "25% energy"],
+	]
+	for item: Array in cases:
+		Text.set_language(item[0])
+		var said := Text.format(item[1], [item[2]])
+		_expect(said == item[3], "%s %d reads '%s' (wanted '%s')" % [item[1], item[2], said, item[3]])
+	# Two numbers in one text each take their own form.
+	Text.set_language(Text.RU)
+	var sold := Text.format("say_sold", [1, 22])
+	Text.set_language(Text.EN)
+	_expect(sold == "продано 1 за 22 монеты", "two numbers in one text agree separately ('%s')" % sold)
 
