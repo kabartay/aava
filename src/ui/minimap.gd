@@ -74,6 +74,8 @@ const BUILT := Color(1.0, 0.86, 0.42)
 const PLANTED := Color(0.52, 0.90, 0.40)
 
 var _size := Size.SMALL
+## Whether the map may grow past small: not while the child is building.
+var _kept_small := false
 var _field: HeightField
 var _canvas: TextureRect
 var _image: Image
@@ -216,7 +218,10 @@ func _gui_input(event: InputEvent) -> void:
 	# bring it back.
 	match _size:
 		Size.SMALL:
-			_size = Size.LARGE
+			# Not while building: the bigger maps are centred, over the pieces
+			# and the line saying why one cannot go there.
+			if not _kept_small:
+				_size = Size.LARGE
 		Size.LARGE:
 			_size = Size.FULL
 		_:
@@ -232,6 +237,16 @@ func is_showing() -> bool:
 ## Open at the last used size, or small if it has never been opened.
 func show_map() -> void:
 	if _size == Size.HIDDEN:
+		_size = Size.SMALL
+		_apply_size()
+
+## Hold the map to its small size, and bring one that is open larger back down
+## to it: while a child builds, the large and whole-valley maps lay over the
+## palette, the tabs and the status line, and a tap on them was taken by the
+## map. The small one sits in the corner, clear of them all.
+func keep_small(kept: bool) -> void:
+	_kept_small = kept
+	if kept and (_size == Size.LARGE or _size == Size.FULL):
 		_size = Size.SMALL
 		_apply_size()
 

@@ -195,6 +195,15 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_a_floor_a_storey_up_comes_down_with_its_walls()
+	_check_the_free_meal_wait_is_kept_between_visits()
+	_check_the_stairs_landing_is_drawn()
+	await _check_the_map_stays_small_while_building()
+	await _check_a_first_house_is_told_the_next_step()
+	_check_the_palette_prints_what_is_charged()
+	_check_the_cost_line_is_not_an_english_plural_in_every_language()
+	_check_a_house_can_be_gathered_near_the_spawn()
+	_check_football_is_the_hosts_game_when_two_play_together()
 	_check_animals_stand_on_their_feet()
 	_check_the_cafe_sign_stands_on_the_roof()
 	_check_the_trees_fade_out_before_the_streaming_edge()
@@ -14832,11 +14841,21 @@ func _check_the_animals_have_heads_and_tails_that_move() -> void:
 	cow["rest"] = 0.1
 	var lowest_head := 0.0
 	var wandered := false
+	# What is asked is that she does not choose a new place to go while her head
+	# is down — not that she never grazes anywhere but where she started. It
+	# used to ask the second, and a cow that walked on and grazed at her next
+	# stop failed it or passed it depending on which spots the random walk drew.
+	var grazing_at = null
 	for _frame in 60 * 40:
 		animals._step(cow, 1.0 / 60.0)
 		lowest_head = minf(lowest_head, ((cow["node"] as Node3D).get_node("Head") as Node3D).rotation.x)
-		if (cow["target"] as Vector3).distance_to(at) > 0.5 and bool(cow.get("graze", false)):
-			wandered = true
+		if bool(cow.get("graze", false)):
+			if grazing_at == null:
+				grazing_at = cow["target"]
+			elif (cow["target"] as Vector3).distance_to(grazing_at) > 0.01:
+				wandered = true
+		else:
+			grazing_at = null
 	_expect(lowest_head < -0.45,"a cow standing for forty seconds puts her head down (%.0f degrees)" % rad_to_deg(lowest_head))
 	_expect(not wandered, "and does not choose to walk off with it down")
 
@@ -17323,4 +17342,417 @@ func _check_the_chair_does_not_snag() -> void:
 	_expect(not structures.seat_near(Vector3(10.0, 4.0, 11.5)).is_empty(), "and a child at the table is still seated at it")
 	structures.free()
 
+## A floor laid a storey up is held up by the walls under it, as a roof is:
+## taking the last of them down used to leave the boards, and the bed on them,
+## floating over the empty ground.
+func _check_a_floor_a_storey_up_comes_down_with_its_walls() -> void:
+	print("a floor a storey up comes down with the walls that hold it")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var spawn := field.find_spawn_point()
+	var x := snappedf(spawn.x, 2.0)
+	var z := snappedf(spawn.z, 2.0)
+	var ground := field.height_at(x, z)
+	var storey := HouseParts.STOREY
+	var walls: Array[Dictionary] = []
+	for edge: Array in [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [-1.0, 0.0, PI * 0.5], [1.0, 0.0, PI * 0.5]]:
+		walls.append(structures.place(
+			HouseParts.WALL, Vector3(x + float(edge[0]), ground, z + float(edge[1])), float(edge[2])
+		))
+	var boards := structures.place(HouseParts.FLOOR, Vector3(x, ground + storey, z), 0.0)
+	var bed := structures.place(
+		HouseParts.BED, Vector3(x, ground + storey + HouseParts.FLOOR_TOP, z), 0.0
+	)
+	_expect(
+		not structures.standing_on(walls[0]).has(boards),
+		"one wall of four holds nothing up alone: the other three still carry the floor"
+	)
+	for index in 3:
+		structures.remove(walls[index])
+	var above := structures.standing_on(walls[3])
+	_expect(above.has(boards), "the last wall takes the floor a storey up with it")
+	_expect(above.has(bed), "and the bed that stood on the floor")
+	_expect(
+		above.find(bed) < above.find(boards),
+		"the bed first, so nothing is ever left standing on air"
+	)
+
+	# A floor on the ground is a drawing on the grass: nothing holds it up, so
+	# nothing takes it down with a wall that happens to stand beside it.
+	var far := x + 10.0
+	var low := field.height_at(far, z)
+	var beside := structures.place(HouseParts.WALL, Vector3(far, low - storey, z - 1.0), 0.0)
+	var rug := structures.place(HouseParts.FLOOR, Vector3(far, low, z), 0.0)
+	_expect(
+		not structures.standing_on(beside).has(rug),
+		"a floor laid on the ground is not held by a wall beside it"
+	)
+	structures.free()
+
+## The wait for a free meal in a child's own cafe is kept with the child. Its
+## clock is the seconds since this launch, which mean nothing at the next one,
+## so the wait left is what is saved: closing the game was a free meal.
+func _check_the_free_meal_wait_is_kept_between_visits() -> void:
+	print("the free meal's wait is saved")
+	_expect(Venues.wait_left(500.0, 300.0) == 200.0, "two hundred seconds left of a wait that ends at 500 when it is 300")
+	_expect(Venues.wait_left(100.0, 300.0) == 0.0, "none left once it is over")
+	_expect(
+		Venues.wait_left(9000.0, 300.0) == Venues.FREE_WAIT,
+		"and never more than the wait itself, whatever the clock says"
+	)
+	var source := FileAccess.get_file_as_string("res://src/main.gd")
+	_expect(
+		source.contains('"free_meal_in": Venues.wait_left(')
+		and source.contains('save.get("free_meal_in"'),
+		"the game writes the wait left into the child's save and reads it back"
+	)
+
+## The level piece the stairs' ramp carries on with past the top step is drawn,
+## so a child never stands on air beyond the stairs.
+func _check_the_stairs_landing_is_drawn() -> void:
+	print("the stairs' landing is drawn")
+	var box := HouseParts.build_mesh(HouseParts.STAIRS).get_aabb()
+	var reach := -HouseParts.MODULE * 0.5 - HouseParts.STAIRS_LANDING
+	_expect(
+		box.position.z <= reach + 0.001,
+		"the stairs are drawn out to the end of the ramp: %.2f m past the middle, ramp to %.2f" % [box.position.z, reach]
+	)
+	_expect(
+		box.end.y <= HouseParts.STOREY + HouseParts.FLOOR_THICKNESS,
+		"and no higher than the boards of the floor beside them"
+	)
+
+## While a child builds, the large and whole-valley maps would lie over the
+## palette, the tabs and the line saying why a piece cannot go, and take the
+## taps meant for them. The map is held small then, and free again afterwards.
+func _check_the_map_stays_small_while_building() -> void:
+	print("the map stays small while building")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var map := Minimap.new(HeightField.new(20260903))
+	hud.attach_minimap(map)
+	map.show_map()
+	var tap := InputEventScreenTouch.new()
+	tap.pressed = true
+	map._gui_input(tap)
+	map._gui_input(tap)
+	# Its panel adds its margins to the picture, so sizes are compared by which
+	# picture they hold rather than to the pixel.
+	_expect(map.size.x >= Minimap.FULL_PIXELS, "two taps open the whole valley")
+	hud.set_building(true)
+	# (A container takes its panel's new size at the end of the frame, so the
+	# minimum it asks for is what is read straight away.)
+	_expect(
+		map.custom_minimum_size.x < Minimap.LARGE_PIXELS,
+		"opening the build palette brings it back to small: %.0f" % map.custom_minimum_size.x
+	)
+	map._gui_input(tap)
+	map._gui_input(tap)
+	_expect(
+		map.size.x < Minimap.LARGE_PIXELS and map.is_showing(),
+		"and taps do not make it bigger while building: %.0f" % map.size.x
+	)
+	hud.set_building(false)
+	map._gui_input(tap)
+	_expect(map.size.x >= Minimap.LARGE_PIXELS, "closing the palette lets it grow again: %.0f" % map.size.x)
+	hud.queue_free()
+
+## A child who has never built a house is told the next step on one line: walls,
+## then a floor, then a roof, then a bed — in each language, and only while
+## building is open.
+func _check_a_first_house_is_told_the_next_step() -> void:
+	print("a first house is told the next step")
+	const TestHouse := preload("res://src/dev/test_house.gd")
+	for plan: StringName in [Plans.ROOM, Plans.HOUSE]:
+		var yard := _a_yard(300)
+		var origin: Vector3 = yard["origin"]
+		var structures: Structures = yard["structures"]
+		if not origin.is_finite():
+			_fail("no ground near the spawn to build on")
+			_free_the_yard(yard)
+			continue
+		_expect(structures.house_step() == &"walls", "an empty valley wants walls first")
+		_expect(TestHouse.build_plan(yard["build"], yard["field"], origin, plan), "%s goes up" % plan)
+		var wanted := &"roof" if plan == Plans.ROOM else &""
+		_expect(
+			structures.house_step() == wanted,
+			"after %s the next step is '%s': '%s'" % [plan, wanted, structures.house_step()]
+		)
+		_free_the_yard(yard)
+
+	var saved := Text.language()
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		for step: String in ["walls", "floor", "roof", "bed"]:
+			var line := Text.of("hint_build_%s" % step)
+			_expect(
+				not line.begins_with("?") and line.length() <= 60,
+				"the %s line is said in %s, in one short line: '%s'" % [step, code, line]
+			)
+	Text.set_language(saved)
+
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud.set_house_hint(&"walls")
+	_expect(not hud._hint.visible, "nothing is said while building is shut")
+	hud.set_building(true)
+	hud.set_house_hint(&"walls")
+	_expect(hud._hint.visible and hud._hint.text == Text.of("hint_build_walls"), "the step is said once building is open")
+	hud.set_house_hint(&"")
+	_expect(not hud._hint.visible, "and not at all when there is none to say")
+	hud.set_house_hint(&"bed")
+	hud.set_building(false)
+	_expect(not hud._hint.visible, "shutting the palette takes the line with it")
+	hud.queue_free()
+	var source := FileAccess.get_file_as_string("res://src/main.gd")
+	_expect(
+		source.contains('"built_house": _built_a_house') and source.contains('save.get("built_house"'),
+		"a child who has built a house once is remembered, and not told again"
+	)
+
+## "need 2 sticks" is English's plural, and an s on the end of "палка" made
+## "палкаs" — a Latin letter on a Russian word — and "pomme de pins" in French.
+## The other languages say the name and then the number.
+func _check_the_cost_line_is_not_an_english_plural_in_every_language() -> void:
+	print("the cost line is not an English plural in every language")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	var build := BuildMode.new(field, structures, Inventory.new())
+	var saved := Text.language()
+	var bill := {&"stick": 2, &"stone": 1}
+	Text.set_language(Text.EN)
+	_expect(
+		build._cost_text(bill) == "2 sticks, 1 stone",
+		"English still says '%s'" % build._cost_text(bill)
+	)
+	for code: StringName in [Text.FR, Text.RU]:
+		Text.set_language(code)
+		var line := build._cost_text(bill)
+		_expect(
+			line == "%s ×2, %s ×1" % [ItemKinds.label(&"stick"), ItemKinds.label(&"stone")],
+			"%s says the name and the number: '%s'" % [code, line]
+		)
+	Text.set_language(saved)
+	build.free()
+	structures.free()
+
+## What a house takes is on the ground near where a child starts. Sticks only
+## lie in the forest, thirty a tile at most and a third of those sticks; a
+## house is 28 of them and a cafe 52, and walking at 3.4 m/s through a swath
+## three metres wide picks up about six a minute in thick wood. This keeps the
+## prices honest about that: the sticks within a hundred metres of the spawn
+## must cover a whole house, or its price would be a walk across the valley.
+func _check_a_house_can_be_gathered_near_the_spawn() -> void:
+	print("a house can be gathered near the spawn")
+	var field := HeightField.new(20260903)
+	var pickups := Pickups.new(field, 20260903)
+	get_root().add_child(pickups)
+	pickups.follow(field.find_spawn_point())
+	for _i in 400:
+		pickups._process(0.016)
+		if pickups.is_idle():
+			break
+	var sticks := 0
+	for record in pickups._active:
+		if record["kind"] == ItemKinds.STICK:
+			sticks += 1
+	var wanted := int(Plans.cost(Plans.HOUSE).get(&"stick", 0))
+	_expect(sticks >= wanted, "%d sticks lie about the spawn and a house takes %d" % [sticks, wanted])
+	pickups.queue_free()
+
+## The price printed under a piece in the palette is the price charged for it.
+## A whole roof is charged by the squares it covers, so its button says nothing
+## and the status line gives the sum once it is aimed — as a plan's does.
+func _check_the_palette_prints_what_is_charged() -> void:
+	print("the palette prints what is charged")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	for kind: StringName in hud._palette_buttons:
+		var button: Button = hud._palette_buttons[kind]
+		var row: HBoxContainer = button.get_child(button.get_child_count() - 1)
+		var printed := {}
+		var amount := 0
+		for child in row.get_children():
+			if child is Label:
+				amount = (child as Label).text.to_int()
+			elif child is ItemChip:
+				printed[(child as ItemChip).kind] = amount
+		var charged := {}
+		if kind == HouseParts.ROOF_ROOM or Plans.is_plan(kind):
+			charged = {}
+		elif HouseParts.is_house_part(kind):
+			charged = HouseParts.cost(kind)
+		else:
+			charged = BuildKinds.cost(kind)
+		_expect(printed == charged, "the %s button prints %s and is charged %s" % [kind, printed, charged])
+	hud.queue_free()
+## Two children, two phones, one game of football, and it is the host's.
+##
+## Two sessions are wired straight to each other, which is the network without
+## the socket: whatever one reports, the other receives, through the same
+## validation. The host's ground simulates the balls and keeps the score; the
+## guest's only draws them, asks for kicks and for a new game, and when the
+## connection goes each is left with a game that works on its own.
+func _check_football_is_the_hosts_game_when_two_play_together() -> void:
+	print("football is the host's game when two play together")
+	var field := HeightField.new(20260903)
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	var host_ground := FootballGround.new(field)
+	var guest_ground := FootballGround.new(field)
+	get_root().add_child(host_ground)
+	get_root().add_child(guest_ground)
+	host_ground.attach(host)
+	guest_ground.attach(guest)
+
+	# The guest has a score of its own at home, which must come back.
+	guest_ground.from_data({"blue": 3, "red": 1})
+	var heard_goals: Array = []
+	guest_ground.goal_scored.connect(func(goal: int, blue: int, red: int) -> void: heard_goals.append([goal, blue, red]))
+
+	# Alone, each plays its own ball.
+	var own: Ball = guest_ground._balls[1]
+	guest_ground.kick(own, own.position + Vector3(-1.0, 0.0, 0.0), Vector3.RIGHT, false, 1.0, 0.25, Vector3.RIGHT)
+	_expect(own.linear_velocity.x > 5.0, "alone, a kick moves the ball on that phone (%.1f m/s)" % own.linear_velocity.x)
+	own.reset_to(own.home)
+
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	host._link = guest
+	guest._link = host
+	host.guests[guest._link_id] = "Amir"
+	guest_ground._process(0.0)
+	_expect(guest_ground.is_following(), "a guest in the host's valley follows the host's football")
+	_expect(not host_ground.is_following(), "and the host does not")
+	_expect(guest_ground._balls[0].freeze, "the guest's balls are not simulated on the guest's phone")
+	_expect(guest_ground.blue == 0 and guest_ground.red == 0, "the board is the host's from the moment of joining")
+	_expect(guest_ground.to_data() == {"blue": 3, "red": 1}, "and the guest's own score is kept for the way home")
+
+	# Arriving, the guest is told the score the host has.
+	host_ground.blue = 4
+	host_ground.red = 2
+	host.guest_arrived.emit(guest._link_id, "Amir", -1)
+	_expect(guest_ground.blue == 4 and guest_ground.red == 2, "a guest who joins sees the current score (%d:%d)" % [guest_ground.blue, guest_ground.red])
+	_expect(guest_ground.board_digits() == PackedStringArray(["4", "2"]), "on the board too")
+	host_ground.blue = 0
+	host_ground.red = 0
+	host.guest_arrived.emit(guest._link_id, "Amir", -1)
+
+	# The guest sees a ball the host moves, smoothly and not before.
+	var host_ball: Ball = host_ground._balls[2]
+	var guest_ball: Ball = guest_ground._balls[2]
+	var target := host_ball.position + Vector3(3.0, 0.0, 1.0)
+	host_ball.position = target
+	host_ground._physics_process(0.1)
+	guest_ground._process(0.05)
+	_expect(guest_ball.position.distance_to(target) < 0.05, "the guest's ball is where the host's is (%.2f m off)" % guest_ball.position.distance_to(target))
+	# A further step is slid into rather than jumped to, and arrived at.
+	var further := target + Vector3(2.0, 0.0, 0.0)
+	host_ball.position = further
+	host_ground._physics_process(0.1)
+	guest_ground._process(0.02)
+	var part_way := guest_ball.position.distance_to(further)
+	_expect(part_way > 0.5 and part_way < 1.9, "the guest's ball slides there rather than jumping (%.2f m to go)" % part_way)
+	guest_ground._process(1.0)
+	_expect(guest_ball.position.distance_to(further) < 0.05, "and arrives (%.2f m off)" % guest_ball.position.distance_to(further))
+
+	# A guest's kick moves the host's ball, and shows at once on the guest's own.
+	var kicked: Ball = host_ground._balls[1]
+	var shown: Ball = guest_ground._balls[1]
+	var striker := kicked.position + Vector3(-1.0, 0.0, 0.0)
+	host.guest_positions[guest._link_id] = striker
+	var before := shown.position
+	guest_ground.kick(shown, striker, Vector3.RIGHT, false, 1.0, 0.25, Vector3.RIGHT)
+	_expect(kicked.linear_velocity.x > 5.0, "a guest's kick moves the host's ball (%.1f m/s)" % kicked.linear_velocity.x)
+	_expect(shown.linear_velocity == Vector3.ZERO, "and the guest's ball is not simulated by the guest")
+	guest_ground._process(0.05)
+	_expect(shown.position.x > before.x + 0.3, "but the guest sees its own kick at once (%.2f m)" % (shown.position.x - before.x))
+	# The host's ball goes where it goes; the guest follows it.
+	var landed := kicked.position + Vector3(9.0, 0.0, 0.0)
+	kicked.position = landed
+	kicked.linear_velocity = Vector3.ZERO
+	guest_ground._process(FootballGround.PREDICT_FOR)
+	host_ground._physics_process(0.1)
+	guest_ground._process(1.0)
+	_expect(shown.position.distance_to(landed) < 0.05, "afterwards the guest's ball is where the host's is (%.2f m off)" % shown.position.distance_to(landed))
+
+	# The host does not take a kick from anywhere or at any speed.
+	var still: Ball = host_ground._balls[0]
+	still.linear_velocity = Vector3.ZERO
+	host.guest_positions[guest._link_id] = still.position + Vector3(30.0, 0.0, 0.0)
+	host._take_kick(guest._link_id, 0, Vector3(8.0, 1.0, 0.0))
+	_expect(still.linear_velocity == Vector3.ZERO, "a kick from thirty metres away is not believed")
+	host.guest_positions[guest._link_id] = still.position + Vector3(-1.0, 0.0, 0.0)
+	host._take_kick(guest._link_id, 0, Vector3(300.0, 1.0, 0.0))
+	_expect(still.linear_velocity == Vector3.ZERO, "nor one faster than a kick can give")
+	host._take_kick(guest._link_id, 0, Vector3(NAN, 0.0, 0.0))
+	_expect(still.linear_velocity == Vector3.ZERO, "nor a NaN")
+	host._take_kick(77, 0, Vector3(8.0, 1.0, 0.0))
+	_expect(still.linear_velocity == Vector3.ZERO, "nor one from somebody who is not in the valley")
+	host._take_kick(guest._link_id, 9, Vector3(8.0, 1.0, 0.0))
+	_expect(still.linear_velocity == Vector3.ZERO, "nor for a ball there is not")
+	host._take_kick(guest._link_id, 0, Vector3(8.0, 1.0, 0.0))
+	_expect(still.linear_velocity.x > 5.0, "while the same kick from beside the ball is")
+	var told: Array = []
+	guest.remote_football_scores.connect(func(blue: int, red: int, goal: int) -> void: told.append([blue, red, goal]))
+	guest._take_football_scores(7, 9, 9, -1)
+	guest._take_balls(7, PackedFloat32Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
+	host._take_football_scores(1, 5, 5, -1)
+	guest._take_football_scores(1, -5, 0, -1)
+	_expect(told.is_empty(), "the score is only taken from the host, and only if it is a score")
+	var heard_balls: Array = []
+	guest.remote_balls.connect(func(states: PackedFloat32Array) -> void: heard_balls.append(states.size()))
+	guest._take_balls(1, PackedFloat32Array([NAN, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
+	guest._take_balls(1, PackedFloat32Array([0.0, 0.0, 0.0]))
+	guest._take_balls(1, PackedFloat32Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
+	_expect(heard_balls == [10], "a ball update that is not finite or not whole is dropped, a good one is heard")
+
+	# A goal on the host is a goal on the guest's board.
+	for ball: Ball in host_ground._balls:
+		ball.linear_velocity = Vector3.ZERO
+	_score_in(host_ground, field, 0, 1)
+	_expect(host_ground.blue == 1, "a goal on the host counts there")
+	_expect(guest_ground.blue == 1 and guest_ground.red == 0, "and on the guest's score (%d:%d)" % [guest_ground.blue, guest_ground.red])
+	_expect(guest_ground.board_digits() == PackedStringArray(["1", "0"]), "and the guest's board")
+	_expect(heard_goals == [[1, 1, 0]], "and the guest is told which goal, to cheer: %s" % str(heard_goals))
+
+	# New game from the guest resets both.
+	guest_ground.new_game()
+	_expect(host_ground.blue == 0 and host_ground.red == 0, "a new game asked for by the guest begins on the host")
+	_expect(guest_ground.blue == 0 and guest_ground.red == 0, "and on the guest")
+	_expect(host_ground.board_digits() == PackedStringArray(["0", "0"]) and guest_ground.board_digits() == PackedStringArray(["0", "0"]), "and on both boards")
+	host_ground._physics_process(0.1)
+	guest_ground._process(1.0)
+	var homes := true
+	for i in host_ground._balls.size():
+		homes = homes and guest_ground._balls[i].position.distance_to(host_ground._balls[i].position) < 0.05
+	_expect(homes, "and every ball is back where the host's are")
+
+	# The guest leaves, or the connection goes: each has a game of its own.
+	host.guests.clear()
+	host._link = null
+	guest._link = null
+	guest.role = Session.Role.ALONE
+	guest_ground._process(0.0)
+	_expect(not guest_ground.is_following(), "a guest cut off is back in its own valley")
+	_expect(guest_ground.blue == 3 and guest_ground.red == 1, "with its own score again (%d:%d)" % [guest_ground.blue, guest_ground.red])
+	_expect(not guest_ground._balls[1].freeze, "and balls it can play with")
+	var mine: Ball = guest_ground._balls[1]
+	mine.reset_to(mine.home)
+	guest_ground.kick(mine, mine.position + Vector3(-1.0, 0.0, 0.0), Vector3.RIGHT, false, 1.0, 0.25, Vector3.RIGHT)
+	_expect(mine.linear_velocity.x > 5.0, "a kick works on that phone again")
+	_score_in(host_ground, field, 1, 0)
+	_expect(host_ground.red == 1, "and the host's game carries on without a guest (%d:%d)" % [host_ground.blue, host_ground.red])
+	host_ground.new_game()
+	_expect(host_ground.red == 0, "with a new game of its own")
+
+	guest_ground.free()
+	host_ground.free()
+	host.free()
+	guest.free()
 

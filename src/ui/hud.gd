@@ -159,6 +159,8 @@ var _undo_button: Button
 ## to build is a path stone.
 var _group: StringName = &"things"
 var _storey_row: HBoxContainer
+## The line telling a child who has not built a house yet what to put up next.
+var _hint: Label
 var _menu: VBoxContainer
 var _danger: PanelContainer
 var _menu_button: Button
@@ -294,6 +296,14 @@ func _init() -> void:
 
 	_status = _label(22, Color(1.0, 0.86, 0.55))
 	add_child(_status)
+
+	# The next step of a first house, above the rest of the building controls,
+	# in the voice of the storey line rather than the status line's, so the
+	# two are not read as one sentence.
+	_hint = _label(22, Color(0.72, 0.90, 1.0))
+	_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint.visible = false
+	add_child(_hint)
 
 	_build_asking()
 
@@ -731,10 +741,13 @@ func _palette_button(kind: StringName, named: String, shown: bool) -> Button:
 	cost.position = Vector2(0.0, picture + 18.0)
 	cost.size = Vector2(PIECE_SIZE.x, 24.0)
 	# A plan is dozens of pieces: its price does not fit under a picture, and is
-	# read off the status line once it is chosen.
+	# read off the status line once it is chosen. So is a whole roof's, which is
+	# charged by the squares it covers: two reeds on its button was the price of
+	# one square, and a room of four paid eight.
 	var price := {}
 	if HouseParts.is_house_part(kind):
-		price = HouseParts.cost(kind)
+		if kind != HouseParts.ROOF_ROOM:
+			price = HouseParts.cost(kind)
 	elif not Plans.is_plan(kind):
 		price = BuildKinds.cost(kind)
 	for item: StringName in price:
@@ -1687,6 +1700,8 @@ func set_building(enabled: bool) -> void:
 	if enabled == _building:
 		return
 	_building = enabled
+	if _minimap != null:
+		_minimap.keep_small(enabled)
 	_palette.visible = enabled
 	_tabs.visible = enabled
 	_place_button.visible = enabled
@@ -1694,6 +1709,7 @@ func set_building(enabled: bool) -> void:
 	_undo_button.visible = enabled
 	if not enabled:
 		_storey_row.visible = false
+		_hint.visible = false
 	if enabled:
 		_show_group(_group)
 	var face := _face_of(_build_button)
@@ -1738,6 +1754,7 @@ func set_ball_in_reach(in_reach: bool, throwing := false) -> void:
 ## field, and the HUD is not the place to know about terrain.
 func attach_minimap(minimap: Minimap) -> void:
 	_minimap = minimap
+	minimap.keep_small(_building)
 	add_child(minimap)
 	# Where the map goes depends on how big it is, and it changes size by
 	# itself when tapped.
@@ -1773,6 +1790,24 @@ func set_storey(storey: int, showing: bool) -> void:
 		return
 	_storey_row.visible = showing
 	_storey_label.text = text
+	_layout()
+
+## The line for each step Structures.house_step can name.
+const HOUSE_HINTS := {
+	&"walls": "hint_build_walls", &"floor": "hint_build_floor",
+	&"roof": "hint_build_roof", &"bed": "hint_build_bed",
+}
+
+## The step of a first house to say, as Structures.house_step names it, or
+## nothing once the child has built one. Said only while building is open, and
+## asked every frame, so it is only laid out again when the words change.
+func set_house_hint(step: StringName) -> void:
+	var text := Text.of(HOUSE_HINTS[step]) if HOUSE_HINTS.has(step) else ""
+	var showing := _building and not text.is_empty()
+	if _hint.visible == showing and _hint.text == text:
+		return
+	_hint.text = text
+	_hint.visible = showing
 	_layout()
 
 ## Show the kick strength and where it is aimed, while the button is held.
@@ -2253,6 +2288,10 @@ func _layout() -> void:
 	# for this layout, so it trailed one layout behind.
 	_storey_row.size = Vector2(view.x, BUTTON * 0.66)
 	_storey_row.position = Vector2(0.0, _status.position.y - BUTTON * 0.66 - 8.0)
+	# Above the storey buttons, whether or not they are showing, so it stays
+	# where the eye found it when a plan is chosen and they appear.
+	_hint.size = Vector2(view.x, 32.0)
+	_hint.position = Vector2(0.0, _storey_row.position.y - 38.0)
 
 	# Wrapped inside the safe area, so a long line in Russian runs onto a
 	# second row instead of off both edges of a narrow phone. The height is

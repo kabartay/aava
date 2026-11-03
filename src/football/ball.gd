@@ -202,6 +202,13 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft
 		return 0.0
 
 	var launch := launch_velocity(position, from, facing, sprinting, strength, loft, look)
+	var speed := launch.length()
+	strike(launch, strength, loft)
+	return speed
+
+## Give the ball a launch velocity, however it was worked out: by a kick on this
+## phone, or by the host on behalf of a guest who asked for it.
+func strike(launch: Vector3, strength: float, loft: float) -> void:
 	var direction := Vector3(launch.x, 0.0, launch.z).normalized()
 	var speed := launch.length()
 	var charged := clampf(strength, 0.0, 1.0)
@@ -220,7 +227,50 @@ func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft
 	angular_velocity = direction.cross(Vector3.UP) * speed * lerpf(1.1, -0.7, clampf(loft, 0.0, 1.0))
 
 	kicked.emit(charged, clampf(loft, 0.0, 1.0))
-	return speed
+
+## What a launch velocity says about the kick that made it, undoing
+## launch_velocity: how hard the button was held, and how high it was aimed. For
+## a host that is told only the velocity but still wants the spin to look right.
+static func strength_of(launch: Vector3) -> float:
+	var swing := maxf(launch.length() - KICK_SPEED_MIN, 0.0) / (KICK_SPEED_MAX - KICK_SPEED_MIN)
+	return clampf(sqrt(swing), 0.0, 1.0)
+
+static func loft_of(launch: Vector3) -> float:
+	var flat := Vector2(launch.x, launch.z).length()
+	if flat < 0.0001:
+		return 1.0 if launch.y > 0.0 else 0.0
+	return clampf(inverse_lerp(LIFT_FLAT, LIFT_HIGH, launch.y / flat), 0.0, 1.0)
+
+## Draw a ball that is following the host where the host says it is. The
+## physics server is told as well as the node, or the ball would jump back to its
+## last simulated place the moment it is let go.
+func show_at(where: Vector3, turn: Quaternion) -> void:
+	position = where
+	basis = Basis(turn)
+	PhysicsServer3D.body_set_state(
+		get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, Transform3D(Basis(turn), where)
+	)
+
+## The fastest launch a kick can give: a full swing at a sprint.
+const KICK_SPEED_CEILING := KICK_SPEED_MAX + SPRINT_BONUS
+
+## Let the host's valley move this ball, or take it back. While another phone
+## is the one simulating the game this ball is only drawn where it is told: it
+## stays where it is put, and neither pushes nor is pushed by anything here, or
+## this phone would argue with the host's about where the ball is.
+func follow_the_host(on: bool) -> void:
+	if on == freeze:
+		return
+	if on:
+		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		freeze = true
+		collision_layer = 0
+		collision_mask = 0
+		return
+	freeze = false
+	collision_layer = TerrainSpec.LAYER_PROPS
+	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+	sleeping = false
 
 ## Where the camera looking along `look` sends a kick from `from` at a ball at
 ## `at`, along the ground. The ball straight ahead of the view goes the way the

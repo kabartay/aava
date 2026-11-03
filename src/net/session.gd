@@ -53,6 +53,15 @@ signal remote_time_of_day(fraction: float)
 ## Where another child is, so they can be drawn.
 signal guest_moved(id: int, position: Vector3, facing: float)
 
+## The football, which is the host's. Every ball's state as the host sees it
+## (see report_balls for the layout); the score, with the end a goal went into
+## or -1 when nothing was scored; and, to the host only, a guest's kick and a
+## guest's wish to start the game again.
+signal remote_balls(states: PackedFloat32Array)
+signal remote_football_scores(blue: int, red: int, goal: int)
+signal remote_kick(from: int, ball: int, velocity: Vector3)
+signal remote_new_game(from: int)
+
 ## A single fixed port, because the alternative is asking a six-year-old to type
 ## one. High enough to need no privileges, and not one anything common uses.
 const PORT := 27717
@@ -78,6 +87,26 @@ var shirt := -1
 ## Everyone else currently in the valley, by peer id.
 var guests: Dictionary = {}
 
+## Where each guest last said they were, for the host to judge a kick by.
+var guest_positions: Dictionary = {}
+
+## The host's peer id, which is always 1 in Godot's multiplayer.
+const HOST_ID := 1
+
+## How many floats one ball takes in a football update: where it is, how fast
+## it is going, and how it is turned (a quaternion).
+const BALL_FLOATS := 10
+## More balls than the pitch has by a wide margin; a longer update is nonsense.
+const MAX_BALLS := 8
+
+## Another session in this same process, standing in for the network, so the
+## checks can run a host and a guest back to back without a socket. Never set
+## in the game itself.
+var _link: Session = null
+## The peer id a guest on a link has, as the host it is linked to sees it. A real
+## guest has a peer id of its own; the host is always HOST_ID.
+var _link_id := 2
+
 var _peer: ENetMultiplayerPeer = null
 var _since_move := 0.0
 var _last_sent := Vector3(1e9, 1e9, 1e9)
@@ -92,6 +121,8 @@ func is_networked() -> bool:
 ## failed, is `is_networked()` but has nobody to talk to — sending then produced
 ## a "built a wall" from a game that had never joined anything.
 func is_connected_to_anyone() -> bool:
+	if _link != null:
+		return is_networked()
 	if not is_networked() or _peer == null:
 		return false
 	if not is_inside_tree() or multiplayer == null:
@@ -107,6 +138,13 @@ func has_company() -> bool:
 
 func is_host() -> bool:
 	return role == Role.HOSTING
+
+## Is this child in somebody else's valley, with the connection up? Then the
+## host's game is the game, and what the host says about the football is what
+## is true. A join still in flight, or one that failed, does not count: that
+## child is in their own valley still.
+func is_following() -> bool:
+	return role == Role.VISITING and is_connected_to_anyone()
 
 ## Open this valley to the other device. Returns false if the port is busy,
 ## which on a family network almost always means the game is already running.
@@ -173,6 +211,7 @@ func close() -> void:
 	if not is_inside_tree() or multiplayer == null:
 		role = Role.ALONE
 		guests.clear()
+		guest_positions.clear()
 		return
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer = null
@@ -185,6 +224,7 @@ func close() -> void:
 	var was := role
 	role = Role.ALONE
 	guests.clear()
+	guest_positions.clear()
 	if was != Role.ALONE:
 		closed.emit()
 
@@ -313,6 +353,50 @@ func report_dam_stick(site: float) -> void:
 	if is_connected_to_anyone():
 		_send_dam_stick.rpc(site)
 
+## The football is the host's. The host simulates the balls and tells every
+## guest where they are: for each ball in the pitch's order, its position, its
+## velocity and its turn as a quaternion — BALL_FLOATS numbers. Unreliable, since
+## the next update corrects a lost one a twelfth of a second later.
+func report_balls(states: PackedFloat32Array) -> void:
+	if role != Role.HOSTING or not is_connected_to_anyone():
+		return
+	if _link != null:
+		_link._take_balls(HOST_ID, states)
+	else:
+		_send_balls.rpc(states)
+
+## The score, and which end a goal went into (-1 for none: a new game, or the
+## score told to somebody who has just arrived). Reliable, because a lost goal
+## is a score that is wrong until the next one. `to_peer` is one guest, or 0 for all.
+func report_football_scores(blue: int, red: int, goal := -1, to_peer := 0) -> void:
+	if role != Role.HOSTING or not is_connected_to_anyone():
+		return
+	if _link != null:
+		_link._take_football_scores(HOST_ID, blue, red, goal)
+	elif to_peer == 0:
+		_send_football_scores.rpc(blue, red, goal)
+	else:
+		_send_football_scores.rpc_id(to_peer, blue, red, goal)
+
+## A guest asks the host to kick a ball: which one, and the launch velocity its
+## own aim preview worked out. The host decides whether to believe it.
+func report_kick(ball: int, velocity: Vector3) -> void:
+	if not is_following():
+		return
+	if _link != null:
+		_link._take_kick(_link_id, ball, velocity)
+	else:
+		_send_kick.rpc_id(HOST_ID, ball, velocity)
+
+## A guest asks the host to start the football over.
+func report_new_game() -> void:
+	if not is_following():
+		return
+	if _link != null:
+		_link._take_new_game(_link_id)
+	else:
+		_send_new_game.rpc_id(HOST_ID)
+
 ## This child has renamed themselves, or changed their shirt. Sent to everyone
 ## already here, so what is over their head changes where it is being read
 ## rather than at the next time somebody joins.
@@ -371,7 +455,63 @@ func _send_position(at: Vector3, facing: float) -> void:
 	if not believable(at) or not is_finite(facing):
 		return
 	var from := multiplayer.get_remote_sender_id()
+	guest_positions[from] = at
 	guest_moved.emit(from, at, facing)
+
+## Is this from the host? 0 is no sender at all, which is how a check calls a
+## handler directly. Another guest's message relayed through the host is not
+## the host's, and must not set the score.
+func _from_the_host(from: int) -> bool:
+	return role == Role.VISITING and (from == HOST_ID or from == 0)
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func _send_balls(states: PackedFloat32Array) -> void:
+	_take_balls(multiplayer.get_remote_sender_id(), states)
+
+func _take_balls(from: int, states: PackedFloat32Array) -> void:
+	if not _from_the_host(from):
+		return
+	var count := states.size() / BALL_FLOATS
+	if states.size() % BALL_FLOATS != 0 or count < 1 or count > MAX_BALLS:
+		return
+	# Positions, velocities and the turn alike: finite, and nowhere near the
+	# edge of the world, as for any place that arrives from another phone.
+	for number in states:
+		if not is_finite(number) or absf(number) > BELIEVABLE_REACH:
+			return
+	remote_balls.emit(states)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_football_scores(blue: int, red: int, goal: int) -> void:
+	_take_football_scores(multiplayer.get_remote_sender_id(), blue, red, goal)
+
+func _take_football_scores(from: int, blue: int, red: int, goal: int) -> void:
+	if not _from_the_host(from):
+		return
+	if blue < 0 or red < 0 or blue > 99999 or red > 99999 or goal < -1 or goal > 1:
+		return
+	remote_football_scores.emit(blue, red, goal)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_kick(ball: int, velocity: Vector3) -> void:
+	_take_kick(multiplayer.get_remote_sender_id(), ball, velocity)
+
+func _take_kick(from: int, ball: int, velocity: Vector3) -> void:
+	# Only a host is asked to kick, and only by somebody who is in the valley.
+	if role != Role.HOSTING or not guests.has(from):
+		return
+	if ball < 0 or ball >= MAX_BALLS or not believable(velocity):
+		return
+	remote_kick.emit(from, ball, velocity)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_new_game() -> void:
+	_take_new_game(multiplayer.get_remote_sender_id())
+
+func _take_new_game(from: int) -> void:
+	if role != Role.HOSTING or not guests.has(from):
+		return
+	remote_new_game.emit(from)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_built(
@@ -451,6 +591,7 @@ func _on_peer_connected(id: int) -> void:
 
 func _on_peer_disconnected(id: int) -> void:
 	peer_gone.emit(id)
+	guest_positions.erase(id)
 	# Somebody who dropped before saying who they were was never announced, so
 	# there is nobody to say has left: "? left" came from a child nobody saw.
 	if not guests.has(id):

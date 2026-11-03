@@ -740,7 +740,15 @@ func _cost_text(cost: Dictionary) -> String:
 		var label := ItemKinds.label(kind)
 		# A ten-year-old reads this line, and "need 3 stick" reads as a typo
 		# rather than as a requirement.
-		parts.append("%d %s" % [amount, label if amount == 1 else label + "s"])
+		#
+		# An s on the end is only English's plural. On "палка" it made "палкаs"
+		# with a Latin letter on a Russian word, and on "pomme de pin" "pomme
+		# de pins": Russian has two plurals more and French its own. Those
+		# say the number after the name, as the shop does.
+		if Text.language() == Text.EN:
+			parts.append("%d %s" % [amount, label if amount == 1 else label + "s"])
+		else:
+			parts.append("%s ×%d" % [label, amount])
 	return ", ".join(parts)
 
 ## Returns true if something was actually built.

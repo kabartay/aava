@@ -791,6 +791,19 @@ static func _stairs() -> Mesh:
 			Vector3(MODULE * 0.8, rise, depth),
 			STONE
 		)
+	# The level piece the ramp carries on with past the top step (see
+	# add_collision) is drawn too, or a child stood on the air beyond the stairs
+	# whenever no floor lay beside them. Two centimetres under the top of a
+	# floor laid there, so where there is one the boards hide it rather than
+	# fighting it for the same pixels.
+	var landing_top := STOREY + FLOOR_THICKNESS - 0.02
+	var landing_base := STOREY - 0.1
+	_box(
+		tool,
+		Vector3(0.0, (landing_top + landing_base) * 0.5, -MODULE * 0.5 - STAIRS_LANDING * 0.5),
+		Vector3(MODULE * 0.8, landing_top - landing_base, STAIRS_LANDING),
+		STONE
+	)
 	return _finish(tool)
 
 static func _post() -> Mesh:

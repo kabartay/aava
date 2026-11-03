@@ -41,6 +41,46 @@ var _cooldown := 0.0
 var _in_the_net: Dictionary = {}
 var _field: HeightField
 
+# --- playing together ---------------------------------------------------------
+#
+# When two children share a valley the football is the host's. The host's phone
+# simulates the balls and keeps the score and tells the guest, ten or twelve
+# times a second, where the balls are; the guest's phone draws them there and
+# does not simulate them at all. A guest's kick is a request: it goes to the host
+# as the velocity the guest's own aim worked out, and the host applies it if it is
+# a kick somebody standing there could have given. Alone, or once the connection
+# is gone, every phone plays its own game exactly as it always did.
+
+## How often the host sends where the balls are.
+const BALL_INTERVAL := 1.0 / 12.0
+## Even a still game is told again this often, so a lost update cannot leave a
+## guest's ball somewhere it is not for long.
+const BALL_HEARTBEAT := 1.0
+## A ball this far from where the host says it is has been put back on the spot
+## or fetched from the river, and jumps there rather than sliding across.
+const SNAP_DISTANCE := 4.0
+## How long a guest's own kick is shown by this phone before the host's balls
+## are believed again: long enough for the request to reach the host and the ball
+## to start moving there, so the kick is felt at once and not a round trip later.
+const PREDICT_FOR := 0.3
+## How far past the kick's own reach a guest may be from a ball when the host
+## hears of the kick: the ball and the child both moved while it travelled.
+const KICK_SLACK := 3.0
+
+var _session: Session = null
+## Following the host's game rather than playing one.
+var _following := false
+## The guest's own score, put away while the host's is on the board.
+var _own_blue := 0
+var _own_red := 0
+var _since_sent := 0.0
+var _since_full := 0.0
+var _send_at_once := false
+var _last_sent := PackedFloat32Array()
+## What each ball is being drawn doing, as a guest: where it was and is going to
+## be, how long since the host last spoke about it, and its own kick if any.
+var _drawn: Array[Dictionary] = []
+
 func _init(field: HeightField) -> void:
 	_field = field
 	# Built here rather than in _ready, because a node used before the scene
@@ -73,8 +113,16 @@ func _init(field: HeightField) -> void:
 		var ball := Ball.new(start)
 		add_child(ball)
 		_balls.append(ball)
+		_drawn.append({"known": false, "predicting": 0.0})
 
 func _physics_process(delta: float) -> void:
+	_sync_role()
+	# A guest does not play the game: the host does, and this phone only draws it.
+	if not _following:
+		_play(delta)
+	_share(delta)
+
+func _play(delta: float) -> void:
 	if _cooldown > 0.0:
 		_cooldown -= delta
 		return
@@ -110,6 +158,7 @@ func _check_goal(ball: Ball) -> bool:
 		_board.show_scores(blue, red)
 		goal_scored.emit(index, blue, red)
 		scores_changed.emit(blue, red)
+		_tell_guests(index)
 		# Put it back on the centre spot after the celebration, the way a
 		# restart works, rather than instantly, which reads as the ball
 		# vanishing at the moment of triumph.
@@ -205,6 +254,11 @@ func ball_near(from: Vector3) -> Ball:
 ## Start the game again: both scores to nothing and every ball back where it
 ## began, on the halfway line, as when the world was made.
 func new_game() -> void:
+	# The game is the host's: a guest asks, and sees it begin again when the
+	# host's scores and balls arrive.
+	if _following:
+		_session.report_new_game()
+		return
 	blue = 0
 	red = 0
 	_cooldown = 0.0
@@ -216,15 +270,276 @@ func new_game() -> void:
 		ball.reset_to(spot)
 	_board.show_scores(blue, red)
 	scores_changed.emit(blue, red)
+	_tell_guests(-1)
+
+## Take part in a shared game through this session, as host or as guest.
+func attach(session: Session) -> void:
+	_session = session
+	session.remote_balls.connect(_on_remote_balls)
+	session.remote_football_scores.connect(_on_remote_scores)
+	session.remote_kick.connect(_on_remote_kick)
+	session.remote_new_game.connect(_on_remote_new_game)
+	session.guest_arrived.connect(_on_guest_arrived)
+
+func is_following() -> bool:
+	return _following
+
+func has_ball(ball: Ball) -> bool:
+	return _balls.has(ball)
+
+func _process(delta: float) -> void:
+	_sync_role()
+	if _following:
+		_draw_the_hosts_balls(delta)
+
+## Notice that this phone has become a guest in somebody's valley, or stopped
+## being one, and change what it does with the balls to match. Looked at every
+## tick rather than waited for as a signal, so a connection that drops in any
+## way at all hands the game back.
+func _sync_role() -> void:
+	var now := _session != null and _session.is_following()
+	if now == _following:
+		return
+	_following = now
+	_cooldown = 0.0
+	_in_the_net.clear()
+	_afloat.clear()
+	if now:
+		# What is on the board is the host's from here, until the host says.
+		_own_blue = blue
+		_own_red = red
+		blue = 0
+		red = 0
+		for i in _balls.size():
+			_balls[i].follow_the_host(true)
+			_drawn[i] = {"known": false, "predicting": 0.0}
+	else:
+		blue = _own_blue
+		red = _own_red
+		for i in _balls.size():
+			var ball := _balls[i]
+			ball.follow_the_host(false)
+			# Left going the way the host last had it, so a ball in flight
+			# comes down rather than stopping in the air.
+			if _drawn[i]["known"]:
+				ball.linear_velocity = _drawn[i]["velocity"]
+	_board.show_scores(blue, red)
+	scores_changed.emit(blue, red)
+
+# --- the host's side ----------------------------------------------------------
+
+## Tell guests the score, and which end a goal went into if one did. Anybody who
+## has just arrived is told alone, and the balls are sent at once with it.
+func _tell_guests(goal: int, to_peer := 0) -> void:
+	if _session == null or not _session.is_host():
+		return
+	_session.report_football_scores(blue, red, goal, to_peer)
+	_send_at_once = true
+
+func _on_guest_arrived(id: int, _who: String, _shirt: int) -> void:
+	_tell_guests(-1, id)
+
+## Where every ball is: position, velocity and turn, in the pitch's order.
+func _states() -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	for ball in _balls:
+		var turn := ball.basis.orthonormalized().get_rotation_quaternion()
+		var v := ball.linear_velocity
+		out.append_array(PackedFloat32Array([
+			ball.position.x, ball.position.y, ball.position.z, v.x, v.y, v.z,
+			turn.x, turn.y, turn.z, turn.w,
+		]))
+	return out
+
+## Send the balls to the guests, when somebody is there to see them and
+## something has moved — or the last word was a second ago, or a guest has just
+## come in, or a game has just begun.
+func _share(delta: float) -> void:
+	_since_sent += delta
+	_since_full += delta
+	if _session == null or not _session.is_host() or not _session.has_company():
+		return
+	if _since_sent < BALL_INTERVAL:
+		return
+	var states := _states()
+	if not _send_at_once and _since_full < BALL_HEARTBEAT and not _moved_since(states):
+		return
+	_since_sent = 0.0
+	_since_full = 0.0
+	_send_at_once = false
+	_last_sent = states
+	_session.report_balls(states)
+
+func _moved_since(states: PackedFloat32Array) -> bool:
+	if _last_sent.size() != states.size():
+		return true
+	for i in states.size():
+		if absf(states[i] - _last_sent[i]) > 0.002:
+			return true
+	return false
+
+## A guest asks for a ball to be kicked. Believed if somebody standing where that
+## guest last said they were could have given it.
+func _on_remote_kick(from: int, index: int, velocity: Vector3) -> void:
+	if _session == null or not _session.is_host() or index < 0 or index >= _balls.size():
+		return
+	var ball := _balls[index]
+	if not _session.guest_positions.has(from):
+		return
+	var offset: Vector3 = ball.position - (_session.guest_positions[from] as Vector3)
+	offset.y = 0.0
+	if offset.length() > Ball.KICK_REACH + Ball.RADIUS + KICK_SLACK:
+		return
+	var speed := velocity.length()
+	if speed < 0.1 or speed > Ball.KICK_SPEED_CEILING + 0.5:
+		return
+	ball.strike(velocity, Ball.strength_of(velocity), Ball.loft_of(velocity))
+	# Tell the guests now rather than at the next tick: the kicker is waiting.
+	_send_at_once = true
+
+func _on_remote_new_game(_from: int) -> void:
+	if _session != null and _session.is_host():
+		new_game()
+
+# --- the guest's side ---------------------------------------------------------
+
+## Kick a ball: on a guest's phone by asking the host, and showing the kick at
+## once so that it feels instant; anywhere else by kicking it.
+func kick(
+	ball: Ball, from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0,
+	loft := 0.25, look := Vector3.ZERO
+) -> float:
+	var index := _balls.find(ball)
+	if not _following or index < 0:
+		return ball.kick(from, facing, sprinting, strength, loft, look)
+	var offset := ball.position - from
+	offset.y = 0.0
+	if offset.length() > Ball.KICK_REACH + Ball.RADIUS:
+		return 0.0
+	var launch := Ball.launch_velocity(ball.position, from, facing, sprinting, strength, loft, look)
+	_session.report_kick(index, launch)
+	var shown := _drawn[index]
+	shown["predicting"] = PREDICT_FOR
+	shown["guess"] = launch
+	ball.kicked.emit(clampf(strength, 0.0, 1.0), clampf(loft, 0.0, 1.0))
+	return launch.length()
+
+func _on_remote_scores(new_blue: int, new_red: int, goal: int) -> void:
+	_sync_role()
+	if not _following:
+		return
+	blue = new_blue
+	red = new_red
+	_board.show_scores(blue, red)
+	if goal >= 0:
+		goal_scored.emit(goal, blue, red)
+	scores_changed.emit(blue, red)
+
+func _on_remote_balls(states: PackedFloat32Array) -> void:
+	_sync_role()
+	if not _following:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	for i in mini(states.size() / Session.BALL_FLOATS, _balls.size()):
+		var k := i * Session.BALL_FLOATS
+		var at := Vector3(states[k], states[k + 1], states[k + 2])
+		var v := Vector3(states[k + 3], states[k + 4], states[k + 5])
+		var turn := Quaternion(states[k + 6], states[k + 7], states[k + 8], states[k + 9])
+		if absf(turn.length() - 1.0) > 0.05:
+			continue
+		_take_the_hosts_word(i, at, v, turn.normalized(), now)
+
+func _take_the_hosts_word(i: int, at: Vector3, v: Vector3, turn: Quaternion, now: float) -> void:
+	var ball := _balls[i]
+	var shown := _drawn[i]
+	# Our own kick is still being shown, and what the host says now may be from
+	# before it heard of it.
+	if float(shown["predicting"]) > 0.0:
+		return
+	var here := ball.position
+	var current := ball.basis.orthonormalized().get_rotation_quaternion()
+	if not shown["known"] or here.distance_to(at) > SNAP_DISTANCE:
+		here = at
+		current = turn
+		ball.show_at(at, turn)
+	# How long the host took over this step is how long to take over showing it.
+	var span := 0.1
+	if shown["known"]:
+		span = clampf(now - float(shown["arrived"]), 0.05, 0.25)
+	shown["known"] = true
+	shown["arrived"] = now
+	shown["age"] = 0.0
+	shown["span"] = span
+	shown["from"] = here
+	shown["to"] = at
+	shown["from_turn"] = current
+	shown["to_turn"] = turn
+	shown["velocity"] = v
+
+## Slide each ball from where it was shown to where the host last put it, and
+## a little on past, in the direction it was going, until the host speaks again.
+func _draw_the_hosts_balls(delta: float) -> void:
+	for i in _balls.size():
+		var ball := _balls[i]
+		var shown := _drawn[i]
+		if float(shown["predicting"]) > 0.0:
+			_draw_own_kick(ball, shown, delta)
+			continue
+		if not shown["known"]:
+			continue
+		shown["age"] = float(shown["age"]) + delta
+		var span: float = shown["span"]
+		var age: float = shown["age"]
+		var turn: Quaternion = (shown["from_turn"] as Quaternion).slerp(
+			shown["to_turn"], clampf(age / span, 0.0, 1.0)
+		)
+		if age <= span:
+			ball.show_at((shown["from"] as Vector3).lerp(shown["to"], age / span), turn)
+		else:
+			var past := minf(age - span, 0.1)
+			ball.show_at((shown["to"] as Vector3) + (shown["velocity"] as Vector3) * past, turn)
+
+## The ball as this child's own kick sends it, under the same drag and gravity
+## the host's physics gives it, and never through the grass.
+func _draw_own_kick(ball: Ball, shown: Dictionary, delta: float) -> void:
+	var v: Vector3 = shown["guess"]
+	v.y -= ball.gravity_strength() * delta
+	v *= maxf(0.0, 1.0 - ball.effective_linear_damp() * delta)
+	var at := ball.position + v * delta
+	at.y = maxf(at.y, _field.height_at(at.x, at.z) + Ball.RADIUS)
+	shown["guess"] = v
+	shown["predicting"] = float(shown["predicting"]) - delta
+	var turn := ball.basis.orthonormalized().get_rotation_quaternion()
+	ball.show_at(at, turn)
+	if float(shown["predicting"]) <= 0.0:
+		# Handed back to the host's word: from here, going on the way it was.
+		shown["predicting"] = 0.0
+		shown["known"] = true
+		shown["arrived"] = Time.get_ticks_msec() / 1000.0
+		shown["span"] = 0.05
+		shown["age"] = 0.05
+		shown["from"] = at
+		shown["to"] = at
+		shown["from_turn"] = turn
+		shown["to_turn"] = turn
+		shown["velocity"] = v
 
 ## The board's own digits, for the checks.
 func board_digits() -> PackedStringArray:
 	return _board.digits()
 
 func to_data() -> Dictionary:
+	# A guest is shown the host's score, which is not theirs to save: their own
+	# valley gets its own score back when they go home.
+	if _following:
+		return {"blue": _own_blue, "red": _own_red}
 	return {"blue": blue, "red": red}
 
 func from_data(data: Dictionary) -> void:
+	if _following:
+		_own_blue = maxi(int(data.get("blue", 0)), 0)
+		_own_red = maxi(int(data.get("red", 0)), 0)
+		return
 	# A save from before there were two sides holds one number, "score", for
 	# goals in either end, and there is no telling now whose they were. It is
 	# loaded as 0:0 rather than handed to blue: a child should not open the game
@@ -233,3 +548,4 @@ func from_data(data: Dictionary) -> void:
 	red = maxi(int(data.get("red", 0)), 0)
 	_board.show_scores(blue, red)
 	scores_changed.emit(blue, red)
+	_tell_guests(-1)

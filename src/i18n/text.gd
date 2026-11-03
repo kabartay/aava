@@ -775,6 +775,25 @@ const STRINGS := {
 		FR: "prochain repas gratuit dans %d min — ou paie une pièce",
 		RU: "бесплатный обед через %d мин — или за монетку",
 	},
+	# The one line shown to a child who has not yet built a house, for the step
+	# after the ones that stand: walls, then a floor, then a roof, then a bed.
+	"hint_build_walls": {
+		EN: "Start with walls: pick one, then tap +",
+		FR: "Commence par des murs : choisis-en un, puis appuie sur +",
+		RU: "Сначала стены: выбери стену и нажми +",
+	},
+	"hint_build_floor": {
+		EN: "Now a floor to stand on", FR: "Maintenant un sol pour marcher",
+		RU: "Теперь пол, чтобы по нему ходить",
+	},
+	"hint_build_roof": {
+		EN: "Now a roof: pick whole roof", FR: "Maintenant un toit : choisis toit entier",
+		RU: "Теперь крыша: выбери «вся крыша»",
+	},
+	"hint_build_bed": {
+		EN: "Last, a bed to sleep in", FR: "Enfin, un lit pour dormir",
+		RU: "И в конце кровать, чтобы спать",
+	},
 	# %s is the name of the piece.
 	"say_took_back": {EN: "took the %s back", FR: "%s récupéré", RU: "разобрано: %s"},
 }

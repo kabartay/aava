@@ -550,6 +550,8 @@ func _wait_for_world() -> void:
 				_build_mode.storey(),
 				_build_mode.active and HouseParts.is_house_part(_build_mode.selected)
 			)
+			# And the line for a first house, from what stands.
+			_hud.set_house_hint(_structures.house_step())
 		await RenderingServer.frame_post_draw
 	print("world ready after %d frames" % frames)
 

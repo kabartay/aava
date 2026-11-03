@@ -150,6 +150,32 @@ func house_pieces_near(world_position: Vector3, reach: float) -> Array[Dictionar
 			found.append(record)
 	return found
 
+## What a first house still wants next, for the line that tells a child who has
+## never built one what to do: walls, then a floor, then a roof, then a bed.
+## Empty when all four stand somewhere. It goes by what is standing, not by what
+## was tapped last, so a house a child began on Monday is met on Tuesday with
+## the step after the one they got to.
+func house_step() -> StringName:
+	var walls := false
+	var boards := false
+	var roof := false
+	var bed := false
+	for record in _records:
+		var kind: StringName = record["kind"]
+		walls = walls or HouseParts.layer(kind) == &"wall"
+		boards = boards or kind == HouseParts.FLOOR
+		roof = roof or HouseParts.is_roof(kind)
+		bed = bed or kind == HouseParts.BED
+	if not walls:
+		return &"walls"
+	if not boards:
+		return &"floor"
+	if not roof:
+		return &"roof"
+	if not bed:
+		return &"bed"
+	return &""
+
 ## Whether this record still stands — the undo button asks before taking back
 ## a piece that a tap may already have taken down.
 func has(record: Dictionary) -> bool:
@@ -201,7 +227,14 @@ func _rests_on(upper: Dictionary, base: Dictionary, gone: Array[Dictionary]) -> 
 				absf(rise - HouseParts.STOREY) < HouseParts.STOREY * 0.25
 				and HouseParts.key_of(high) == HouseParts.key_of(low)
 			)
-		if HouseParts.is_roof(upper_kind) or upper_kind == HouseParts.CHIMNEY:
+		var is_upstairs_floor := (
+			upper_kind == HouseParts.FLOOR
+			and high.y - field.height_at(high.x, high.z) > HouseParts.STOREY * 0.625
+		)
+		if HouseParts.is_roof(upper_kind) or upper_kind == HouseParts.CHIMNEY or is_upstairs_floor:
+			# A floor a storey up is laid on the tops of the walls below, the
+			# same as a roof is; only one on the ground (see _carries) is a
+			# drawing on the grass that nothing holds up.
 			var top := low.y + HouseParts.height(base_kind)
 			return (
 				absf(high.y - top) < 0.1 and _covers(upper, HouseParts.key_of(low))

@@ -25,6 +25,12 @@ const FULL := &"full"
 const POOR := &"poor"
 const WAIT := &"wait"
 
+## How much of the wait for a free meal is left, for saving: the clock the
+## game keeps starts again at every launch, so a time of day means nothing next
+## time but a number of seconds still to wait means the same.
+static func wait_left(free_after: float, now: float) -> float:
+	return clampf(free_after - now, 0.0, FREE_WAIT)
+
 ## Sit down to a meal at a table of one's own. Returns ATE, FULL (the bar was
 ## already full, and nothing was charged), POOR (a coin was asked for and
 ## there was not one) or WAIT (a free meal was asked for before `free_ready`

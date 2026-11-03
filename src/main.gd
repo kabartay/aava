@@ -156,6 +156,11 @@ func _ready() -> void:
 		if wallet.has(ShopStock.BOTTLE) and not vitals.has_bottle:
 			vitals.grant_bottle()
 
+	_free_meal_after = _play_seconds() + clampf(
+		float(save.get("free_meal_in", 0.0)), 0.0, Venues.FREE_WAIT
+	)
+	_built_a_house = bool(save.get("built_house", false))
+
 	lantern = Lantern.new()
 	lantern.name = "Lantern"
 
@@ -255,6 +260,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_dam_stick.connect(_on_remote_dam_stick)
 	session.remote_time_of_day.connect(world.atmosphere.set_time)
 
+	# In somebody else's valley the football is theirs; this phone only draws it.
+	world.football.attach(session)
 	world.football.goal_scored.connect(_on_goal)
 	world.football.scores_changed.connect(_on_scores_changed)
 	world.places.basket.connect(func(total: int) -> void:
@@ -997,6 +1004,7 @@ func _process(delta: float) -> void:
 		build_mode.storey(),
 		build_mode.active and (HouseParts.is_house_part(build_mode.selected) or Plans.is_plan(build_mode.selected))
 	)
+	hud.set_house_hint(_first_house_step())
 
 	# The kick button appears only with a ball at your feet. The keyboard runs
 	# through the same two calls as the button, so the two controls cannot end
@@ -1743,7 +1751,7 @@ func _eat_at_home() -> void:
 	if _dining > 0.0:
 		return
 	var paying := hud.cafe_is_paid()
-	var now := float(Time.get_ticks_msec()) / 1000.0
+	var now := _play_seconds()
 	match Venues.eat(vitals, wallet, paying, now >= _free_meal_after):
 		Venues.FULL:
 			sounds.play(Sounds.Sound.REFUSE)
@@ -1762,6 +1770,29 @@ func _eat_at_home() -> void:
 				_free_meal_after = now + Venues.FREE_WAIT
 			_finish_eating(structures.seat_near(player.global_position))
 
+## Whether this child has ever stood a wall, a floor, a roof and a bed in the
+## valley, which is when the line that says what to build next stops being
+## said: a child who has built a house once knows how, and a line that went on
+## after that would be read as nagging. Saved with the child, not the world.
+var _built_a_house := false
+var _house_step_revision := -1
+var _house_step: StringName = &""
+
+## The step to say to a child building for the first time, or nothing. Found
+## again only when something has been put up or taken down.
+func _first_house_step() -> StringName:
+	if _built_a_house:
+		return &""
+	if structures.revision != _house_step_revision:
+		_house_step_revision = structures.revision
+		_house_step = structures.house_step()
+		_built_a_house = _house_step == &""
+	return _house_step
+
+## Seconds since the game began: the clock the free meal's wait is kept on.
+func _play_seconds() -> float:
+	return float(Time.get_ticks_msec()) / 1000.0
+
 ## Sell what the shop buys, at a shop the child built: the same price as the
 ## shop in the valley, over a counter they put up themselves.
 func _sell_at_home() -> void:
@@ -1779,7 +1810,10 @@ func _sell_at_home() -> void:
 var _known_cafe := false
 
 ## When the next free meal at the child's own cafe is ready, in seconds since
-## the game began. Not saved: a new session starts hungry, which is no harm.
+## the game began. That clock starts again with every launch, so what is saved
+## is the wait still left (see Venues.wait_left) and it is read back on loading.
+## Unsaved, closing the game and opening it again was a free meal whenever one
+## was wanted, which is exactly what the wait is there to prevent.
 var _free_meal_after := 0.0
 var _known_shop := false
 
@@ -2348,6 +2382,14 @@ func _on_kick_release() -> void:
 	# A tap is a nudge and a hold is a shot, but even the very shortest tap has
 	# to move the ball, or a child taps and concludes the button is broken.
 	sounds.play(Sounds.Sound.KICK, 0.85 + strength * 0.4)
+	# A pitch ball goes through the football ground, which on a guest's phone
+	# asks the host to kick it; a ball anywhere else is simply kicked.
+	if world.football.has_ball(ball):
+		world.football.kick(
+			ball, player.global_position, player.facing(), player.is_sprinting(),
+			maxf(strength, 0.12), camera_rig.aim_height(), _kick_look()
+		)
+		return
 	ball.kick(
 		player.global_position,
 		player.facing(),
@@ -2681,6 +2723,8 @@ func _save_data() -> Dictionary:
 		"tasks": tasks.to_data(),
 		"wallet": wallet.to_data(),
 		"vitals": vitals.to_data(),
+		"free_meal_in": Venues.wait_left(_free_meal_after, _play_seconds()),
+		"built_house": _built_a_house,
 		"journal": journal.to_data(),
 		"today": today.to_data(),
 	}
