@@ -52,8 +52,9 @@ const WATER_DB := -35.0
 const BIRDS_DB := -40.0
 const SWIMMING_DB := -28.0
 ## Crickets are the night's voice: very quiet, a presence rather than a sound,
-## and gentle enough for a child going to sleep.
-const CRICKETS_DB := -44.0
+## and gentle enough for a child going to sleep. Lowered from -44 with the
+## sound itself: on a phone even that was the loudest thing at night.
+const CRICKETS_DB := -52.0
 
 var _crickets: AudioStreamPlayer
 var _cricket_level := 0.0
@@ -401,11 +402,13 @@ func follow(
 	# Birds: daylight, and where there is something for them to sit in.
 	_bird_level = lerpf(_bird_level, (1.0 - darkness) * clampf(wooded * 1.6, 0.0, 1.0), weight)
 
-	# Crickets: after dark, in the open grass and by the water's edge rather than
-	# under the trees (where the birds were), and not at all while swimming.
+	# Crickets: after dark, and only where one lives. They were everywhere,
+	# the same piping wherever a child stood all night; now each cricket has its
+	# own spot in the grass and is heard only on coming near it, full within ten
+	# metres and gone by twenty. Not at all while swimming.
 	_cricket_level = lerpf(
 		_cricket_level,
-		darkness * (1.0 - clampf(wooded * 1.2, 0.0, 0.7)) * (1.0 - _swim_level),
+		darkness * cricket_near(at, field) * (1.0 - _swim_level),
 		weight
 	)
 
@@ -419,6 +422,32 @@ func follow(
 	_apply(_birds, _bird_level * hushed, BIRDS_DB)
 	_apply(_swimming, _swim_level, SWIMMING_DB)
 	_apply(_crickets, _cricket_level * hushed, CRICKETS_DB)
+
+## Where crickets live: one in every square of this size, at a spot drawn from
+## the square itself, so they stay put and both children's phones agree.
+const CRICKET_CELL := 70.0
+## Heard fully within the first distance, fading to nothing at the second.
+const CRICKET_NEAR := 10.0
+const CRICKET_FAR := 20.0
+
+## How near the closest cricket is, as a loudness from 0 (none within earshot)
+## to 1 (one at the child's feet). Crickets keep to dry ground: a spot in water
+## has none.
+static func cricket_near(at: Vector3, field: HeightField) -> float:
+	var cell := Vector2i(floori(at.x / CRICKET_CELL), floori(at.z / CRICKET_CELL))
+	var best := INF
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			var key := Vector2i(cell.x + dx, cell.y + dz)
+			var seed_at := hash(key)
+			var spot := Vector2(
+				(float(key.x) + float(seed_at % 1000) / 1000.0) * CRICKET_CELL,
+				(float(key.y) + float((seed_at / 1000) % 1000) / 1000.0) * CRICKET_CELL
+			)
+			if field != null and field.height_at(spot.x, spot.y) < field.water_level_at(spot.x, spot.y) + 0.2:
+				continue
+			best = minf(best, spot.distance_to(Vector2(at.x, at.z)))
+	return 1.0 - smoothstep(CRICKET_NEAR, CRICKET_FAR, best)
 
 ## How loud each voice is right now, for the checks: nothing else can hear
 ## the mix.
@@ -737,35 +766,36 @@ func _make_water() -> AudioStreamWAV:
 
 	return _wrap(_join_ends(values, samples, fade))
 
-## Crickets: two of them, each a short run of soft chirps at its own pace.
+## Crickets: one, far off, chirping now and then.
 ##
-## Pulses of a bare sine, which is what an insect is, and kept to a few hundred
-## milliseconds in every second or so — a continuous trill is a fire alarm. The
-## two paces (half a second and eight-tenths) both divide the loop, and every
-## run ends well before the loop does, so the seam is silence and there is no
-## click to find in it.
+## It was two crickets on the four-second loop, one every half second and one
+## every eight-tenths, at 3.3 and 3.7 kHz: about three bursts of piping a
+## second without a gap, at the very pitch a phone's speaker is shrillest and
+## an ear most sensitive. Through a whole night that was the one sound in the
+## valley, and on the phone it was loud, relentless and maddening. Now a single
+## cricket, lower and softer, chirps a short run at uneven moments a few
+## seconds apart, on a loop of its own three times as long, so the ear hears a
+## night with an insect in it rather than an alarm.
+const CRICKET_LOOP := 12.0
+const CRICKET_CHIRPS: Array[float] = [0.6, 4.1, 6.9, 10.2]
+
 func _make_crickets() -> AudioStreamWAV:
-	var samples := int(RATE * LOOP_SECONDS)
+	var samples := int(RATE * CRICKET_LOOP)
 	var values := PackedFloat32Array()
 	values.resize(samples)
-	# Pace, pitch, offset and loudness of each cricket.
-	for voice: Array in [[0.5, 3300.0, 0.05, 0.5], [0.8, 3700.0, 0.31, 0.38]]:
-		var pace: float = voice[0]
-		var pitch: float = voice[1]
-		var group := 0.0
-		while group + pace <= LOOP_SECONDS + 0.001:
-			for pulse in 4:
-				var start := int(RATE * (group + float(voice[2]) + float(pulse) * 0.045))
-				var length := int(RATE * 0.028)
-				for i in length:
-					var at := start + i
-					if at >= samples:
-						break
-					var progress := float(i) / float(length)
-					# Swelling in and out: no edge for the ear to catch on.
-					var envelope := sin(PI * progress)
-					values[at] += sin(TAU * pitch * float(i) / float(RATE)) * envelope * float(voice[3])
-			group += pace
+	var pitch := 2500.0
+	for chirp_at: float in CRICKET_CHIRPS:
+		for pulse in 3:
+			var start := int(RATE * (chirp_at + float(pulse) * 0.06))
+			var length := int(RATE * 0.03)
+			for i in length:
+				var at := start + i
+				if at >= samples:
+					break
+				var progress := float(i) / float(length)
+				# Swelling in and out: no edge for the ear to catch on.
+				var envelope := sin(PI * progress)
+				values[at] += sin(TAU * pitch * float(i) / float(RATE)) * envelope * 0.35
 	var data := PackedByteArray()
 	data.resize(samples * 2)
 	for i in samples:

@@ -14159,12 +14159,43 @@ func _check_sounds_have_distance_surfaces_and_a_night() -> void:
 	for _frame in 300:
 		ambience.follow(grass, field, places, 0.0, 1.0 / 60.0, 0.0)
 	_expect(not ambience.is_sounding("crickets"), "no crickets in the day")
+	# Crickets live in spots now and are heard only near one: find a place right
+	# by a cricket and one out of earshot of every cricket, near the meadow.
+	var by_one := Vector3.INF
+	var away := Vector3.INF
+	for ring in 60:
+		for step in 16:
+			var angle := TAU * float(step) / 16.0
+			var probe := grass + Vector3(cos(angle), 0.0, sin(angle)) * float(ring) * 4.0
+			var near := Ambience.cricket_near(probe, field)
+			if near >= 0.99 and by_one == Vector3.INF:
+				by_one = probe
+			if near <= 0.0 and away == Vector3.INF:
+				away = probe
+	_expect(by_one != Vector3.INF and away != Vector3.INF, "there are places by a cricket and places out of earshot")
 	for _frame in 300:
-		ambience.follow(grass, field, places, 1.0, 1.0 / 60.0, 0.0)
-	_expect(ambience.is_sounding("crickets"), "crickets sing at night")
+		ambience.follow(away, field, places, 1.0, 1.0 / 60.0, 0.0)
+	_expect(not ambience.is_sounding("crickets"), "at night, far from any cricket, none is heard")
+	for _frame in 300:
+		ambience.follow(by_one, field, places, 1.0, 1.0 / 60.0, 0.0)
+	_expect(ambience.is_sounding("crickets"), "crickets sing at night, close by")
 	var chirps := ambience._stream_of("crickets")
 	var seam := absi(chirps.data.decode_s16(chirps.data.size() - 2)) + absi(chirps.data.decode_s16(0))
 	_expect(seam < 50, "and the loop's seam is silence, so there is no click")
+	# Now and then, not a trill: bursts of chirping are counted as runs of sound
+	# with a quarter of a second of silence between them. It was about three a
+	# second without a gap, at 3.3 kHz, and on a phone the night was unbearable.
+	var bursts := 0
+	var quiet := 1 << 30
+	for i in chirps.data.size() / 2:
+		if absi(chirps.data.decode_s16(i * 2)) > 200:
+			if quiet > int(Ambience.RATE * 0.25):
+				bursts += 1
+			quiet = 0
+		else:
+			quiet += 1
+	var seconds := float(chirps.data.size() / 2) / float(Ambience.RATE)
+	_expect(bursts > 0 and seconds / float(bursts) >= 2.5, "a cricket chirps now and then: %d bursts in %.0f s" % [bursts, seconds])
 	for _frame in 300:
 		ambience.follow(grass, field, places, 1.0, 1.0 / 60.0, 1.0)
 	_expect(not ambience.is_sounding("crickets"), "none under the water")
