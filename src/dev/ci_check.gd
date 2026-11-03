@@ -25117,7 +25117,7 @@ func _check_the_top_bar_is_a_thumb_wide_and_clear_of_everything_else() -> void:
 					if spoken_width > announcement_width and spoken_width < 1100.0:
 						announcement_width = spoken_width
 						announcement = spoken
-			for building in [false, true]:
+			for building: bool in [false, true]:
 				hud.set_building(building)
 				hud.set_task(task)
 				hud.announce(announcement, 60.0)
@@ -25402,7 +25402,7 @@ func _check_a_built_chairs_plate_is_in_front_of_its_sitter() -> void:
 			var local := Basis(Vector3.UP, float(table["spin"])).inverse() * (plate - (table["position"] as Vector3))
 			_expect(absf(local.x) < 0.5 - 0.13 and absf(local.z) < 0.35 - 0.13, "inside the top, with the plate's own width to spare")
 			_expect(absf(plate.y - ((table["position"] as Vector3).y + 0.77)) < 0.01, "and at its height")
-		for dish in [Dishes.JUICE, Dishes.SOUP]:
+		for dish: StringName in [Dishes.JUICE, Dishes.SOUP]:
 			places._meals.clear()
 			places.set_down(dish, plate)
 			_expect(Vector2(_food_spot(places, 0).x - plate.x, _food_spot(places, 0).z - plate.z).length() < 0.01, "%s: the food stands where the child's own phone says" % dish)
