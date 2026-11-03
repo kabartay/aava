@@ -433,17 +433,26 @@ const CRICKET_FAR := 20.0
 ## How near the closest cricket is, as a loudness from 0 (none within earshot)
 ## to 1 (one at the child's feet). Crickets keep to dry ground: a spot in water
 ## has none.
+## Where the cricket of one square lives, always inside that square.
+##
+## `hash` is negative for about half of all squares, and `%` keeps the sign of
+## what it divides: those crickets were drawn up to a whole square outside their
+## own, where the three-by-three squares searched around a child could not
+## always see them. A cricket two steps away was silent, and sang the moment a
+## child crossed a line on the grass that nothing marked.
+static func cricket_spot(key: Vector2i) -> Vector2:
+	var seed_at := hash(key)
+	return Vector2(
+		(float(key.x) + float(posmod(seed_at, 1000)) / 1000.0) * CRICKET_CELL,
+		(float(key.y) + float(posmod(seed_at / 1000, 1000)) / 1000.0) * CRICKET_CELL
+	)
+
 static func cricket_near(at: Vector3, field: HeightField) -> float:
 	var cell := Vector2i(floori(at.x / CRICKET_CELL), floori(at.z / CRICKET_CELL))
 	var best := INF
 	for dx in range(-1, 2):
 		for dz in range(-1, 2):
-			var key := Vector2i(cell.x + dx, cell.y + dz)
-			var seed_at := hash(key)
-			var spot := Vector2(
-				(float(key.x) + float(seed_at % 1000) / 1000.0) * CRICKET_CELL,
-				(float(key.y) + float((seed_at / 1000) % 1000) / 1000.0) * CRICKET_CELL
-			)
+			var spot := cricket_spot(Vector2i(cell.x + dx, cell.y + dz))
 			if field != null and field.height_at(spot.x, spot.y) < field.water_level_at(spot.x, spot.y) + 0.2:
 				continue
 			best = minf(best, spot.distance_to(Vector2(at.x, at.z)))

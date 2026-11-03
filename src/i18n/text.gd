@@ -102,8 +102,8 @@ const STRINGS := {
 		EN: "add wood", FR: "mettre du bois", RU: "подбросить дров",
 	},
 	"say_fire_fed": {
-		EN: "burning for %d more minutes",
-		FR: "brûle encore %d minutes",
+		EN: "burning for %d more min",
+		FR: "brûle encore %d min",
 		RU: "гореть ещё минут: %d",
 	},
 	"say_fire_out": {
@@ -805,7 +805,7 @@ const STRINGS := {
 		RU: "без билета кататься нельзя — выходим"
 	},
 	"say_park_used_ticket": {
-		EN: "enjoy the ride — %d tickets left", FR: "bon voyage — il te reste %d billets",
+		EN: "enjoy the ride — tickets left: %d", FR: "bon voyage — billets restants : %d",
 		RU: "приятной поездки — билетов осталось: %d"
 	},
 	"say_welcome_pool": {EN: "in you go — have a swim!", FR: "entre — bonne baignade !", RU: "проходи — поплавай!"},

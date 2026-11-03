@@ -198,6 +198,18 @@ func find_own(kind: StringName, x: float, z: float, storey: int) -> Dictionary:
 			return record
 	return {}
 
+## Whether the piece of this kind at this exact spot was put up by this child.
+## A tree that matures pays its reward to whoever planted it: asked of the
+## growth signal, which carries only a kind and a place, so that a sapling
+## adopted from the host's valley, or one the other child planted, does not pay
+## a second purse as well as the first.
+func is_own_at(kind: StringName, world_position: Vector3) -> bool:
+	for record in _records:
+		if record["kind"] == kind and bool(record.get("paid", true)) \
+				and (record["position"] as Vector3).is_equal_approx(world_position):
+			return true
+	return false
+
 ## Everything that stands on a piece and would hang in the air without it, the
 ## highest first, and without the piece itself:
 ##
@@ -699,6 +711,26 @@ func nearest_shared(world_position: Vector3, reach: float, kind := &"") -> Dicti
 func adopt_as_shared() -> void:
 	for record in _records:
 		record["paid"] = false
+		record["shared"] = true
+
+## Somebody has come into this valley. Everything already standing is sent to
+## them on arrival (see Session.report_valley), so it is in both valleys from
+## this moment, and not only what is built afterwards: left as it was, a wall
+## the host built last week could be taken down by the guest on their phone
+## while the host's stayed standing, because a removal only ever matches a
+## shared piece. Still the host's own, so still paid for.
+##
+## Three passes found this at once and named it three ways; share_standing and
+## begin_sharing are kept as the same call so their checks still read.
+func share_standing() -> void:
+	start_sharing()
+
+func begin_sharing() -> void:
+	start_sharing()
+
+func start_sharing() -> void:
+	sharing = true
+	for record in _records:
 		record["shared"] = true
 
 ## The game together is over: from now on nothing here is in anyone else's

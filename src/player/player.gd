@@ -517,6 +517,16 @@ func _physics_process(delta: float) -> void:
 		# The model's own turn is folded into the seat's, so it is not applied
 		# twice: what the seat says is the whole of the pose.
 		_visual.rotation = Vector3.ZERO
+		# And the body sits in the seat, not above it. The offsets below are
+		# only worked out on the way past this return, so a child who stepped
+		# off a horse into a coaster car (or carousel saddle) kept the saddle's
+		# two metres of lift for the whole ride — floating over the car — and
+		# then sank back down from it when the bars went up.
+		_visual.position = Vector3.ZERO
+		_ride_lift = 0.0
+		_board = 0.0
+		_boards_horse = false
+		_swim_sink = 0.0
 		velocity = Vector3.ZERO
 		return
 

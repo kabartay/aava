@@ -18,9 +18,11 @@ extends RefCounted
 ## saved world on.
 
 ## How close a generated tree must be to a recorded stump to count as the same
-## tree. Comfortably larger than any floating-point drift, comfortably smaller
-## than the gap between two trees.
-const MATCH_RADIUS := 0.6
+## tree. Comfortably larger than any floating-point drift (and the half a decimetre
+## a saved position is snapped by), comfortably smaller than the gap between two
+## trees. It was 0.6, wider than a sapling can be planted from a wild tree:
+## felling the child's own tree beside one took the wild one down with it.
+const MATCH_RADIUS := 0.25
 
 ## Keyed by a rounded (x, z) so the lookup is a hash rather than a scan of every
 ## felled tree in the world.

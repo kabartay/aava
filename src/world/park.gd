@@ -51,6 +51,11 @@ const TRAMPOLINE_TOP := 1.05
 ## further in.
 const RIM_THICKNESS := 0.5
 const RIM_OUT := 0.15
+## How high the ring stands over the sand: the top of the drawn frame (a
+## little over the mat), and no higher. It stood 0.4 m above the mat, 1.45 m
+## from the ground, and a jump only rises Player.JUMP_VELOCITY² / 2g = 1.40 m,
+## so nobody could get onto the trampoline at all.
+const RIM_HEIGHT := TRAMPOLINE_TOP + 0.1
 ## How much of a fall it gives back, and the least bounce it will give a child
 ## who merely steps onto it.
 const TRAMPOLINE_REBOUND := 0.72
@@ -483,10 +488,10 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		# child bouncing near the edge stopped against before they got there.
 		var outside := on_rim.normalized() * (TRAMPOLINE_RADIUS + RIM_OUT)
 		Park._solid(
-			solid, Vector3(RIM_THICKNESS, TRAMPOLINE_TOP + 0.4, 1.9),
+			solid, Vector3(RIM_THICKNESS, RIM_HEIGHT, 1.9),
 			Transform3D(
 				Basis(Vector3.UP, -round_it),
-				at + Vector3(outside.x, (TRAMPOLINE_TOP + 0.4) * 0.5, outside.y)
+				at + Vector3(outside.x, RIM_HEIGHT * 0.5, outside.y)
 			)
 		)
 
@@ -497,7 +502,9 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 	pad.height = 0.16
 	var collider := CollisionShape3D.new()
 	collider.shape = pad
-	collider.position = at + Vector3(0.0, TRAMPOLINE_TOP - 0.05, 0.0)
+	# Its top is the drawn mat's top (the mat is 0.08 thick, centred 0.05 down),
+	# not three centimetres over it, where a child stood in the air.
+	collider.position = at + Vector3(0.0, TRAMPOLINE_TOP - 0.09, 0.0)
 	solid.add_child(collider)
 
 	# Legs, and a safety net of uprights round it: the only thing here a child

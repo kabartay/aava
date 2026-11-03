@@ -1040,6 +1040,12 @@ func _clear_way(animal: Dictionary, node: Node3D, forward: Vector3, toward: Vect
 			if not _solid_ahead(animal, at, way):
 				animal["side"] = sign
 				return way
+	# Boxed in on every side by something it is standing in: a house raised
+	# on the spot where it was grazing. Every feeler finds the wall it is
+	# inside, so it stood there for good, wanting somewhere else and never
+	# able to go. Like one already afloat, one already inside is let walk.
+	if _solid_at(at):
+		return forward
 	return Vector3.ZERO
 
 ## Is this close enough to the player to be worth asking the physics world
@@ -1161,6 +1167,13 @@ func _head_for_the_bank(animal: Dictionary) -> void:
 			animal["speed"] = FLEE_SPEED
 			return
 
+## May this kind be sent to stand here? The wander already asks; so must
+## everything else that names a spot for an animal to go to, or a whistle, a
+## friendly child or a motorcycle walks sheep onto the pitch and cows into the
+## fairground, which nothing is meant to wander onto.
+func _may_stand(kind: StringName, at: Vector3) -> bool:
+	return Animals.belongs_at(kind, kept_for_people(at.x, at.z))
+
 ## Called every frame with where the player is and what they are carrying.
 ##
 ## The animals watch rather than being told: nothing in the player or the
@@ -1206,7 +1219,7 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 		if racket and distance <= RACKET_RANGE:
 			var bolt := node.position + offset.normalized() * -1.0 * ROAM
 			var den: Vector3 = animal["home"]
-			if bolt.distance_to(den) > ROAM * 2.2:
+			if bolt.distance_to(den) > ROAM * 2.2 or not _may_stand(kind, bolt):
 				bolt = den
 			bolt.y = _footing(bolt.x, bolt.z)
 			animal["target"] = bolt
@@ -1225,9 +1238,12 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 
 		if tame:
 			# Come and meet the child, but stop short rather than walking into
-			# them, which looks like a bug rather than like interest.
-			if distance > REACH * 0.8:
-				animal["target"] = player_position - offset.normalized() * REACH * 0.7
+			# them, which looks like a bug rather than like interest. Not onto
+			# ground kept for people, though: a child standing on the football
+			# pitch is not a reason for a cow to walk onto it.
+			var meeting := player_position - offset.normalized() * REACH * 0.7
+			if distance > REACH * 0.8 and _may_stand(kind, meeting):
+				animal["target"] = meeting
 				animal["target"].y = _footing(animal["target"].x, animal["target"].z)
 				animal["speed"] = SPEED * (1.9 if called else 1.3)
 				animal["rest"] = 0.5
@@ -1240,7 +1256,7 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 		# and vanish from the world.
 		var home: Vector3 = animal["home"]
 		var away := node.position + offset.normalized() * -1.0 * ROAM * 0.6
-		if away.distance_to(home) > ROAM * 1.6:
+		if away.distance_to(home) > ROAM * 1.6 or not _may_stand(kind, away):
 			away = home
 		away.y = _footing(away.x, away.z)
 		animal["target"] = away

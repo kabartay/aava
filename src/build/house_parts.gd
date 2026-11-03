@@ -470,6 +470,14 @@ static func furniture_boxes(kind: StringName) -> Array:
 ## because a door a child cannot walk through is a wall wearing a costume.
 static func add_collision(node: Node3D, kind: StringName) -> void:
 	var body := StaticBody3D.new()
+	# A thin thing — a post, a lamp, a table, a counter — is on the props layer,
+	# as the cafe's furniture and the signpost are: the child bumps it and the
+	# camera's arm does not. On the ground layer the arm caught on every table
+	# and post in a house a child built, and the view rattled the way it once
+	# did at the slide. Walls, roofs, floors and stairs stay on the ground
+	# layer, which is what keeps the camera inside a room.
+	if kind == POST or kind == CHIMNEY or not furniture_boxes(kind).is_empty():
+		body.collision_layer = TerrainSpec.LAYER_PROPS
 	node.add_child(body)
 	for pair: Array in furniture_boxes(kind):
 		_collision_box(body, pair[0], pair[1])

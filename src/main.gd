@@ -124,6 +124,7 @@ func _ready() -> void:
 	# remembered: a switch that forgets is a switch nobody trusts.
 	_voice_allowed = bool(save.get("voice_allowed", true))
 	_first_person = bool(save.get("first_person", false))
+	_cafe_paid = bool(save.get("cafe_paid", false))
 	# Clamped, not just checked for -1. The index off the network is validated
 	# in session.gd and this one was not, so a hand-edited save — or the
 	# palette ever losing a colour — indexed off the end of SHIRTS during
@@ -480,6 +481,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# button and its entire play-together panel connected to nothing at all.
 	hud.set_voice_allowed(_voice_allowed)
 	hud.set_first_person(_first_person)
+	hud.set_cafe_paid(_cafe_paid)
 	# Turning up is the whole of a visiting day, and nothing was ever telling
 	# today that anybody had: one day in six asks only that a child opens the
 	# game, and on that day the task sat there uncompletable and its eight
@@ -581,6 +583,12 @@ var _coaster_told := false
 var _asked: StringName = &""
 ## Whether a parent has left talking switched on.
 var _voice_allowed := true
+
+## Whether this child's own café asks a coin for a meal. A setting like the
+## voice switch, so it is kept here, saved, and handed to each new interface:
+## it lived only in the button, and a change of language or a restart put the
+## café back to free.
+var _cafe_paid := false
 
 func _physics_process(delta: float) -> void:
 	if player == null or _waiting_for_ground or world.park == null:
@@ -710,6 +718,15 @@ func _physics_process(delta: float) -> void:
 			if _asked == &"ride":
 				_asked = &""
 				hud.stop_asking()
+
+	# Off the mount for a ride that has taken their ticket and carries them: the
+	# carousel and the coaster both do this, and the wheel, the tower and the
+	# ship did not, so a child on a horse was lifted ninety metres with the
+	# animal still under them and drawn in the saddle of a gondola's seat.
+	if player.riding != &"" and not _riding_without_a_ticket and (
+		aboard == &"wheel" or aboard == &"drop_tower" or aboard == &"pirate_ship"
+	):
+		_on_ride()
 
 	# Strapped in, while the bars are down: the ride puts the rider where the
 	# seat is rather than nudging them along by how far the car moved. A loop
@@ -909,7 +926,7 @@ func _process(delta: float) -> void:
 	# named a place over there where nothing of the sort had ever stood.
 	var together := session.has_company()
 	if together and not structures.sharing:
-		structures.sharing = true
+		structures.begin_sharing()
 	elif not together and structures.sharing:
 		structures.stop_sharing()
 	# On foot while still arriving: what a guest is riding then is a machine of
@@ -1299,6 +1316,11 @@ func _on_reset() -> void:
 		_refresh_fires()
 	inventory.from_data({})
 	world.pickups.from_data([])
+	# The trees cut down and the dams the beavers finished are the child's
+	# doing too: "new again" left every stump standing and every pond full.
+	world.felled.from_data([])
+	world.vegetation.rebuild_all()
+	world.dams.adopt([], {})
 	world.boulders.from_data({})
 	world.football.from_data({})
 	birds.set_points([])
@@ -1322,6 +1344,10 @@ func _connect_the_rest_of_the_hud() -> void:
 		voice.allowed = allowed
 		_write_save())
 	hud.shop_sold_back.connect(_on_sell_back)
+	hud.set_cafe_paid(_cafe_paid)
+	hud.cafe_price_toggled.connect(func(paid: bool) -> void:
+		_cafe_paid = paid
+		_write_save())
 	hud.view_toggled.connect(_on_view_toggled)
 	hud.confirmed.connect(_on_answered.bind(true))
 	hud.refused.connect(_on_answered.bind(false))
@@ -1355,11 +1381,20 @@ func _rebuild_hud() -> void:
 	# whatever asked it asks again.
 	_asked = &""
 	_asked_ride = &""
+	# The talk button goes with the old interface, and a button that is freed
+	# while it is held never sends its release: the microphone, and the hush on
+	# the valley's sounds, stayed on until somebody pressed talk again.
+	voice.stop_talking()
+	# What a child set in the old one — the price of their own café, the dish
+	# on the menu — is held only there, and is carried across.
+	var cafe_paid := hud != null and hud.cafe_is_paid()
+	var dish: StringName = hud.chosen_dish() if hud != null else Dishes.USUAL
 	if hud != null:
 		hud.queue_free()
 	hud = Hud.new()
 	hud.name = "Hud"
 	add_child(hud)
+	hud.restore_cafe_choices(cafe_paid, dish)
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 	_connect_the_rest_of_the_hud()
 	_show_the_state()
@@ -1386,6 +1421,7 @@ func _show_the_state() -> void:
 	_refresh_vitals()
 	hud.set_voice_allowed(_voice_allowed)
 	hud.set_first_person(_first_person)
+	hud.set_cafe_paid(_cafe_paid)
 	hud.set_score(world.football.blue, world.football.red)
 
 ## The one line at the top of the screen: the next step while a child is still
@@ -1786,7 +1822,8 @@ func _on_guest_arrived(id: int, name: String, shirt: int) -> void:
 	if session.is_host():
 		hud.announce(Text.format("say_joined", [name]), 4.0)
 		session.report_time_of_day(world.atmosphere.time_of_day, id)
-		session.report_valley(structures.to_data(), world.felled.to_data(), id)
+		structures.share_standing()
+		session.report_valley(structures.to_data(),world.felled.to_data(), id)
 		session.report_shared(
 			PackedStringArray(world.pickups.to_data()), world.dams.built,
 			world.dams.progress, world.mounts.to_data(), id
@@ -2328,6 +2365,7 @@ func _tell_of_the_meal(dish: StringName, at: Vector3) -> void:
 ## said: a child who has built a house once knows how, and a line that went on
 ## after that would be read as nagging. Saved with the child, not the world.
 var _built_a_house := false
+
 var _house_step_revision := -1
 var _house_step: StringName = &""
 
@@ -2476,6 +2514,11 @@ func _on_ride() -> void:
 		return
 	# Not from a chair or a swing: see _carry, which would only put them down.
 	if _is_being_carried():
+		return
+	# Nor from a saddle or a seat on a ride that is carrying them. A horse
+	# parked beside the carousel was offered from the saddle: the child was
+	# then on two mounts at once, held by the ride and drawn on the horse.
+	if player.strapped_in:
 		return
 
 	# Refused before getting on rather than a stride afterwards.
@@ -3043,6 +3086,11 @@ func _on_kick_start() -> void:
 ## The ball at the child's feet, whichever game it belongs to: the footballs
 ## on the pitch or the basketballs at the playground. One kick serves both.
 func _ball_near() -> Ball:
+	# Not from the saddle. A rider does not dribble (see the frame loop), and a
+	# kick from a bicycle seat swung a leg the pose does not have and sent the
+	# ball off from wherever the machine happened to be passing.
+	if player.riding != &"":
+		return null
 	var ball := world.football.ball_near(player.global_position)
 	if ball == null:
 		ball = world.places.ball_near(player.global_position)
@@ -3377,7 +3425,9 @@ func _on_matured(kind: StringName, at: Vector3) -> void:
 	if tidied > 0:
 		world.vegetation.rebuild_around(at)
 	var reward := BuildKinds.reward_for(kind)
-	if reward <= 0:
+	if reward <= 0 or not structures.is_own_at(kind, at):
+		# Nothing, too, for a tree the other child planted: its reward is paid
+		# on their phone, and taking it down here repays nothing either.
 		hud.announce(Text.of("say_grown"))
 		return
 	wallet.earn(reward)
@@ -3407,6 +3457,10 @@ func _on_groves_changed(centres: Array) -> void:
 			hud.announce(Text.of("say_grove"), 5.0)
 
 func _notification(what: int) -> void:
+	# A phone is put down at night and picked up in the morning without the
+	# game ever closing, so the day it began on can be yesterday.
+	if what == NOTIFICATION_APPLICATION_RESUMED and today != null and hud != null:
+		_turn_the_day()
 	# The first two arrive when the game is closing: the desktop window button,
 	# and Android's back gesture.
 	#
@@ -3422,6 +3476,23 @@ func _notification(what: int) -> void:
 		or what == NOTIFICATION_APPLICATION_PAUSED
 	):
 		_write_save()
+	# A phone puts the game away and brings it back days later without starting
+	# it again, so the day it was opened on went on being "today": yesterday's
+	# task stayed offered, and finishing it paid out for a day long gone.
+	if what == NOTIFICATION_APPLICATION_RESUMED and today != null:
+		var was := today.day_number()
+		today.begin(int(Time.get_unix_time_from_system()))
+		if today.day_number() != was and hud != null:
+			hud.set_task(_task_line())
+
+## Offer the new day's task if midnight has passed since the last one was set.
+func _turn_the_day() -> void:
+	var before := today.day_number()
+	today.begin(int(Time.get_unix_time_from_system()))
+	if today.day_number() == before:
+		return
+	today.arrive()
+	hud.set_task(_task_line())
 
 func _write_save() -> void:
 	if player == null or world == null or not _may_save:
@@ -3446,6 +3517,7 @@ func _save_data() -> Dictionary:
 		"language": String(Text.language()),
 		"voice_allowed": _voice_allowed,
 		"first_person": _first_person,
+		"cafe_paid": _cafe_paid,
 		"shirt": _shirt,
 		"look": Character.to_data(_look),
 		"look_offered": _look_offered,

@@ -174,7 +174,22 @@ const FULL_LOCK := deg_to_rad(38.0)
 static func girth(kind: StringName) -> float:
 	if kind == &"":
 		return 0.0
-	return (body_box(kind)[0] as Vector3).x * 0.5
+	# Remembered per id. Every animal that is walking asks about every mount in
+	# the meadow, every frame (see Mounts.blocks), and each answer was a string
+	# cut apart, a name made from the pieces and a fresh array and vector, to
+	# get a number that never changes.
+	var known = _girths.get(kind)
+	if known != null:
+		return known
+	var half := (body_box(kind)[0] as Vector3).x * 0.5
+	_girths[kind] = half
+	return half
+
+static var _girths: Dictionary = {}
+
+## How many ids have had their girth remembered. For the checks.
+static func girths_known() -> int:
+	return _girths.size()
 
 const INFO := {
 	HORSE: {

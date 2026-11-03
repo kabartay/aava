@@ -102,7 +102,7 @@ func _init(start: Vector3, which: Look = Look.FOOTBALL) -> void:
 	# through a goalpost instead of hitting it.
 	continuous_cd = true
 	# Bounces off a hoop's pole and a swing's post, not only the ground.
-	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS | TerrainSpec.LAYER_VISITORS
 	# On the props layer, not the default ground layer: the camera's arm stops
 	# at the ground and the walls, and a ball left behind the child on the
 	# ground layer shoved the camera in to nothing whenever it rolled between
@@ -273,7 +273,7 @@ func follow_the_host(on: bool) -> void:
 		return
 	freeze = false
 	collision_layer = TerrainSpec.LAYER_PROPS
-	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS
+	collision_mask = TerrainSpec.LAYER_GROUND | TerrainSpec.LAYER_PROPS | TerrainSpec.LAYER_VISITORS
 	sleeping = false
 
 ## Where the camera looking along `look` sends a kick from `from` at a ball at

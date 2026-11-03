@@ -269,6 +269,9 @@ func _kind_at(x: float, z: float, roll: float) -> StringName:
 	# through it.
 	if PlaceSpec.indoors(x, z, field.camp_centre()):
 		return &""
+	# Nor under the bridge deck, where a stick lay between the planks.
+	if BridgeSpec.clear_of_trees(x, z, field.river_centre_x(BridgeSpec.CENTRE_Z)):
+		return &""
 
 	var to_river := field.distance_to_river(x, z)
 	if to_river < REED_BANK and height < HeightField.WATER_LEVEL + REED_HEIGHT:

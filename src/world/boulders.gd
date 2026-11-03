@@ -232,6 +232,10 @@ func _suits(x: float, z: float) -> bool:
 		return false
 	if ParkSpec.inside(x, z):
 		return false
+	# Nor at the crossing. The deck meets the ground at each bank, so a rock
+	# there either poked up through the planks or stood solid across the way on.
+	if BridgeSpec.clear_of_trees(x, z, field.river_centre_x(BridgeSpec.CENTRE_Z)):
+		return false
 	# Not on a road, and not against the signpost. A rock sitting in the middle
 	# of a worn path is a rock somebody would have rolled aside years ago, and
 	# one at the foot of the signs is something a child on a bicycle hits while

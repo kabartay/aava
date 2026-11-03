@@ -271,8 +271,10 @@ func _carry_guests(delta: float) -> void:
 func _make_body() -> AnimatableBody3D:
 	var body := AnimatableBody3D.new()
 	body.name = "GuestBody"
-	# The layer the ball collides with, and no mask: it moves, nothing moves it.
-	body.collision_layer = TerrainSpec.LAYER_PROPS
+	# A layer only the ball looks for, and no mask: it moves, nothing moves it —
+	# and the host's own child walks through it as the guest does through them,
+	# rather than being shoved by a body that is nowhere on their screen.
+	body.collision_layer = TerrainSpec.LAYER_VISITORS
 	body.collision_mask = 0
 	var shape := CapsuleShape3D.new()
 	shape.height = Player.HEIGHT
@@ -335,6 +337,12 @@ func ball_positions() -> Array[Vector3]:
 func _check_goal(ball: Ball) -> bool:
 	for index in 2:
 		var mouth := Pitch.goal_centre(index)
+		# Whether the ball is anywhere near the goal is asked first, with the
+		# height test made to pass: the grass under the goal is a read of the
+		# whole height field, and it was made twice for every ball on every
+		# physics tick, nearly always for a ball in the middle of the pitch.
+		if not Pitch.is_goal(index, ball.position, Ball.RADIUS, INF):
+			continue
 		var grass := _field.height_at(mouth.x, mouth.z)
 		if not Pitch.is_goal(index, ball.position, Ball.RADIUS, grass):
 			continue
@@ -781,6 +789,13 @@ func from_data(data: Dictionary) -> void:
 	var kept := unfinished(maxi(int(data.get("blue", 0)), 0), maxi(int(data.get("red", 0)), 0))
 	blue = kept.x
 	red = kept.y
+	# A score put back while a match is being cheered — "start again" held at
+	# that moment — ends the cheering with it: the board went on saying who had
+	# won beside a 0 : 0 until the pause ran out.
+	if _winner >= 0:
+		_winner = -1
+		_cooldown = 0.0
+		_board.show_winner(-1, 0.0)
 	_board.show_scores(blue, red)
 	scores_changed.emit(blue, red)
 	_tell_guests(-1)

@@ -34,6 +34,7 @@ func _initialize() -> void:
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
+	await _check_the_cafe_price_is_kept()
 	await _check_loading_reaches_what_is_already_built()
 	_check_inventory_arithmetic()
 	_check_build_costs_are_real()
@@ -55,10 +56,13 @@ func _initialize() -> void:
 	await _check_the_indoor_camera_cannot_reach_outside()
 	_check_a_house_can_be_built_and_unbuilt()
 	_check_a_guest_is_not_marked_as_having_built_the_hosts_house()
+	_check_a_new_day_and_a_borrowed_tree_pay_what_they_should()
 	_check_every_language_is_complete()
+	_check_a_strapped_in_child_sits_in_the_seat_not_above_it()
 	_check_every_text_key_exists()
 	_check_everything_the_network_can_say_is_said()
 	_check_a_guest_arrives_in_the_hosts_valley_and_goes_home()
+	_check_the_hosts_old_walls_are_in_the_guests_valley_too()
 	_check_the_other_child_is_drawn_on_what_they_ride()
 	_check_the_hosts_mounts_follow_their_riders_and_stay_where_they_are_left()
 	_check_the_horse_is_a_childs_pony_with_the_rider_astride()
@@ -163,6 +167,7 @@ func _initialize() -> void:
 	_check_voice_is_safe()
 	_check_the_microphone_closes_when_the_last_visitor_goes()
 	_check_the_microphone_closes_when_the_app_is_taken_away()
+	_check_a_rebuilt_interface_lets_go_of_the_microphone()
 	_check_a_host_with_nobody_there_cannot_open_the_microphone()
 	_check_a_voice_keeps_its_pitch()
 	_check_talking_is_buffered_ducked_gated_and_explained()
@@ -202,6 +207,7 @@ func _initialize() -> void:
 	_check_the_bridge_is_on_the_map()
 	_check_a_carried_child_closes_on_the_seat_at_any_frame_rate()
 	_check_a_child_who_is_carried_is_not_still_riding()
+	_check_a_rider_is_offered_no_kick()
 	_check_rising_from_deep_water_is_the_same_at_any_frame_rate()
 	_check_the_roads_have_names()
 	_check_the_fairground()
@@ -220,10 +226,20 @@ func _initialize() -> void:
 	_check_the_wheel_clears_its_gondolas_and_the_tickets_follow_the_child()
 	_check_the_light_points_down_and_the_fog_hides_the_far_rim()
 	_check_the_animals_keep_off_the_playing_places()
+	_check_no_rock_or_find_lies_across_the_bridge()
+	await _check_counts_read_right_and_a_new_interface_keeps_the_cafe_choices()
+	_check_nobody_climbs_on_a_mount_from_a_ride_seat()
+	_check_a_guests_body_is_only_the_balls_to_meet()
+	_check_per_frame_lookups_are_remembered()
+	_check_the_day_turns_over_and_a_reset_undoes_felling_and_dams()
+	await _check_the_bow_and_the_care_button_do_not_share_a_spot()
+	_check_every_cricket_lives_in_its_own_square()
+	_check_nothing_sends_livestock_onto_the_pitch()
 	_check_rocks_and_finds_follow_the_ground_when_a_dam_lifts_it()
 	_check_no_french_article_is_put_before_a_machine_whatever_its_gender()
 	_check_every_thing_on_the_shelf_has_a_picture_and_the_shelf_is_above_the_map()
 	_check_a_guest_cannot_reset_the_valley_they_are_visiting()
+	_check_the_cafe_price_is_kept_across_a_restart_and_a_change_of_language()
 	_check_what_was_built_on_the_pitch_is_moved_off_it()
 	await _check_a_host_who_becomes_a_guest_leaves_no_bodies_behind()
 	_check_a_ridden_horses_reins_are_not_remade_every_frame()
@@ -254,6 +270,7 @@ func _initialize() -> void:
 	_check_the_host_does_not_pass_on_what_the_network_already_relays()
 	_check_odd_numbers_and_names_in_saves_do_no_harm()
 	_check_a_held_sidestep_keeps_its_side()
+	await _check_an_animal_inside_a_new_building_can_walk_out()
 	await _check_the_characters_build_fit_and_travel()
 	_check_the_characters_move_and_swim_the_right_way_up()
 	_check_a_child_sits_in_every_seat_they_are_carried_in()
@@ -291,6 +308,7 @@ func _initialize() -> void:
 	_check_the_board_follows_a_change_of_language()
 	_check_a_goal_is_a_moment()
 	_check_a_match_is_first_to_five()
+	_check_starting_again_ends_a_won_match()
 	_check_a_won_score_is_not_carried_through_a_visit()
 	_check_a_ball_that_goes_out_comes_back()
 	_check_a_gentle_touch_keeps_the_ball_at_the_feet()
@@ -342,12 +360,15 @@ func _initialize() -> void:
 	_check_the_platform_meets_the_car_and_the_gondola_clears_the_legs()
 	_check_saving_remembers_when_the_child_left()
 	_check_a_guest_is_placed_where_they_stand_and_sharing_needs_company()
+	_check_the_hosts_old_walls_are_in_both_valleys_once_a_guest_arrives()
 	_check_roofs_face_outwards()
+	_check_what_the_host_built_before_a_guest_came_is_shared_with_them()
 	_check_the_map_does_not_copy_the_buildings_every_frame()
 	_check_a_chunk_walked_towards_while_baking_gets_its_collision()
 	_check_a_felled_tree_stops_being_solid_where_you_stand()
 	_check_a_trunk_is_solid_to_its_foot_and_crowns_differ()
 	_check_a_felled_planted_tree_leaves_its_stump()
+	_check_felling_a_planted_tree_spares_the_wild_tree_beside_it()
 	_check_grubbing_out_one_stump_spares_its_neighbour()
 	_check_a_goal_is_counted_once_and_only_inside()
 	_check_no_text_goes_unused()
@@ -359,6 +380,7 @@ func _initialize() -> void:
 	_check_damaged_saves_load_what_is_valid()
 	await _check_the_trampoline_rim_is_closed_and_a_ride_is_sold_once()
 	await _check_the_trampoline_rim_leaves_the_mat_clear()
+	await _check_a_child_can_jump_onto_the_trampoline_and_a_paid_ride_takes_them_off_the_mount()
 	_check_the_pirate_ship_carries_a_child_round_with_it()
 	_check_the_pirate_ship_bars_hold()
 	_check_an_animal_does_not_wade_into_a_pond()
@@ -420,6 +442,7 @@ func _initialize() -> void:
 	await _check_the_build_hud_keeps_clear_of_the_map()
 	await _check_a_child_walks_up_the_stairs_onto_the_upper_floor()
 	_check_the_chair_does_not_snag()
+	_check_the_camera_looks_past_a_childs_furniture()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -16804,7 +16827,8 @@ func _check_the_trampoline_rim_leaves_the_mat_clear() -> void:
 	for post in 28:
 		var angle := TAU * float(post) / 28.0
 		var out := Vector3(cos(angle), 0.0, sin(angle))
-		var level := Vector3(0.0, 0.3, 0.0)
+		# At the ring's own height: it now stands no higher than the frame.
+		var level := Vector3(0.0, 0.05, 0.0)
 		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(
 			mat + level, mat + out * (Park.TRAMPOLINE_RADIUS + 1.5) + level
 		))
@@ -21337,6 +21361,18 @@ func _check_a_child_who_is_carried_is_not_still_riding() -> void:
 		mounting.find("_is_being_carried()") > mounting.find("world.mounts.nearest"),
 		"and nobody can climb on a mount from a chair or a swing"
 	)
+## A rider does not dribble, so the kick button must not be offered from the
+## saddle either: it swung a leg that a seat pose does not have.
+func _check_a_rider_is_offered_no_kick() -> void:
+	print("a child on a mount is not offered a kick")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var near := game.substr(game.find("func _ball_near("))
+	near = near.substr(0, near.find("\nfunc ", 1))
+	var guard := near.find("player.riding != &\"\"")
+	_expect(
+		guard >= 0 and guard < near.find("world.football.ball_near"),
+		"_ball_near says no ball while riding, before it looks"
+	)
 ## A coaster ticket outlives the booking it bought (the train clears the booking
 ## when it pulls up), so the button must re-book on the ticket in hand and not
 ## sell a second one.
@@ -22737,3 +22773,527 @@ func _check_the_pony_is_a_childs_size_and_its_rider_sits_like_a_rider() -> void:
 	_expect(free_body.mesh == MountKinds.horse_part("body", MountKinds.colour(MountKinds.horse_id(3))), "a horse in the valley wears the pony's body")
 	_expect(free_body.get_node_or_null("Leg3") != null and free_body.get_node_or_null("Head") != null, "and has its head and legs")
 	mounts.queue_free()
+
+## The wander keeps sheep and cows off the pitch, but a child standing on it, a
+## whistle or a motorcycle named the spot for them instead, and nothing there
+## asked whether the animal belonged. A sheep just outside the apron, with the
+## child a few steps inside it, must not be sent in; a dog may be.
+func _check_nothing_sends_livestock_onto_the_pitch() -> void:
+	print("nothing sends livestock onto the pitch")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var edge := Pitch.CENTRE + Vector3(Pitch.HALF_LENGTH + Pitch.APRON, 0.0, 0.0)
+	var child := edge - Vector3(2.0, 0.0, 0.0)
+	var outside := edge + Vector3(3.0, 0.0, 0.0)
+	_expect(not animals.kept_for_people(outside.x, outside.z), "the sheep's spot is not kept ground")
+	var meant := {}
+	for kind: StringName in [AnimalKinds.SHEEP, AnimalKinds.COW, AnimalKinds.DOG]:
+		var animal := animals.put_one_at(kind, outside)
+		animal["target"] = outside
+		animals.call_animals()
+		animals.watch(child, Inventory.new())
+		var target: Vector3 = animal["target"]
+		meant[kind] = animals.kept_for_people(target.x, target.z)
+	_expect(not meant[AnimalKinds.SHEEP], "a whistled sheep is not sent onto the pitch")
+	_expect(not meant[AnimalKinds.COW], "nor a cow")
+	_expect(meant[AnimalKinds.DOG], "but a dog comes to the child where they stand")
+	animals.queue_free()
+
+## A house raised on the spot where an animal stands has the animal inside its
+## walls, and every feeler it sends out finds them: it stood there for ever.
+func _check_an_animal_inside_a_new_building_can_walk_out() -> void:
+	print("an animal inside a new building can walk out")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+	var block := StaticBody3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(6.0, 1.2, 6.0)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	block.add_child(collider)
+	block.collision_layer = TerrainSpec.LAYER_PROPS
+	block.position = spot + Vector3(0.0, 0.6, 0.0)
+	get_root().add_child(block)
+	await physics_frame
+	await physics_frame
+	var dog := animals.put_one_at(AnimalKinds.DOG, spot)
+	var node: Node3D = dog["node"]
+	animals.follow(spot)
+	for _tick in 300:
+		dog["target"] = spot + Vector3(8.0, 0.0, 0.0)
+		dog["rest"] = 5.0
+		animals._step(dog, 1.0 / 30.0)
+	_expect(node.global_position.x - spot.x > 4.0, "a dog boxed in by a new wall walks out of it: %.2f m" % (node.global_position.x - spot.x))
+	block.queue_free()
+	animals.queue_free()
+
+## A cricket is heard by whoever is near it, wherever they stand. Each square's
+## cricket used to be drawn from a signed hash with `%`, which put half of them
+## outside their own square and out of reach of the search around a child.
+func _check_every_cricket_lives_in_its_own_square() -> void:
+	print("every cricket lives in its own square")
+	var strays := 0
+	for x in range(-20, 20):
+		for z in range(-20, 20):
+			var spot := Ambience.cricket_spot(Vector2i(x, z))
+			var inside := (
+				spot.x >= float(x) * Ambience.CRICKET_CELL and spot.x < float(x + 1) * Ambience.CRICKET_CELL
+				and spot.y >= float(z) * Ambience.CRICKET_CELL and spot.y < float(z + 1) * Ambience.CRICKET_CELL
+			)
+			if not inside:
+				strays += 1
+	_expect(strays == 0, "no cricket is outside its own square (%d of 1600 were)" % strays)
+	# And what is heard is what is there: the nearest of a wider search.
+	var missed := 0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	for _i in 400:
+		var at := Vector3(rng.randf_range(-1200.0, 1200.0), 0.0, rng.randf_range(-1200.0, 1200.0))
+		var cell := Vector2i(floori(at.x / Ambience.CRICKET_CELL), floori(at.z / Ambience.CRICKET_CELL))
+		var best := INF
+		for dx in range(-3, 4):
+			for dz in range(-3, 4):
+				var spot := Ambience.cricket_spot(Vector2i(cell.x + dx, cell.y + dz))
+				best = minf(best, spot.distance_to(Vector2(at.x, at.z)))
+		var wanted := 1.0 - smoothstep(Ambience.CRICKET_NEAR, Ambience.CRICKET_FAR, best)
+		if absf(Ambience.cricket_near(at, null) - wanted) > 0.001:
+			missed += 1
+	_expect(missed == 0, "a cricket within earshot is always heard (%d of 400 places missed one)" % missed)
+
+## The host's valley is sent whole to a guest, who may take a wall of it down.
+## The host's own older walls were marked as in nobody else's valley, so that
+## removal named a place on the host's phone where nothing was "shared", and the
+## wall stayed standing there while it was gone from the guest's.
+func _check_the_hosts_old_walls_are_in_both_valleys_once_a_guest_arrives() -> void:
+	print("the host's old walls are in both valleys once a guest arrives")
+	var field := HeightField.new(20260903)
+	var host := Structures.new(field)
+	var spot := Vector3(40.0, field.height_at(40.0, 40.0), 40.0)
+	host.place(HouseParts.WALL, spot, 0.0)
+	_expect(host.nearest_shared(spot, 0.6).is_empty(), "alone, an old wall is nobody else's")
+	host.share_standing()
+	var found := host.nearest_shared(spot, 0.6)
+	_expect(not found.is_empty(), "once the guest has the valley, the guest's removal finds it")
+	_expect(bool(found.get("paid", false)), "and it is still the host's own, paid for")
+	host.stop_sharing()
+	_expect(host.nearest_shared(spot, 0.6).is_empty(), "and when the game together ends it is private again")
+	host.free()
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var arrival := loop.substr(loop.find("func _on_guest_arrived"))
+	arrival = arrival.substr(0, arrival.find("\nfunc ", 1))
+	_expect(
+		arrival.contains("share_standing") and arrival.find("share_standing") < arrival.find("report_valley"),
+		"the host marks its valley shared as it sends it"
+	)
+
+## A child who rode a horse onto the coaster's platform and was strapped in kept
+## the saddle's lift on the drawn body, because the offsets are worked out after
+## the strapped-in early return.
+func _check_a_strapped_in_child_sits_in_the_seat_not_above_it() -> void:
+	print("a strapped-in child sits in the seat")
+	var player := Player.new()
+	get_root().add_child(player)
+	player.riding = MountKinds.HORSE
+	for _frame in 240:
+		player._physics_process(1.0 / 60.0)
+	_expect(player.visual_offset().y > 1.0, "on the horse the body is lifted")
+	player.riding = &""
+	player.strapped_in = true
+	for _frame in 4:
+		player._physics_process(1.0 / 60.0)
+	_expect(player.visual_offset().length() < 0.01,
+		"strapped into a car the body is at the seat, not %.2f m above it" % player.visual_offset().y)
+	player.queue_free()
+
+func _check_a_new_day_and_a_borrowed_tree_pay_what_they_should() -> void:
+	# A phone left in a pocket overnight begins its day again on waking: the
+	# count so far survives on the same day and is cleared on the next.
+	var noon := 86400 * 20000 + 43200
+	var today := Today.new()
+	today.begin(noon)
+	today._progress = 2
+	today.begin(noon + 600)
+	_expect(today.done() == 2, "waking the phone on the same day keeps the count (%d)" % today.done())
+	today.begin(noon + 2 * 86400)
+	_expect(today.done() == 0, "waking it two days later starts the day's count afresh (%d)" % today.done())
+	today._progress = 1
+	today.begin(noon + 2 * 86400 + 1200)
+	_expect(today.done() == 1, "and that new day is then remembered, not wiped at every waking")
+
+	# A tree matures once on each phone, but pays only the one that planted it.
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var spot := field.find_spawn_point()
+	structures.place(BuildKinds.SAPLING, spot, 0.0)
+	structures.place(BuildKinds.SAPLING, spot + Vector3(6.0, 0.0, 0.0), 0.0, false)
+	_expect(structures.is_own_at(BuildKinds.SAPLING, spot), "a tree planted here pays here")
+	_expect(not structures.is_own_at(BuildKinds.SAPLING, spot + Vector3(6.0, 0.0, 0.0)), "a tree the other child planted does not pay twice")
+	structures.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(game.contains("not structures.is_own_at(kind, at)"), "a grown tree asks whose it is before it pays")
+
+## "Start again" puts the score back to nothing; a match being cheered at that
+## moment must not go on showing its winner over the empty board.
+func _check_starting_again_ends_a_won_match() -> void:
+	print("starting again ends a match that was being cheered")
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	ground.blue = FootballGround.WIN_SCORE - 1
+	_score_in(ground, field, 0, 1)
+	_expect(ground.winner() == 0, "blue has won the match")
+	ground.from_data({})
+	_expect(ground.winner() == -1, "starting again takes the winner away")
+	_expect(ground.board_digits() == PackedStringArray(["0", "0"]), "the board reads 0 : 0")
+	_expect(ground._board.title_text() == Text.of("board_title"), "and its title is the usual one, not who won")
+	ground.queue_free()
+
+## Nothing keeps the animals off the shooting line, so a sheep can come up to a
+## child drawing a bow. The care button and the bow's button were both centred
+## low and landed on the same spot: whichever was added later took every touch,
+## and either the bow or the care could not be pressed.
+func _check_the_bow_and_the_care_button_do_not_share_a_spot() -> void:
+	print("the bow and the care button do not share a spot")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud.set_on_shooting_line(true)
+	hud.set_animal_in_reach("wants a stroke")
+	hud._layout()
+	var bow := Rect2(hud._shoot_button.position, hud._shoot_button.get_combined_minimum_size())
+	var care := Rect2(hud._care_button.position, hud._care_button.get_combined_minimum_size())
+	_expect(not bow.intersects(care), "the bow and the care button are side by side, not one on the other")
+	var view := hud.get_viewport().get_visible_rect()
+	_expect(view.encloses(bow), "and the bow's button is still on the screen")
+	# Alone, the bow is where it always was: centred.
+	hud.set_animal_in_reach("")
+	hud._layout()
+	var alone := hud._shoot_button.position.x + hud._shoot_button.size.x * 0.5
+	_expect(absf(alone - view.size.x * 0.5) < 2.0, "and with no animal near it goes back to the middle")
+	hud.queue_free()
+
+## A game left open across midnight kept offering yesterday's task, and "start
+## again" left every felled tree and finished dam in the "new" valley.
+func _check_the_day_turns_over_and_a_reset_undoes_felling_and_dams() -> void:
+	print("the day turns over, and a reset undoes felling and dams")
+	var monday := 1_760_000_000
+	var today := Today.new()
+	today.begin(monday)
+	today.record(today.kind())
+	var counted := today.done()
+	today.begin(monday + 60)
+	_expect(today.done() == counted and counted > 0, "coming back the same day keeps the count")
+	today.begin(monday + 86400)
+	_expect(today.done() == 0, "coming back the next day starts the count again")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var resumed := game.find("NOTIFICATION_APPLICATION_RESUMED")
+	_expect(resumed >= 0 and game.find("today.begin(", resumed) > resumed, "resuming the app begins the day again")
+	var reset := game.substr(game.find("func _on_reset() -> void:"))
+	reset = reset.substr(0, reset.find("\nfunc ", 1))
+	_expect(reset.contains("world.felled.from_data([])") and reset.contains("world.dams.adopt([], {})"), "a reset forgets the felled trees and the dams")
+
+## The host's walls from before a guest arrived are in the guest's valley (it is
+## handed all of it), so a removal from the guest has to be able to take them
+## down here as well. Only what was built after the guest came was marked.
+func _check_what_the_host_built_before_a_guest_came_is_shared_with_them() -> void:
+	print("what the host built before a guest came is shared with them")
+	var field := HeightField.new(20260903)
+	var here := Structures.new(field)
+	var spot := Vector3(40.0, field.height_at(40.0, 40.0), 40.0)
+	here.place(HouseParts.WALL, spot, 0.0)
+	_expect(here.nearest_shared(spot, 0.6).is_empty(), "a wall built alone is not shared yet")
+	here.start_sharing()
+	var kept := here.nearest_shared(spot, 0.6)
+	_expect(not kept.is_empty(), "once somebody has come, the old wall is in both valleys")
+	_expect(not kept.is_empty() and bool(kept["paid"]), "and the host still paid for it")
+	here.stop_sharing()
+	_expect(here.nearest_shared(spot, 0.6).is_empty(), "and when they go it is nobody else's again")
+	here.free()
+
+func _check_per_frame_lookups_are_remembered() -> void:
+	# What a walking animal asks of every mount, every frame, is remembered by
+	# id and is the same answer as the kind's own.
+	var horse := MountKinds.horse_id(7)
+	_expect(is_equal_approx(MountKinds.girth(horse), (MountKinds.body_box(horse)[0] as Vector3).x * 0.5), "a mount's girth by id is half its box's width")
+	var known := MountKinds.girths_known()
+	MountKinds.girth(horse)
+	MountKinds.girth(horse)
+	_expect(MountKinds.girths_known() == known, "asking again for the same mount's girth makes no new entry")
+	_expect(MountKinds.girth(&"") == 0.0, "nobody on foot has a girth")
+
+	# The goal's cheap horizontal test, made with the height test passing, lets
+	# through a ball that is in a goal and turns away one at the centre spot.
+	for index in 2:
+		var mouth := Pitch.goal_centre(index)
+		var inside := mouth + Vector3(0.5 if index == 1 else -0.5, 0.5, 0.0)
+		_expect(Pitch.is_goal(index, inside, Ball.RADIUS, INF), "the cheap test lets a ball in a goal through")
+		_expect(not Pitch.is_goal(index, Pitch.centre() + Vector3(0.0, 0.5, 0.0), Ball.RADIUS, INF), "and turns away a ball at the centre spot without a height read")
+
+## A guest's stand-in body on the host's pitch is there to push the ball, not
+## the host's child: it is on a layer the ball looks for and the player does not,
+## which also holds once the ball has been through a visit of its own.
+func _check_a_guests_body_is_only_the_balls_to_meet() -> void:
+	var ground := FootballGround.new(HeightField.new(20260903))
+	var body := ground._make_body()
+	var child := Player.new()
+	var ball := Ball.new(Vector3.ZERO)
+	_expect((body.collision_layer & child.collision_mask) == 0, "the host's child walks through a guest's body")
+	_expect((body.collision_layer & ball.collision_mask) != 0, "but the ball still meets it")
+	ball.follow_the_host(true)
+	ball.follow_the_host(false)
+	_expect((body.collision_layer & ball.collision_mask) != 0, "and still does after a visit to somebody's valley")
+	body.free()
+	child.free()
+	ball.free()
+	ground.free()
+
+## The camera's arm stops at the walls of a child's house and not at what
+## stands in it: a table, a counter, a lamp or a post is bumped by the child
+## and passed by the camera, as the cafe's furniture is. They had been left on
+## the ground layer, which the arm stops at.
+func _check_the_camera_looks_past_a_childs_furniture() -> void:
+	print("the camera looks past a child's furniture and still stops at the walls")
+	var thin: Array[StringName] = [
+		HouseParts.TABLE, HouseParts.COUNTER, HouseParts.SHELF, HouseParts.LAMP,
+		HouseParts.SIGN, HouseParts.POT, HouseParts.POST, HouseParts.CHIMNEY,
+	]
+	var probe_player := Player.new()
+	for kind in thin:
+		var node := MeshInstance3D.new()
+		HouseParts.add_collision(node, kind)
+		var body := node.get_child(0) as StaticBody3D
+		_expect(
+			body != null and body.collision_layer == TerrainSpec.LAYER_PROPS,
+			"a %s is on the props layer" % kind
+		)
+		_expect(
+			body != null and (probe_player.collision_mask & body.collision_layer) != 0,
+			"and the child still meets a %s" % kind
+		)
+		node.free()
+	for kind: StringName in [HouseParts.WALL, HouseParts.WALL_DOOR, HouseParts.FLOOR, HouseParts.STAIRS]:
+		var node := MeshInstance3D.new()
+		HouseParts.add_collision(node, kind)
+		var body := node.get_child(0) as StaticBody3D
+		_expect(
+			body != null and (body.collision_layer & TerrainSpec.LAYER_GROUND) != 0,
+			"a %s stays on the ground layer, which the camera stops at" % kind
+		)
+		node.free()
+	probe_player.free()
+
+## The carousel's saddle holds the child (strapped_in) without any mount; the
+## button for a horse parked within reach used to put them on it as well.
+func _check_nobody_climbs_on_a_mount_from_a_ride_seat() -> void:
+	print("nobody can climb on a mount while a ride's seat has hold of them")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var mounting := game.substr(game.find("func _on_ride("))
+	mounting = mounting.substr(0, mounting.find("\nfunc ", 1))
+	var refuse := mounting.find("if player.strapped_in:")
+	_expect(
+		refuse > mounting.find("world.mounts.nearest") and refuse < mounting.find("world.mounts.mount(kind)"),
+		"_on_ride refuses to mount from a strapped-in seat"
+	)
+
+## The big trampoline can be got onto: the solid ring round it is no higher than
+## a jump rises (it was 1.45 m against 1.40, so the mat was out of reach), and
+## the mat's solid top is the drawn mat's top. And a ticket for the wheel, the
+## tower or the ship takes a child off their mount, as the carousel's does.
+func _check_a_child_can_jump_onto_the_trampoline_and_a_paid_ride_takes_them_off_the_mount() -> void:
+	print("the trampoline can be jumped onto, and paid rides take a child off the mount")
+	var park := Park.new(HeightField.new(20260903))
+	get_root().add_child(park)
+	await physics_frame
+	var space := get_root().get_world_3d().direct_space_state
+	var mat := park.trampoline_mat()
+	var apex := Player.JUMP_VELOCITY * Player.JUMP_VELOCITY / (2.0 * 24.0)
+	var rim_top := -INF
+	for angle: float in [0.0, 1.1, 2.4, 3.6, 4.9]:
+		var out := Vector3(cos(angle), 0.0, sin(angle)) * (Park.TRAMPOLINE_RADIUS + Park.RIM_OUT)
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(
+			mat + out + Vector3(0.0, 3.0, 0.0), mat + out - Vector3(0.0, 3.0, 0.0)
+		))
+		rim_top = maxf(rim_top, (float(hit["position"].y) - ParkSpec.LEVEL) if not hit.is_empty() else INF)
+	_expect(
+		rim_top <= apex - 0.15,
+		"the ring is %.2f m high and a jump rises %.2f m" % [rim_top, apex]
+	)
+	var floor_hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(
+		mat + Vector3(0.0, 3.0, 0.0), mat - Vector3(0.0, 3.0, 0.0)
+	))
+	var drawn_top := Park.TRAMPOLINE_TOP - 0.05 + 0.04
+	_expect(
+		not floor_hit.is_empty() and absf(float(floor_hit["position"].y) - ParkSpec.LEVEL - drawn_top) < 0.01,
+		"the mat is stood on at the height it is drawn"
+	)
+	park.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("aboard == &\"wheel\" or aboard == &\"drop_tower\" or aboard == &\"pirate_ship\""),
+		"a ticket for the wheel, the tower or the ship gets a child off their mount"
+	)
+
+## The price a child set on their own cafe is written into their save and put
+## back on a new interface; it lived only on the button, so a new language, a
+## reset or a restart gave every meal away again.
+func _check_the_cafe_price_is_kept() -> void:
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		game.contains("\"cafe_paid\": _cafe_paid") and game.contains("save.get(\"cafe_paid\", false)"),
+		"the cafe price is saved with the child and read back"
+	)
+	_expect(
+		game.contains("hud.set_cafe_paid(_cafe_paid)") and game.contains("hud.cafe_price_toggled.connect"),
+		"a new interface is given the price the child chose, and the game hears each change"
+	)
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	_expect(not hud.cafe_is_paid(), "a new interface starts with free meals")
+	hud.set_cafe_paid(true)
+	_expect(hud.cafe_is_paid() and hud._price_button.text.contains(Text.of("ui_cafe_paid")), "the price can be put back, and the button says so")
+	hud.queue_free()
+
+## The price a child puts on their own café is a setting, so it survives a
+## change of language (which builds the interface afresh) and a restart.
+##
+## It lived only in the price button's own variable: the new interface opened
+## on "free" again, and the save never held it.
+func _check_the_cafe_price_is_kept_across_a_restart_and_a_change_of_language() -> void:
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	_expect(not hud.cafe_is_paid(), "a new interface opens with the café free")
+	hud.set_cafe_paid(true)
+	_expect(hud.cafe_is_paid(), "a saved price is handed to the interface")
+	_expect(hud._price_button.text.contains(Text.of("ui_cafe_paid")), "and the button says so")
+	hud.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(game.contains("\"cafe_paid\": _cafe_paid"), "the price is written to the save")
+	_expect(game.contains("save.get(\"cafe_paid\""), "and read back")
+	_expect(game.contains("hud.cafe_price_toggled.connect"), "and the game hears the button")
+	_expect(game.count("hud.set_cafe_paid(_cafe_paid)") >= 2, "and a rebuilt interface is given it again")
+
+## The host's valley goes to a guest whole, so a wall built last week stands in
+## both valleys the moment they arrive. Only what was built after was marked, so
+## a tap on an old wall, the guest's or the host's own, crossed no wire.
+func _check_the_hosts_old_walls_are_in_the_guests_valley_too() -> void:
+	print("the host's old walls are in the guest's valley too")
+	var field := HeightField.new(20260903)
+	var here := Structures.new(field)
+	var spot := Vector3(40.0, field.height_at(40.0, 40.0), 40.0)
+	here.place(HouseParts.WALL, spot, 0.0)
+	here.begin_sharing()
+	_expect(here.sharing, "sharing begins")
+	_expect(
+		not here.nearest_shared(spot, 0.6).is_empty(),
+		"a wall built before the guest came is one the guest's phone has, so a removal of it counts"
+	)
+	here.stop_sharing()
+	_expect(here.nearest_shared(spot, 0.6).is_empty(), "and it is nobody's again when they go")
+	here.free()
+	var loop := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(loop.contains("structures.begin_sharing()"), "the game starts sharing through it")
+
+## A sapling can be planted a hand's breadth from a wild tree. Felling the sapling
+## was matched to the wild tree within 0.6 m, so the wild one vanished too.
+func _check_felling_a_planted_tree_spares_the_wild_tree_beside_it() -> void:
+	print("felling a planted tree spares the wild tree beside it")
+	var seed_value := 20260903
+	var field := HeightField.new(seed_value)
+	var coord := Vector2i(1, 1)
+	var wild := VegetationTile.generate_trees(field, coord, 32, seed_value, null)
+	_expect(not wild.is_empty(), "the tile has a wild tree to stand beside")
+	if wild.is_empty():
+		return
+	var tree: Vector3 = wild[0]["position"]
+	var record := Felled.new()
+	record.fell(tree + Vector3(0.4, 0.0, 0.3))
+	_expect(not record.is_felled(tree.x, tree.z), "the wild tree 0.4 m away still stands")
+	var baked := VegetationTile.bake(field, coord, 32, seed_value, record.snapshot(), false)
+	_expect(
+		(baked["conifers"] as Array).size() + (baked["broadleaves"] as Array).size() == wild.size(),
+		"and every wild tree in the tile is still drawn"
+	)
+	var again := Felled.new()
+	again.from_data(record.to_data())
+	_expect(again.is_felled(tree.x + 0.4, tree.z + 0.3), "while the planted tree's own stump survives a save")
+
+## A count is not announced as a plural of one, and a new interface keeps what
+## the old one was told: the price of a child's own café and the dish on its
+## menu live in the Hud alone, and a change of language builds a new Hud.
+func _check_counts_read_right_and_a_new_interface_keeps_the_cafe_choices() -> void:
+	print("counts read right and a new interface keeps the cafe choices")
+	var saved := Text.language()
+	for code: StringName in [Text.EN, Text.FR]:
+		Text.set_language(code)
+		for key: String in ["say_park_used_ticket", "say_fire_fed"]:
+			var line := Text.format(key, [1])
+			_expect(
+				not (line.contains("1 tickets") or line.contains("1 billets") or line.contains("1 more minutes") or line.contains("1 minutes")),
+				"%s says '%s' for one in %s" % [key, line, code]
+			)
+	Text.set_language(saved)
+
+	var old := Hud.new()
+	get_root().add_child(old)
+	await process_frame
+	old._price_button.pressed.emit()
+	old._dish_tapped(Dishes.ALL[0] if Dishes.ALL[0] != Dishes.USUAL else Dishes.ALL[1])
+	var fresh := Hud.new()
+	get_root().add_child(fresh)
+	await process_frame
+	_expect(not fresh.cafe_is_paid(), "a new interface starts with the café free")
+	fresh.restore_cafe_choices(old.cafe_is_paid(), old.chosen_dish())
+	_expect(fresh.cafe_is_paid(), "and is handed the price the old one held")
+	_expect(fresh.chosen_dish() == old.chosen_dish(), "and the dish")
+	_expect(fresh._price_button.text == old._price_button.text, "the price button reads the same")
+	old.queue_free()
+	fresh.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var rebuilding := game.substr(game.find("func _rebuild_hud"))
+	rebuilding = rebuilding.substr(0, rebuilding.find("\nfunc ", 1))
+	_expect(rebuilding.contains("restore_cafe_choices("), "rebuilding the interface hands the choices across")
+
+## The interface is rebuilt on a change of language and on a reset, and a talk
+## button freed while held never delivers its release: the microphone stayed
+## open. The rebuild has to let go of it itself.
+func _check_a_rebuilt_interface_lets_go_of_the_microphone() -> void:
+	print("a rebuilt interface lets go of the microphone")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var at := game.find("func _rebuild_hud()")
+	var body := game.substr(at, game.find("\nfunc ", at + 1) - at)
+	var stops := body.find("voice.stop_talking()")
+	_expect(stops >= 0 and stops < body.find("hud.queue_free()"), "rebuilding the interface stops the talking before the button is freed")
+
+## The crossing is kept clear of trees and grass, and the rocks and the things a
+## child picks up were never told: a boulder stood in the deck's footprint, solid
+## across the way onto the bridge, and a stick lay under the planks.
+func _check_no_rock_or_find_lies_across_the_bridge() -> void:
+	var field := HeightField.new(20260903)
+	var rocks := Boulders.new(field, 20260903)
+	get_root().add_child(rocks)
+	var finds := Pickups.new(field, 20260903)
+	get_root().add_child(finds)
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	var rocky := 0
+	var found := 0
+	var z := BridgeSpec.CENTRE_Z - BridgeSpec.HALF_WIDTH
+	while z <= BridgeSpec.CENTRE_Z + BridgeSpec.HALF_WIDTH:
+		var x := river_x - BridgeSpec.HALF_SPAN - 2.0
+		while x <= river_x + BridgeSpec.HALF_SPAN + 2.0:
+			if rocks._suits(x, z):
+				rocky += 1
+			if finds._kind_at(x, z, 0.1) != &"":
+				found += 1
+			x += 0.25
+		z += 0.25
+	_expect(rocky == 0, "no rock may stand where the bridge deck lies (%d spots suit one)" % rocky)
+	_expect(found == 0, "nor a find lie under it (%d spots would hold one)" % found)
+	rocks.queue_free()
+	finds.queue_free()
+

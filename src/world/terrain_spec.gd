@@ -24,6 +24,11 @@ const LAYER_PROPS := 4
 ## table is not watched from outside the building with the wall in the way.
 ## Furniture stays off this layer, for the rattling reason above.
 const LAYER_WALLS := 8
+## A visiting child's stand-in body on the host's phone. Only the ball looks for
+## it: on the props layer the host's own child collided with it too, and a
+## capsule the guest's phone drives at a run shoved the host about, while the
+## guest walked through the host as through air.
+const LAYER_VISITORS := 16
 
 ## Set on a body an animal's feelers should not stop for: the ground itself,
 ## which an animal already walks over by its height, and things that are

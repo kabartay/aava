@@ -1487,6 +1487,18 @@ func _dish_tapped(dish: StringName) -> void:
 func chosen_dish() -> StringName:
 	return _dish_chosen
 
+## Hand a new interface the café choices the old one held. They live here and
+## nowhere else, so a change of language — which rebuilds the whole interface —
+## put the price of a child's own café back to nothing and the dish back to the
+## usual one, without a word, and the next meal was served on those.
+func restore_cafe_choices(paid: bool, dish: StringName) -> void:
+	_cafe_paid = paid
+	if Dishes.ALL.has(dish):
+		_dish_chosen = dish
+	_refresh_price_button()
+	# Redrawn on the next frame's offer: the menu's state includes the price.
+	_cafe_menu_state = []
+
 ## What the chosen dish costs at the café the child is in: the valley's price,
 ## or the child's own café's, which is nothing when they ask nothing.
 func _dish_price_text(dish: StringName, at_home: bool) -> String:
@@ -1544,6 +1556,11 @@ func set_cafe_price_offer(wanted: bool) -> void:
 	if _price_button.visible != wanted:
 		_price_button.visible = wanted
 		_layout()
+
+## Set from the saved setting, without announcing it as a change.
+func set_cafe_paid(paid: bool) -> void:
+	_cafe_paid = paid
+	_refresh_price_button()
 
 ## Whether the child's own cafe is asking a coin for a meal.
 func cafe_is_paid() -> bool:
@@ -2508,13 +2525,6 @@ func _layout() -> void:
 		button.position = Vector2(column_x + BUTTON - button.size.x, next_y)
 		next_y += button.size.y + 10.0
 
-	# Low and centre-left of the kick button, since drawing a bow and striking a
-	# ball are the same gesture and never both apply.
-	_shoot_button.position = Vector2(
-		safe.position.x + safe.size.x * 0.5 - _shoot_button.size.x * 0.5,
-		safe.position.y + safe.size.y - BUTTON - MARGIN
-	)
-
 	# In a row to the left of jump, on the same line as the thumb's own buttons,
 	# nearest first. They used to float centred above the bottom of the screen,
 	# which put the swing button somewhere off to one side of the swing a child
@@ -2549,6 +2559,16 @@ func _layout() -> void:
 		safe.position.x + safe.size.x * 0.5 - _care_button.size.x * 0.5,
 		safe.position.y + safe.size.y - BUTTON - MARGIN
 	)
+
+	# The bow's button shares that spot, and the two do meet: nothing keeps the
+	# animals off the shooting line, so a sheep wandering up while a child is
+	# there put the care button exactly over the bow's, and whichever was added
+	# later took every touch. With both showing, the bow steps out to the right
+	# of the care button.
+	var shoot_x := safe.position.x + safe.size.x * 0.5 - _shoot_button.size.x * 0.5
+	if _care_button.visible:
+		shoot_x = _care_button.position.x + _care_button.size.x + 16.0
+	_shoot_button.position = Vector2(shoot_x, safe.position.y + safe.size.y - BUTTON - MARGIN)
 
 	# The shelf takes what is left of the screen after everything that has to be
 	# on it: the heading above, and the name, the line about it, the buying
