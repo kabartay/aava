@@ -83,6 +83,12 @@ var _posed := false
 var _bounce := 0.0
 var _pedal := 0.0
 var _stroke := 0.0
+## A swing: how far its seat is tipped, last frame (a pendulum's seat leans
+## front-high at the front of its swing), whether that is known, and how much
+## the legs are stretched out (1) or tucked in under it (0).
+var _tilt := 0.0
+var _tilt_known := false
+var _pump := 0.5
 ## What the seat's place has added to the rig so far, taken off again as it goes.
 var _applied := Vector3.ZERO
 var _placed := false
@@ -118,7 +124,9 @@ func _init(rig: Node3D) -> void:
 	_arm_b = -_hand[0].position.y
 	var pelvis := _hips.get_node_or_null("Mesh") as MeshInstance3D
 	if pelvis != null and pelvis.mesh != null:
-		_pelvis = clampf(-pelvis.mesh.get_aabb().position.y, SeatPose.PELVIS, 0.12)
+		# As far as the girl's skort hangs (0.16): a hem that is let through the
+		# seat is a skirt sunk in the saddle, and she is put up on it instead.
+		_pelvis = clampf(-pelvis.mesh.get_aabb().position.y, SeatPose.PELVIS, 0.17)
 	# Children out of step with one another, so that a row of them is not a
 	# chorus line: the clock starts at a place of its own.
 	_clock = float(rig.get_instance_id() % 997) * 0.01
@@ -302,6 +310,7 @@ func _seat_step(delta: float, sitting: bool) -> void:
 		_sat = seat
 	_sit = move_toward(_sit, 1.0 if (sitting and seat == _sat) else 0.0, delta / SIT_TIME)
 	if _sit <= 0.0:
+		_tilt_known = false
 		if _posed:
 			_rest_the_arms()
 			_hips.position.x = 0.0
@@ -326,6 +335,19 @@ func _seat_step(delta: float, sitting: bool) -> void:
 	var pitch := 0.0
 	if style == &"rock":
 		pitch = 0.05 * carry * sin(_bounce)
+	# A swing is pumped with the legs the way a child does it: stretched out
+	# and up while the seat is swinging forwards, tucked back under it on the
+	# way back, so it is read from how the seat is tipping, which is what the
+	# swing itself tells and needs nothing sent.
+	if style == &"pump" and seat_placed:
+		var tilt := asin(clampf((seat_place.basis.orthonormalized() * Vector3.FORWARD).y, -1.0, 1.0))
+		var rate := (tilt - _tilt) / maxf(delta, 0.0001) if _tilt_known else 0.0
+		_tilt = tilt
+		_tilt_known = true
+		_pump = lerpf(_pump, clampf(0.5 + 0.5 * rate / 0.6, 0.0, 1.0), 1.0 - exp(-10.0 * delta))
+	else:
+		_tilt_known = false
+		_pump = 0.5
 
 	var seat_at: Vector3 = pose["seat"]
 	var hips_at := Vector3(seat_at.x, seat_at.y + _pelvis, seat_at.z)
@@ -366,6 +388,10 @@ func _seat_step(delta: float, sitting: bool) -> void:
 			# goes round in the plane of the bicycle.
 			var angle := turn + (0.0 if side == 0 else PI)
 			foot_goal += Vector3(0.0, radius * sin(angle), -radius * cos(angle))
+		elif style == &"pump":
+			var tuck: Vector3 = pose["tuck"]
+			var reach_out: Vector3 = pose["stretch"]
+			foot_goal += tuck.lerp(reach_out, _pump)
 		elif style == &"paddle":
 			# A stroke each side, one half a turn behind the other, the hands
 			# going forward and back and a little up and down.

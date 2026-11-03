@@ -28,6 +28,15 @@ const RADIUS := 25.0
 ## car with the same hanger puts its roof through the pin it swings on.
 const CAR_SCALE := 1.5
 const HANGS_BELOW := 2.0 * CAR_SCALE
+## How far along the bench, and how far in from the back of it, a child can be
+## put to sit (in the gondola's own frame): the bench is 1.5 deep and 2.55 long,
+## and its back's face is at 1.485 from the middle.
+const SEAT_BACK := 1.35
+const SEAT_FRONT := 0.75
+const SEAT_ALONG := 1.275 - 0.45
+## How high the solid part of a gondola's sides goes, the bench's own height;
+## above it they are glass (see `_build_car`).
+const SIDE_SOLID := 0.8
 const BOARDING_HEIGHT := 0.9
 const HUB_HEIGHT := RADIUS + HANGS_BELOW + BOARDING_HEIGHT
 const GONDOLAS := 10
@@ -495,6 +504,8 @@ func _build_car(index: int) -> AnimatableBody3D:
 	# and never sit in it. The open side faces along the axle, which is the
 	# side you walk up to the wheel from; the other three are closed, because
 	# those are the sides that are over nothing.
+	var glass := SurfaceTool.new()
+	glass.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for wall: Array in [
 		[Vector3(2.4, 1.10, 0.14) * CAR_SCALE, Vector3(0.0, 0.55, 1.0) * CAR_SCALE],
 		[Vector3(2.4, 1.10, 0.14) * CAR_SCALE, Vector3(0.0, 0.55, -1.0) * CAR_SCALE],
@@ -502,9 +513,16 @@ func _build_car(index: int) -> AnimatableBody3D:
 	]:
 		var size: Vector3 = wall[0]
 		var where: Vector3 = wall[1]
+		# Steel as high as the bench and glass above it: a seated child was
+		# hidden to the hair behind a wall 1.65 high. The collider is the
+		# whole wall, because glass is as hard to step through as steel.
+		var low := SIDE_SOLID
 		var panel := BoxMesh.new()
-		panel.size = size
-		Park._add(tool, panel, Transform3D(Basis(), where), STEEL)
+		panel.size = Vector3(size.x, low, size.z)
+		Park._add(tool, panel, Transform3D(Basis(), where - Vector3(0.0, (size.y - low) * 0.5, 0.0)), STEEL)
+		var pane := BoxMesh.new()
+		pane.size = Vector3(size.x, size.y - low, size.z * 0.5)
+		Park._add(glass, pane, Transform3D(Basis(), where + Vector3(0.0, low * 0.5, 0.0)), Color(0.78, 0.90, 0.98))
 		_solid(car, size, where)
 		# A painted capping along the top of each wall, in the colour of the
 		# bar across the doorway: a plain steel panel is a hoarding, and a
@@ -613,6 +631,18 @@ func _build_car(index: int) -> AnimatableBody3D:
 	var drawn := MeshInstance3D.new()
 	drawn.mesh = tool.commit()
 	car.add_child(drawn)
+	glass.generate_normals()
+	var pane_material := StandardMaterial3D.new()
+	pane_material.vertex_color_use_as_albedo = true
+	pane_material.vertex_color_is_srgb = true
+	pane_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	pane_material.albedo_color = Color(1.0, 1.0, 1.0, 0.28)
+	pane_material.roughness = 0.1
+	glass.set_material(pane_material)
+	var panes := MeshInstance3D.new()
+	panes.name = "Glass"
+	panes.mesh = glass.commit()
+	car.add_child(panes)
 
 	# The safety bar: a П across the doorway at waist height, which lifts like
 	# a level-crossing gate while the gondola is standing at the boards and
@@ -801,11 +831,15 @@ static func inside_a_gondola(local: Vector3) -> bool:
 ## the floor, and its back's face is at 1.485 from the middle), facing the
 ## doorway. The origin is on the floor under the hips, which is where the pose
 ## is written from.
-func seat_of(index: int) -> Transform3D:
+##
+## `along` is where on the bench, in the car's own frame (x towards the back of
+## the bench, z along it), the child is put: the middle, at the back, unless
+## they are standing somewhere else (see `seat_near`).
+func seat_of(index: int, along := Vector2(1.35, 0.0)) -> Transform3D:
 	var car := _cars[index]
 	return Transform3D(
 		car.global_transform.basis * Basis(Vector3.UP, PI * 0.5),
-		car.global_transform * Vector3(1.35, 0.08 * CAR_SCALE, 0.0)
+		car.global_transform * Vector3(along.x, 0.08 * CAR_SCALE, along.y)
 	)
 
 ## The seat of the gondola a child is in, once its bar is down, or a point of
@@ -813,7 +847,13 @@ func seat_of(index: int) -> Transform3D:
 func seat_near(at: Vector3) -> Transform3D:
 	for index in _cars.size():
 		if inside_a_gondola(at - _cars[index].global_position) and bar_open(index) < 0.5:
-			return seat_of(index)
+			# Where they stand, as near as the bench goes: a child at one end
+			# was slid to the middle, and two of them sat in one place. The
+			# bench is 2.55 along, and a child is 0.7 across.
+			var local := _cars[index].global_transform.affine_inverse() * at
+			return seat_of(index, Vector2(
+				clampf(local.x, SEAT_FRONT, SEAT_BACK), clampf(local.z, -SEAT_ALONG, SEAT_ALONG)
+			))
 	return Transform3D(Basis(), Vector3(NAN, NAN, NAN))
 
 ## How high the topmost gondola rides, and how far round the wheel has gone.

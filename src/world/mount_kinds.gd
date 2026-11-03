@@ -65,6 +65,11 @@ const HORSE_COATS: Array[Color] = [
 ]
 ## How deep the hull sits, and how high above the water a child sits in it.
 const BOAT_DRAFT := 0.3
+## Where the boat's two thwarts are along it, and where its oars cross the
+## gunwales: the child rows from the thwart at the oars, which is the one under
+## them when they step in.
+const BOAT_THWARTS: Array[float] = [-0.6, 0.1]
+const BOAT_OARS_Z := 0.1
 const BOAT_SEAT := 0.25
 
 ## Water deeper than this and a horse swims rather than wades: about where it
@@ -453,12 +458,16 @@ static func _horse_body(tool: SurfaceTool, hide := colour(HORSE)) -> void:
 	cantle.size = Vector3(0.4 * s, 0.12 * s, 0.08 * s)
 	_add(tool, cantle, Transform3D(Basis(), Vector3(0.0, 1.97 * s, 0.29 * s)), leather)
 	for side in PackedFloat32Array([-1.0, 1.0]):
+		# Short leathers, a child's: the irons hang 0.22 below the saddle's top
+		# and 0.48 out, where a child's legs, hanging down the barrel's side,
+		# come to. They hung 0.56 down, which no child's leg reaches from the
+		# saddle, and left the feet lying along the blanket instead.
 		var strap := BoxMesh.new()
-		strap.size = Vector3(0.05 * s, 0.34 * s, 0.05 * s)
-		_add(tool, strap, Transform3D(Basis(), Vector3(side * 0.44 * s, 1.6 * s, 0.04 * s)), leather)
+		strap.size = Vector3(0.05 * s, 0.10 * s, 0.05 * s)
+		_add(tool, strap, Transform3D(Basis(), Vector3(side * 0.40 * s, 1.76 * s, 0.04 * s)), leather)
 		var stirrup := BoxMesh.new()
 		stirrup.size = Vector3(0.1 * s, 0.09 * s, 0.05 * s)
-		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.44 * s, 1.4 * s, 0.04 * s)), hoof)
+		_add(tool, stirrup, Transform3D(Basis(), Vector3(side * 0.40 * s, 1.69 * s, 0.04 * s)), hoof)
 		# A rein from the bit back to the pommel. A straight line between
 		# them ran through the neck, which is wider than the rein is far from
 		# its middle, so it goes round it: from the bit, out past the cheek,
@@ -673,6 +682,13 @@ static func _motorcycle(tool: SurfaceTool) -> void:
 	var crankcase := BoxMesh.new()
 	crankcase.size = Vector3(0.34, 0.3, 0.44)
 	_add(tool, crankcase, Transform3D(Basis(), Vector3(0.0, 0.42, 0.08)), steel.darkened(0.25))
+	# Foot pegs high on the frame, where a child's short leg reaches (they were
+	# the grown rider's, down by the exhaust): the sole rests on each, 0.9 up.
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var peg := BoxMesh.new()
+		peg.size = Vector3(0.14, 0.03, 0.09)
+		_add(tool, peg, Transform3D(Basis(), Vector3(side * 0.24, 0.88, 0.20)), chrome)
+		_tube(tool, Vector3(side * 0.12, 0.9, 0.2), Vector3(side * 0.18, 0.88, 0.2), 0.03, steel)
 	var barrel := BoxMesh.new()
 	barrel.size = Vector3(0.3, 0.34, 0.26)
 	_add(tool, barrel, Transform3D(
@@ -686,8 +702,10 @@ static func _motorcycle(tool: SurfaceTool) -> void:
 		), chrome)
 
 	# The frame: a spine from the head to the back, and the swingarm.
-	var head_low := Vector3(0.0, 0.78, -0.58)
-	var head_high := Vector3(0.0, 1.12, -0.5)
+	# The head tube is 0.08 further back than a grown rider's, which brings the
+	# grips to within a child's arm of a child sitting at the front of the saddle.
+	var head_low := Vector3(0.0, 0.78, -0.50)
+	var head_high := Vector3(0.0, 1.12, -0.42)
 	var spine := Vector3(0.0, 1.0, 0.36)
 	_tube(tool, head_low, spine, 0.055, paint.darkened(0.25))
 	_tube(tool, head_low, head_high, 0.06, steel)
@@ -849,8 +867,10 @@ static func _boat(tool: SurfaceTool, hull: Color) -> void:
 	transom.size = Vector3(1.3, 0.07, 0.1)
 	_add(tool, transom, Transform3D(Basis(), Vector3(0.0, top, 1.25)), dark)
 
-	# Two thwarts to sit on.
-	for z in PackedFloat32Array([-0.35, 0.65]):
+	# Two thwarts to sit on. The one a child rows from is at 0.1, level with the
+	# oars and under the child's own feet, where they stand when they step in;
+	# it was at 0.65, a long slide aft of the place they were put.
+	for z in BOAT_THWARTS:
 		var thwart := BoxMesh.new()
 		thwart.size = Vector3(1.2, 0.06, 0.3)
 		_add(tool, thwart, Transform3D(Basis(), Vector3(0.0, top - 0.12, z)), wood)
@@ -864,11 +884,14 @@ static func _boat(tool: SurfaceTool, hull: Color) -> void:
 		oar.radial_segments = 5
 		# A cylinder stands along Y; laid across the boat and tipped down a
 		# little on the outboard side.
-		var lay := Basis(Vector3.FORWARD, side * deg_to_rad(90.0 + 12.0))
-		_add(tool, oar, Transform3D(lay, Vector3(side * 0.75, top + 0.08, 0.1)), wood)
+		# Tipped 22 degrees, not 12: the handles come up to a child's hands as
+		# they sit (0.34 over the boat's origin at 0.22 out), and the blades
+		# go a little into the water, which is what an oar is for.
+		var lay := Basis(Vector3.FORWARD, side * deg_to_rad(90.0 + 22.0))
+		_add(tool, oar, Transform3D(lay, Vector3(side * 0.75, top + 0.08, BOAT_OARS_Z)), wood)
 		var blade := BoxMesh.new()
 		blade.size = Vector3(0.5, 0.03, 0.16)
-		_add(tool, blade, Transform3D(lay * Basis(Vector3.FORWARD, deg_to_rad(-90.0)), Vector3(side * 1.75, top - 0.14, 0.1)), wood)
+		_add(tool, blade, Transform3D(lay * Basis(Vector3.FORWARD, deg_to_rad(-90.0)), Vector3(side * 1.75, top - 0.32, BOAT_OARS_Z)), wood)
 
 ## A spoked wheel standing upright: tyre, rim, hub and spokes, at a given
 ## place along the machine. Every wheel in this file is built here, so a
@@ -1001,9 +1024,11 @@ static func _quad(tool: SurfaceTool) -> void:
 	# Footwells between the wheels, which is where the feet go and the one
 	# part of a quad that is not on a motorcycle at all.
 	for side: float in [-1.0, 1.0]:
+		# Raised from 0.42 to 0.66: the boards were half a metre under the
+		# seat, further than a child's leg is long.
 		var board := BoxMesh.new()
 		board.size = Vector3(0.3, 0.06, 0.66)
-		_add(tool, board, Transform3D(Basis(), Vector3(side * 0.44, 0.42, 0.0)), dark)
+		_add(tool, board, Transform3D(Basis(), Vector3(side * 0.44, 0.66, 0.0)), dark)
 
 	# The seat: a step-through saddle with a raised back, and the tank in
 	# front of it.
@@ -1033,7 +1058,7 @@ static func _quad(tool: SurfaceTool) -> void:
 	stem.radial_segments = 6
 	_add(
 		tool, stem,
-		Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-16.0)), Vector3(0.0, 0.98, -0.5)),
+		Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-16.0)), Vector3(0.0, 0.98, -0.36)),
 		metal
 	)
 	var bars := CylinderMesh.new()
@@ -1043,7 +1068,7 @@ static func _quad(tool: SurfaceTool) -> void:
 	bars.radial_segments = 6
 	_add(
 		tool, bars,
-		Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(0.0, 1.18, -0.58)),
+		Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(0.0, 1.18, -0.40)),
 		metal
 	)
 	for side: float in [-1.0, 1.0]:
@@ -1054,20 +1079,20 @@ static func _quad(tool: SurfaceTool) -> void:
 		grip.radial_segments = 6
 		_add(
 			tool, grip,
-			Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(side * 0.36, 1.18, -0.58)),
+			Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(side * 0.36, 1.18, -0.40)),
 			seat_colour
 		)
 		var lever := BoxMesh.new()
 		lever.size = Vector3(0.14, 0.025, 0.05)
 		_add(
 			tool, lever,
-			Transform3D(Basis(Vector3.UP, side * deg_to_rad(16.0)), Vector3(side * 0.24, 1.14, -0.66)),
+			Transform3D(Basis(Vector3.UP, side * deg_to_rad(16.0)), Vector3(side * 0.24, 1.14, -0.48)),
 			metal
 		)
 	# A crossbar pad, the way a quad's bars are braced.
 	var pad := BoxMesh.new()
 	pad.size = Vector3(0.22, 0.1, 0.1)
-	_add(tool, pad, Transform3D(Basis(), Vector3(0.0, 1.13, -0.5)), paint.lightened(0.2))
+	_add(tool, pad, Transform3D(Basis(), Vector3(0.0, 1.13, -0.36)), paint.lightened(0.2))
 
 	# Twin headlights on the nose, a rack over the tail, and an exhaust down
 	# the right-hand side: the three details that say this one works.
@@ -1245,12 +1270,18 @@ static func _bicycle(tool: SurfaceTool) -> void:
 	# The diamond: bottom bracket low in the middle, seat tube up from it, down
 	# tube forward to the head tube, top tube between the two.
 	var bracket := Vector3(0.0, 0.34, 0.16)
-	var head_low := Vector3(0.0, 0.62, -0.5)
-	var head_high := Vector3(0.0, 0.98, -0.42)
-	var seat_top := Vector3(0.0, 1.06, 0.3)
+	# A child's bicycle, since a child's is the one it is: the saddle 0.55 up
+	# (it was 1.22, a metre over the pedals, where a child's leg is 0.4), the
+	# head tube and bars brought back to where a child's arm reaches, and the
+	# top tube low and sloping to the seat tube, a step-through frame, so
+	# that nothing of the diamond is above the hips: a rider's body went through
+	# the old top tube and head tube.
+	var head_low := Vector3(0.0, 0.56, -0.46)
+	var head_high := Vector3(0.0, 0.80, -0.40)
+	var seat_top := Vector3(0.0, 0.43, 0.18)
 	_tube(tool, bracket, head_low, 0.055, frame)
 	_tube(tool, bracket, seat_top, 0.05, frame)
-	_tube(tool, head_high, seat_top, 0.05, frame)
+	_tube(tool, head_low + Vector3(0.0, 0.03, 0.0), seat_top + Vector3(0.0, 0.0, -0.02), 0.045, frame)
 	_tube(tool, head_low, head_high, 0.06, frame)
 	# Chainstays and seatstays: the triangle behind, which is the half of a
 	# bicycle everyone forgets and the half that makes it read as one.
@@ -1281,8 +1312,8 @@ static func _bicycle(tool: SurfaceTool) -> void:
 		), grip)
 
 	# Bars on a stem, with grips at the ends.
-	_tube(tool, head_high, head_high + Vector3(0.0, 0.1, -0.08), 0.04, metal)
-	var bars_at := head_high + Vector3(0.0, 0.1, -0.08)
+	_tube(tool, head_high, head_high + Vector3(0.0, 0.08, -0.03), 0.04, metal)
+	var bars_at := head_high + Vector3(0.0, 0.08, -0.03)
 	_tube(tool, bars_at + Vector3(-0.28, 0.0, 0.0), bars_at + Vector3(0.28, 0.0, 0.0), 0.028, metal)
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		_tube(
@@ -1291,13 +1322,13 @@ static func _bicycle(tool: SurfaceTool) -> void:
 		)
 
 	# Saddle on its post: a nose and a seat, not a brick.
-	_tube(tool, seat_top, seat_top + Vector3(0.0, 0.1, 0.02), 0.032, metal)
+	_tube(tool, seat_top, seat_top + Vector3(0.0, 0.07, 0.0), 0.032, metal)
 	var seat := BoxMesh.new()
 	seat.size = Vector3(0.17, 0.06, 0.26)
-	_add(tool, seat, Transform3D(Basis(), seat_top + Vector3(0.0, 0.16, 0.04)), grip)
+	_add(tool, seat, Transform3D(Basis(), seat_top + Vector3(0.0, 0.09, 0.03)), grip)
 	var nose := BoxMesh.new()
 	nose.size = Vector3(0.07, 0.05, 0.16)
-	_add(tool, nose, Transform3D(Basis(), seat_top + Vector3(0.0, 0.16, -0.12)), grip)
+	_add(tool, nose, Transform3D(Basis(), seat_top + Vector3(0.0, 0.095, -0.13)), grip)
 	# A bell, because every child\'s bicycle has one.
 	var bell := CylinderMesh.new()
 	bell.top_radius = 0.035

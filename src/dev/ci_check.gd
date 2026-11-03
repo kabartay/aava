@@ -207,6 +207,7 @@ func _initialize() -> void:
 	await _check_the_characters_build_fit_and_travel()
 	_check_the_characters_move_and_swim_the_right_way_up()
 	_check_a_child_sits_in_every_seat_they_are_carried_in()
+	_check_the_seats_fit_children()
 	_check_the_choice_screen_is_for_small_fingers()
 	await _check_a_stray_tap_loses_nothing()
 	_check_the_earning_is_balanced()
@@ -6559,7 +6560,11 @@ func _check_riding() -> void:
 				wheeled, box.z, box.x
 			]
 		)
-		_expect(box.y > 0.9 and box.y < 2.0, "and %.2f m tall, which is a machine a child gets on" % box.y)
+		# The bicycle is a child's own now, its saddle 0.55 up and not 1.22 (see
+		# SeatPose), so its drawing is as tall as a small child's bars: 0.7,
+		# where it was once 0.9 for a grown rider's.
+		var least := 0.7 if wheeled == MountKinds.BICYCLE else 0.9
+		_expect(box.y > least and box.y < 2.0, "and %.2f m tall, which is a machine a child gets on" % box.y)
 	_expect(not MountKinds.fords_water(MountKinds.BICYCLE), "the bicycle does not")
 	for kind in MountKinds.ALL:
 		if MountKinds.floats(kind):
@@ -20334,5 +20339,271 @@ func _check_a_child_sits_in_every_seat_they_are_carried_in() -> void:
 	var main_source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
 	_expect(main_source.contains("player.saddle_lift = world.mounts.saddle_lift()"), "the game gives the child the saddle's lift")
 	_expect(main_source.contains("visitors.seat_finder = _seat_at") and main_source.contains("player.seat_pose = seated.get("), "and asks the same question of where each child stands")
+
+## Points over the surface of a drawn mesh, in the world: every triangle on a
+## grid, because a beam drawn as a box has only its corners for vertices and a
+## face can sit between them.
+func _surface_points(drawn: MeshInstance3D) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if drawn == null or drawn.mesh == null:
+		return out
+	var arrays := drawn.mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	var count := indices.size() if not indices.is_empty() else vertices.size()
+	var steps := 4
+	for corner in range(0, count - 2, 3):
+		var a := vertices[indices[corner] if not indices.is_empty() else corner]
+		var b := vertices[indices[corner + 1] if not indices.is_empty() else corner + 1]
+		var c := vertices[indices[corner + 2] if not indices.is_empty() else corner + 2]
+		for i in steps + 1:
+			for j in steps + 1 - i:
+				out.append(drawn.global_transform * (a + (b - a) * (float(i) / steps) + (c - a) * (float(j) / steps)))
+	return out
+
+func _nearest_to(points: PackedVector3Array, at: Vector3) -> float:
+	var best := 1e9
+	for point in points:
+		best = minf(best, point.distance_to(at))
+	return best
+
+## Fit the seats to children: the restraints, the machines, the gondola, the
+## swing and the rest were drawn for grown-ups, and a child of six to twelve is
+## a head and a half shorter than the first thing they sat in.
+func _check_the_seats_fit_children() -> void:
+	print("the seats fit children: restraints clear of the face, hands and feet within reach")
+	_check_the_restraints_keep_clear_of_the_face()
+	_check_no_arm_is_stretched_and_no_foot_floats()
+	_check_the_bicycle_frame_is_clear_of_the_body()
+	_check_a_seated_child_is_seen_in_a_gondola_and_sits_where_they_stand()
+	_check_a_swing_is_pumped_with_the_legs()
+	_check_the_smaller_seats()
+
+## The head's middle and its skull's radius, in the world, for a rig that has
+## been put in a seat.
+func _skull(rig: Node3D) -> Vector3:
+	var head := rig.find_child("Head", true, false) as Node3D
+	var lo := Vector3(1e9, 1e9, 1e9)
+	var hi := -lo
+	for child in head.get_children():
+		var shape := child as MeshInstance3D
+		if shape == null or shape.mesh == null:
+			continue
+		var box := shape.mesh.get_aabb()
+		for corner in 8:
+			var at: Vector3 = shape.global_transform * box.get_endpoint(corner)
+			lo = lo.min(at)
+			hi = hi.max(at)
+	return (lo + hi) * 0.5
+
+func _check_the_restraints_keep_clear_of_the_face() -> void:
+	for ride_name: StringName in [&"drop_tower", &"pirate_ship"]:
+		var ride: Node3D = DropTower.new(Vector3.ZERO) if ride_name == &"drop_tower" else PirateShip.new(Vector3.ZERO)
+		get_root().add_child(ride)
+		ride.set_physics_process(false)
+		var hinges: Array[Node3D] = []
+		if ride is DropTower:
+			(ride as DropTower)._harness_closed = 1.0
+			hinges = (ride as DropTower)._harnesses
+			for hinge in hinges:
+				hinge.rotation.z = -DropTower.HARNESS_CLOSE
+		else:
+			var ship := ride as PirateShip
+			ship._harness_closed = 1.0
+			hinges = ship._harnesses
+			for index in hinges.size():
+				hinges[index].rotation.z = ship._harness_ends[index] * PirateShip.BAR_CLOSE
+		var seat: Transform3D = (ride as DropTower).seats()[0] if ride is DropTower else (ride as PirateShip).seats()[0]
+		var restraint := PackedVector3Array()
+		for part in hinges[0].get_children():
+			restraint.append_array(_surface_points(part as MeshInstance3D))
+		_expect(restraint.size() > 100, "%s: the closed restraint is drawn" % ride_name)
+		for which in Character.KEYS.size():
+			var anchor := Node3D.new()
+			get_root().add_child(anchor)
+			anchor.global_transform = seat
+			var rig := Character.build(which, 1, 1, Visitors.SHIRTS[2])
+			anchor.add_child(rig)
+			var motion := RigMotion.new(rig)
+			motion.seat = ride_name
+			for _frame in 80:
+				motion.step(1.0 / 60.0)
+			var skull := _skull(rig)
+			# The skull is a quarter of a metre in radius, the biggest head
+			# the five have; the face is at the front of it.
+			var clear := _nearest_to(restraint, skull)
+			_expect(clear > 0.27, "%s, %s: the harness is %.2f m from the middle of the head, clear of a skull's 0.26" % [ride_name, Character.KEYS[which], clear])
+			var held := 0.0
+			for tag: String in ["L", "R"]:
+				var hand := rig.find_child("Hand" + tag, true, false) as Node3D
+				held = maxf(held, _nearest_to(restraint, hand.global_position))
+			_expect(held < 0.1, "%s, %s: both hands are on the restraint (%.2f m off at worst)" % [ride_name, Character.KEYS[which], held])
+			anchor.queue_free()
+		# What holds a child is where it is drawn: the solid of the closed
+		# restraint is not further from its lowest drawn part than a hand.
+		var solids: Array[CollisionShape3D] = (ride as DropTower)._harness_shapes if ride is DropTower else (ride as PirateShip)._bar_shapes
+		var box := (solids[0].shape as BoxShape3D).size
+		var solid_at := solids[0].global_position
+		var drawn_count := 0
+		for point in restraint:
+			if point.distance_to(solid_at) < box.length() * 0.5:
+				drawn_count += 1
+		_expect(drawn_count > 20, "%s: the solid that holds a child has the closed restraint's drawing in it (%d points)" % [ride_name, drawn_count])
+		ride.queue_free()
+
+func _check_no_arm_is_stretched_and_no_foot_floats() -> void:
+	for pose: StringName in SeatPose.POSES:
+		var spec: Dictionary = SeatPose.POSES[pose]
+		var machine := MountKinds.ALL.has(pose) and pose != MountKinds.BOAT
+		# A child's arm is as long as it is: the machines were drawn for
+		# grown riders, and their bars and boards now come to a child's size
+		# rather than the arms going to a third as long again.
+		_expect(float(spec["reach"]) <= (1.1 if machine else 1.2), "%s: the arms are drawn %.2f times as long when seated, at most %.2f" % [pose, float(spec["reach"]), 1.1 if machine else 1.2])
+		var ankle: Vector3 = spec["foot"]
+		var worst := 0.0
+		for which in Character.KEYS.size():
+			var made := _seated(which, pose)
+			var rig: Node3D = made[0]
+			var goal := Vector3(ankle.x, ankle.y, ankle.z)
+			worst = maxf(worst, (_in_rig(rig.find_child("FootL", true, false), rig) - goal).length())
+			(made[2] as Node3D).queue_free()
+		# The crank of a bicycle takes a foot round a circle of its own.
+		var allowed := 0.25 if pose == MountKinds.BICYCLE else 0.2
+		_expect(worst < allowed, "%s: every character's feet are at the place for them (%.2f m off at worst)" % [pose, worst])
+
+func _check_the_bicycle_frame_is_clear_of_the_body() -> void:
+	var frame := MeshInstance3D.new()
+	frame.mesh = MountKinds.build_mesh(MountKinds.BICYCLE)
+	get_root().add_child(frame)
+	var points := _surface_points(frame)
+	# The rig stands where the child's own origin is, lifted on the machine.
+	var lift := MountKinds.eye_lift(MountKinds.BICYCLE)
+	for which in Character.KEYS.size():
+		var made := _seated(which, MountKinds.BICYCLE)
+		var rig: Node3D = made[0]
+		var torso := _in_rig(rig.find_child("Torso", true, false), rig)
+		var neck := _in_rig(rig.find_child("Head", true, false), rig)
+		# The chest is the segment from the waist to the neck, as deep from front
+		# to back as the rig says (the chest radius is its width, and it is
+		# 0.68 as deep as it is wide, the clay toy's round one included). The
+		# frame is in the middle plane, so it is the depth that meets it.
+		var radius: float = float(rig.get_meta("chest_radius", 0.2)) * 0.68
+		var worst := 1e9
+		var at := ""
+		for point in points:
+			var mine := point - Vector3(0.0, lift, 0.0)
+			# From the stem up are the bars, which the child holds: it is the
+			# top tube, the head tube and the seat that must be clear.
+			if mine.y + lift > 0.81:
+				continue
+			var along := clampf((mine - torso).dot(neck - torso) / (neck - torso).length_squared(), 0.0, 1.0)
+			var gap := mine.distance_to(torso + (neck - torso) * along)
+			if gap < worst:
+				worst = gap
+				at = str(mine)
+		_expect(worst > radius * 0.9, "bicycle, %s: the frame is %.2f m from the body's axis, %.2f thick, at %s" % [Character.KEYS[which], worst, radius, at])
+		(made[2] as Node3D).queue_free()
+	frame.queue_free()
+
+func _check_a_seated_child_is_seen_in_a_gondola_and_sits_where_they_stand() -> void:
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	var car := wheel.gondola(0)
+	# The sides are steel as high as the bench and glass above it: nothing opaque
+	# stands between a camera and a seated child but the bench's own height.
+	var high_wall := 0
+	var drawn_sides := 0
+	for part in car.get_children():
+		if not (part is MeshInstance3D) or part.name == &"Glass":
+			continue
+		for point in _surface_points(part as MeshInstance3D):
+			var local := car.global_transform.affine_inverse() * point
+			# The doorway's own jambs, at x -1.8, stand the height of the wall.
+			if absf(local.z) > 1.3 and local.x > -1.6 and local.y > FerrisWheel.SIDE_SOLID + 0.1 and local.y < 1.55:
+				high_wall += 1
+			drawn_sides += 1
+	_expect(drawn_sides > 0 and high_wall == 0, "a gondola's side walls are not opaque above the bench (%d points of %d)" % [high_wall, drawn_sides])
+	var glass := car.get_node_or_null("Glass") as MeshInstance3D
+	_expect(glass != null and glass.mesh != null and (glass.mesh as ArrayMesh).surface_get_material(0).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED, "and the upper part is glass")
+	# A child is seated where they stand along the bench, not slid to the
+	# middle of it.
+	for along: float in [-0.7, 0.0, 0.7]:
+		var at: Vector3 = car.global_transform * Vector3(0.3, 0.2, along)
+		var seat := wheel.seat_near(at)
+		_expect(not is_nan(seat.origin.x), "a child in a gondola at %.1f along is seated" % along)
+		var local := car.global_transform.affine_inverse() * seat.origin
+		_expect(absf(local.z - along) < 0.05, "and sits at %.2f along the bench, where they stood (%.1f)" % [local.z, along])
+	wheel.queue_free()
+
+func _check_a_swing_is_pumped_with_the_legs() -> void:
+	var parent := Node3D.new()
+	get_root().add_child(parent)
+	var rig := Character.build(1, 1, 1, Visitors.SHIRTS[2])
+	parent.add_child(rig)
+	var motion := RigMotion.new(rig)
+	motion.seat = &"swing"
+	motion.seat_placed = true
+	var foot := rig.find_child("FootL", true, false) as Node3D
+	var going_forward := 0.0
+	var going_back := 0.0
+	var forward_frames := 0
+	var back_frames := 0
+	var before := 0.0
+	for frame in 360:
+		# A swing about two seconds to a swing, a quarter of a radian either way.
+		var tilt := 0.25 * sin(float(frame) / 60.0 * PI)
+		var rate := 0.25 * PI * cos(float(frame) / 60.0 * PI)
+		motion.seat_place = Transform3D(Basis(Vector3.RIGHT, tilt), Vector3(0.0, 1.0, 0.0))
+		motion.step(1.0 / 60.0)
+		if frame > 120:
+			var at := _in_rig(foot, rig).z
+			if rate > 0.4:
+				going_forward += at
+				forward_frames += 1
+			elif rate < -0.4:
+				going_back += at
+				back_frames += 1
+		before = tilt
+	_expect(forward_frames > 20 and back_frames > 20, "the swing was driven both ways (%d, %d frames)" % [forward_frames, back_frames])
+	var ahead := going_forward / maxf(forward_frames, 1)
+	var behind := going_back / maxf(back_frames, 1)
+	_expect(behind - ahead > 0.15, "swinging forward the feet are out in front (%.2f) and on the way back tucked under (%.2f)" % [ahead, behind])
+	parent.queue_free()
+
+func _check_the_smaller_seats() -> void:
+	# The skirt is above the seat, not in it: nothing of the pelvis's drawing,
+	# the girl's skort included, is below the seat's top.
+	for pose: StringName in SeatPose.POSES:
+		var seat: Vector3 = SeatPose.POSES[pose]["seat"]
+		for which in Character.KEYS.size():
+			var made := _seated(which, pose)
+			var hips := (made[0] as Node3D).find_child("Hips", true, false) as Node3D
+			var bottom := hips.position.y + (hips.get_node("Mesh") as MeshInstance3D).mesh.get_aabb().position.y
+			_expect(bottom > seat.y - 0.012, "%s, %s: the pelvis and any skirt are above the seat (%.3f below its top)" % [pose, Character.KEYS[which], seat.y - bottom])
+			(made[2] as Node3D).queue_free()
+	# The boat: the child rows from the thwart they stand at, which is the one
+	# at the oars, with their hands on them.
+	var boat: Dictionary = SeatPose.POSES[MountKinds.BOAT]
+	var sits_at: float = (boat["seat"] as Vector3).z
+	var nearest := 1e9
+	for thwart in MountKinds.BOAT_THWARTS:
+		nearest = minf(nearest, absf(thwart - sits_at))
+	_expect(nearest < 0.05, "the rower sits on a thwart (%.2f m from the nearest)" % nearest)
+	_expect(absf(sits_at - MountKinds.BOAT_OARS_Z) < 0.1 and absf((boat["hand"] as Vector3).z - MountKinds.BOAT_OARS_Z) < 0.05, "at the oars, with hands on them")
+	# The carousel horse: the child sits behind the brass pole, which is at the
+	# middle of the saddle, with the mane (0.38 ahead, 0.1 across) clear of them.
+	var carousel: Dictionary = SeatPose.POSES[&"carousel"]
+	_expect((carousel["seat"] as Vector3).z - 0.12 > 0.06, "the carousel rider's hips are behind the pole (%.2f)" % (carousel["seat"] as Vector3).z)
+	for which in Character.KEYS.size():
+		var made := _seated(which, &"carousel")
+		var rig: Node3D = made[0]
+		var torso := _in_rig(rig.find_child("Torso", true, false), rig)
+		var neck := _in_rig(rig.find_child("Head", true, false), rig)
+		var worst := 1e9
+		for step in 11:
+			var along := torso.lerp(neck, float(step) / 10.0)
+			worst = minf(worst, absf(along.z + 0.38) if along.y < 0.48 else 1e9)
+		_expect(worst > 0.18, "carousel, %s: the body is %.2f m behind the mane" % [Character.KEYS[which], worst])
+		(made[2] as Node3D).queue_free()
 
 

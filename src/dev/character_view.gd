@@ -36,6 +36,8 @@ var _seat_no := 0
 var _lift := 0.35
 var _extra := 0
 var _frames := 0
+## `--closed=1` shuts the ride's harness or bar, as it is while it is going.
+var _closed := false
 
 func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -58,6 +60,7 @@ func _initialize() -> void:
 			"seatno": _seat_no = parts[1].to_int()
 			"lift": _lift = parts[1].to_float()
 			"extra": _extra = parts[1].to_int()
+			"closed": _closed = parts[1] != "0"
 
 ## Built on the first frame and not in `_initialize`, where the root is not yet
 ## in the tree and a ride has no global transform to give a seat.
@@ -164,7 +167,24 @@ func _build_ride(parent: Node3D) -> Transform3D:
 		"pirate_ship": _ride_node = PirateShip.new(Vector3.ZERO)
 		_: _ride_node = Node3D.new()
 	parent.add_child(_ride_node)
+	if _closed:
+		close_restraints(_ride_node)
 	return _seat_of_ride(_ride_node)
+
+## Shut every harness and bar of a ride the way its own process does while it
+## is running, so that the child can be judged as they are carried.
+static func close_restraints(ride: Node3D) -> void:
+	# Held where it is put: the ride's own process would open them again at rest.
+	ride.set_physics_process(false)
+	if ride is DropTower:
+		(ride as DropTower)._harness_closed = 1.0
+		for hinge: Node3D in (ride as DropTower)._harnesses:
+			hinge.rotation.z = -DropTower.HARNESS_CLOSE
+	elif ride is PirateShip:
+		var ship := ride as PirateShip
+		ship._harness_closed = 1.0
+		for index in ship._harnesses.size():
+			ship._harnesses[index].rotation.z = ship._harness_ends[index] * PirateShip.BAR_CLOSE
 
 func _seat_of_ride(ride: Node3D) -> Transform3D:
 	match _ride:

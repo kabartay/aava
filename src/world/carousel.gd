@@ -210,14 +210,17 @@ func _init(at: Vector3) -> void:
 			Vector3(ride_at.x, saddle_top, ride_at.z)
 		))
 		var saddle := BoxMesh.new()
-		saddle.size = Vector3(0.5, 0.1, 0.4)
+		# Long enough to sit behind the brass pole, which stands in the middle
+		# of it and goes up through the roof: the child's hips are 0.18 behind
+		# it, so the saddle runs 0.39 back from the pole and the cantle after.
+		saddle.size = Vector3(0.64, 0.1, 0.4)
 		var saddle_at := Vector3(ride_at.x, saddle_top - 0.05, ride_at.z)
-		Park._add(turning, saddle, Transform3D(facing, saddle_at), ShopStock.colour(ShopStock.SADDLE))
+		Park._add(turning, saddle, Transform3D(facing, saddle_at + facing * Vector3(-0.07, 0.0, 0.0)), ShopStock.colour(ShopStock.SADDLE))
 		var cantle := BoxMesh.new()
 		cantle.size = Vector3(0.08, 0.18, 0.4)
 		Park._add(
 			turning, cantle,
-			Transform3D(facing, saddle_at + facing * Vector3(-0.2, 0.08, 0.0)),
+			Transform3D(facing, saddle_at + facing * Vector3(-0.35, 0.08, 0.0)),
 			ShopStock.colour(ShopStock.SADDLE).darkened(0.2)
 		)
 

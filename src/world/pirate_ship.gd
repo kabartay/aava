@@ -48,6 +48,17 @@ const SEAT_WIDTH := 0.8
 const SEAT_DEPTH := 0.6
 ## How high a seat's cushion stands off the deck: a step, not a climb.
 const SEAT_TOP := 0.15
+## The lap bar of a child's seat. It hinges at the back, 1.0 above the cushion,
+## and comes down to rest 0.78 ahead of the hinge and 0.58 below it: over the
+## thighs, and level with the solid that holds it (see `_bar_shapes`). The
+## grown-up one that was here stood 1.15 up and swung 105 degrees, which left
+## the bar at a child's chin, in front of the face.
+const BAR_HINGE := 1.0
+const BAR_AHEAD := 0.78
+const BAR_BELOW := 0.58
+const BAR_LENGTH := sqrt(BAR_AHEAD * BAR_AHEAD + BAR_BELOW * BAR_BELOW)
+## How far it turns from standing up to lying across the lap, in radians.
+const BAR_CLOSE := atan2(BAR_AHEAD, -BAR_BELOW)
 ## Half the opening in the boat's side that faces the platform.
 const GATE_HALF := 0.9
 
@@ -623,7 +634,7 @@ func _build_hull(body: AnimatableBody3D) -> void:
 				# out of the way; closed, it comes down in front of the rider.
 				var hinge := Node3D.new()
 				hinge.name = "Harness"
-				hinge.position = Vector3(x + end * (SEAT_DEPTH * 0.5), SEAT_TOP + 1.15, across)
+				hinge.position = Vector3(x + end * (SEAT_DEPTH * 0.5), SEAT_TOP + BAR_HINGE, across)
 				body.add_child(hinge)
 				_harnesses.append(hinge)
 				_harness_ends.append(end)
@@ -631,14 +642,14 @@ func _build_hull(body: AnimatableBody3D) -> void:
 				bar_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 				for arm_side: float in [-1.0, 1.0]:
 					var arm := BoxMesh.new()
-					arm.size = Vector3(0.06, 0.7, 0.06)
+					arm.size = Vector3(0.06, BAR_LENGTH, 0.06)
 					Park._add(
-						bar_tool, arm, Transform3D(Basis(), Vector3(0.0, 0.35, arm_side * (SEAT_WIDTH * 0.5 - 0.06))),
+						bar_tool, arm, Transform3D(Basis(), Vector3(0.0, BAR_LENGTH * 0.5, arm_side * (SEAT_WIDTH * 0.5 - 0.06))),
 						RollerCoaster.HARNESS.darkened(0.3)
 					)
 				var bar := BoxMesh.new()
 				bar.size = Vector3(0.12, 0.12, SEAT_WIDTH - 0.06)
-				Park._add(bar_tool, bar, Transform3D(Basis(), Vector3(0.0, 0.7, 0.0)), RollerCoaster.HARNESS)
+				Park._add(bar_tool, bar, Transform3D(Basis(), Vector3(0.0, BAR_LENGTH, 0.0)), RollerCoaster.HARNESS)
 				Park.commit(bar_tool, hinge, "Bar")
 
 				# And a lowered bar holds. It used to be only a drawing: it came
@@ -794,7 +805,7 @@ func _physics_process(delta: float) -> void:
 	var wanted := 0.0 if _phase == Phase.STILL else 1.0
 	_harness_closed = move_toward(_harness_closed, wanted, delta / RollerCoaster.HARNESS_TIME)
 	for index in _harnesses.size():
-		_harnesses[index].rotation.z = _harness_ends[index] * deg_to_rad(105.0) * _harness_closed
+		_harnesses[index].rotation.z = _harness_ends[index] * BAR_CLOSE * _harness_closed
 	for held in _bar_shapes:
 		held.disabled = _harness_closed < 0.99
 

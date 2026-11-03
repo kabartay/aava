@@ -43,6 +43,18 @@ const SEAT_STEP := 0.12
 ## above the floor its riders stand on, so it swings down onto the
 ## shoulders rather than in front of the knees.
 const HARNESS_HINGE := 1.42
+## Where the harness comes to rest when it is down, from the hinge: how far it
+## swings (the arm is nearly upright, behind the head, when it is closed), the
+## pad over each shoulder (forward of the hinge, below it), the rod and the lap
+## bar (the same, and across from the middle). Measured on the five children
+## seated, whose shoulders are 0.5 above the cushion and whose heads reach 1.2:
+## the coaster's own, drawn for grown riders, came down across the face.
+const HARNESS_CLOSE := deg_to_rad(70.0)
+const HARNESS_ACROSS := 0.36
+const HARNESS_PAD_BACK := 0.14
+const HARNESS_PAD_DOWN := -0.77
+const HARNESS_LAP_AHEAD := 0.44
+const HARNESS_LAP_DOWN := -1.14
 
 ## The ring's height off the ground at rest, set by where the seats have to
 ## land rather than by the ring itself.
@@ -392,40 +404,38 @@ func _build_ring(body: AnimatableBody3D) -> void:
 		# collision box below, not the thickness of the drawing.
 		var harness := SurfaceTool.new()
 		harness.begin(Mesh.PRIMITIVE_TRIANGLES)
-		var tip := RollerCoaster.HARNESS_REACH + RollerCoaster.HARNESS_PAD * 0.5
+		# The coaster's own harness was drawn for a grown rider and, swung down
+		# on a child, ran from above the head to a metre in front of the chest:
+		# a bar across the face. A child sits a head lower, so this one is drawn
+		# as it lies CLOSED, from where it must come to rest (a pad over each
+		# shoulder, a rod in front of the chest down to a bar over the lap),
+		# and turned back about the hinge into the position it opens to. The
+		# positions below are (forward, up, across) from the hinge, closed.
+		var undo := Basis(Vector3.BACK, HARNESS_CLOSE)
 		for shoulder: float in [-1.0, 1.0]:
-			var shoulder_bar := BoxMesh.new()
-			shoulder_bar.size = Vector3(RollerCoaster.HARNESS_PAD, 0.07, 0.07)
-			Park._add(
-				harness, shoulder_bar,
-				Transform3D(Basis(), Vector3(RollerCoaster.HARNESS_REACH, -0.06, shoulder * 0.26)),
-				RollerCoaster.HARNESS
-			)
-			# A short soft sleeve where the bar meets the shoulder.
-			var sleeve := BoxMesh.new()
-			sleeve.size = Vector3(0.26, 0.1, 0.1)
-			Park._add(
-				harness, sleeve,
-				Transform3D(Basis(), Vector3(RollerCoaster.HARNESS_REACH - 0.1, -0.08, shoulder * 0.26)),
-				RollerCoaster.HARNESS.darkened(0.2)
-			)
-			var drop_rod := BoxMesh.new()
-			drop_rod.size = Vector3(0.06, 0.5, 0.06)
-			Park._add(
-				harness, drop_rod,
-				Transform3D(Basis(Vector3.BACK, deg_to_rad(18.0)), Vector3(tip + 0.04, -0.30, shoulder * 0.26)),
-				RollerCoaster.HARNESS
-			)
-		var yoke := BoxMesh.new()
-		yoke.size = Vector3(0.08, 0.07, 0.6)
-		Park._add(harness, yoke, Transform3D(Basis(), Vector3(0.14, -0.06, 0.0)), RollerCoaster.HARNESS)
-		var lap_bar := BoxMesh.new()
-		lap_bar.size = Vector3(0.07, 0.07, 0.6)
-		Park._add(harness, lap_bar, Transform3D(Basis(), Vector3(tip + 0.12, -0.54, 0.0)), RollerCoaster.HARNESS)
+			var across := shoulder * HARNESS_ACROSS
+			var arm_foot := undo * Vector3(HARNESS_PAD_BACK, HARNESS_PAD_DOWN + 0.07, across)
+			var pad_back := undo * Vector3(HARNESS_PAD_BACK, HARNESS_PAD_DOWN, across)
+			var pad_front := undo * Vector3(HARNESS_LAP_AHEAD, HARNESS_PAD_DOWN - 0.07, across)
+			var lap_end := undo * Vector3(HARNESS_LAP_AHEAD, HARNESS_LAP_DOWN, across)
+			# The arm from the hinge, the pad lying on the shoulder, and the
+			# rod down to the lap bar.
+			_beam(harness, undo * Vector3(0.0, 0.0, across), arm_foot, 0.07, RollerCoaster.HARNESS)
+			_beam(harness, pad_back, pad_front, 0.1, RollerCoaster.HARNESS.darkened(0.2))
+			_beam(harness, pad_front, lap_end, 0.06, RollerCoaster.HARNESS)
+		_beam(
+			harness, undo * Vector3(0.0, 0.0, -HARNESS_ACROSS), undo * Vector3(0.0, 0.0, HARNESS_ACROSS),
+			0.08, RollerCoaster.HARNESS
+		)
+		_beam(
+			harness, undo * Vector3(HARNESS_LAP_AHEAD, HARNESS_LAP_DOWN, -HARNESS_ACROSS),
+			undo * Vector3(HARNESS_LAP_AHEAD, HARNESS_LAP_DOWN, HARNESS_ACROSS),
+			0.07, RollerCoaster.HARNESS
+		)
 		var clasp := BoxMesh.new()
-		clasp.size = Vector3(0.1, 0.12, 0.12)
+		clasp.size = Vector3(0.12, 0.1, 0.12)
 		Park._add(
-			harness, clasp, Transform3D(Basis(), Vector3(tip + 0.13, -0.6, 0.0)),
+			harness, clasp, Transform3D(undo, undo * Vector3(HARNESS_LAP_AHEAD, HARNESS_LAP_DOWN, 0.0)),
 			RollerCoaster.HARNESS.darkened(0.45)
 		)
 		Park.commit(harness, hinge, "Pads")
@@ -434,15 +444,18 @@ func _build_ring(body: AnimatableBody3D) -> void:
 		# where the lowered pads are, switched on only once they are down so
 		# it never closes on somebody stepping in. Ninety metres up is not
 		# the place to find a harness is only a drawing.
-		var reach := RollerCoaster.HARNESS_REACH + RollerCoaster.HARNESS_PAD * 0.5
+		# It is the rods and the lap bar, which is where a child would walk
+		# out: the first thing in front of the seat is 0.34 m out, the width of
+		# the player's own body, so it is drawn no further in than that.
+		var held_down := (HARNESS_PAD_DOWN - 0.07 + HARNESS_LAP_DOWN) * 0.5
 		var pad_shape := BoxShape3D.new()
-		pad_shape.size = Vector3(0.5, 0.42, 0.9)
+		pad_shape.size = Vector3(0.14, absf(HARNESS_PAD_DOWN - 0.07 - HARNESS_LAP_DOWN) + 0.12, HARNESS_ACROSS * 2.0 + 0.1)
 		var pads := CollisionShape3D.new()
 		pads.shape = pad_shape
 		pads.basis = facing
 		pads.position = spot + facing * Vector3(
-			-0.14 + cos(RollerCoaster.HARNESS_DROP) * reach,
-			cushion_top + HARNESS_HINGE - sin(RollerCoaster.HARNESS_DROP) * reach,
+			-0.14 + HARNESS_LAP_AHEAD + 0.07,
+			cushion_top + HARNESS_HINGE + held_down,
 			0.0
 		)
 		pads.disabled = true
@@ -499,7 +512,7 @@ func _physics_process(delta: float) -> void:
 	var wanted := 0.0 if _phase == Phase.GROUND else 1.0
 	_harness_closed = move_toward(_harness_closed, wanted, delta / RollerCoaster.HARNESS_TIME)
 	for hinge in _harnesses:
-		hinge.rotation.z = -RollerCoaster.HARNESS_DROP * _harness_closed
+		hinge.rotation.z = -HARNESS_CLOSE * _harness_closed
 	for pads in _harness_shapes:
 		pads.disabled = _harness_closed < 0.99
 
