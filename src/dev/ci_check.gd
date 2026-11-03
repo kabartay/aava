@@ -46,6 +46,7 @@ func _initialize() -> void:
 	_check_the_pitch_is_playable()
 	_check_a_shot_stays_in_the_goal()
 	_check_goals_are_judged()
+	_check_net_restart_and_kicks_in_the_cheer()
 	_check_kick_can_be_aimed()
 	_check_two_sides_keep_score_on_the_board()
 	_check_new_game_and_old_saves()
@@ -24459,4 +24460,51 @@ func _check_the_ships_end_decks_can_be_stood_on() -> void:
 				found = true
 		_expect(found, "the ship's %s deck has a floor under it" % ("bow" if end > 0.0 else "stern"))
 	ship.queue_free()
+
+## A goal's restart belongs to its own visit to the net, a ball in the net is not
+## kicked out during the cheer (here or on a guest's phone), and a guest's new
+## game is heard on the host's phone too.
+func _check_net_restart_and_kicks_in_the_cheer() -> void:
+	print("the net, the cheer and the restart")
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var host_ground: FootballGround = pair[2]
+	var guest_ground: FootballGround = pair[3]
+	var ball: Ball = host_ground._balls[0]
+	var spot := Pitch.centre()
+	_goal_now(host_ground, field, 0, 1)
+	var first: int = host_ground._in_the_net[ball]
+	# New game fetches it, then it scores again before the old timer fires.
+	host_ground.new_game()
+	_goal_now(host_ground, field, 0, 1)
+	var second: int = host_ground._in_the_net[ball]
+	_expect(second != first, "each visit to the net has its own serial (%d, %d)" % [first, second])
+	var at: Vector3 = ball.position
+	host_ground._restart_from_net(ball, first, spot)
+	_expect(host_ground._in_the_net.has(ball) and ball.position == at, "a stale restart timer does nothing")
+	# A kick of a ball in the net moves nothing.
+	var from := ball.position + Vector3(-1.0, 0.0, 0.0)
+	var pushed := host_ground.kick(ball, from, Vector3.RIGHT, false, 1.0, 0.25, Vector3.RIGHT)
+	_expect(pushed == 0.0 and host_ground._in_the_net.has(ball), "a ball in the net cannot be kicked out")
+	# The same for a guest's request to the host.
+	var before := ball.linear_velocity
+	host_ground._session.guest_positions[pair[1]._link_id] = from
+	host_ground._on_remote_kick(pair[1]._link_id, 0, Vector3(8.0, 1.0, 0.0))
+	_expect(ball.linear_velocity == before, "nor by a guest's kick")
+	var seen := [0]
+	host_ground.guest_began_new_game.connect(func() -> void: seen[0] += 1)
+	host_ground._on_remote_new_game(pair[1]._link_id)
+	_expect(seen[0] == 1, "the host is told when a guest began a new game")
+	host_ground._restart_from_net(ball, second, spot)
+	# After the new game the ball is out of the net and kickable again.
+	_expect(not host_ground.in_the_net(ball), "and a new game frees it")
+	# The guest's phone refuses it too, during the cheer.
+	guest_ground._guest_cheer = FootballGround.CELEBRATION
+	var gball: Ball = guest_ground._balls[0]
+	var mouth := Pitch.goal_centre(1)
+	gball.position = Vector3(mouth.x + 0.8, field.height_at(mouth.x, mouth.z) + 0.3, mouth.z)
+	_expect(guest_ground.in_the_net(gball), "a guest's phone knows a ball in the net during the cheer")
+	guest_ground._guest_cheer = 0.0
+	_expect(not guest_ground.in_the_net(gball), "and lets it go once the cheer is over")
+	_free_football_pair(pair)
 

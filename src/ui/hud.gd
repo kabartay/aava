@@ -2558,7 +2558,8 @@ func _layout() -> void:
 		context_x -= button.size.x + 16.0
 		button.position = Vector2(context_x, _jump_button.position.y)
 
-	# Centred low, where the kick button sits, since the two never both apply.
+	# Centred low along the bottom edge, the spot the bow's button shares (see
+	# below); the kick button is in the right-hand stack, not here.
 	#
 	# Sized by hand first. The button is made with no text and grows to fit the
 	# animal's wish, but a control only takes its new minimum size at the end

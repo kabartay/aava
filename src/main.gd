@@ -313,6 +313,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.football.goal_scored.connect(_on_goal)
 	world.football.match_won.connect(_on_match_won)
 	world.football.guest_kicked.connect(_on_guest_kicked)
+	world.football.guest_began_new_game.connect(_on_guest_began_new_game)
 	world.football.scores_changed.connect(_on_scores_changed)
 	world.places.basket.connect(func(total: int) -> void:
 		sounds.play(Sounds.Sound.GOAL)
@@ -3186,6 +3187,10 @@ func _on_kick_release() -> void:
 	# The foot is at the top of its swing in this very frame, the one in which
 	# the ball leaves it.
 	player.swing_kick()
+	# A ball in the net is left for the cheer: no kick sound for a kick that
+	# moves nothing.
+	if world.football.has_ball(ball) and world.football.in_the_net(ball):
+		return
 	if _can_throw(ball):
 		# At the playground a basketball near the hoop is thrown at the ring,
 		# not kicked along the ground — the ring is what it is for. Holding
@@ -3440,6 +3445,12 @@ func _on_match_won(side: int, _blue: int, _red: int) -> void:
 		Text.of("say_won_blue" if side == 0 else "say_won_red"),
 		FootballGround.WIN_PAUSE - 1.0, Goal.SIDE_COLOURS[side].lightened(0.2)
 	)
+
+## A guest asked for a new game and the host's board has begun again: the same
+## chime and words as when the host's own child presses the scoreboard.
+func _on_guest_began_new_game() -> void:
+	sounds.play(Sounds.Sound.CHIME, 1.1)
+	hud.announce(Text.of("say_new_game"), 2.0)
 
 ## The host struck a ball for a guest, and plays the sound of it.
 func _on_guest_kicked(strength: float) -> void:

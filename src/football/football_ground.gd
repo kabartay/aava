@@ -45,6 +45,10 @@ signal match_won(side: int, blue: int, red: int)
 ## so it can make the sound of it: the guest's own phone does already.
 signal guest_kicked(strength: float)
 
+## A guest asked for a new game at the scoreboard and the host has begun it, so
+## the host's phone can chime and announce it as the guest's own did.
+signal guest_began_new_game
+
 ## Goals scored by each side. Blue defends the west goal and red the east, so
 ## the ball into the east goal is blue's goal and the other way round.
 var blue := 0
@@ -59,6 +63,12 @@ var _cooldown := 0.0
 ## scene tree's timer; they can disagree by a frame, and a ball still over the
 ## line in that gap was given a second goal.
 var _in_the_net: Dictionary = {}
+## Counts net entries. Each ball in the net is stored with the serial of its
+## entry, so a restart timer left over from an earlier goal can tell that the
+## ball it was set for has since been fetched by a new game and has scored again.
+var _net_serial := 0
+## On a guest's phone, how much of the host's goal cheer is left, in seconds.
+var _guest_cheer := 0.0
 var _field: HeightField
 ## The side that has won the match being shown, or -1; and how long each ball
 ## has been out of play, in seconds.
@@ -386,18 +396,22 @@ func _check_goal(ball: Ball) -> bool:
 		# vanishing at the moment of triumph.
 		var restart := Pitch.centre()
 		restart.y = _field.height_at(restart.x, restart.z)
-		_in_the_net[ball] = true
-		var timer := get_tree().create_timer(CELEBRATION)
-		timer.timeout.connect(func() -> void:
-			# A new game may have fetched the ball already, and the child
-			# kicked it since: it is not taken from them a second time.
-			if not _in_the_net.has(ball):
-				return
-			_in_the_net.erase(ball)
-			ball.reset_to(restart)
-		)
+		_net_serial += 1
+		var entry := _net_serial
+		_in_the_net[ball] = entry
+		get_tree().create_timer(CELEBRATION).timeout.connect(_restart_from_net.bind(ball, entry, restart))
 		return true
 	return false
+
+## The end of a goal's cheer: put the ball back on the spot, if it is still the
+## same visit to the net that this restart was set for. A new game may have
+## fetched the ball already, and it may have scored again since: only the timer
+## of this very entry may put it back, or the newer goal's cheer was cut short.
+func _restart_from_net(ball: Ball, entry: int, restart: Vector3) -> void:
+	if _in_the_net.get(ball, -1) != entry:
+		return
+	_in_the_net.erase(ball)
+	ball.reset_to(restart)
 
 ## How long a ball may ride the river before it is fetched home. Long enough
 ## to watch it go; short enough that three balls never become none.
@@ -512,8 +526,17 @@ func is_following() -> bool:
 func has_ball(ball: Ball) -> bool:
 	return _balls.has(ball)
 
+## Whether this ball has scored and is lying in the net until the cheer ends.
+## A guest's phone does not keep the host's list, but it is told of the goal and
+## knows the cheer is on, so a ball over the line in that time is the same case.
+func in_the_net(ball: Ball) -> bool:
+	if _in_the_net.has(ball):
+		return true
+	return _following and _guest_cheer > 0.0 and _in_a_goal(ball)
+
 func _process(delta: float) -> void:
 	_sync_role()
+	_guest_cheer = maxf(_guest_cheer - delta, 0.0)
 	if _following:
 		_draw_the_hosts_balls(delta)
 
@@ -527,6 +550,7 @@ func _sync_role() -> void:
 		return
 	_following = now
 	_cooldown = 0.0
+	_guest_cheer = 0.0
 	_winner = -1
 	_in_the_net.clear()
 	_afloat.clear()
@@ -629,6 +653,8 @@ func _on_remote_kick(from: int, index: int, velocity: Vector3) -> void:
 	if _session == null or not _session.is_host() or index < 0 or index >= _balls.size():
 		return
 	var ball := _balls[index]
+	if in_the_net(ball):
+		return
 	if not _session.guest_positions.has(from):
 		return
 	var offset: Vector3 = ball.position - (_session.guest_positions[from] as Vector3)
@@ -647,6 +673,7 @@ func _on_remote_kick(from: int, index: int, velocity: Vector3) -> void:
 func _on_remote_new_game(_from: int) -> void:
 	if _session != null and _session.is_host():
 		new_game()
+		guest_began_new_game.emit()
 
 # --- the guest's side ---------------------------------------------------------
 
@@ -657,6 +684,11 @@ func kick(
 	loft := 0.25, look := Vector3.ZERO
 ) -> float:
 	var index := _balls.find(ball)
+	# A ball lying in the net is left there for the cheer and then put back on
+	# the spot: kicking it out would be undone a moment later, and the child
+	# would see their ball snatched from them mid-air.
+	if in_the_net(ball):
+		return 0.0
 	if not _following or index < 0:
 		return ball.kick(from, facing, sprinting, strength, loft, look)
 	if not Ball.within_reach(ball.position, from):
@@ -678,6 +710,7 @@ func _on_remote_scores(new_blue: int, new_red: int, goal: int) -> void:
 	red = new_red
 	_board.show_scores(blue, red)
 	if goal >= 0:
+		_guest_cheer = CELEBRATION
 		_board.celebrate(1 - goal, CELEBRATION)
 		goal_scored.emit(goal, blue, red)
 	else:
