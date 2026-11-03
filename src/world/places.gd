@@ -800,6 +800,7 @@ func _tick(delta: float) -> void:
 		# of a fountain.
 		_jet.scale = Vector3(1.0, 1.0 + 0.10 * sin(_wind_time * 7.3), 1.0)
 	_tick_meals(delta)
+	_tick_steam()
 	_tick_turnstile(delta)
 	for i in _seats.size():
 		var seat: Dictionary = _seats[i]
@@ -3018,6 +3019,7 @@ func _build_cafe(at: Vector3) -> void:
 	bar_shape.size = Vector3(6.0, 1.15, 1.0)
 	_collide(solid, bar_shape, Transform3D(Basis(), Vector3(bar_x, 0.575, bar_z)))
 	_lay_the_counter(tool, Vector3(bar_x, 1.1, bar_z))
+	_stand_the_till_and_the_coffee_machine(tool, at, Vector3(bar_x, 1.1, bar_z))
 	# Shelves of jars and cups behind it, and the menu board above them.
 	var jar_colours: Array[Color] = [
 		Color(0.86, 0.36, 0.30), Color(0.96, 0.78, 0.24), Color(0.38, 0.62, 0.86),
@@ -3191,6 +3193,79 @@ func _lay_the_counter(tool: SurfaceTool, on: Vector3) -> void:
 		tumbler.radial_segments = 8
 		tumbler.rings = 1
 		_add(tool, tumbler, Transform3D(Basis(), on + Vector3(dx, 0.06, -0.12)), water)
+
+## How far along the bar from its middle the till and the coffee machine stand,
+## and how wide the largest of them is: all inside the bar's own length, so that
+## they stand on its solid top and nothing hangs out over the floor.
+const CAFE_TILL_OFFSET := -2.75
+const CAFE_MACHINE_OFFSET := 2.75
+const CAFE_BAR_FITTING := 0.42
+
+## The cash register at the left end of the bar, where a child pays, and the
+## coffee machine at the right end, steaming. Both stand on the bar's top and
+## on the bar's own collision, which is as tall as the bar and as wide as both,
+## so there is nothing new to walk into.
+func _stand_the_till_and_the_coffee_machine(tool: SurfaceTool, at: Vector3, on: Vector3) -> void:
+	var iron := Color(0.20, 0.21, 0.23)
+	var till := on + Vector3(CAFE_TILL_OFFSET, 0.0, 0.0)
+	var till_body := BoxMesh.new()
+	till_body.size = Vector3(0.34, 0.12, 0.3)
+	_add(tool, till_body, Transform3D(Basis(), till + Vector3(0.0, 0.06, 0.0)), Color(0.84, 0.30, 0.26))
+	var till_screen := BoxMesh.new()
+	till_screen.size = Vector3(0.28, 0.12, 0.03)
+	_add(tool, till_screen, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-20.0)), till + Vector3(0.0, 0.2, 0.08)), iron)
+	var till_glass := BoxMesh.new()
+	till_glass.size = Vector3(0.22, 0.07, 0.01)
+	_add(tool, till_glass, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-20.0)), till + Vector3(0.0, 0.2, 0.065)), Color(0.50, 0.86, 0.74))
+	for key in 3:
+		var button := BoxMesh.new()
+		button.size = Vector3(0.07, 0.02, 0.05)
+		_add(tool, button, Transform3D(Basis(), till + Vector3(-0.09 + float(key) * 0.09, 0.13, -0.04)), Color(0.96, 0.94, 0.90))
+	var machine := on + Vector3(CAFE_MACHINE_OFFSET, 0.0, 0.0)
+	var body := BoxMesh.new()
+	body.size = Vector3(0.4, 0.34, 0.3)
+	_add(tool, body, Transform3D(Basis(), machine + Vector3(0.0, 0.17, 0.0)), Color(0.78, 0.80, 0.84))
+	var hood := BoxMesh.new()
+	hood.size = Vector3(0.42, 0.1, 0.32)
+	_add(tool, hood, Transform3D(Basis(), machine + Vector3(0.0, 0.39, 0.0)), Color(0.84, 0.30, 0.26))
+	for dx in PackedFloat32Array([-0.08, 0.08]):
+		_disc(tool, machine + Vector3(dx, 0.2, -0.17), 0.02, 0.02, 0.1, iron, 6)
+	_add_cup(tool, machine + Vector3(0.0, 0.0, -0.22), 0.04, 0.06, Color(0.96, 0.96, 0.94), Color(0.30, 0.18, 0.10))
+	var dial := CylinderMesh.new()
+	dial.top_radius = 0.035
+	dial.bottom_radius = 0.035
+	dial.height = 0.02
+	dial.radial_segments = 8
+	dial.rings = 1
+	_add(tool, dial, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), machine + Vector3(0.1, 0.27, -0.155)), iron)
+	# Steam off the top, a few puffs that rise and thin, moved in `_tick`.
+	for i in 3:
+		var puff := MeshInstance3D.new()
+		var ball := SphereMesh.new()
+		ball.radius = 0.035
+		ball.height = 0.07
+		ball.radial_segments = 6
+		ball.rings = 3
+		puff.mesh = ball
+		var mist := StandardMaterial3D.new()
+		mist.albedo_color = Color(1.0, 1.0, 1.0, 0.45)
+		mist.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mist.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puff.material_override = mist
+		add_child(puff)
+		puff.position = at + machine + Vector3(0.0, 0.5, 0.0)
+		_machine_steam.append(puff)
+	_machine_steam_from = at + machine + Vector3(0.0, 0.46, 0.0)
+
+## The coffee machine's puffs, and where they rise from.
+var _machine_steam: Array[MeshInstance3D] = []
+var _machine_steam_from := Vector3.ZERO
+
+func _tick_steam() -> void:
+	for k in _machine_steam.size():
+		var phase := fmod(_wind_time * 0.45 + float(k) * 0.33, 1.0)
+		_machine_steam[k].position = _machine_steam_from + Vector3(sin(_wind_time * 2.0 + float(k) * 2.0) * 0.03, phase * 0.45, 0.0)
+		_machine_steam[k].scale = Vector3.ONE * (0.6 + phase * 0.8) * (1.0 - phase * 0.8)
 
 ## A cup with a handle and something in it.
 func _add_cup(tool: SurfaceTool, at: Vector3, radius: float, height: float, china: Color, drink: Color) -> void:
@@ -3483,27 +3558,80 @@ static func _menu_line_offset(line: int) -> Vector3:
 ## little picture beside each — a cup, a cake, a bun, a glass — because the
 ## reader is six.
 func _build_menu_board_on_wall(tool: SurfaceTool, centre: Vector3) -> void:
+	# Six dishes in a row, in the order the menu on the screen has them, each
+	# drawn side on over a row of gold coins: one coin to the coin it costs. The
+	# board used to hold four grey lines of "writing" and four coloured balls
+	# that were not any dish in particular.
 	var board := BoxMesh.new()
-	board.size = Vector3(3.2, 1.1, 0.05)
+	board.size = Vector3(3.2, 0.85, 0.05)
 	_add(tool, board, Transform3D(Basis(), centre), Color(0.14, 0.16, 0.15))
 	var frame := BoxMesh.new()
-	frame.size = Vector3(3.3, 1.2, 0.03)
+	frame.size = Vector3(3.3, 0.95, 0.03)
 	_add(tool, frame, Transform3D(Basis(), centre + Vector3(0.0, 0.0, 0.01)), Color(0.54, 0.38, 0.24))
-	var pictures: Array[Color] = [Color(0.62, 0.40, 0.18), Color(0.90, 0.40, 0.48), Color(0.72, 0.48, 0.26), Color(0.62, 0.80, 0.92)]
-	for i in 4:
-		var y := centre.y + 0.36 - float(i) * 0.24
-		var picture := SphereMesh.new()
-		picture.radius = 0.07
-		picture.height = 0.14
-		picture.radial_segments = 6
-		picture.rings = 3
-		_add(tool, picture, Transform3D(Basis(), Vector3(centre.x - 1.3, y, centre.z - 0.05)), pictures[i])
-		var line := BoxMesh.new()
-		line.size = Vector3(1.4 - float(i) * 0.15, 0.05, 0.01)
-		_add(tool, line, Transform3D(Basis(), Vector3(centre.x - 0.3, y, centre.z - 0.035)), Color(0.94, 0.94, 0.90))
-		var price := BoxMesh.new()
-		price.size = Vector3(0.3, 0.05, 0.01)
-		_add(tool, price, Transform3D(Basis(), Vector3(centre.x + 1.15, y, centre.z - 0.035)), Color(0.96, 0.82, 0.30))
+	for i in Dishes.ALL.size():
+		# Read from inside, looking at the back wall, where +x is on the left:
+		# the first dish is at the reader's left, as it is on the screen.
+		var x := centre.x - (float(i) - float(Dishes.ALL.size() - 1) * 0.5) * MENU_BOARD_PITCH
+		_dish_picture(tool, Dishes.ALL[i], Vector3(x, centre.y - 0.34, centre.z - 0.05))
+		var coins := Dishes.price(Dishes.ALL[i])
+		for coin in coins:
+			var slot := (float(coin) - float(coins - 1) * 0.5) * 0.068
+			var gold := CylinderMesh.new()
+			gold.top_radius = 0.03
+			gold.bottom_radius = 0.03
+			gold.height = 0.012
+			gold.radial_segments = 8
+			gold.rings = 1
+			_add(tool, gold, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(x + slot, centre.y + 0.31, centre.z - 0.04)), Color(0.96, 0.78, 0.22))
+
+## How far apart the dishes stand along the board on the café wall.
+const MENU_BOARD_PITCH := 0.5
+
+## One dish drawn side on, as a child would draw it, standing on `at` and about
+## a third of a metre tall: the board and the screen's tiles draw the same six.
+func _dish_picture(tool: SurfaceTool, dish: StringName, at: Vector3) -> void:
+	match dish:
+		Dishes.JUICE:
+			_disc(tool, at, 0.065, 0.05, 0.28, Color(0.98, 0.64, 0.16))
+			_disc(tool, at + Vector3(0.0, 0.2, 0.0), 0.065, 0.06, 0.012, Color(0.98, 0.86, 0.46))
+			var straw := BoxMesh.new()
+			straw.size = Vector3(0.016, 0.22, 0.016)
+			_add(tool, straw, Transform3D(Basis(Vector3.BACK, deg_to_rad(-15.0)), at + Vector3(0.03, 0.3, -0.01)), Color(0.88, 0.26, 0.28))
+		Dishes.ICE_CREAM:
+			_disc(tool, at, 0.065, 0.004, 0.16, Color(0.86, 0.66, 0.38))
+			_ball(tool, at + Vector3(0.0, 0.19, 0.0), 0.07, Color(0.98, 0.92, 0.74))
+			_ball(tool, at + Vector3(0.0, 0.27, 0.0), 0.06, Color(0.94, 0.50, 0.58))
+			_ball(tool, at + Vector3(0.0, 0.34, 0.0), 0.022, Color(0.80, 0.12, 0.14))
+		Dishes.PANCAKE:
+			for layer in 3:
+				_disc(tool, at + Vector3(0.0, 0.01 + float(layer) * 0.05, 0.0), 0.14, 0.14, 0.05, Color(0.88, 0.62, 0.28) if layer % 2 == 0 else Color(0.98, 0.76, 0.40))
+			_disc(tool, at + Vector3(0.0, 0.16, 0.0), 0.1, 0.1, 0.014, Color(0.62, 0.30, 0.10))
+			var butter := BoxMesh.new()
+			butter.size = Vector3(0.07, 0.04, 0.05)
+			_add(tool, butter, Transform3D(Basis(), at + Vector3(0.0, 0.2, 0.0)), Color(0.98, 0.90, 0.46))
+		Dishes.SOUP:
+			_disc(tool, at + Vector3(0.0, 0.04, 0.0), 0.15, 0.07, 0.1, Color(0.96, 0.96, 0.94), 12)
+			_disc(tool, at + Vector3(0.0, 0.08, 0.0), 0.138, 0.1, 0.02, Color(0.30, 0.50, 0.82), 12)
+			_disc(tool, at + Vector3(0.0, 0.14, 0.0), 0.15, 0.15, 0.012, Color(0.90, 0.50, 0.20), 12)
+			for puff in 3:
+				_ball(tool, at + Vector3(-0.05 + float(puff) * 0.05, 0.22 + float(puff % 2) * 0.05, 0.0), 0.022, Color(0.94, 0.94, 0.96))
+		Dishes.PIZZA:
+			# A slice, point down: cheese, a crust along the top, pepperoni.
+			var slice := PrismMesh.new()
+			slice.size = Vector3(0.26, 0.32, 0.03)
+			_add(tool, slice, Transform3D(Basis(Vector3.BACK, PI), at + Vector3(0.0, 0.17, 0.0)), Color(0.98, 0.80, 0.30))
+			var crust := BoxMesh.new()
+			crust.size = Vector3(0.28, 0.05, 0.04)
+			_add(tool, crust, Transform3D(Basis(), at + Vector3(0.0, 0.335, 0.0)), Color(0.80, 0.56, 0.28))
+			for spot: Vector2 in [Vector2(-0.05, 0.25), Vector2(0.06, 0.26), Vector2(0.0, 0.14)]:
+				_disc(tool, at + Vector3(spot.x, spot.y, -0.01), 0.028, 0.028, 0.02, Color(0.72, 0.16, 0.14), 8)
+		Dishes.CAKE:
+			_disc(tool, at, 0.13, 0.13, 0.12, Color(0.98, 0.92, 0.80), 12)
+			_disc(tool, at + Vector3(0.0, 0.12, 0.0), 0.138, 0.138, 0.04, Color(0.90, 0.40, 0.48), 12)
+			_disc(tool, at + Vector3(0.0, 0.16, 0.0), 0.012, 0.012, 0.09, Color(0.38, 0.62, 0.86), 6)
+			_ball(tool, at + Vector3(0.0, 0.27, 0.0), 0.022, Color(1.0, 0.84, 0.30))
+			_ball(tool, at + Vector3(-0.07, 0.17, -0.02), 0.025, Color(0.80, 0.12, 0.14))
+			_ball(tool, at + Vector3(0.07, 0.17, -0.02), 0.025, Color(0.80, 0.12, 0.14))
 
 ## Put a meal in front of whoever ordered it: the nearest seat within reach is
 ## theirs, and the tray — a plate of food, a steaming cup and a glass of water
@@ -3511,7 +3639,10 @@ func _build_menu_board_on_wall(tool: SurfaceTool, centre: Vector3) -> void:
 ## the game can sit the child down; empty if no seat is near, in which case
 ## the tray goes on the bar. The tray sits there for a while and is cleared.
 ## Before this, three coins bought a number and a word.
-func serve_meal(near: Vector3) -> Dictionary:
+##
+## `dish` is what was ordered from the menu (see Dishes): the plate on the table
+## is that dish, not a dish.
+func serve_meal(near: Vector3, dish: StringName = Dishes.USUAL) -> Dictionary:
 	if not _spots.has(CAFE):
 		return {}
 	var spot: Vector3 = _spots[CAFE]
@@ -3528,57 +3659,88 @@ func serve_meal(near: Vector3) -> Dictionary:
 		on = spot + Vector3(clampf(near.x - spot.x - 1.0, -2.6, 2.6) + 1.0, 1.1, CAFE_MID_Z + CAFE_DEPTH * 0.5 - 0.2 - 0.9 - 0.3)
 	else:
 		on = spot + chosen["table"]
-	_place_tray(on)
+	_place_tray(on, dish)
+	# The other child's phone is told where, and what (see Main._finish_eating).
+	last_tray = {"dish": dish, "at": on}
 	if chosen.is_empty():
 		return {}
 	return {"seat": spot + chosen["seat"], "facing": float(chosen["facing"])}
 
-func _place_tray(on: Vector3) -> void:
+## The tray most recently set down by `serve_meal`, for the game to say aloud
+## to the other child: the dish and where it stands. Empty before any.
+var last_tray: Dictionary = {}
+
+## A dish set down on a table somebody else is sat at, or at a café a child
+## built: the same tray, from a dish and a place. Nothing is charged here and
+## nobody is sat down. A dish that is not on the menu, or a crowd of them, is
+## ignored — a message from another phone is not to be believed blindly.
+func set_down(dish: StringName, on: Vector3) -> void:
+	if not Dishes.is_dish(dish) or _meals.size() >= MEALS_AT_ONCE:
+		return
+	_place_tray(on, dish)
+
+## More trays than there are seats in the valley's café, and the built ones.
+const MEALS_AT_ONCE := 16
+
+func _place_tray(on: Vector3, dish: StringName = Dishes.USUAL) -> void:
+	# The crockery stays on the table till the tray is cleared; the food is a
+	# mesh of its own, so that it can be eaten — see `_tick_meals`.
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var china := Color(0.96, 0.96, 0.94)
 	var tray := BoxMesh.new()
 	tray.size = Vector3(0.7, 0.03, 0.42)
 	_add(tool, tray, Transform3D(Basis(), Vector3(0.0, 0.015, 0.0)), Color(0.54, 0.38, 0.24))
-	var plate := CylinderMesh.new()
-	plate.top_radius = 0.15
-	plate.bottom_radius = 0.12
-	plate.height = 0.02
-	plate.radial_segments = 12
-	plate.rings = 1
-	_add(tool, plate, Transform3D(Basis(), Vector3(-0.17, 0.04, 0.0)), china)
-	# The food: a sandwich — two slices with green between — and two tomatoes.
-	for layer in 2:
-		var bread := BoxMesh.new()
-		bread.size = Vector3(0.18, 0.035, 0.18)
-		_add(tool, bread, Transform3D(Basis(Vector3.UP, 0.3), Vector3(-0.17, 0.065 + float(layer) * 0.06, 0.0)), Color(0.86, 0.68, 0.40))
-	var leaf := BoxMesh.new()
-	leaf.size = Vector3(0.22, 0.02, 0.22)
-	_add(tool, leaf, Transform3D(Basis(Vector3.UP, 0.3), Vector3(-0.17, 0.095, 0.0)), Color(0.40, 0.70, 0.30))
-	for i in 2:
-		var tomato := SphereMesh.new()
-		tomato.radius = 0.03
-		tomato.height = 0.06
-		tomato.radial_segments = 6
-		tomato.rings = 3
-		_add(tool, tomato, Transform3D(Basis(), Vector3(-0.02 + float(i) * 0.07, 0.06, 0.1)), Color(0.88, 0.22, 0.18))
-	_add_cup(tool, Vector3(0.12, 0.03, -0.08), 0.055, 0.075, china, Color(0.62, 0.40, 0.18))
-	var tumbler := CylinderMesh.new()
-	tumbler.top_radius = 0.045
-	tumbler.bottom_radius = 0.04
-	tumbler.height = 0.12
-	tumbler.radial_segments = 8
-	tumbler.rings = 1
-	_add(tool, tumbler, Transform3D(Basis(), Vector3(0.27, 0.09, 0.08)), Color(0.62, 0.80, 0.92))
+	var water := Color(0.62, 0.80, 0.92)
+	var food_tool := SurfaceTool.new()
+	food_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Where the dish stands on the tray, and where its steam rises from.
+	var food_at := Vector3(-0.17, 0.05, 0.0)
+	var steam_from := Vector3.ZERO
+	match dish:
+		Dishes.JUICE:
+			# A tall glass in the middle of the tray, and nothing else: the
+			# juice is the food, so it goes down as it is drunk.
+			food_at = Vector3(0.0, 0.03, 0.0)
+		Dishes.ICE_CREAM:
+			# In a glass bowl on a stem, whose top is where the scoops sit.
+			food_at = Vector3(-0.17, 0.16, 0.0)
+			_dish_ware(tool, dish, Vector3(-0.17, 0.03, 0.0), china)
+			_tumbler(tool, Vector3(0.22, 0.03, 0.08), 0.045, 0.12, water)
+		Dishes.PANCAKE:
+			_dish_ware(tool, dish, Vector3(-0.17, 0.03, 0.0), china)
+			_add_cup(tool, Vector3(0.12, 0.03, -0.08), 0.055, 0.075, china, Color(0.62, 0.40, 0.18))
+			steam_from = Vector3(0.12, 0.12, -0.08)
+		Dishes.SOUP:
+			# Up to the brim of the bowl, which stands on the tray.
+			food_at = Vector3(-0.15, 0.09, 0.0)
+			_dish_ware(tool, dish, Vector3(-0.15, 0.03, 0.0), china)
+			_tumbler(tool, Vector3(0.24, 0.03, 0.08), 0.045, 0.12, water)
+			steam_from = food_at + Vector3(0.0, 0.05, 0.0)
+		Dishes.PIZZA:
+			_dish_ware(tool, dish, Vector3(-0.17, 0.03, 0.0), china)
+			_tumbler(tool, Vector3(0.27, 0.03, 0.08), 0.045, 0.12, water)
+			steam_from = food_at + Vector3(0.0, 0.1, 0.0)
+		Dishes.CAKE:
+			_dish_ware(tool, dish, Vector3(-0.17, 0.03, 0.0), china)
+			_add_cup(tool, Vector3(0.12, 0.03, -0.08), 0.055, 0.075, china, Color(0.62, 0.40, 0.18))
+			steam_from = Vector3(0.12, 0.12, -0.08)
+	_dish_food(food_tool, dish)
 	tool.generate_normals()
 	tool.set_material(_material())
 	var meal := MeshInstance3D.new()
 	meal.mesh = tool.commit()
 	meal.transform = Transform3D(Basis(), on)
 	add_child(meal)
-	# Three puffs of steam over the cup, moved each frame.
+	food_tool.generate_normals()
+	food_tool.set_material(_material())
+	var food := MeshInstance3D.new()
+	food.mesh = food_tool.commit()
+	food.position = food_at
+	meal.add_child(food)
+	# Puffs of steam over what is hot, moved each frame; none over what is cold.
 	var puffs: Array[MeshInstance3D] = []
-	for i in 3:
+	for i in (3 if steam_from != Vector3.ZERO else 0):
 		var puff := MeshInstance3D.new()
 		var ball := SphereMesh.new()
 		ball.radius = 0.03
@@ -3592,14 +3754,38 @@ func _place_tray(on: Vector3) -> void:
 		mist.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		puff.material_override = mist
 		meal.add_child(puff)
-		puff.position = Vector3(0.12, 0.12 + float(i) * 0.06, -0.08)
+		puff.position = steam_from + Vector3(0.0, float(i) * 0.06, 0.0)
 		puffs.append(puff)
-	_meals.append({"node": meal, "puffs": puffs, "left": MEAL_SHOWN, "age": 0.0})
+	_meals.append({
+		"node": meal, "food": food, "dish": dish, "puffs": puffs,
+		"steam": steam_from, "left": MEAL_SHOWN, "age": 0.0,
+	})
+
+## When the first bite is taken, how long each takes, from the tray landing on
+## the table: the child is sat down for `MEAL_SHOWN * 0.8` and has finished
+## with a second to spare before the tray goes.
+const EAT_FROM := 1.2
+const EAT_BITE := 1.1
+
+## How many bites of a plate have gone, `age` seconds after it was set down.
+static func bites_eaten(age: float) -> int:
+	return clampi(floori((age - EAT_FROM) / EAT_BITE) + 1, 0, Dishes.BITES) if age >= EAT_FROM else 0
 
 ## How many meals are on the tables right now, and how many seats there are.
 ## For the checks.
 func meals_served() -> int:
 	return _meals.size()
+
+## What is on each table: the dish, and how much of it is left (1 to 0).
+func meals_on_tables() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for meal in _meals:
+		var food := meal["food"] as Node3D
+		out.append({
+			"dish": meal["dish"], "left": food.scale.y if is_instance_valid(food) else 0.0,
+			"at": (meal["node"] as Node3D).position,
+		})
+	return out
 
 func cafe_seat_count() -> int:
 	return _cafe_seats.size()
@@ -3627,15 +3813,128 @@ func _tick_meals(delta: float) -> void:
 			continue
 		var age := float(meal["age"])
 		var puffs: Array[MeshInstance3D] = meal["puffs"]
+		var steam: Vector3 = meal["steam"]
 		for k in puffs.size():
 			var puff := puffs[k]
 			var phase := fmod(age * 0.6 + float(k) * 0.33, 1.0)
-			puff.position = Vector3(0.12 + sin(age * 3.0 + float(k)) * 0.02, 0.12 + phase * 0.3, -0.08)
+			puff.position = steam + Vector3(sin(age * 3.0 + float(k)) * 0.02, phase * 0.3, 0.0)
 			puff.scale = Vector3.ONE * (0.6 + phase * 0.8) * (1.0 - phase * 0.7)
+		# Eaten a bite at a time, so that the plate is seen to empty: what is
+		# left shrinks down towards the plate, and is gone with the last bite.
+		var food := meal["food"] as Node3D
+		var left_of_it := 1.0 - float(bites_eaten(age)) / float(Dishes.BITES)
+		food.visible = left_of_it > 0.0
+		food.scale = Vector3(0.5 + 0.5 * left_of_it, maxf(left_of_it, 0.01), 0.5 + 0.5 * left_of_it)
+		# And the steam stops with the food.
+		for puff in puffs:
+			puff.visible = left_of_it > 0.0
 		# Cleared away over the last second.
 		var left := float(meal["left"])
 		if left < 1.0:
 			node.scale = Vector3.ONE * maxf(left, 0.01)
+
+## A round, flat or tapering thing standing on `at` (its foot), in low poly.
+func _disc(tool: SurfaceTool, at: Vector3, top: float, bottom: float, height: float, colour: Color, sides := 10) -> void:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = top
+	mesh.bottom_radius = bottom
+	mesh.height = height
+	mesh.radial_segments = sides
+	mesh.rings = 1
+	_add(tool, mesh, Transform3D(Basis(), at + Vector3(0.0, height * 0.5, 0.0)), colour)
+
+## A ball, centred on `at`.
+func _ball(tool: SurfaceTool, at: Vector3, radius: float, colour: Color) -> void:
+	var mesh := SphereMesh.new()
+	mesh.radius = radius
+	mesh.height = radius * 2.0
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	_add(tool, mesh, Transform3D(Basis(), at), colour)
+
+## A glass of something on the tray, standing on `at`.
+func _tumbler(tool: SurfaceTool, at: Vector3, radius: float, height: float, drink: Color) -> void:
+	_disc(tool, at, radius, radius * 0.88, height, drink, 8)
+
+## The crockery a dish is served in, standing on the tray at `at`: what is not
+## eaten and stays on the table till the tray is cleared.
+func _dish_ware(tool: SurfaceTool, dish: StringName, at: Vector3, china: Color) -> void:
+	match dish:
+		Dishes.ICE_CREAM:
+			# A glass bowl on a stem and a foot.
+			var glass := Color(0.78, 0.88, 0.94)
+			_disc(tool, at, 0.05, 0.055, 0.02, glass)
+			_disc(tool, at + Vector3(0.0, 0.02, 0.0), 0.012, 0.012, 0.05, glass, 6)
+			_disc(tool, at + Vector3(0.0, 0.07, 0.0), 0.08, 0.03, 0.06, glass)
+		Dishes.SOUP:
+			# A deep bowl with a blue band, and a spoon beside it.
+			_disc(tool, at, 0.13, 0.07, 0.07, china, 12)
+			_disc(tool, at + Vector3(0.0, 0.03, 0.0), 0.121, 0.10, 0.012, Color(0.30, 0.50, 0.82), 12)
+			var spoon := BoxMesh.new()
+			spoon.size = Vector3(0.14, 0.012, 0.025)
+			_add(tool, spoon, Transform3D(Basis(), at + Vector3(0.0, 0.0, 0.19) + Vector3(0.0, 0.006, 0.0)), Color(0.78, 0.80, 0.84))
+		Dishes.PIZZA:
+			_disc(tool, at + Vector3(0.0, 0.0, 0.0), 0.19, 0.16, 0.02, china, 14)
+		_:
+			_disc(tool, at, 0.15, 0.12, 0.02, china, 12)
+
+## The food itself, standing on its own origin — the middle of the plate, at the
+## height of its top — in a mesh of its own, because it is what is eaten.
+func _dish_food(tool: SurfaceTool, dish: StringName) -> void:
+	match dish:
+		Dishes.JUICE:
+			# Orange juice in a tall glass, with a straw and a slice on the rim.
+			var orange := Color(0.98, 0.64, 0.16)
+			_tumbler(tool, Vector3.ZERO, 0.055, 0.2, orange)
+			var straw := BoxMesh.new()
+			straw.size = Vector3(0.012, 0.16, 0.012)
+			_add(tool, straw, Transform3D(Basis(Vector3.BACK, deg_to_rad(-14.0)), Vector3(0.02, 0.2, 0.0)), Color(0.88, 0.26, 0.28))
+			_disc(tool, Vector3(0.05, 0.17, 0.0), 0.04, 0.04, 0.012, Color(0.98, 0.80, 0.30), 8)
+		Dishes.ICE_CREAM:
+			# Two scoops, vanilla under strawberry, a cherry and a wafer.
+			_ball(tool, Vector3(0.0, 0.03, 0.0), 0.065, Color(0.98, 0.92, 0.74))
+			_ball(tool, Vector3(0.0, 0.095, 0.0), 0.055, Color(0.94, 0.50, 0.58))
+			_ball(tool, Vector3(0.0, 0.15, 0.0), 0.02, Color(0.80, 0.12, 0.14))
+			var wafer := BoxMesh.new()
+			wafer.size = Vector3(0.02, 0.14, 0.05)
+			_add(tool, wafer, Transform3D(Basis(Vector3.BACK, deg_to_rad(-25.0)), Vector3(0.07, 0.12, 0.0)), Color(0.86, 0.68, 0.40))
+		Dishes.PANCAKE:
+			# A stack of three, syrup over the top and a pat of butter.
+			var golden := Color(0.88, 0.62, 0.28)
+			for layer in 3:
+				_disc(tool, Vector3(0.0, float(layer) * 0.03, 0.0), 0.12, 0.12, 0.03, golden if layer % 2 == 0 else golden.lightened(0.12), 12)
+			_disc(tool, Vector3(0.0, 0.09, 0.0), 0.085, 0.085, 0.008, Color(0.62, 0.30, 0.10), 12)
+			var butter := BoxMesh.new()
+			butter.size = Vector3(0.05, 0.025, 0.05)
+			_add(tool, butter, Transform3D(Basis(Vector3.UP, 0.4), Vector3(0.0, 0.11, 0.0)), Color(0.98, 0.90, 0.46))
+		Dishes.SOUP:
+			# Orange soup to the brim, with a carrot and a leaf of parsley.
+			_disc(tool, Vector3.ZERO, 0.115, 0.115, 0.01, Color(0.90, 0.50, 0.20), 12)
+			for i in 3:
+				var carrot := BoxMesh.new()
+				carrot.size = Vector3(0.03, 0.02, 0.03)
+				_add(tool, carrot, Transform3D(Basis(Vector3.UP, float(i)), Vector3(-0.04 + float(i) * 0.04, 0.012, -0.03 + float(i % 2) * 0.06)), Color(0.96, 0.66, 0.20))
+			_ball(tool, Vector3(0.0, 0.014, 0.0), 0.02, Color(0.34, 0.66, 0.30))
+		Dishes.PIZZA:
+			# A whole round pizza: dough, sauce, cheese, four slices of
+			# pepperoni and a leaf of basil.
+			_disc(tool, Vector3.ZERO, 0.16, 0.16, 0.02, Color(0.86, 0.66, 0.38), 14)
+			_disc(tool, Vector3(0.0, 0.02, 0.0), 0.135, 0.135, 0.008, Color(0.82, 0.22, 0.16), 14)
+			_disc(tool, Vector3(0.0, 0.028, 0.0), 0.12, 0.12, 0.008, Color(0.98, 0.84, 0.36), 14)
+			for i in 4:
+				var angle := TAU * float(i) / 4.0 + 0.5
+				_disc(tool, Vector3(cos(angle) * 0.065, 0.036, sin(angle) * 0.065), 0.026, 0.026, 0.01, Color(0.66, 0.16, 0.14), 8)
+			_ball(tool, Vector3(0.0, 0.04, 0.0), 0.018, Color(0.34, 0.66, 0.30))
+		Dishes.CAKE:
+			# A party cake: cream sides, pink icing, cherries and a candle
+			# with a flame.
+			_disc(tool, Vector3.ZERO, 0.11, 0.11, 0.07, Color(0.98, 0.92, 0.80), 12)
+			_disc(tool, Vector3(0.0, 0.07, 0.0), 0.115, 0.115, 0.022, Color(0.90, 0.40, 0.48), 12)
+			for i in 3:
+				var angle := TAU * float(i) / 3.0
+				_ball(tool, Vector3(cos(angle) * 0.07, 0.1, sin(angle) * 0.07), 0.018, Color(0.80, 0.12, 0.14))
+			_disc(tool, Vector3(0.0, 0.092, 0.0), 0.009, 0.009, 0.07, Color(0.38, 0.62, 0.86), 6)
+			_ball(tool, Vector3(0.0, 0.175, 0.0), 0.016, Color(1.0, 0.84, 0.30))
 
 ## The café's circles, for the animals: the building, the terrace tables, the
 ## lamps, the board and the bin. Animals stay outside.

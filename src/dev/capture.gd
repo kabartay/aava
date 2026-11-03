@@ -56,6 +56,8 @@ extends Node3D
 ##                  the nearest buildable ground to the --look point
 ##   --material=plaster|stone|blue|red  what new walls are made of
 ##   --storeys=2    with --plan=house, stack a second storey and move the roof up
+##   --meal=juice|icecream|pancake|soup|pizza|cake  set that dish on the café table
+##                  nearest the --look point, and --mealframes=N frames on
 ##   --group=plans|walls|floor|roof|furniture|things  with --build=1, open the
 ##                  palette on that group
 
@@ -101,6 +103,9 @@ var _animal_yaw := 0.0
 var _only_kind := ""
 var _animal_at := 9.0
 var _coins := 40
+var _menu := false
+var _meal: StringName = &""
+var _meal_frames := 60
 var _house := false
 var _test_house := false
 var _palette_group := ""
@@ -203,6 +208,12 @@ func _ready() -> void:
 		_world.football._board.celebrate(_flash, 600.0)
 	if _winner >= 0 or _flash >= 0:
 		for _i in 25:
+			await get_tree().process_frame
+	if _meal != &"":
+		# A dish on the table nearest the look-at point, a moment after it was
+		# set down, so that a shot shows the food and a bite of it gone.
+		_world.places.serve_meal(_look_at, _meal)
+		for _i in _meal_frames:
 			await get_tree().process_frame
 	_report_scene()
 	await _capture()
@@ -327,6 +338,9 @@ func _spawn_player() -> void:
 		_hud.set_owned(owned)
 	if _shop:
 		_hud.set_shop_open(true, _coins, {})
+	if _menu:
+		_hud.set_place_offer(Places.CAFE)
+		_hud.set_cafe_menu_open(true, false, _coins)
 	match _together:
 		"choice":
 			_hud.together.open()
@@ -754,6 +768,12 @@ func _parse_arguments() -> void:
 				_animal_at = value.to_float()
 			"coins":
 				_coins = value.to_int()
+			"menu":
+				_menu = value.to_int() != 0
+			"meal":
+				_meal = StringName(value)
+			"mealframes":
+				_meal_frames = value.to_int()
 			"pos":
 				_camera_position = _to_vector(value, _camera_position)
 			"look":

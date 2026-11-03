@@ -529,6 +529,17 @@ const STRINGS := {
 		FR: "ça va mieux",
 		RU: "так-то лучше",
 	},
+	# The café's menu: six dishes, each a word under its picture once it has been
+	# tapped, and the line that says what it gives.
+	"dish_juice": {EN: "juice", FR: "jus d'orange", RU: "сок"},
+	"dish_icecream": {EN: "ice cream", FR: "glace", RU: "мороженое"},
+	"dish_pancake": {EN: "pancakes", FR: "crêpes", RU: "блинчики"},
+	"dish_soup": {EN: "soup", FR: "soupe", RU: "суп"},
+	"dish_pizza": {EN: "pizza", FR: "pizza", RU: "пицца"},
+	"dish_cake": {EN: "party cake", FR: "gâteau de fête", RU: "праздничный торт"},
+	"dish_gives": {EN: "%d%% energy", FR: "%d %% d'énergie", RU: "энергия: %d%%"},
+	"dish_cools": {EN: "and cools you down", FR: "et te rafraîchit", RU: "и освежает"},
+	"ui_cafe_paid": {EN: "paid", FR: "payant", RU: "платно"},
 	"say_ate": {
 		EN: "that was good", FR: "c'était bon", RU: "вкусно",
 	},

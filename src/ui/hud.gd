@@ -156,6 +156,14 @@ var _wall_material: StringName = HouseParts.DEFAULT_MATERIAL
 var _material_name: Label
 ## The button that sets what a child's own cafe asks, shown at one.
 var _price_button: Button
+## The café's menu: six tiles to tap, and the name and worth of the one tapped.
+var _cafe_menu: PanelContainer
+var _dish_tiles: Dictionary = {}
+var _dish_prices: Dictionary = {}
+var _dish_name: Label
+var _dish_note: Label
+var _dish_chosen: StringName = Dishes.USUAL
+var _cafe_menu_state: Array = []
 var _cafe_paid := false
 var _tabs: HBoxContainer
 var _place_button: Button
@@ -620,6 +628,10 @@ func _init() -> void:
 	# and tapping a bicycle a child already owned pushed "back" off the bottom
 	# of the screen.
 	_shop.resized.connect(_layout)
+
+	_cafe_menu = _build_cafe_menu()
+	add_child(_cafe_menu)
+	_cafe_menu.resized.connect(_layout)
 
 	_menu_button = _icon_button(ActionIcon.Kind.SETTINGS)
 	_menu_button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.7)
@@ -1405,6 +1417,127 @@ func set_place_offer(place: StringName) -> void:
 		_visit_button.visible = wanted
 		_layout()
 
+## The café's menu: a picture of each dish with its price under it, and below
+## them the name of the one chosen and what it gives. A tap on a picture only
+## chooses — it spends nothing, so a stray finger loses nothing — and what is
+## bought is bought by holding the eat button, as it always was.
+func _build_cafe_menu() -> PanelContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.10, 0.13, 0.9)
+	style.set_corner_radius_all(16)
+	style.content_margin_left = 14.0
+	style.content_margin_right = 14.0
+	style.content_margin_top = 10.0
+	style.content_margin_bottom = 10.0
+	style.border_color = Color(1.0, 0.90, 0.52, 0.35)
+	style.set_border_width_all(1)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.visible = false
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 6)
+	panel.add_child(column)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	column.add_child(row)
+	for dish in Dishes.ALL:
+		var tile := Button.new()
+		tile.custom_minimum_size = Vector2(BUTTON * 0.92, BUTTON * 1.2)
+		tile.focus_mode = Control.FOCUS_NONE
+		tile.pressed.connect(func() -> void: _dish_tapped(dish))
+		row.add_child(tile)
+		var stack := VBoxContainer.new()
+		stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		stack.add_theme_constant_override("separation", 0)
+		stack.alignment = BoxContainer.ALIGNMENT_CENTER
+		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tile.add_child(stack)
+		var icon := DishIcon.new(dish)
+		icon.custom_minimum_size = Vector2(BUTTON * 0.66, BUTTON * 0.66)
+		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		stack.add_child(icon)
+		var price := Label.new()
+		price.add_theme_font_size_override("font_size", 19)
+		price.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
+		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		price.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stack.add_child(price)
+		_dish_tiles[dish] = tile
+		_dish_prices[dish] = price
+
+	_dish_name = Label.new()
+	_dish_name.add_theme_font_size_override("font_size", 21)
+	_dish_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_dish_name)
+	_dish_note = Label.new()
+	_dish_note.add_theme_font_size_override("font_size", 15)
+	_dish_note.add_theme_color_override("font_color", Color(0.74, 0.78, 0.84))
+	_dish_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_dish_note)
+	return panel
+
+## A picture on the menu was tapped: it is chosen, and nothing is spent.
+func _dish_tapped(dish: StringName) -> void:
+	_dish_chosen = dish
+	_refresh_cafe_menu()
+
+## What is chosen from the menu, which is the soup until a child has chosen.
+func chosen_dish() -> StringName:
+	return _dish_chosen
+
+## What the chosen dish costs at the café the child is in: the valley's price,
+## or the child's own café's, which is nothing when they ask nothing.
+func _dish_price_text(dish: StringName, at_home: bool) -> String:
+	if not at_home:
+		return "%d ●" % Dishes.price(dish)
+	return ("%d ●" % Venues.price_of(dish)) if _cafe_paid else Text.of("ui_cafe_free")
+
+func _refresh_cafe_menu() -> void:
+	var at_home: bool = _cafe_menu_state[1] if _cafe_menu_state.size() > 1 else false
+	var coins: int = _cafe_menu_state[2] if _cafe_menu_state.size() > 2 else 0
+	for dish: StringName in Dishes.ALL:
+		var tile: Button = _dish_tiles[dish]
+		var price: Label = _dish_prices[dish]
+		price.text = _dish_price_text(dish, at_home)
+		var cost := Venues.price_of(dish) if at_home else Dishes.price(dish)
+		# Dimmed, never disabled: a dish that cannot be bought yet can still be
+		# asked about, as in the shop.
+		tile.modulate = Color.WHITE if (coins >= cost or (at_home and not _cafe_paid)) else Color(1.0, 1.0, 1.0, 0.5)
+		var picked := dish == _dish_chosen
+		var mark := StyleBoxFlat.new()
+		mark.bg_color = Color(1.0, 0.90, 0.52, 0.18) if picked else Color(1.0, 1.0, 1.0, 0.06)
+		mark.set_corner_radius_all(12)
+		if picked:
+			mark.border_color = Color(1.0, 0.90, 0.52, 0.85)
+			mark.set_border_width_all(2)
+		tile.add_theme_stylebox_override("normal", mark)
+	_dish_name.text = Text.of(Dishes.name_key(_dish_chosen))
+	var note := Text.format("dish_gives", [Dishes.percent(_dish_chosen)])
+	if Dishes.cools(_dish_chosen):
+		note += " " + Text.of("dish_cools")
+	_dish_note.text = note
+
+## Show the menu while a child is inside a café — the valley's, or one of their
+## own with `at_home` — and say how many coins are in the purse so that what
+## cannot be afforded yet is dimmed.
+func set_cafe_menu_open(open: bool, at_home: bool, coins: int) -> void:
+	var state := [open, at_home, coins, _cafe_paid, Text.language()]
+	if state == _cafe_menu_state:
+		return
+	var was_open: bool = _cafe_menu_state.size() > 0 and _cafe_menu_state[0]
+	_cafe_menu_state = state
+	_cafe_menu.visible = open
+	if open:
+		_refresh_cafe_menu()
+		if not was_open:
+			_cafe_menu.move_to_front()
+	_layout()
+
+func is_cafe_menu_open() -> bool:
+	return _cafe_menu.visible
+
 ## Whether the price button is on show, which it is beside a cafe the child
 ## built.
 func set_cafe_price_offer(wanted: bool) -> void:
@@ -1417,7 +1550,9 @@ func cafe_is_paid() -> bool:
 	return _cafe_paid
 
 func _refresh_price_button() -> void:
-	_price_button.text = ("%d ●" % Venues.MEAL_PRICE) if _cafe_paid else Text.of("ui_cafe_free")
+	# What each dish costs is under its picture on the menu; this says only
+	# whether the café asks coins at all.
+	_price_button.text = ("● %s" % Text.of("ui_cafe_paid")) if _cafe_paid else Text.of("ui_cafe_free")
 	_price_button.custom_minimum_size.x = maxf(BUTTON, float(_price_button.text.length()) * 17.0 + 34.0)
 	_price_button.size.x = _price_button.custom_minimum_size.x
 
@@ -2444,6 +2579,16 @@ func _layout() -> void:
 		safe.position.x + safe.size.x * 0.5 - _shop.size.x * 0.5,
 		safe.position.y + safe.size.y * 0.5 - _shop.size.y * 0.5
 	)
+	# The café's menu sits above the row of buttons at the bottom, in the middle
+	# of the screen, so that neither the stick nor the thumb's buttons are under
+	# it. Sized by hand first, as the care button is, since a control only takes
+	# its new size at the end of the frame.
+	if _cafe_menu != null:
+		_cafe_menu.size = _cafe_menu.get_combined_minimum_size()
+		_cafe_menu.position = Vector2(
+			safe.position.x + safe.size.x * 0.5 - _cafe_menu.size.x * 0.5,
+			safe.position.y + safe.size.y - BUTTON - MARGIN - _cafe_menu.size.y - 12.0
+		)
 
 	# The walls carry the material button as well as their pieces. A group of
 	# more than PALETTE_ROW goes on a second row, above the first.

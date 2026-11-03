@@ -294,6 +294,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_built.connect(_on_remote_built)
 	session.remote_removed.connect(_on_remote_removed)
 	session.remote_felled.connect(_on_remote_felled)
+	session.remote_meal.connect(_on_remote_meal)
 	session.remote_dam_stick.connect(_on_remote_dam_stick)
 	session.remote_time_of_day.connect(world.atmosphere.set_time)
 	session.remote_valley.connect(_on_remote_valley)
@@ -865,9 +866,13 @@ func _process(delta: float) -> void:
 	# Beside a burning fire, energy comes back faster. Warmth is a place rather
 	# than something a child carries, so this only applies while they are at it.
 	var warmth := world.hearths.warmth_at(player.global_position)
+	# And after an ice cream, for half a minute: cooled down, a child's breath
+	# comes back twice as fast.
+	var cool := Dishes.COOL_BOOST if _cooled_for > 0.0 else 1.0
+	_cooled_for = maxf(_cooled_for - delta, 0.0)
 	vitals.advance(
 		delta, player.is_running, player.is_moving,
-		1.0 + warmth * (Hearths.REST_BONUS - 1.0)
+		(1.0 + warmth * (Hearths.REST_BONUS - 1.0)) * cool
 	)
 	player.may_run = vitals.can_run()
 	if world.park.on_trampoline(player.global_position):
@@ -1121,6 +1126,11 @@ func _process(delta: float) -> void:
 	var home := structures.venue_at(at) if here == &"" else &""
 	hud.set_place_offer(_offer_at(here) if here != &"" else home)
 	hud.set_cafe_price_offer(home == &"cafe")
+	# The menu is on the screen while a child is inside a café, and goes while
+	# they are sat at their plate.
+	hud.set_cafe_menu_open(
+		(here == Places.CAFE or home == &"cafe") and _dining <= 0.0, home == &"cafe", wallet.coins
+	)
 	structures.light_lamps(world.atmosphere.evening(), at)
 	hud.set_at_the_pitch(Pitch.is_beside(at.x, at.z, SCORE_SHOWN_WITHIN))
 	# The shelf is for standing at the counter. Left open, it went on selling
@@ -2081,6 +2091,11 @@ func _on_remote_felled(at: Vector3) -> void:
 	world.felled.fell(at)
 	world.vegetation.rebuild_around(at)
 
+## What the other child ordered, on the table they sat at: the same plate, eaten
+## in the same bites on this phone as on theirs.
+func _on_remote_meal(dish: int, at: Vector3) -> void:
+	world.places.set_down(Dishes.from_index(dish), at)
+
 func _on_remote_dam_stick(site: float) -> void:
 	world.dams.deliver(site)
 
@@ -2251,15 +2266,18 @@ func _eat() -> void:
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.of("say_not_hungry"), 2.0)
 		return
-	if wallet.coins < Places.MEAL_PRICE:
+	# What is on the menu screen's chosen picture, and only that: one held press
+	# is one dish. The menu's tiles choose and never buy.
+	var dish := hud.chosen_dish()
+	if wallet.coins < Dishes.price(dish):
 		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.format("say_no_coins", [Places.MEAL_PRICE]), 2.2)
+		hud.announce(Text.format("say_no_coins", [Dishes.price(dish)]), 2.2)
 		return
-	wallet.spend(Places.MEAL_PRICE)
-	vitals.energy = minf(
-		Vitals.MAX_ENERGY, vitals.energy + Vitals.MAX_ENERGY * Places.MEAL_RESTORE
-	)
-	_finish_eating(world.places.serve_meal(player.global_position))
+	wallet.spend(Dishes.price(dish))
+	vitals.energy = Dishes.energy_after(vitals.energy, dish)
+	_cooled_for = Dishes.COOL_SECONDS if Dishes.cools(dish) else _cooled_for
+	_finish_eating(world.places.serve_meal(player.global_position, dish))
+	_tell_of_the_meal(dish, world.places.last_tray.get("at", Vector3.ZERO))
 
 ## A meal in a cafe the child built: sat at their own table, with the price
 ## theirs to choose. Free gives half a meal's worth of energy; a coin gives a
@@ -2270,13 +2288,14 @@ func _eat_at_home() -> void:
 		return
 	var paying := hud.cafe_is_paid()
 	var now := _play_seconds()
-	match Venues.eat(vitals, wallet, paying, now >= _free_meal_after):
+	var dish := hud.chosen_dish()
+	match Venues.eat(vitals, wallet, paying, now >= _free_meal_after, dish):
 		Venues.FULL:
 			sounds.play(Sounds.Sound.REFUSE)
 			hud.announce(Text.of("say_not_hungry"), 2.0)
 		Venues.POOR:
 			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(Text.format("say_no_coins", [Venues.MEAL_PRICE]), 2.2)
+			hud.announce(Text.format("say_no_coins", [Venues.price_of(dish)]), 2.2)
 		Venues.WAIT:
 			# Said kindly, with the way round it: a coin buys a meal now.
 			sounds.play(Sounds.Sound.REFUSE)
@@ -2286,7 +2305,23 @@ func _eat_at_home() -> void:
 		_:
 			if not paying:
 				_free_meal_after = now + Venues.FREE_WAIT
+			_cooled_for = Dishes.COOL_SECONDS if Dishes.cools(dish) else _cooled_for
 			_finish_eating(structures.seat_near(player.global_position))
+			# The plate goes on the nearest table of the child's own, if they
+			# have put one up, and the other child is shown it as well.
+			var table := structures.table_near(player.global_position)
+			if table.is_finite():
+				world.places.set_down(dish, table + Vector3(0.0, 0.77, 0.0))
+				_tell_of_the_meal(dish, table + Vector3(0.0, 0.77, 0.0))
+
+## How much longer an ice cream keeps a child cooled down: energy comes back
+## faster for this many seconds (see Dishes.COOL_SECONDS).
+var _cooled_for := 0.0
+
+## Say what was just put on a table, and where, to the other child's phone, so
+## that they see the same plate being eaten.
+func _tell_of_the_meal(dish: StringName, at: Vector3) -> void:
+	session.report_meal(Dishes.index_of(dish), at)
 
 ## Whether this child has ever stood a wall, a floor, a roof and a bed in the
 ## valley, which is when the line that says what to build next stops being

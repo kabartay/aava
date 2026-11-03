@@ -403,6 +403,19 @@ func seat_near(at: Vector3) -> Dictionary:
 		}
 	return best
 
+## The foot of the table nearest a point that belongs to a cafe, for a plate to
+## be set on, or NAN if there is none within reach.
+func table_near(at: Vector3) -> Vector3:
+	_find_venues()
+	var best := Vector3(NAN, NAN, NAN)
+	var best_distance := VENUE_USE
+	for table: Vector3 in _cafe_tables:
+		var distance := Vector2(table.x - at.x, table.z - at.z).length()
+		if distance < best_distance:
+			best_distance = distance
+			best = table
+	return best
+
 var _venues_revision := -1
 var _cafe_tables: Array[Vector3] = []
 var _shop_counters: Array[Vector3] = []

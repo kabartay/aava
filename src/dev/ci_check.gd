@@ -97,6 +97,11 @@ func _initialize() -> void:
 	_check_boats_float_on_the_pond()
 	_check_nothing_is_built_on_the_playground()
 	_check_the_cafe_serves()
+	_check_the_cafe_menu_charges_and_gives_what_it_shows()
+	await _check_a_stray_tap_orders_nothing_and_a_hold_orders_one_dish()
+	_check_the_food_on_the_table_is_the_dish_ordered()
+	_check_the_cafe_fittings_stand_on_the_bar()
+	_check_the_other_child_sees_what_is_on_the_table()
 	_check_the_pool_takes_a_ticket()
 	_check_getting_off_a_mount_is_safe()
 	_check_a_horse_swims()
@@ -22202,6 +22207,252 @@ func _check_rocks_and_finds_follow_the_ground_when_a_dam_lifts_it() -> void:
 	_expect(finds.count_active() == 0 and finds.is_idle(), "the finds are drawn afresh too")
 	finds.queue_free()
 
+## Every dish on the café's menu costs what the menu says and gives what it
+## says — in the valley's café, in a child's own café, and in the words — and a
+## child who cannot pay, or is full, is turned away without being charged.
+func _check_the_cafe_menu_charges_and_gives_what_it_shows() -> void:
+	print("the café's menu charges and gives what it shows")
+	_expect(Dishes.ALL.size() >= 4 and Dishes.ALL.size() <= 6, "%d dishes on the menu" % Dishes.ALL.size())
+	_expect(Dishes.MENU.size() == Dishes.ALL.size(), "and every one of them has a price and a worth")
+	var prices := {}
+	var worths := {}
+	var last := 0
+	for dish in Dishes.ALL:
+		_expect(Dishes.is_dish(dish) and Dishes.price(dish) >= last, "%s is listed cheapest first" % dish)
+		last = Dishes.price(dish)
+		_expect(Dishes.restore(dish) > 0.0 and Dishes.restore(dish) <= 1.0, "%s gives a share of a bar" % dish)
+		prices[Dishes.price(dish)] = true
+		worths[Dishes.restore(dish)] = true
+		_expect(Dishes.from_index(Dishes.index_of(dish)) == dish, "%s is the same dish after being sent as a number" % dish)
+	_expect(prices.size() >= 4 and worths.size() == Dishes.ALL.size(), "the dishes differ in price and in worth")
+	_expect(
+		Dishes.price(Dishes.USUAL) == Places.MEAL_PRICE and is_equal_approx(Dishes.restore(Dishes.USUAL), Places.MEAL_RESTORE),
+		"the usual dish is the meal the café always served"
+	)
+	_expect(Dishes.from_index(-1) == &"" and Dishes.from_index(Dishes.ALL.size()) == &"", "a number past the menu is no dish")
+	for dish in Dishes.ALL:
+		# The valley's café, in the arithmetic main.gd's `_eat` uses.
+		var vitals := Vitals.new()
+		vitals.energy = 0.0
+		var wallet := Wallet.new()
+		wallet.earn(Dishes.price(dish) + 5)
+		_expect(wallet.spend(Dishes.price(dish)) and wallet.coins == 5, "%s costs %d coins, no more" % [dish, Dishes.price(dish)])
+		vitals.energy = Dishes.energy_after(vitals.energy, dish)
+		_expect(
+			is_equal_approx(vitals.energy, minf(Vitals.MAX_ENERGY, Vitals.MAX_ENERGY * Dishes.restore(dish))),
+			"%s gives %d%% of a bar" % [dish, Dishes.percent(dish)]
+		)
+		# A child's own café, paying: a third of the price, rounded up, and all of the worth.
+		var home := Vitals.new()
+		home.energy = 0.0
+		var purse := Wallet.new()
+		purse.earn(Venues.price_of(dish))
+		_expect(Venues.eat(home, purse, true, true, dish) == Venues.ATE and purse.coins == 0, "%s at home costs %d" % [dish, Venues.price_of(dish)])
+		_expect(is_equal_approx(home.energy, Dishes.energy_after(0.0, dish)), "and gives all of its worth")
+		# Asking nothing: half the worth, never more than half the soup's.
+		var free := Vitals.new()
+		free.energy = 0.0
+		_expect(Venues.eat(free, Wallet.new(), false, true, dish) == Venues.ATE, "%s for nothing is served" % dish)
+		_expect(
+			free.energy <= Dishes.energy_after(0.0, Dishes.USUAL, Venues.FREE_SHARE) + 0.001
+			and free.energy <= Dishes.energy_after(0.0, dish, Venues.FREE_SHARE) + 0.001,
+			"and gives at most half, and at most half of the soup (%.1f)" % free.energy
+		)
+		# Turned away: no coins, and a full bar.
+		var hungry := Vitals.new()
+		hungry.energy = 10.0
+		var broke := Wallet.new()
+		_expect(Venues.eat(hungry, broke, true, true, dish) == Venues.POOR and hungry.energy == 10.0, "%s with an empty purse gives nothing" % dish)
+		var full := Vitals.new()
+		var rich := Wallet.new()
+		rich.earn(50)
+		_expect(Venues.eat(full, rich, true, true, dish) == Venues.FULL and rich.coins == 50, "a full child is not charged for %s" % dish)
+	_expect(Venues.price_of(Dishes.USUAL) == Venues.MEAL_PRICE, "the soup at home is the coin it always was")
+	_expect(Dishes.cools(Dishes.ICE_CREAM) and not Dishes.cools(Dishes.SOUP) and not Dishes.cools(Dishes.CAKE), "only the ice cream cools")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var eat := game.substr(game.find("func _eat()"))
+	eat = eat.substr(0, eat.find("\nfunc ", 1))
+	_expect(eat.count("wallet.spend(") == 1 and eat.contains("wallet.spend(Dishes.price(dish))"), "the valley's café takes one dish's price, once")
+	_expect(eat.contains("hud.chosen_dish()") and eat.contains("serve_meal(player.global_position, dish)"), "and serves the dish that was chosen")
+	_expect(game.contains("Venues.eat(vitals, wallet, paying, now >= _free_meal_after, dish)"), "a child's own café too")
+	for code: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(code)
+		for dish in Dishes.ALL:
+			_expect(Text.of(Dishes.name_key(dish)) != Dishes.name_key(dish), "%s is named in %s" % [dish, code])
+		_expect(Text.format("dish_gives", [55]).contains("55"), "what a dish gives is said in %s" % code)
+		for key: String in ["dish_cools", "ui_cafe_paid"]:
+			_expect(Text.of(key) != key, "%s is written in %s" % [key, code])
+	Text.set_language(Text.EN)
+
+## A finger on the menu's pictures chooses and never buys; what is bought is
+## bought by holding the eat button, once, and one hold is one dish.
+func _check_a_stray_tap_orders_nothing_and_a_hold_orders_one_dish() -> void:
+	print("a stray tap cannot order or spend")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	_expect(not hud.is_cafe_menu_open(), "the menu is not on the screen away from a café")
+	hud.set_cafe_menu_open(true, false, 50)
+	_expect(hud.is_cafe_menu_open(), "it is on the screen inside one")
+	_expect(hud.chosen_dish() == Dishes.USUAL, "with the usual dish chosen until another is")
+	var ordered: Array = []
+	hud.place_used.connect(func() -> void: ordered.append(1))
+	for round_of_taps in 3:
+		for dish in Dishes.ALL:
+			var tile: Button = hud._dish_tiles[dish]
+			tile.button_down.emit()
+			tile.pressed.emit()
+			tile.button_up.emit()
+	_expect(ordered.is_empty(), "eighteen taps on the pictures order nothing")
+	_expect(hud.chosen_dish() == Dishes.ALL[Dishes.ALL.size() - 1], "the last picture tapped is the one chosen")
+	for dish in Dishes.ALL:
+		hud._dish_tapped(dish)
+		_expect(hud._dish_prices[dish].text == "%d ●" % Dishes.price(dish), "%s is priced under its picture at what it costs" % dish)
+		_expect(hud._dish_name.text == Text.of(Dishes.name_key(dish)), "and named once chosen")
+		_expect(hud._dish_note.text.contains(str(Dishes.percent(dish))), "and says what it gives")
+	hud.set_cafe_menu_open(true, true, 50)
+	hud._dish_tapped(Dishes.CAKE)
+	_expect(hud._dish_prices[Dishes.CAKE].text == Text.of("ui_cafe_free"), "at a café of their own that asks nothing, the picture says free")
+	hud._cafe_paid = true
+	hud.set_cafe_menu_open(true, true, 50)
+	_expect(hud._dish_prices[Dishes.CAKE].text == "%d ●" % Venues.price_of(Dishes.CAKE), "and asking coins, the price at home")
+	hud.set_cafe_menu_open(false, false, 50)
+	_expect(not hud.is_cafe_menu_open(), "and the menu goes when the child leaves")
+	# The one thing that orders is the held eat button.
+	hud.set_place_offer(Places.CAFE)
+	var ring: HoldRing = null
+	for child in hud._visit_button.get_children():
+		if child is HoldRing:
+			ring = child
+	_expect(ring != null, "ordering takes a hold")
+	if ring != null:
+		hud._visit_button.button_down.emit()
+		ring._process(0.4)
+		hud._visit_button.button_up.emit()
+		_expect(ordered.is_empty(), "a short press orders nothing")
+		hud._visit_button.button_down.emit()
+		for _step in 4:
+			ring._process(0.6)
+		hud._visit_button.pressed.emit()
+		hud._visit_button.button_up.emit()
+		_expect(ordered.size() == 1, "a whole hold orders once, not %d times" % ordered.size())
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var eat := game.substr(game.find("func _eat()"))
+	eat = eat.substr(0, eat.find("\nfunc ", 1))
+	_expect(eat.find("_dining > 0.0") >= 0 and eat.find("_dining > 0.0") < eat.find("wallet.spend("), "a child sat at a plate cannot order another")
+	hud.queue_free()
+
+## The plate on the table is the dish that was ordered, is eaten a bite at a
+## time and then cleared, and adds nothing to walk into.
+func _check_the_food_on_the_table_is_the_dish_ordered() -> void:
+	print("the food on the table is what was ordered")
+	_expect(Places.bites_eaten(0.0) == 0 and Places.bites_eaten(Places.EAT_FROM - 0.01) == 0, "nothing is eaten before the first bite")
+	_expect(Places.bites_eaten(Places.EAT_FROM) == 1, "the first bite comes when the child has started")
+	var done := Places.EAT_FROM + Places.EAT_BITE * float(Dishes.BITES - 1)
+	_expect(Places.bites_eaten(done + 0.01) == Dishes.BITES and done < Places.MEAL_SHOWN * 0.8, "the plate is empty before the child gets up (%.1f s)" % done)
+	_expect(Places.bites_eaten(done - 0.5) == Dishes.BITES - 1, "and has one bite left a little before")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var spot: Vector3 = places._spots[Places.CAFE]
+	var table := spot + Places.CAFE_TABLES[0]
+	var solids := places.cafe_solid_count()
+	for dish in Dishes.ALL:
+		var seat := places.serve_meal(table + Vector3(1.0, 0.0, 0.0), dish)
+		_expect(not seat.is_empty(), "%s is served at a seat" % dish)
+		_expect(places.last_tray.get("dish") == dish, "and the tray says it is %s" % dish)
+	var served := places.meals_on_tables()
+	_expect(served.size() == Dishes.ALL.size(), "six dishes, six plates")
+	var drawn := {}
+	for i in served.size():
+		_expect(served[i]["dish"] == Dishes.ALL[i], "plate %d is %s" % [i, Dishes.ALL[i]])
+		var food := places._meals[i]["food"] as MeshInstance3D
+		var faces := food.mesh.get_faces()
+		_expect(faces.size() > 0, "%s is drawn" % Dishes.ALL[i])
+		drawn[hash(faces)] = true
+		_expect(is_equal_approx(float(served[i]["left"]), 1.0), "and whole when it arrives")
+	_expect(drawn.size() == Dishes.ALL.size(), "each dish is drawn differently: %d shapes" % drawn.size())
+	_expect(places.cafe_solid_count() == solids, "food on the table is not solid")
+	# Eaten away, a bite at a time, and then cleared.
+	var left := 1.0
+	var steps := 0
+	while steps < 20:
+		places._tick(0.5)
+		steps += 1
+		var now := float(places.meals_on_tables()[0]["left"])
+		_expect(now <= left + 0.0001, "the plate does not refill (%.2f after %.1f s)" % [now, float(steps) * 0.5])
+		left = now
+		if float(steps) * 0.5 >= Places.MEAL_SHOWN * 0.8:
+			break
+	_expect(left < 0.05, "the plate is empty by the time the child stands up")
+	places._tick(Places.MEAL_SHOWN)
+	_expect(places.meals_served() == 0, "and the tray is cleared")
+	# A dish that is not on the menu, or a crowd of them, is not drawn.
+	places.set_down(&"sandwich", table)
+	places.set_down(&"", table)
+	_expect(places.meals_served() == 0, "nothing that is not on the menu is put on a table")
+	for _i in Places.MEALS_AT_ONCE + 5:
+		places.set_down(Dishes.JUICE, table)
+	_expect(places.meals_served() == Places.MEALS_AT_ONCE, "and there is a limit to how many are at once")
+	places.queue_free()
+
+## The till and the coffee machine stand on the bar's own solid top, within its
+## length, so there is nothing new to walk through or to catch on.
+func _check_the_cafe_fittings_stand_on_the_bar() -> void:
+	print("the till and the coffee machine stand on the bar")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var bar_x := NAN
+	var half := 0.0
+	var top := 0.0
+	for shape in places._cafe_solid.get_children():
+		var collider := shape as CollisionShape3D
+		if collider != null and collider.shape is BoxShape3D:
+			var box := collider.shape as BoxShape3D
+			if is_equal_approx(box.size.x, 6.0) and is_equal_approx(box.size.z, 1.0):
+				bar_x = collider.transform.origin.x
+				half = box.size.x * 0.5
+				top = collider.transform.origin.y + box.size.y * 0.5
+	_expect(not is_nan(bar_x), "the bar is found by its collision")
+	for offset: float in [Places.CAFE_TILL_OFFSET, Places.CAFE_MACHINE_OFFSET]:
+		_expect(absf(float(offset)) + Places.CAFE_BAR_FITTING * 0.5 <= half, "a fitting at %.2f from the bar's middle is over the bar, not past its end" % offset)
+	_expect(top >= 1.1, "and the bar's solid reaches the height they stand at (%.2f)" % top)
+	_expect(places._machine_steam.size() == 3, "the coffee machine steams")
+	places._tick(0.5)
+	_expect(places._machine_steam[0].position.y > places._machine_steam_from.y - 0.01, "and the steam rises from it")
+	for child in places._cafe_solid.get_children() + places._cafe_walls.get_children():
+		_expect(child is CollisionShape3D, "everything in the café's bodies is a collision shape, not a picture")
+		break
+	places.queue_free()
+
+## The other child is told what was set on a table, believes only a dish on the
+## menu at a place in the world, and sees it set down.
+func _check_the_other_child_sees_what_is_on_the_table() -> void:
+	print("the other child sees the plate")
+	var session := Session.new()
+	get_root().add_child(session)
+	var heard: Array = []
+	session.remote_meal.connect(func(dish: int, _at: Vector3) -> void: heard.append(dish))
+	session._send_meal(Dishes.index_of(Dishes.PIZZA), Vector3(1.0, 2.0, 3.0))
+	session._send_meal(99, Vector3.ONE)
+	session._send_meal(-1, Vector3.ONE)
+	session._send_meal(0, Vector3(NAN, 0.0, 0.0))
+	_expect(heard == [Dishes.index_of(Dishes.PIZZA)], "only a dish on the menu, somewhere believable, is heard: %s" % str(heard))
+	session.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(game.contains("session.remote_meal.connect(_on_remote_meal)"), "the game listens for it")
+	var told := game.substr(game.find("func _on_remote_meal"))
+	told = told.substr(0, told.find("\nfunc ", 1))
+	_expect(told.contains("world.places.set_down(Dishes.from_index(dish), at)"), "and sets the same dish down")
+	var eat := game.substr(game.find("func _eat()"))
+	eat = eat.substr(0, eat.find("\nfunc ", 1))
+	_expect(eat.contains("_tell_of_the_meal(dish"), "and a meal at the valley's café is told")
+	var home := game.substr(game.find("func _eat_at_home"))
+	home = home.substr(0, home.find("\nfunc ", 1))
+	_expect(home.contains("_tell_of_the_meal(dish") and home.contains("set_down(dish"), "and so is one at a café of their own, with a plate")
 
 
 
@@ -22238,3 +22489,4 @@ func _check_far_animals_are_stepped_less_often_and_walk_as_far() -> void:
 	)
 	near.queue_free()
 	far.queue_free()
+

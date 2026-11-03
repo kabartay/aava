@@ -47,6 +47,8 @@ signal remote_built(kind: StringName, position: Vector3, spin: float, extent: Ve
 ## `kind` is what was taken down, or empty from a phone that does not say.
 signal remote_removed(position: Vector3, kind: StringName)
 signal remote_felled(position: Vector3)
+## The other child has been served a dish, which stands on a table at this spot.
+signal remote_meal(dish: int, position: Vector3)
 signal remote_dam_stick(site: float)
 signal remote_time_of_day(fraction: float)
 ## The host's whole valley as it stands, told to a guest on arrival: every
@@ -437,6 +439,14 @@ func report_felled(at: Vector3) -> void:
 	if is_connected_to_anyone():
 		_send_felled.rpc(at)
 
+## A dish was set down on a table, so that the other child sees it there and
+## watches it eaten: its place on the menu (see Dishes.index_of) and the spot on
+## the table. Nothing else about the meal crosses the wire — the coins and the
+## energy are this child's own.
+func report_meal(dish: int, at: Vector3) -> void:
+	if is_connected_to_anyone():
+		_send_meal.rpc(dish, at)
+
 func report_dam_stick(site: float) -> void:
 	if is_connected_to_anyone():
 		_send_dam_stick.rpc(site)
@@ -748,6 +758,14 @@ func _send_removed(at: Vector3, kind := "") -> void:
 	remote_removed.emit(at, StringName(kind))
 	for id in others_than(_sender()):
 		_send_removed.rpc_id(id, at, kind)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_meal(dish: int, at: Vector3) -> void:
+	if not believable(at) or Dishes.from_index(dish) == &"":
+		return
+	remote_meal.emit(dish, at)
+	for id in others_than(_sender()):
+		_send_meal.rpc_id(id, dish, at)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_felled(at: Vector3) -> void:
