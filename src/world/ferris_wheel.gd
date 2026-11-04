@@ -787,9 +787,10 @@ func _place_cars() -> void:
 		))
 
 func _physics_process(delta: float) -> void:
-	var before: Array[Vector3] = []
-	for car in _cars:
-		before.append(car.position)
+	# A buffer the ride keeps, not a fresh array sixty times a second.
+	_before.resize(_cars.size())
+	for index in _cars.size():
+		_before[index] = _cars[index].position
 
 	if _holding > 0.0:
 		# Standing at the boards. Nothing turns, which is the point: this is
@@ -870,6 +871,15 @@ func _physics_process(delta: float) -> void:
 			float(_gates_open[index]), wanted, delta / BAR_TIME
 		)
 		var open := float(_gates_open[index])
+		# Only a bar that has moved is put anywhere: nine of the ten stand still
+		# at any time, and each of these is a call into the scene or the
+		# physics server.
+		if _gates_applied.size() != _gates.size():
+			_gates_applied.resize(_gates.size())
+			_gates_applied.fill(NAN)
+		if open == _gates_applied[index]:
+			continue
+		_gates_applied[index] = open
 		_gates[index].position.y = open * BAR_LIFT
 		_gate_shapes[index].position.y = BAR_HEIGHT * 0.7 + open * BAR_LIFT
 		# Solid until it is most of the way up, so nobody walks through a bar
@@ -880,22 +890,28 @@ func _physics_process(delta: float) -> void:
 		# The button goes in while a gondola is on its way and lights up while
 		# one is standing there — a control that does nothing visible when it
 		# is pressed is a control a child presses again and again.
-		_cap.position.y = (
-			boarding_floor() + BUTTON_HEIGHT + (0.0 if _called else 0.06)
-		)
+		var cap_height := boarding_floor() + BUTTON_HEIGHT + (0.0 if _called else 0.06)
+		if _cap.position.y != cap_height:
+			_cap.position.y = cap_height
 		# Green from the moment a ride is bought, not only once the gondola is
 		# standing there: what a child wants to know is that the button
 		# worked, and the gondola takes up to twelve seconds to come round.
-		_cap_paint.albedo_color = (
-			BUTTON_LIT if (_called or _holding > 0.0) else BUTTON
-		)
-	_moved.clear()
+		var cap_colour := BUTTON_LIT if (_called or _holding > 0.0) else BUTTON
+		if _cap_paint.albedo_color != cap_colour:
+			_cap_paint.albedo_color = cap_colour
+	_moved.resize(_cars.size())
 	for index in _cars.size():
-		_moved.append(_cars[index].position - before[index])
+		_moved[index] = _cars[index].position - _before[index]
 
 ## How far each gondola moved on the last frame, so that whoever is standing in
 ## one can be moved with it.
 var _moved: Array[Vector3] = []
+
+## Where each gondola stood at the start of the tick. Kept, not rebuilt.
+var _before: Array[Vector3] = []
+
+## Where each bar was last put, so a bar that has not moved is left alone.
+var _gates_applied := PackedFloat32Array()
 
 ## How far the ride moves whoever is aboard, this frame.
 ##

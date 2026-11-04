@@ -110,6 +110,10 @@ var wheel: FerrisWheel
 var coaster: RollerCoaster
 var drop_tower: DropTower
 var pirate_ship: PirateShip
+## What the grounds are dressed with (lamps, stalls...), kept for the checks.
+var decor: FairDecor
+var _lamp_material: StandardMaterial3D
+var _lamp_lit := -1.0
 
 func _init(height_field: HeightField) -> void:
 	name = "Park"
@@ -125,6 +129,13 @@ func _init(height_field: HeightField) -> void:
 	_build_booth(tool, solid)
 	_build_trampoline(tool, solid)
 
+	# The grounds' dressing: paving, lamps, bunting, signs, stalls. Drawn into
+	# this same mesh, with the lamps' bulbs in a second one that glows at dusk.
+	var glowing := SurfaceTool.new()
+	glowing.begin(Mesh.PRIMITIVE_TRIANGLES)
+	decor = FairDecor.new()
+	decor.build(tool, glowing, solid)
+
 	tool.generate_normals()
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
@@ -135,6 +146,7 @@ func _init(height_field: HeightField) -> void:
 	built.name = "Ground"
 	built.mesh = tool.commit()
 	add_child(built)
+	_commit_lamps(glowing)
 
 	carousel = Carousel.new(_at(CAROUSEL_AT))
 	add_child(carousel)
@@ -148,6 +160,39 @@ func _init(height_field: HeightField) -> void:
 	add_child(drop_tower)
 	pirate_ship = PirateShip.new(_at(PIRATE_SHIP_AT))
 	add_child(pirate_ship)
+	# The machines' quiet loops, last, because they read the rides' positions.
+	add_child(RideSounds.new(self))
+
+## The lamp globes, the bulbs along the gate and the stalls' awnings: one mesh
+## and one emissive material, so that dusk is one number changed once.
+func _commit_lamps(glowing: SurfaceTool) -> void:
+	_lamp_material = StandardMaterial3D.new()
+	_lamp_material.vertex_color_use_as_albedo = true
+	_lamp_material.vertex_color_is_srgb = true
+	_lamp_material.emission_enabled = true
+	_lamp_material.emission = Color(1.0, 0.86, 0.5)
+	_lamp_material.emission_energy_multiplier = LAMP_DAY_GLOW
+	glowing.generate_normals()
+	glowing.set_material(_lamp_material)
+	var lit := MeshInstance3D.new()
+	lit.name = "Lamps"
+	lit.mesh = glowing.commit()
+	lit.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(lit)
+
+const LAMP_DAY_GLOW := 0.15
+const LAMP_NIGHT_GLOW := 2.6
+
+## The fairground at dusk: the carousel's bulbs and the grounds' lamps come
+## alight together. Cheap to call every frame: the material is only touched
+## when the answer changes.
+func glow(darkness: float) -> void:
+	carousel.glow(darkness)
+	var lit := snappedf(clampf(darkness, 0.0, 1.0), 0.02)
+	if is_equal_approx(lit, _lamp_lit):
+		return
+	_lamp_lit = lit
+	_lamp_material.emission_energy_multiplier = lerpf(LAMP_DAY_GLOW, LAMP_NIGHT_GLOW, lit)
 
 ## A spot on the fairground's own floor.
 func _at(spot: Vector3) -> Vector3:
@@ -553,6 +598,13 @@ static func _solid(body: StaticBody3D, size: Vector3, where: Transform3D) -> voi
 	collider.shape = shape
 	collider.transform = where
 	body.add_child(collider)
+
+## One triangle in a flat colour, for what is not a primitive: a pennant, a
+## stretch of paving.
+static func _tri(tool: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, colour: Color) -> void:
+	for corner: Vector3 in [a, b, c]:
+		tool.set_color(colour)
+		tool.add_vertex(corner)
 
 static func _add(tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, colour: Color) -> void:
 	var arrays := source.get_mesh_arrays()

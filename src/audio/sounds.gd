@@ -267,6 +267,58 @@ static func music_box() -> AudioStreamWAV:
 	stream.loop_end = samples
 	return stream
 
+## The motor of a fairground ride: a soft whirr that loops without a seam, for
+## the wheel, the tower and the ship (each pitched differently by its player).
+## Three partials well above what a phone's speaker drops, with a slow wobble
+## so it breathes. Every frequency is a whole number of hertz and the clip is
+## one second long, so each partial completes whole cycles and the join is
+## silent.
+static func ride_hum() -> AudioStreamWAV:
+	var rate := 11025
+	var values := PackedFloat32Array()
+	values.resize(rate)
+	for i in rate:
+		var t := float(i) / float(rate)
+		var wobble := 0.75 + 0.25 * sin(TAU * 3.0 * t)
+		var value := sin(TAU * 300.0 * t) + 0.5 * sin(TAU * 450.0 * t) + 0.3 * sin(TAU * 601.0 * t)
+		values[i] = value * wobble * 0.22
+	return _loop_of(values, rate)
+
+## The coaster's chain: a ratchet of small clicks, nine to the second, over a
+## thin whirr. Its player speeds the clip up with the train, so the clicks
+## come faster as it does.
+static func chain_clatter() -> AudioStreamWAV:
+	var rate := 11025
+	var values := PackedFloat32Array()
+	values.resize(rate)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 20261104
+	# 11025 / 9 is exactly 1225, so the ninth click ends where the first begins.
+	var period := rate / 9
+	var last := 0.0
+	for i in rate:
+		var t := float(i) / float(rate)
+		var into := i % period
+		last = lerpf(last, noise.randf_range(-1.0, 1.0), 0.6)
+		# A few samples of attack, so the loop's first sample is silent too.
+		var click := last * minf(float(into) / 6.0, 1.0) * exp(-float(into) / 90.0) * 0.55
+		values[i] = click + 0.08 * sin(TAU * 400.0 * t)
+	return _loop_of(values, rate)
+
+static func _loop_of(values: PackedFloat32Array, rate: int) -> AudioStreamWAV:
+	var data := PackedByteArray()
+	data.resize(values.size() * 2)
+	for i in values.size():
+		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 32767.0))
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = rate
+	stream.data = data
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = values.size()
+	return stream
+
 ## A short cheer: a crowd is noise, brighter than water, that swells up to a
 ## peak a third of the way through and dies away, with a wavering high note
 ## riding on it so that it reads as voices and not as wind.

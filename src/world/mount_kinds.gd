@@ -414,6 +414,11 @@ static func build_mesh(kind: StringName) -> Mesh:
 ## shop's display is exactly how three bicycles, a motorcycle and a quad came
 ## to be standing on the shop floor with nothing under them.
 static func display_mesh(kind: StringName) -> Mesh:
+	# Built once per kind. The shop asked for the same bicycle five times and
+	# the same motorcycle twice while it was being put up, and a mesh that is
+	# only ever copied from is the same mesh every time.
+	if _display_meshes.has(kind):
+		return _display_meshes[kind]
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_bake_into(tool, build_mesh(kind), Transform3D())
@@ -427,7 +432,12 @@ static func display_mesh(kind: StringName) -> Mesh:
 			_bake_into(tool, wheel_mesh, Transform3D(Basis(), spot * QUAD_SCALE))
 	tool.generate_normals()
 	tool.set_material(AnimalKinds.fur_material())
-	return tool.commit()
+	var built := tool.commit()
+	_display_meshes[kind] = built
+	return built
+
+## The display meshes made so far, by kind.
+static var _display_meshes: Dictionary = {}
 
 ## Copy one mesh's triangles into another SurfaceTool, at a transform. The
 ## same operation _add_as_drawn does for the whole shop floor, kept here as
@@ -728,7 +738,13 @@ static func build_node(kind: StringName) -> Node3D:
 	var root := Node3D.new()
 	var body := MeshInstance3D.new()
 	body.name = "Body"
-	body.mesh = bicycle_part_mesh(BikePart.FRAME) if kind_of(kind) == BICYCLE else build_mesh(kind)
+	# A horse is not given its whole-body mesh: it is built from parts below, and
+	# the whole body was being made, normals and all, for every one of the
+	# twenty turned out at start-up, only to be replaced a few lines on.
+	if kind_of(kind) == BICYCLE:
+		body.mesh = bicycle_part_mesh(BikePart.FRAME)
+	elif kind_of(kind) != HORSE:
+		body.mesh = build_mesh(kind)
 	root.add_child(body)
 	if kind_of(kind) == BICYCLE:
 		_hang_the_bicycle_parts(root)

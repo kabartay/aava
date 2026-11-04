@@ -774,7 +774,7 @@ func _on_remote_new_game(_from: int) -> void:
 ## once so that it feels instant; anywhere else by kicking it.
 func kick(
 	ball: Ball, from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0,
-	loft := 0.25, look := Vector3.ZERO, turn := 0.0
+	loft := 0.25, look := Vector3.ZERO, turn := 0.0, run := Vector3.ZERO
 ) -> float:
 	var index := _balls.find(ball)
 	# A ball lying in the net is left there for the cheer and then put back on
@@ -783,10 +783,10 @@ func kick(
 	if in_the_net(ball):
 		return 0.0
 	if not _following or index < 0:
-		return ball.kick(from, facing, sprinting, strength, loft, look, turn)
+		return ball.kick(from, facing, sprinting, strength, loft, look, turn, run)
 	if not Ball.within_reach(ball.position, from):
 		return 0.0
-	var launch := Ball.launch_velocity(ball.position, from, facing, sprinting, strength, loft, look, turn)
+	var launch := Ball.launch_velocity(ball.position, from, facing, sprinting, strength, loft, look, turn, run)
 	_session.report_kick(index, launch)
 	var shown := _drawn[index]
 	shown["predicting"] = PREDICT_FOR

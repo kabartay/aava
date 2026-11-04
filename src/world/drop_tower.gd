@@ -112,6 +112,10 @@ var _phase_time := 0.0
 var _ring: AnimatableBody3D
 var _beacon_light: OmniLight3D
 var _moved := Vector3.ZERO
+
+## The `_harness_closed` the hinges and pads were last set for; NAN until the
+## first tick.
+var _harness_applied := NAN
 var _held := false
 ## How long before it goes a held ring is kept, in seconds.
 const HELD_LEAD := 3.0
@@ -572,10 +576,14 @@ func _physics_process(delta: float) -> void:
 	# coaster, and a harness that is always down teaches nothing.
 	var wanted := 0.0 if _phase == Phase.GROUND and not _closing else 1.0
 	_harness_closed = move_toward(_harness_closed, wanted, delta / RollerCoaster.HARNESS_TIME)
-	for hinge in _harnesses:
-		hinge.rotation.z = -HARNESS_CLOSE * _harness_closed
-	for pads in _harness_shapes:
-		pads.disabled = _harness_closed < 0.99
+	# Only when the bars have moved: while they sit still each of these is a call
+	# into the scene or the physics server that says what it already said.
+	if _harness_closed != _harness_applied:
+		_harness_applied = _harness_closed
+		for hinge in _harnesses:
+			hinge.rotation.z = -HARNESS_CLOSE * _harness_closed
+		for pads in _harness_shapes:
+			pads.disabled = _harness_closed < 0.99
 
 ## Are the harnesses down and holding? Down all the way, or still coming up
 ## from a ride that has just ended: a rider is let go when the bars are most of
@@ -815,3 +823,9 @@ func sync_release() -> void:
 	_sync_go = false
 	_sync_closing = false
 	_sync_holds.clear()
+
+## How hard the ride is working, for its sound: one while the ring is off the
+## ground, nought at the platform. Read-only: it never touches the phase or the
+## clock.
+func activity() -> float:
+	return 0.0 if _phase == Phase.GROUND else 1.0

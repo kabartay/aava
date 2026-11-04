@@ -24,6 +24,22 @@ const COLOUR := Color(1.0, 1.0, 1.0, 0.62)
 ## over is itself green and a plain green vanishes into it.
 const ON_TARGET := Color(0.55, 1.0, 0.25, 0.75)
 
+## Whether the dots of a kick that is not being wound up are shown to a child
+## moving at `pace` metres a second, given whether they were shown a moment ago:
+## when standing or walking, not while running. Dribbling at a run keeps the ball
+## at the feet, and the dots swung and jumped with every step, a flickering line
+## over the thing the child is watching; they are for aiming, and a child aims
+## standing or slowing. While the button is held they are always shown (the game
+## does not ask). Two thresholds, so that a pace hovering at the edge does not
+## blink them.
+const SHOW_BELOW_PACE := 2.0
+const HIDE_ABOVE_PACE := 3.0
+
+static func shown_at_pace(pace: float, was_shown: bool) -> bool:
+	if was_shown:
+		return pace <= HIDE_ABOVE_PACE
+	return pace < SHOW_BELOW_PACE
+
 var _dots: MultiMeshInstance3D
 var _shown := 0
 var _on_target := false

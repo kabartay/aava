@@ -43,6 +43,12 @@ var _belts: Array[Dictionary] = []
 const TREADS := int(LENGTH / 1.6) + 1
 const TREAD_SPACING := LENGTH / float(TREADS)
 
+## How far from the camera the slats are still scrolled, in metres.
+const SCROLL_RANGE := 160.0
+
+## How many tread transforms have been sent to the renderer. For the checks.
+var tread_writes := 0
+
 func _init(at: Vector3) -> void:
 	name = "Walkway"
 	position = at
@@ -213,11 +219,23 @@ func _tread_mesh(heading: float) -> ArrayMesh:
 	return tool.commit()
 
 func _physics_process(delta: float) -> void:
+	# Beyond this from the camera a slat is a pixel, and nineteen of them a belt
+	# were being sent to the renderer sixty times a second for nobody to see.
+	# The belt still runs (`along` goes on counting), so what is drawn on the way
+	# back is where it would have been.
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	var unseen := (
+		camera != null
+		and camera.global_position.distance_squared_to(global_position) > SCROLL_RANGE * SCROLL_RANGE
+	)
 	for belt in _belts:
 		var along := float(belt["along"]) + SPEED * delta
 		if along > TREAD_SPACING:
 			along -= TREAD_SPACING
 		belt["along"] = along
+		if unseen:
+			continue
+		tread_writes += TREADS
 		var node: MultiMeshInstance3D = belt["node"]
 		var heading: float = belt["heading"]
 		for tread in TREADS:

@@ -38,7 +38,10 @@ const SPIN_DAMP := 1.35
 ## The floor matters as much as the ceiling: a child needs to be able to nudge
 ## the ball two metres to line up a shot, and if the softest possible kick sends
 ## it forty metres then dribbling is impossible and the pitch is useless.
-const KICK_SPEED_MIN := 3.2
+## 3.9 and not 3.2: with the tap at 3.5 m/s a gentle kick from the 4 m penalty
+## spot rolled 4.8 m and a tap aimed at a post's inside edge (5.0 m away) stopped
+## short of the line; at 3.9 the tap leaves at 4.2 m/s, which rolls about 5.8 m.
+const KICK_SPEED_MIN := 3.9
 ## The ceiling is set by the pitch, not by taste: a full swing from the halfway
 ## line has to reach the goal, or the only way to score is to dribble the ball
 ## in, and shooting stops being worth trying.
@@ -213,11 +216,11 @@ func _build_mesh(which: Look) -> Mesh:
 ##
 ## Returns the resulting speed in metres per second, or zero if the striker was
 ## not close enough to reach it.
-func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25, look := Vector3.ZERO, turn := 0.0) -> float:
+func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25, look := Vector3.ZERO, turn := 0.0, run := Vector3.ZERO) -> float:
 	if not within_reach(position, from):
 		return 0.0
 
-	var launch := launch_velocity(position, from, facing, sprinting, strength, loft, look, turn)
+	var launch := launch_velocity(position, from, facing, sprinting, strength, loft, look, turn, run)
 	var speed := launch.length()
 	strike(launch, strength, loft)
 	return speed
@@ -412,7 +415,7 @@ static func aim_direction(at: Vector3, from: Vector3, facing: Vector3, look := V
 ## the kick button. `loft` is the upward slide. Strength is
 ## squared, so the first half of the hold barely adds anything and the last
 ## quarter adds a lot — winding up rather than being dragged up to speed.
-static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinting: bool, strength: float, loft: float, look := Vector3.ZERO, turn := 0.0) -> Vector3:
+static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinting: bool, strength: float, loft: float, look := Vector3.ZERO, turn := 0.0, run := Vector3.ZERO) -> Vector3:
 	var direction := aim_direction(at, from, facing, look)
 	if not is_zero_approx(turn):
 		# Positive is to the right, and a positive turn about up is to the left.
@@ -422,7 +425,18 @@ static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinti
 	if sprinting:
 		speed += SPRINT_BONUS
 	var lift := lerpf(LIFT_FLAT, LIFT_HIGH, clampf(loft, 0.0, 1.0))
-	return (direction + Vector3.UP * lift).normalized() * speed
+	var launch := (direction + Vector3.UP * lift).normalized() * speed
+	# The child's own pace along the aim is the ball's too: a foot swung at a
+	# ball while running sends it off at the run plus the kick, as it would in
+	# life. Without it a tap at full run (3.5 m/s against 6.6) left slower than
+	# the child, who overtook it and shoved it on from behind. Only the part
+	# along the aim, flat, and never past the fastest kick there is.
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	if flat.length_squared() > 0.0001:
+		flat = flat.normalized()
+		var pace := maxf(Vector3(run.x, 0.0, run.z).dot(flat), 0.0)
+		launch = (launch + flat * pace).limit_length(KICK_SPEED_CEILING)
+	return launch
 
 ## Dribbling. A child on a phone runs at one of two paces, a walk and the full
 ## RUN_SPEED of 6.6 m/s, so taking a ball along has to work at every pace up to

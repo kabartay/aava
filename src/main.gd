@@ -281,7 +281,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	visitors.animal_finder = _animal_head_near
 	add_child(visitors)
 
-	ambience = Ambience.new()
+	# Its loops are synthesised on a worker and handed over a few frames in.
+	ambience = Ambience.new(true)
 	add_child(ambience)
 	kick_preview = KickPreview.new()
 	add_child(kick_preview)
@@ -1184,7 +1185,7 @@ func _process(delta: float) -> void:
 	_footsteps(delta)
 	lantern.follow(world.atmosphere.darkness(), delta)
 	world.places.light_lamps(world.atmosphere.evening(), delta)
-	world.park.carousel.glow(world.atmosphere.darkness())
+	world.park.glow(world.atmosphere.darkness())
 	ambience.follow(
 		player.global_position, world.field, world.places,
 		world.atmosphere.darkness(), delta,
@@ -1572,7 +1573,7 @@ func _process(delta: float) -> void:
 		# Not winding up, but a ball is at the child's feet: show where a tap would
 		# send it, so they can turn to aim before they press. Not while building,
 		# nor for a ball left in the net for the cheer, which a kick would not move.
-		if ball != null and not build_mode.active and not (world.football.has_ball(ball) and world.football.in_the_net(ball)):
+		if ball != null and not build_mode.active and not (world.football.has_ball(ball) and world.football.in_the_net(ball)) and _resting_preview_on(player.velocity):
 			_show_where_it_goes(ball)
 		else:
 			kick_preview.hide_path()
@@ -3800,7 +3801,7 @@ func _on_kick_release() -> void:
 	if world.football.has_ball(ball):
 		world.football.kick(
 			ball, player.global_position, player.facing(), player.is_sprinting(),
-			maxf(strength, Ball.TAP_STRENGTH), _kick_loft(), Vector3.ZERO, _kick_turn()
+			maxf(strength, Ball.TAP_STRENGTH), _kick_loft(), Vector3.ZERO, _kick_turn(), player.velocity
 		)
 		return
 	ball.kick(
@@ -3810,7 +3811,8 @@ func _on_kick_release() -> void:
 		maxf(strength, Ball.TAP_STRENGTH),
 		_kick_loft(),
 		Vector3.ZERO,
-		_kick_turn()
+		_kick_turn(),
+		player.velocity
 	)
 
 ## How high the finger has slid the shot, 0 (along the ground) to 1 (a high
@@ -3860,8 +3862,14 @@ func _show_where_it_goes(ball: Ball) -> void:
 func _kick_launch(ball: Ball, strength: float) -> Vector3:
 	return Ball.launch_velocity(
 		ball.position, player.global_position, player.facing(), player.is_sprinting(),
-		maxf(strength, Ball.TAP_STRENGTH), _kick_loft(), Vector3.ZERO, _kick_turn()
+		maxf(strength, Ball.TAP_STRENGTH), _kick_loft(), Vector3.ZERO, _kick_turn(), player.velocity
 	)
+
+var _preview_resting := true
+
+func _resting_preview_on(velocity: Vector3) -> bool:
+	_preview_resting = KickPreview.shown_at_pace(Vector2(velocity.x, velocity.z).length(), _preview_resting)
+	return _preview_resting
 
 ## Standing still with a ball at the feet, the child turns to face where the
 ## camera looks, so the dotted line, which starts from the way they face, points

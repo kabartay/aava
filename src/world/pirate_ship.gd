@@ -128,6 +128,9 @@ var _swing_time := 0.0
 var _hull: AnimatableBody3D
 var _angle := 0.0
 var _moved := Vector3.ZERO
+
+## The `_harness_closed` the bars were last set for; NAN until the first tick.
+var _harness_applied := NAN
 var _held := false
 ## How long before it goes a held boat is kept, in seconds.
 const HELD_LEAD := 3.0
@@ -909,10 +912,14 @@ func _physics_process(delta: float) -> void:
 	# cue the coaster and the drop tower both give.
 	var wanted := 0.0 if _phase == Phase.STILL and not _closing else 1.0
 	_harness_closed = move_toward(_harness_closed, wanted, delta / RollerCoaster.HARNESS_TIME)
-	for index in _harnesses.size():
-		_harnesses[index].rotation.z = _harness_ends[index] * BAR_CLOSE * _harness_closed
-	for held in _bar_shapes:
-		held.disabled = _harness_closed < 0.99
+	# Only when the bars have moved: while they sit still each of these is a call
+	# into the scene or the physics server that says what it already said.
+	if _harness_closed != _harness_applied:
+		_harness_applied = _harness_closed
+		for index in _harnesses.size():
+			_harnesses[index].rotation.z = _harness_ends[index] * BAR_CLOSE * _harness_closed
+		for held in _bar_shapes:
+			held.disabled = _harness_closed < 0.99
 
 ## Are the bars down and holding? Down all the way, or still coming up from a
 ## swing that has just ended with a rider strapped in: they are let go when the
@@ -1095,3 +1102,8 @@ func sync_release() -> void:
 	_sync_go = false
 	_sync_closing = false
 	_sync_holds.clear()
+
+## How hard the ride is working, for its sound: one while the boat swings, nought
+## while it stands. Read-only: it never touches the phase or the clock.
+func activity() -> float:
+	return 1.0 if _phase == Phase.SWINGING else 0.0

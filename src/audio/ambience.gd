@@ -83,23 +83,108 @@ var _swim_level := 0.0
 ## are in a meadow, so being in the water sounded like being beside it.
 const HUSHED_IN_WATER := 0.7
 
-func _init() -> void:
+## `on_a_worker` is for the game: every loop below is synthesised in script,
+## sample by sample, which was the largest single piece of the start-up (over a
+## second on a laptop, a good deal more on a phone) and was done before the
+## first frame. On a worker the players stand ready, silent, and take their
+## streams as soon as the bake reports done, a few frames in; until then
+## `_apply` and `bell` have nothing to play and say nothing. The checks, which
+## want the streams in their hands at once, make it the plain way.
+func _init(on_a_worker := false) -> void:
 	name = "Ambience"
-	# Built here rather than in _ready, because the game sets these going on the
-	# frame it creates them. See LESSONS.md.
-	_wind = _voice(_make_wind())
-	_water = _voice(_make_water())
-	_leaves = _voice(_make_leaves())
-	_birds = _voice(_make_birds())
-	_swimming = _voice(_make_swimming())
-	_crickets = _voice(_make_crickets())
-	_engine = _voice(_make_engine())
-	_exhaust = _voice(_make_exhaust())
-	_tyres = _voice(_make_tyres())
-	_ticks = _voice(_make_freewheel())
-	_bell = _voice(_make_bell())
+	# The players are made here, on the main thread, before anything can ask
+	# for a sound. Built here rather than in _ready, because the game sets
+	# these going on the frame it creates them. See LESSONS.md.
+	_wind = _voice(null)
+	_water = _voice(null)
+	_leaves = _voice(null)
+	_birds = _voice(null)
+	_swimming = _voice(null)
+	_crickets = _voice(null)
+	_engine = _voice(null)
+	_exhaust = _voice(null)
+	_tyres = _voice(null)
+	_ticks = _voice(null)
+	_bell = _voice(null)
+	if on_a_worker:
+		_bake_task = WorkerThreadPool.add_task(_bake_all, false, "ambience")
+	else:
+		_install(_make_all())
+		set_process(false)
+
+## Every loop, made. Touches no node, so it can run on a worker.
+func _make_all() -> Dictionary:
+	return {
+		&"wind": _make_wind(),
+		&"water": _make_water(),
+		&"leaves": _make_leaves(),
+		&"birds": _make_birds(),
+		&"swimming": _make_swimming(),
+		&"crickets": _make_crickets(),
+		&"engine": _make_engine(),
+		&"exhaust": _make_exhaust(),
+		&"tyres": _make_tyres(),
+		&"ticks": _make_freewheel(),
+		&"bell": _make_bell(),
+	}
+
+## Hand each player its loop. On the main thread.
+func _install(made: Dictionary) -> void:
+	_wind.stream = made[&"wind"]
+	_water.stream = made[&"water"]
+	_leaves.stream = made[&"leaves"]
+	_birds.stream = made[&"birds"]
+	_swimming.stream = made[&"swimming"]
+	_crickets.stream = made[&"crickets"]
+	_engine.stream = made[&"engine"]
+	_exhaust.stream = made[&"exhaust"]
+	_tyres.stream = made[&"tyres"]
+	_ticks.stream = made[&"ticks"]
+	_bell.stream = made[&"bell"]
 	# A bell is struck, not looped.
 	_bell.stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
+
+var _bake_task := -1
+var _bake_mutex := Mutex.new()
+var _baked: Dictionary = {}
+
+func _bake_all() -> void:
+	var made := _make_all()
+	_bake_mutex.lock()
+	_baked = made
+	_bake_mutex.unlock()
+
+func _process(_delta: float) -> void:
+	if _bake_task < 0 or not WorkerThreadPool.is_task_completed(_bake_task):
+		return
+	_finish_bake()
+
+func _finish_bake() -> void:
+	WorkerThreadPool.wait_for_task_completion(_bake_task)
+	_bake_task = -1
+	_bake_mutex.lock()
+	var made := _baked
+	_baked = {}
+	_bake_mutex.unlock()
+	_install(made)
+	set_process(false)
+
+## Wait for the loops, for a check that wants them now.
+func bake_now() -> void:
+	if _bake_task >= 0:
+		_finish_bake()
+
+## Whether every loop has been handed to its player.
+func is_baked() -> bool:
+	return _bake_task < 0
+
+## Never go away while the bake is still running: the worker reads this
+## object, and freeing it first leaves the pool running a task against memory
+## that is no longer there (see AnimalVoices, which learned it the hard way).
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE and _bake_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_bake_task)
+		_bake_task = -1
 
 ## How loud the engine is under the rider, and how far its pitch rises between
 ## idling and full pelt. Loud: the whole point of the machine is that it is
@@ -241,6 +326,8 @@ func cycling_is_heard() -> bool:
 
 ## Ring the bell: two quick strikes of a small bell.
 func bell() -> void:
+	if _bell.stream == null:
+		return
 	_bell.volume_db = -11.0
 	_bell.play()
 
@@ -743,6 +830,9 @@ func _make_swimming() -> AudioStreamWAV:
 ## Below a whisper, a voice is stopped outright rather than left playing at a
 ## volume nobody can hear but the mixer still has to work on.
 func _apply(player: AudioStreamPlayer, level: float, loudest_db: float) -> void:
+	# Nothing to play until the worker has handed the loop over.
+	if player.stream == null:
+		return
 	if level < 0.02:
 		if player.playing:
 			player.stop()

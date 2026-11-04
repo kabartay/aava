@@ -1271,9 +1271,11 @@ func _place_cars() -> void:
 		)
 
 func _physics_process(delta: float) -> void:
-	var before: Array[Vector3] = []
-	for car in _cars:
-		before.append(car.position)
+	# Written into a buffer the ride keeps: a fresh array every tick, sixty times
+	# a second for a ride that mostly stands still, was all garbage.
+	_before.resize(_cars.size())
+	for index in _cars.size():
+		_before[index] = _cars[index].position
 
 	_roll(delta)
 	_place_cars()
@@ -1282,35 +1284,44 @@ func _physics_process(delta: float) -> void:
 		# Lit while a train is standing there, pressed in while one is on its
 		# way: a button that does nothing visible is a button a child presses
 		# again and again.
-		_cap_paint.albedo_color = (
-			BUTTON_LIT if (_booked or boarding()) else BUTTON
-		)
+		var cap_colour := BUTTON_LIT if (_booked or boarding()) else BUTTON
+		# Only on a change: a material parameter set is a message to the
+		# renderer whether or not the value is new.
+		if _cap_paint.albedo_color != cap_colour:
+			_cap_paint.albedo_color = cap_colour
 		# The platform does not move, so the height of the track beside it is
 		# worked out once.
 		if is_nan(_cap_base):
 			_cap_base = point_at(distance_of(BOARDS_AT)).y + CAR_FLOOR + BUTTON_HEIGHT
-		_cap.position.y = _cap_base + (0.0 if _booked else 0.06)
+		var cap_height := _cap_base + (0.0 if _booked else 0.06)
+		if _cap.position.y != cap_height:
+			_cap.position.y = cap_height
 
 	# The harnesses come down as the train leaves and go up as it stops, over
 	# about a second, which is how long the real ones take.
 	var wanted := 0.0 if boarding() else 1.0
 	_locked = move_toward(_locked, wanted, delta / HARNESS_TIME)
 	# And the door across the way in goes the other way: up while the train
-	# stands, shut while it runs.
-	for index in _doors.size():
-		var open := 1.0 - _locked
-		_doors[index].position.y = open * DOOR_LIFT
-		_door_shapes[index].position.y = 0.51 + open * DOOR_LIFT
-		_door_shapes[index].disabled = open > 0.6
-	for hinge in _harnesses:
-		# About the car's own across-axis, so the pads swing down in front of
-		# the rider rather than out of the side of the car.
-		hinge.rotation.z = -HARNESS_DROP * _locked
-	for shape in _harness_shapes:
-		shape.disabled = _locked < 0.75
-	_moved.clear()
+	# stands, shut while it runs. Everything below follows `_locked` alone, so
+	# it is set when that moves and left alone while the harnesses sit still:
+	# each of these is a call into the scene or the physics server, and a
+	# standing train made them all, every tick, to say what they already said.
+	if _locked != _applied_lock:
+		_applied_lock = _locked
+		for index in _doors.size():
+			var open := 1.0 - _locked
+			_doors[index].position.y = open * DOOR_LIFT
+			_door_shapes[index].position.y = 0.51 + open * DOOR_LIFT
+			_door_shapes[index].disabled = open > 0.6
+		for hinge in _harnesses:
+			# About the car's own across-axis, so the pads swing down in front
+			# of the rider rather than out of the side of the car.
+			hinge.rotation.z = -HARNESS_DROP * _locked
+		for shape in _harness_shapes:
+			shape.disabled = _locked < 0.75
+	_moved.resize(_cars.size())
 	for index in _cars.size():
-		_moved.append(_cars[index].position - before[index])
+		_moved[index] = _cars[index].position - _before[index]
 
 ## Where a rider stands in a car, in the car's own frame: on the floor, in
 ## front of the seat back, under the harness.
@@ -1407,6 +1418,13 @@ var _harness_shapes: Array[CollisionShape3D] = []
 var _doors: Array[Node3D] = []
 var _door_shapes: Array[CollisionShape3D] = []
 var _locked := 1.0
+
+## The `_locked` the doors and harnesses were last set for; NAN until the first
+## tick, so the first tick sets them.
+var _applied_lock := NAN
+
+## Where each car stood at the start of the tick. Kept, not rebuilt.
+var _before: Array[Vector3] = []
 var _cleared_to_board := false
 var _rider_aboard := false
 

@@ -239,6 +239,8 @@ func _initialize() -> void:
 	_check_rising_from_deep_water_is_the_same_at_any_frame_rate()
 	_check_the_roads_have_names()
 	_check_the_fairground()
+	await _check_the_fairground_is_dressed_without_blocking_anything()
+	_check_the_fairground_dressing_costs_little_and_the_machines_are_quiet()
 	_check_a_new_machine_finds_a_free_stand_and_a_loaded_rider_is_not_inside_theirs()
 	await _check_the_rides_carry_a_child()
 	await _check_a_walkway_carries_at_its_own_speed()
@@ -396,6 +398,10 @@ func _initialize() -> void:
 	_check_the_touch_never_sets_the_height_and_is_the_same_on_both_phones()
 	await _check_a_child_runs_turns_stops_and_kicks_with_the_real_ball()
 	_check_the_host_hears_a_guests_kick()
+	await _check_a_kick_while_running_carries_the_run()
+	await _check_a_gentle_kick_from_the_spot_reaches_the_goal()
+	_check_a_guests_kick_gets_the_same_grace_on_the_host()
+	_check_the_dots_wait_for_a_child_who_is_not_running()
 	await _check_a_guest_has_a_body_that_pushes_the_ball()
 	_check_animals_stand_on_their_feet()
 	_check_the_cafe_sign_stands_on_the_roof()
@@ -578,6 +584,9 @@ func _initialize() -> void:
 	_check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine()
 	_check_the_riders_feet_are_on_the_bicycles_pedals_and_it_is_drawn_warm()
 	await _check_the_shop_audit_fixes()
+	await _check_a_standing_ride_makes_no_calls_it_has_already_made()
+	await _check_a_long_session_does_not_grow_the_scene()
+	await _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main_thread()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -11014,6 +11023,181 @@ func _check_the_fairground() -> void:
 	_expect(triangles > 2000, "the fairground is drawn: %d triangles" % triangles)
 	park.queue_free()
 
+## The fairground's dressing (paving, lamps, bunting, signs, stalls, benches,
+## bins) must not stand in anybody's way: nothing is put down on a ride's own
+## ground, the only solid thing is the stalls, and the avenue is a lane a child
+## can walk end to end.
+func _check_the_fairground_is_dressed_without_blocking_anything() -> void:
+	print("the fairground's dressing stands clear of the rides and the way between them")
+	var park := Park.new(HeightField.new(20260903))
+	get_root().add_child(park)
+	await physics_frame
+	var space := get_root().get_world_3d().direct_space_state
+	var decor := park.decor
+	var counts: Dictionary = {}
+	for prop: Dictionary in decor.props:
+		var kind: StringName = prop["kind"]
+		counts[kind] = int(counts.get(kind, 0)) + 1
+	_expect(int(counts.get(&"lamp", 0)) >= 10, "the avenue has lamps (%d)" % int(counts.get(&"lamp", 0)))
+	_expect(int(counts.get(&"stall", 0)) >= 3, "there are stalls (%d)" % int(counts.get(&"stall", 0)))
+	_expect(int(counts.get(&"bench", 0)) >= 3 and int(counts.get(&"bin", 0)) >= 2, "benches and bins stand by the avenue")
+	_expect(int(counts.get(&"sign", 0)) >= 5, "every ride has a picture sign (%d)" % int(counts.get(&"sign", 0)))
+
+	# No prop stands inside a ride's keep-out ground, and all stand inside the fence.
+	var boxes := FairDecor.keep_out()
+	var worst_inside := 0
+	var outside_fence := 0
+	for prop: Dictionary in decor.props:
+		var at: Vector2 = prop["at"]
+		var radius: float = prop["radius"]
+		if not ParkSpec.buildable(at.x, at.y):
+			outside_fence += 1
+		for box: Dictionary in boxes:
+			var centre: Vector2 = box["at"]
+			var half: Vector2 = box["half"]
+			if absf(at.x - centre.x) < half.x + radius and absf(at.y - centre.y) < half.y + radius:
+				worst_inside += 1
+	_expect(worst_inside == 0, "no prop stands on a ride's ground (%d do)" % worst_inside)
+	_expect(outside_fence == 0, "every prop is inside the fence's verge (%d are not)" % outside_fence)
+
+	# The keep-out boxes really hold the rides: each ride's own position is inside its box.
+	var holds := 0
+	for ride: Array in [
+		[Park.CAROUSEL_AT], [Park.WALKWAY_AT], [Park.TRAMPOLINE_AT], [Park.WHEEL_AT],
+		[Park.COASTER_AT], [Park.DROP_TOWER_AT], [Park.PIRATE_SHIP_AT],
+	]:
+		var at: Vector3 = ride[0]
+		for box: Dictionary in boxes:
+			var centre: Vector2 = box["at"]
+			if centre.is_equal_approx(Vector2(at.x, at.z)):
+				holds += 1
+	_expect(holds == 7, "every ride has a keep-out box (%d of 7)" % holds)
+
+	# A child's capsule at each light prop's spot meets nothing: lamps, signs,
+	# benches and bins have no collider, and nothing else is there either.
+	var blocked := 0
+	for prop: Dictionary in decor.props:
+		if bool(prop["solid"]):
+			continue
+		var at: Vector2 = prop["at"]
+		var capsule := CapsuleShape3D.new()
+		capsule.radius = 0.3
+		capsule.height = 1.4
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = capsule
+		query.transform = Transform3D(Basis(), Vector3(at.x, ParkSpec.LEVEL + 0.9, at.y))
+		if not space.intersect_shape(query, 1).is_empty():
+			blocked += 1
+	_expect(blocked == 0, "a child can stand at every lamp, sign, bench and bin (%d are solid)" % blocked)
+
+	# The stalls are solid, but only against the open sand: nothing but the
+	# park's own static body is at any of them, so no ride's collider is in one.
+	var solid := park.get_node("Solid") as StaticBody3D
+	var tangled := 0
+	for prop: Dictionary in decor.props:
+		if not bool(prop["solid"]):
+			continue
+		var at: Vector2 = prop["at"]
+		var box := BoxShape3D.new()
+		box.size = Vector3(FairDecor.STALL_HALF_DEPTH * 2.0 + 0.4, 1.0, FairDecor.STALL_HALF_WIDTH * 2.0 + 0.4)
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = box
+		query.transform = Transform3D(Basis(), Vector3(at.x, ParkSpec.LEVEL + 1.0, at.y))
+		for hit: Dictionary in space.intersect_shape(query, 8):
+			if hit["collider"] != solid:
+				tangled += 1
+	_expect(tangled == 0, "no stall shares ground with a ride's collider (%d do)" % tangled)
+
+	# And the avenue is a lane: a standing child's capsule, every two metres,
+	# from the gate to the last lamp, meets nothing at all.
+	var lane_blocked := 0
+	var z := FairDecor.AVENUE_FROM
+	# The avenue runs up to the big wheel's boarding steps and stops against
+	# them, as a path to a staircase does; those few metres are the wheel's.
+	var wheel_z := Park.WHEEL_AT.z
+	while z > FairDecor.AVENUE_TO:
+		if absf(z - wheel_z) < 4.0:
+			z -= 2.0
+			continue
+		var capsule := CapsuleShape3D.new()
+		capsule.radius = 0.3
+		capsule.height = 1.4
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = capsule
+		query.transform = Transform3D(Basis(), Vector3(FairDecor.AVENUE_X, ParkSpec.LEVEL + 0.9, z))
+		if not space.intersect_shape(query, 1).is_empty():
+			lane_blocked += 1
+		z -= 2.0
+	_expect(lane_blocked == 0, "the avenue can be walked end to end (%d blocked spots)" % lane_blocked)
+
+	# The paving is paint: it adds no collider anywhere along the lane (the
+	# only hit a ray from above may make is the carousel's or a ride's own).
+	var hits_the_lane := 0
+	z = FairDecor.AVENUE_FROM
+	while z > FairDecor.AVENUE_TO:
+		if absf(z - wheel_z) < 4.0:
+			z -= 4.0
+			continue
+		var ray := PhysicsRayQueryParameters3D.create(
+			Vector3(FairDecor.AVENUE_X, ParkSpec.LEVEL + 3.0, z), Vector3(FairDecor.AVENUE_X, ParkSpec.LEVEL - 0.5, z))
+		if not space.intersect_ray(ray).is_empty():
+			hits_the_lane += 1
+		z -= 4.0
+	_expect(hits_the_lane == 0, "paving is paint, not a slab to step up onto (%d hits)" % hits_the_lane)
+	park.free()
+
+## What the dressing costs a phone, and the machines' sound. The lamps are one
+## emissive material on one mesh, never a light; nothing here runs per frame;
+## the ride sounds are quieter than the carousel's tune and no further-reaching.
+func _check_the_fairground_dressing_costs_little_and_the_machines_are_quiet() -> void:
+	print("the fairground's dressing is cheap and its machines are quiet")
+	var park := Park.new(HeightField.new(20260903))
+	get_root().add_child(park)
+	var lamps := park.get_node("Lamps") as MeshInstance3D
+	_expect(lamps != null and lamps.mesh.get_surface_count() == 1, "the lamps are one mesh with one surface")
+	var lamp_material := lamps.mesh.surface_get_material(0) as StandardMaterial3D
+	_expect(lamp_material.emission_enabled, "the lamps' one material is the one that glows")
+	var ground := park.get_node("Ground") as MeshInstance3D
+	_expect(ground.mesh.get_surface_count() == 1, "the dressing is merged into the one ground surface")
+	var lights := 0
+	var stack: Array[Node] = [park]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		stack.append_array(node.get_children())
+		if node is Light3D:
+			lights += 1
+	_expect(lights <= 2, "the dressing adds no light to the park: the carousel's glow and the tower's beacon only (%d)" % lights)
+	_expect(not lamps.is_processing() and not ground.is_processing() and not lamps.is_physics_processing(), "no dressing runs per frame")
+	park.glow(0.0)
+	var day := lamp_material.emission_energy_multiplier
+	park.glow(1.0)
+	var night := lamp_material.emission_energy_multiplier
+	_expect(night > day * 5.0, "the lamps are brighter at night (%.2f against %.2f)" % [night, day])
+	park.glow(1.0)
+	_expect(is_equal_approx(lamp_material.emission_energy_multiplier, night), "asking again at the same dusk changes nothing")
+
+	# The machines.
+	var sounds := park.get_node("RideSounds") as RideSounds
+	_expect(sounds != null, "the park has the machines' sounds")
+	var players: Array[AudioStreamPlayer3D] = []
+	for child in sounds.get_children():
+		if child is AudioStreamPlayer3D:
+			players.append(child)
+	_expect(players.size() == 4, "the wheel, the coaster, the tower and the ship each have one (%d)" % players.size())
+	var tame := true
+	for player in players:
+		if player.max_distance > Carousel.MUSIC_REACH or player.max_db > -6.0 or player.volume_db > Carousel.MUSIC_DB:
+			tame = false
+	_expect(tame, "every machine is heard no further than the carousel and no louder")
+	_expect(RideSounds.RUNNING_DB <= Carousel.MUSIC_DB - 3.0, "a running machine is under the carousel's tune")
+	for stream: AudioStreamWAV in [Sounds.ride_hum(), Sounds.chain_clatter()]:
+		var data := stream.data
+		var first := float(data.decode_s16(0)) / 32768.0
+		var last := float(data.decode_s16(data.size() - 2)) / 32768.0
+		_expect(stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and absf(first - last) < 0.15, "a machine's loop closes without a click (%.3f to %.3f)" % [last, first])
+	_expect(park.pirate_ship.activity() == 0.0 and park.drop_tower.activity() == 0.0, "a ride standing at its platform is silent")
+	park.free()
+
 ## The rides actually carry somebody.
 ##
 ## Everything else about the fairground can be read off the geometry; this
@@ -19003,6 +19187,143 @@ func _check_a_gentle_touch_keeps_the_ball_at_the_feet() -> void:
 	guest_ground._process(0.05)
 	_expect(shown_ball.position.x > rested.x, "a guest's phone shows its own touch at once (%.3f m)" % (shown_ball.position.x - rested.x))
 	_free_football_pair(pair)
+
+## A foot swung at a ball while running sends it off at the run plus the kick:
+## a tap at full run left at 3.5 m/s, slower than the child, who overtook it.
+## Along the aim only, flat, and never past the fastest kick; the preview, the
+## real kick and a guest's request are the one number.
+func _check_a_kick_while_running_carries_the_run() -> void:
+	print("a kick while running carries the run")
+	var run := Vector3(Player.RUN_SPEED, 0.0, 0.0)
+	var at := Vector3(0.7, Ball.RADIUS, 0.0)
+	var standing := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, false, Ball.TAP_STRENGTH, 0.0)
+	var running := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, false, Ball.TAP_STRENGTH, 0.0, Vector3.ZERO, 0.0, run)
+	_expect(standing.length() < Player.RUN_SPEED, "a standing tap is slower than a run (%.1f m/s)" % standing.length())
+	_expect(running.x > Player.RUN_SPEED + 3.0 and absf(running.length() - (standing.length() + Player.RUN_SPEED)) < 0.2, "a tap at full run leaves at the run plus the tap, %.1f m/s of the child's %.1f" % [running.x, Player.RUN_SPEED])
+	var behind := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, false, Ball.TAP_STRENGTH, 0.0, Vector3.ZERO, 0.0, -run)
+	_expect(behind.is_equal_approx(standing), "a run away from the aim adds nothing")
+	var across := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, false, Ball.TAP_STRENGTH, 0.0, Vector3.ZERO, 0.0, Vector3(0.0, 0.0, Player.RUN_SPEED))
+	_expect(across.is_equal_approx(standing), "and so does a run square across it")
+	var chip := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, false, 0.5, 1.0, Vector3.ZERO, 0.0, run)
+	var chip_standing := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, false, 0.5, 1.0)
+	_expect(is_equal_approx(chip.y, chip_standing.y), "the run adds along the ground, not upward")
+	var fastest := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, true, 1.0, 0.0, Vector3.ZERO, 0.0, run)
+	_expect(fastest.length() <= Ball.KICK_SPEED_CEILING + 0.001, "never past the fastest kick (%.1f of %.1f)" % [fastest.length(), Ball.KICK_SPEED_CEILING])
+	var ball := Ball.new(at)
+	var drawn := Ball.launch_velocity(at, Vector3.ZERO, Vector3.RIGHT, false, 0.4, 0.2, Vector3.ZERO, deg_to_rad(15.0), run)
+	ball.kick(Vector3.ZERO, Vector3.RIGHT, false, 0.4, 0.2, Vector3.ZERO, deg_to_rad(15.0), run)
+	_expect(ball.linear_velocity.is_equal_approx(drawn), "the real kick leaves at the velocity the preview was drawn from")
+	ball.free()
+	# The child does not overtake it: once on its way the ball is faster than they are.
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var struck: Ball = ground._balls[1]
+	struck.reset_to(struck.position)
+	await physics_frame
+	var feet := struck.position - Vector3(0.9, Ball.RADIUS, 0.0)
+	ground.kick(struck, feet, Vector3.RIGHT, false, Ball.TAP_STRENGTH, 0.0, Vector3.ZERO, 0.0, run)
+	var left := struck.linear_velocity
+	var gap := 0.0
+	var child_x := feet.x
+	for i in 30:
+		await physics_frame
+		child_x += Player.RUN_SPEED / 60.0
+		var now := Vector3(child_x, feet.y, feet.z)
+		ground.dribble(now, run, 1.0 / 60.0)
+		gap = struck.position.x - child_x
+	_expect(left.x > Player.RUN_SPEED and gap > 0.0, "a tap run into stays ahead of the runner (%.2f m ahead after half a second)" % gap)
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## From the penalty spot a gentle aimed kick, the shortest tap with the finger
+## slid out to a post's inside edge, reaches the line and scores: at 3.5 m/s it
+## rolled 4.8 m, and the 5.0 m to the post edge stopped short.
+func _check_a_gentle_kick_from_the_spot_reaches_the_goal() -> void:
+	print("a gentle kick from the spot reaches the goal")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var mouth := Pitch.goal_centre(1)
+	var ball: Ball = ground._balls[1]
+	for other in ground._balls:
+		if other != ball:
+			other.reset_to(Vector3(mouth.x - 20.0, other.position.y, mouth.z + 8.0))
+	var edge := Pitch.GOAL_WIDTH * 0.5 - 0.6
+	_expect(Ball.TAP_STRENGTH > 0.0 and Ball.KICK_SPEED_MIN >= 3.8, "the shortest kick is not fainter than %.1f m/s" % Ball.KICK_SPEED_MIN)
+	var tick := 1.0 / float(Engine.physics_ticks_per_second)
+	for zoff: float in [-edge, 0.0, edge]:
+		ground.blue = 0
+		ground.red = 0
+		ground._cooldown = 0.0
+		ground._in_the_net.clear()
+		var spot := Vector3(mouth.x - Pitch.PENALTY_SPOT, field.height_at(mouth.x - Pitch.PENALTY_SPOT, mouth.z) + Ball.RADIUS, mouth.z)
+		ball.reset_to(spot)
+		await physics_frame
+		var feet := spot - Vector3(0.5, Ball.RADIUS, 0.0)
+		var aim := Vector3(mouth.x - spot.x, 0.0, zoff)
+		var turn := -Vector3.RIGHT.signed_angle_to(aim, Vector3.UP)
+		# The preview says on target, as the dots would be drawn.
+		var launch := Ball.launch_velocity(spot, feet, Vector3.RIGHT, false, maxf(0.0, Ball.TAP_STRENGTH), 0.0, Vector3.ZERO, turn)
+		var ground_at := func(x: float, z: float) -> float:
+			return field.height_at(x, z)
+		var flight := PackedVector3Array([spot])
+		flight.append_array(Ball.aim_path(spot, launch, ball.effective_linear_damp(), ball.gravity_strength(), ground_at))
+		_expect(Pitch.goal_ahead(flight, Ball.RADIUS, ground_at) == 1, "the dots of a tap at %.1f m off the middle are green" % zoff)
+		ground.kick(ball, feet, Vector3.RIGHT, false, Ball.TAP_STRENGTH, 0.0, Vector3.ZERO, turn)
+		for i in int(3.0 / tick):
+			await physics_frame
+		_expect(ground.blue == 1, "a tap from the spot, %.1f m off the middle, is a goal (ball %.2f m past the line)" % [zoff, ball.position.x - mouth.x])
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## A pass from the other phone is struck by the host on the guest's behalf, and
+## gets the same grace as a kick of the host's own child: for a moment it is
+## neither dribbled nor trapped, whatever the child standing at it is doing.
+func _check_a_guests_kick_gets_the_same_grace_on_the_host() -> void:
+	print("a guest's kick gets the same grace on the host")
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var host: Session = pair[0]
+	var guest: Session = pair[1]
+	var host_ground: FootballGround = pair[2]
+	var struck: Ball = host_ground._balls[1]
+	struck.reset_to(struck.position)
+	var from := struck.position - Vector3(0.9, Ball.RADIUS, 0.0)
+	host.guest_positions[guest._link_id] = from
+	var pass_v := Vector3(4.1, 0.0, 0.0)
+	host._take_kick(guest._link_id, 1, pass_v)
+	_expect(struck.linear_velocity.is_equal_approx(pass_v), "the host struck the ball as asked")
+	_expect(host_ground._struck.has(struck) and float(host_ground._struck[struck]) > 0.2, "and gave it the grace, %.2f s" % float(host_ground._struck.get(struck, 0.0)))
+	# The host's own child runs at it: left alone for the grace, as for their own kick.
+	host_ground.dribble(from, Vector3(Player.RUN_SPEED, 0.0, 0.0), 0.016)
+	_expect(struck.linear_velocity.is_equal_approx(pass_v), "a running child does not take the guest's pass back")
+	for i in 40:
+		host_ground._physics_process(0.016)
+	host_ground.dribble(struck.position - Vector3(0.9, Ball.RADIUS, 0.0), Vector3(4.0, 0.0, 0.0), 0.016)
+	_expect(not host_ground._struck.has(struck), "and the grace ends, the ball theirs to dribble again")
+	_free_football_pair(pair)
+
+## The dots lie on the grass for aiming: shown to a child who stands or walks,
+## gone while they run (they flickered over the ball at every step), back when
+## they slow, and without blinking at the edge.
+func _check_the_dots_wait_for_a_child_who_is_not_running() -> void:
+	print("the dots wait for a child who is not running")
+	_expect(KickPreview.shown_at_pace(0.0, false), "standing: shown")
+	_expect(KickPreview.shown_at_pace(1.5, true), "walking slowly: shown")
+	_expect(not KickPreview.shown_at_pace(Player.RUN_SPEED, true), "a full run: gone")
+	_expect(not KickPreview.shown_at_pace(Player.RUN_SPEED, false), "and not shown at a run to begin with")
+	var shown := true
+	var blinks := 0
+	for pace: float in [2.2, 2.6, 2.4, 2.9, 2.5, 2.1, 2.8]:
+		var was := shown
+		shown = KickPreview.shown_at_pace(pace, shown)
+		if shown != was:
+			blinks += 1
+	_expect(blinks == 0, "a pace wandering between 2 and 3 m/s does not blink them (%d changes)" % blinks)
+	_expect(KickPreview.shown_at_pace(1.9, false) and not KickPreview.shown_at_pace(3.1, true), "they return below 2 m/s and leave above 3")
 
 ## A flat-ground model of a child and a ball for the dribbling checks: the child
 ## runs `heading` at `pace`, turns 90 degrees to the left after `run_for`
@@ -31888,4 +32209,275 @@ func _check_the_rides_say_hello_and_are_cheap_to_tell() -> void:
 	_expect(not places.turnstile_open(), "without opening it to this phone's own child")
 	_expect(places._turnstile.collision_layer == TerrainSpec.LAYER_PROPS, "which stays solid")
 	places.queue_free()
+
+## A ride that stands still must not keep telling the scene and the physics
+## server what they already know. The restraints, doors and gates of a ride at
+## rest used to be written sixty times a second (a collision shape's `disabled`
+## is a call into the physics server whether or not it changes), and the
+## rollercoaster and the wheel made a new array of positions every tick. Proved
+## by moving a part by hand: a part the ride has no reason to touch stays where
+## it was put, and it is put right again the moment the ride has a reason.
+func _check_a_standing_ride_makes_no_calls_it_has_already_made() -> void:
+	print("a standing ride makes no calls it has already made")
+	await process_frame
+	# The rollercoaster, booked and standing at the platform with its harnesses
+	# up. (An unbooked train circulates by itself, so it is brought in first.)
+	var coaster := RollerCoaster.new(Vector3.ZERO)
+	get_root().add_child(coaster)
+	coaster.set_physics_process(false)
+	coaster.book()
+	var ran := 0
+	while not coaster.boarding() and ran < 6000:
+		coaster._physics_process(1.0 / 60.0)
+		ran += 1
+	_expect(coaster.boarding(), "the booked train pulls in (%d ticks)" % ran)
+	for _step in 150:
+		coaster._physics_process(1.0 / 60.0)
+	var buffer := coaster._before
+	var moved := coaster._moved
+	_expect(not coaster._doors.is_empty() and not coaster._harnesses.is_empty(), "the coaster has doors and harnesses to watch")
+	var door: Node3D = coaster._doors[0]
+	var hinge: Node3D = coaster._harnesses[0]
+	var door_y := door.position.y
+	var hinge_z := hinge.rotation.z
+	door.position.y = door_y + 0.37
+	hinge.rotation.z = hinge_z + 0.21
+	for _step in 10:
+		coaster._physics_process(1.0 / 60.0)
+	_expect(coaster.boarding(), "the train is still standing while its parts are watched")
+	_expect(
+		is_equal_approx(door.position.y, door_y + 0.37) and is_equal_approx(hinge.rotation.z, hinge_z + 0.21),
+		"a standing coaster does not rewrite its doors and harnesses every tick"
+	)
+	_expect(
+		is_same(buffer, coaster._before) and is_same(moved, coaster._moved) and coaster._moved.size() == coaster._cars.size(),
+		"and keeps one buffer for where its cars were, rather than a new array every tick"
+	)
+	# Given a reason, it puts them right: the train leaves, the harnesses come
+	# down and the doors go up on their own account.
+	var ticks := 0
+	while coaster.boarding() and ticks < 4000:
+		coaster._physics_process(1.0 / 60.0)
+		ticks += 1
+	for _step in 90:
+		coaster._physics_process(1.0 / 60.0)
+	_expect(
+		not is_equal_approx(hinge.rotation.z, hinge_z + 0.21) and not is_equal_approx(door.position.y, door_y + 0.37),
+		"when the harnesses move again they are set again (%d ticks)" % ticks
+	)
+	coaster.queue_free()
+	# The wheel: nine bars of ten stand still, and a bar nobody moves is not
+	# written again.
+	var wheel := FerrisWheel.new(Vector3.ZERO)
+	get_root().add_child(wheel)
+	wheel.set_physics_process(false)
+	for _step in 30:
+		wheel._physics_process(1.0 / 60.0)
+	var wheel_buffer := wheel._before
+	var resting: Array[int] = []
+	for index in wheel._gates.size():
+		if is_zero_approx(float(wheel._gates_open[index])):
+			resting.append(index)
+	_expect(resting.size() >= wheel._gates.size() - 1, "all but at most one of the wheel's bars are down: %d of %d" % [resting.size(), wheel._gates.size()])
+	var bar: Node3D = wheel._gates[resting[0]]
+	var bar_y := bar.position.y
+	bar.position.y = bar_y + 0.4
+	for _step in 10:
+		wheel._physics_process(1.0 / 60.0)
+	_expect(is_equal_approx(bar.position.y, bar_y + 0.4), "a wheel does not rewrite a bar that has not moved")
+	_expect(is_same(wheel_buffer, wheel._before) and wheel._moved.size() == wheel._cars.size(), "and keeps one buffer for where its gondolas were")
+	wheel.queue_free()
+
+	# The tower and the ship: the bars are written when they move.
+	for ride_name: StringName in [&"drop_tower", &"pirate_ship"]:
+		var ride: Node3D = DropTower.new(Vector3.ZERO) if ride_name == &"drop_tower" else PirateShip.new(Vector3.ZERO)
+		get_root().add_child(ride)
+		ride.set_physics_process(false)
+		var bars: Array[Node3D] = (ride as DropTower)._harnesses if ride is DropTower else (ride as PirateShip)._harnesses
+		for _step in 30:
+			ride.call("_physics_process", 1.0 / 60.0)
+		var before_z := bars[0].rotation.z
+		bars[0].rotation.z = before_z + 0.3
+		for _step in 10:
+			ride.call("_physics_process", 1.0 / 60.0)
+		_expect(is_equal_approx(bars[0].rotation.z, before_z + 0.3), "%s: bars at rest are not rewritten every tick" % ride_name)
+		ride.queue_free()
+
+	# The walkway's slats are not sent to the renderer when nobody could see
+	# them, and are again the moment the camera comes near.
+	var walkway := Walkway.new(Vector3.ZERO)
+	get_root().add_child(walkway)
+	walkway.set_physics_process(false)
+	var eye := Camera3D.new()
+	get_root().add_child(eye)
+	eye.global_position = Vector3(Walkway.SCROLL_RANGE * 3.0, 20.0, 0.0)
+	eye.current = true
+	var along_before := float(walkway._belts[0]["along"])
+	var writes_before := walkway.tread_writes
+	for _step in 20:
+		walkway._physics_process(1.0 / 60.0)
+	_expect(walkway.tread_writes == writes_before, "a walkway far from the camera sends its slats nowhere")
+	_expect(not is_equal_approx(float(walkway._belts[0]["along"]), along_before), "though the belt still runs, so it is where it should be when the camera returns")
+	eye.global_position = Vector3(10.0, 5.0, 0.0)
+	for _step in 20:
+		walkway._physics_process(1.0 / 60.0)
+	_expect(walkway.tread_writes == writes_before + 20 * Walkway.TREADS * walkway._belts.size(), "and near the camera every slat is sent every tick: %d" % (walkway.tread_writes - writes_before))
+	eye.current = false
+	eye.queue_free()
+	walkway.queue_free()
+	await process_frame
+
+## Twenty minutes of play leaves the scene the size it was. The whole game runs
+## for a stretch of simulated time with the clock sped up (the same _process and
+## _physics_process every frame, only more of them) while the child is moved
+## round a circuit of four places a couple of hundred metres apart, so that
+## terrain, trees, grass, pickups and rocks are all streamed in and out again.
+## Back at the starting place, the number of nodes, objects and orphans must not
+## have crept up by more than a small allowance: a leak of a node a second is a
+## thousand and more nodes in twenty minutes, on a phone with little to spare.
+func _check_a_long_session_does_not_grow_the_scene() -> void:
+	print("a long session does not grow the scene")
+	var was_scale := Engine.time_scale
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260904)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var world: World = game.get("world")
+	var player: Player = game.get("player")
+	var camp := world.field.camp_centre()
+	var circuit: Array[Vector3] = [
+		camp + Vector3(220.0, 0.0, 0.0), camp + Vector3(220.0, 0.0, 220.0),
+		camp + Vector3(0.0, 0.0, 220.0), camp,
+	]
+	await _settle_the_ground(world)
+	Engine.time_scale = 8.0
+	# One lap to fill the streams (tiles, chunks, animals, the map) and let
+	# everything that is built once be built.
+	for stop: Vector3 in circuit:
+		await _carry_the_child_to(world, player, stop, 90)
+	await _settle_the_ground(world)
+	var nodes_before := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	var objects_before := int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	var orphans_before := int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	# Laps of the circuit, capped by the wall clock so a slow machine does fewer
+	# rather than hangs, and says how many it did.
+	var laps := 0
+	var started := Time.get_ticks_msec()
+	while laps < 12 and Time.get_ticks_msec() - started < 90000:
+		for stop: Vector3 in circuit:
+			await _carry_the_child_to(world, player, stop, 90)
+		laps += 1
+	await _settle_the_ground(world)
+	Engine.time_scale = was_scale
+	var nodes_after := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	var objects_after := int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	var orphans_after := int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	print("  session: %d laps, nodes %d -> %d, objects %d -> %d, orphans %d -> %d" % [
+		laps, nodes_before, nodes_after, objects_before, objects_after, orphans_before, orphans_after
+	])
+	_expect(laps >= 1, "the long session ran: %d laps" % laps)
+	_expect(nodes_after <= nodes_before + 150, "the node count is stable over a long session: %d -> %d" % [nodes_before, nodes_after])
+	_expect(objects_after <= objects_before + 600, "the object count is stable over a long session: %d -> %d" % [objects_before, objects_after])
+	_expect(orphans_after <= orphans_before + 20, "no orphan nodes pile up over a long session: %d -> %d" % [orphans_before, orphans_after])
+	game.queue_free()
+	await process_frame
+
+## Put the child on the ground at a place and let a number of frames pass there.
+func _carry_the_child_to(world: World, player: Player, spot: Vector3, frames: int) -> void:
+	player.global_position = Vector3(spot.x, world.field.height_at(spot.x, spot.z) + 1.5, spot.z)
+	player.velocity = Vector3.ZERO
+	world.follow(player.global_position)
+	for _i in frames:
+		await process_frame
+
+
+## What the first frame waits for. Three things were done on the main thread
+## before the valley appeared and need not have been: the eleven ambient loops
+## were synthesised sample by sample (over a second), twenty horses each built a
+## whole-body mesh that was thrown away a few lines later, and the shop made the
+## same bicycle five times and copied every machine into its floor a vertex at
+## a time in script. Each is proved by what it leaves behind, not by a clock,
+## because the clock on a loaded machine proves nothing.
+func _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main_thread() -> void:
+	print("the start-up does not synthesise sound or rebuild meshes on the main thread")
+	await process_frame
+	# The ambient loops: on a worker for the game, in the hand for the checks.
+	var started := Time.get_ticks_usec()
+	var worker := Ambience.new(true)
+	var returned_in := Time.get_ticks_usec() - started
+	_expect(not worker.is_baked() and worker._wind.stream == null, "the game's ambience returns before its loops exist")
+	# Asked for sound before it has any, it says nothing and does not fail.
+	worker.bell()
+	worker.engine(0.5, 1.0 / 60.0, false)
+	_expect(not worker._bell.playing and not worker._wind.playing, "and with no loops yet it plays nothing")
+	worker.bake_now()
+	var plain_started := Time.get_ticks_usec()
+	var plain := Ambience.new()
+	var plain_took := Time.get_ticks_usec() - plain_started
+	_expect(worker.is_baked() and plain.is_baked(), "both ways end up baked")
+	var same_loops := true
+	for pair: Array in [
+		[worker._wind, plain._wind], [worker._water, plain._water], [worker._leaves, plain._leaves],
+		[worker._birds, plain._birds], [worker._swimming, plain._swimming], [worker._crickets, plain._crickets],
+		[worker._engine, plain._engine], [worker._exhaust, plain._exhaust], [worker._tyres, plain._tyres],
+		[worker._ticks, plain._ticks], [worker._bell, plain._bell],
+	]:
+		var a: AudioStreamWAV = (pair[0] as AudioStreamPlayer).stream as AudioStreamWAV
+		var b: AudioStreamWAV = (pair[1] as AudioStreamPlayer).stream as AudioStreamWAV
+		if a == null or b == null or a.data.size() != b.data.size() or a.loop_mode != b.loop_mode:
+			same_loops = false
+	_expect(same_loops, "the loops made on a worker are the loops made in the hand (same length, same looping)")
+	_expect(worker._bell.stream.loop_mode == AudioStreamWAV.LOOP_DISABLED, "and the bell is still struck rather than looped")
+	print("  ambience returned in %.1f ms, against %.0f ms to make by hand" % [float(returned_in) / 1000.0, float(plain_took) / 1000.0])
+	# Relative, in one run: the clock of a loaded machine says nothing alone.
+	_expect(returned_in * 4 < plain_took, "the game's ambience does not hold the first frame: %.1f ms against %.0f ms by hand" % [float(returned_in) / 1000.0, float(plain_took) / 1000.0])
+	worker.free()
+	plain.free()
+
+	# A horse is made of its parts, and its parts are shared by coat.
+	var first := MountKinds.build_node(MountKinds.horse_id(0))
+	var again := MountKinds.build_node(MountKinds.horse_id(0))
+	_expect(
+		(first.get_node("Body") as MeshInstance3D).mesh == (again.get_node("Body") as MeshInstance3D).mesh
+		and (first.get_node("Body") as MeshInstance3D).mesh == MountKinds.horse_part("body", MountKinds.colour(MountKinds.horse_id(0))),
+		"a horse's body is the cached part for its coat, not a mesh made for it alone"
+	)
+	first.free()
+	again.free()
+	# What a shop floor shows is made once per kind.
+	_expect(
+		MountKinds.display_mesh(MountKinds.BICYCLE) == MountKinds.display_mesh(MountKinds.BICYCLE)
+		and MountKinds.display_mesh(MountKinds.MOTORCYCLE) == MountKinds.display_mesh(MountKinds.MOTORCYCLE),
+		"the shop's bicycle and motorcycle are each made once, however many stand in it"
+	)
+	# Copying a finished mesh into a floor with the engine's own call gives the
+	# triangles, colours and normals the vertex-at-a-time loop gave.
+	var mesh := MountKinds.display_mesh(MountKinds.BICYCLE)
+	var where := Transform3D(Basis(Vector3.UP, 1.1), Vector3(2.0, 0.5, -3.0))
+	var fast := SurfaceTool.new()
+	fast.begin(Mesh.PRIMITIVE_TRIANGLES)
+	Places._add_as_drawn(fast, mesh, where)
+	var slow := SurfaceTool.new()
+	slow.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	for i in vertices.size():
+		slow.set_color(colours[i])
+		slow.add_vertex(where * vertices[i])
+	fast.generate_normals()
+	slow.generate_normals()
+	var made_fast := fast.commit().surface_get_arrays(0)
+	var made_slow := slow.commit().surface_get_arrays(0)
+	_expect(
+		(made_fast[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() == (made_slow[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+		and hash(made_fast[Mesh.ARRAY_VERTEX]) == hash(made_slow[Mesh.ARRAY_VERTEX])
+		and hash(made_fast[Mesh.ARRAY_COLOR]) == hash(made_slow[Mesh.ARRAY_COLOR])
+		and hash(made_fast[Mesh.ARRAY_NORMAL]) == hash(made_slow[Mesh.ARRAY_NORMAL]),
+		"a machine copied into the shop floor by the engine is the machine copied vertex by vertex"
+	)
 

@@ -2183,6 +2183,13 @@ static func _add_goods(tool: SurfaceTool, item: StringName, at: Vector3) -> void
 ## bicycles and motorcycles standing in the shop, which are the same meshes a
 ## child rides and must look it.
 static func _add_as_drawn(tool: SurfaceTool, mesh: Mesh, where: Transform3D) -> void:
+	# A mesh with its colours is copied by the engine, in one call. The loop
+	# below did it a vertex at a time in script — thirty thousand vertices for a
+	# quad bike — and the shop's eight machines were the best part of a third of
+	# a second of start-up.
+	if mesh.get_surface_count() > 0 and mesh.surface_get_format(0) & Mesh.ARRAY_FORMAT_COLOR != 0:
+		tool.append_from(mesh, 0, where)
+		return
 	var arrays := mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
