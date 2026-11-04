@@ -21,6 +21,14 @@ func add(kind: StringName, amount := 1) -> void:
 	_counts[kind] = count(kind) + amount
 	changed.emit(kind, _counts[kind])
 
+## One of these goes back: a pick-up the host turned out to have had first. Never
+## below nought, whatever else was spent in the meantime.
+func take_back(kind: StringName) -> void:
+	if count(kind) <= 0:
+		return
+	_counts[kind] = count(kind) - 1
+	changed.emit(kind, _counts[kind])
+
 ## True only if every listed cost can be paid. Checked before anything is spent,
 ## so a build can never half-succeed.
 func can_afford(cost: Dictionary) -> bool:

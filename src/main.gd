@@ -328,7 +328,15 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	session.remote_animals.connect(world.animals.tell)
 	# What this child picks up is gone for the other as well, and a mount got off
 	# is left where the other phone is told it stands.
-	world.pickups.taken_here.connect(func(id: String) -> void: session.report_picked(id))
+	# A guest says what it took only once it is in the host's valley: before
+	# that the ids are those of its own valley, and the host would mark them gone
+	# in its own.
+	world.pickups.taken_here.connect(func(id: String) -> void:
+		if _the_hosts_valley_is_here():
+			session.report_picked(id))
+	# The host is the arbiter of a stick two children reached together.
+	session.pickup_is_gone = func(id: String) -> bool: return world.pickups.taken.has(id)
+	session.pick_refused.connect(_on_pick_refused)
 	world.mounts.dismounted.connect(_on_dismounted)
 
 	# In somebody else's valley the football is theirs; this phone only draws it.
@@ -1427,7 +1435,13 @@ func _process(delta: float) -> void:
 			_show_where_it_goes(ball)
 	else:
 		hud.set_kick_preview(false, 0.0, 0.0)
-		kick_preview.hide_path()
+		# Not winding up, but a ball is at the child's feet: show where a tap would
+		# send it, so they can turn to aim before they press. Not while building,
+		# nor for a ball left in the net for the cheer, which a kick would not move.
+		if ball != null and not build_mode.active and not (world.football.has_ball(ball) and world.football.in_the_net(ball)):
+			_show_where_it_goes(ball)
+		else:
+			kick_preview.hide_path()
 
 	_autosave -= delta
 	if _autosave <= 0.0:
@@ -2077,6 +2091,15 @@ func _follow_their_mount(id: int, at: Vector3, facing: float, mount: StringName)
 		_get_off_quietly()
 		sounds.play(Sounds.Sound.REFUSE, 0.6)
 		hud.announce(Text.of("say_mount_taken"), 2.6)
+		_rides_of_others[id] = mount
+		_ride_spots[id] = [at, facing]
+		world.mounts.ride_remote(mount, at, facing)
+		# Beside the machine, not where they were riding it: that is the spot
+		# the host's rider is on now, and the two children stood overlapped.
+		var beside := world.mounts.spot_beside(mount, at, facing)
+		player.global_position = beside + Vector3(0.0, 0.2, 0.0)
+		player.velocity = Vector3.ZERO
+		return
 	_rides_of_others[id] = mount
 	_ride_spots[id] = [at, facing]
 	world.mounts.ride_remote(mount, at, facing)
@@ -2414,6 +2437,16 @@ func _on_remote_picked(id: String) -> void:
 		return
 	world.pickups.taken_elsewhere(id)
 
+## The host had that one first. Quietly: the child was given it a moment ago and
+## the bag is one short again, with no message to explain a thing they would not
+## understand. The thing is gone from the ground on both phones, as it was.
+func _on_pick_refused(id: String) -> void:
+	if not _the_hosts_valley_is_here():
+		return
+	var kind := world.pickups.take_back(id)
+	if kind != &"":
+		inventory.take_back(kind)
+
 func _on_remote_parked(id: StringName, at: Vector3, facing: float) -> void:
 	if not _the_hosts_valley_is_here():
 		return
@@ -2425,9 +2458,10 @@ func _on_remote_parked(id: StringName, at: Vector3, facing: float) -> void:
 	world.mounts.park_remote(id, at, facing, told_by_the_host)
 	if told_by_the_host or not world.mounts.exists(id):
 		return
-	var chosen := world.mounts.position_of(id)
-	if Vector2(chosen.x - at.x, chosen.z - at.z).length() > 0.05:
-		session.report_parked(id, chosen, world.mounts.facing_of(id))
+	# Always said, even when the spot is the one the guest gave: the guest's own
+	# word went to the host alone, so this is the only way the other guests
+	# hear of it, and always the corrected spot.
+	session.report_parked(id, world.mounts.position_of(id), world.mounts.facing_of(id))
 
 ## Is what this phone holds the valley the other child is building in? A host's
 ## always is. A guest's is not until the host's has arrived: connected, they
@@ -3545,14 +3579,14 @@ func _on_kick_release() -> void:
 	if world.football.has_ball(ball):
 		world.football.kick(
 			ball, player.global_position, player.facing(), player.is_sprinting(),
-			maxf(strength, 0.12), camera_rig.aim_height(), _kick_look()
+			maxf(strength, Ball.TAP_STRENGTH), camera_rig.aim_height(), _kick_look()
 		)
 		return
 	ball.kick(
 		player.global_position,
 		player.facing(),
 		player.is_sprinting(),
-		maxf(strength, 0.12),
+		maxf(strength, Ball.TAP_STRENGTH),
 		camera_rig.aim_height(),
 		_kick_look()
 	)
@@ -3563,24 +3597,21 @@ func _on_kick_release() -> void:
 func _kick_look() -> Vector3:
 	return Vector3(-sin(camera_rig.yaw), 0.0, -cos(camera_rig.yaw))
 
-## While the kick button is held, a faint dotted arc in the air from the ball
-## to where it will land — the same arithmetic the kick and the throw use, so
-## it is not a guess. Which way a kick went and how far was the question
-## asked most from the phone; this answers it before the foot moves.
+## A dotted line from the ball to where a kick would send it, with a ring where
+## it comes down: shown whenever a ball is at the child's feet, for a tap, and
+## following the hold while the button is down. The same arithmetic the kick and
+## the throw use, so it is not a guess. Which way a kick went and how far was the
+## question asked most from the phone; this answers it before the foot moves, and
+## a child turns to aim by looking at it.
 func _show_where_it_goes(ball: Ball) -> void:
 	var velocity: Vector3
 	if _can_throw(ball):
 		velocity = ball.throw_velocity(world.places.ring_position())
 	else:
-		velocity = Ball.launch_velocity(
-			ball.position, player.global_position, player.facing(), player.is_sprinting(),
-			maxf(player.kick_charge, 0.12), camera_rig.aim_height(), _kick_look()
-		)
+		velocity = _kick_launch(ball, player.kick_charge)
 	var ground := func(x: float, z: float) -> float:
 		return world.field.height_at(x, z)
-	var path := Ball.predict(
-		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, ground
-	)
+	var path := Ball.aim_path(ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), ground)
 	# Green when the shot is going into a goal mouth. The ball's own start is
 	# put in front of the dots, so a shot that crosses the line within its first
 	# step is not missed.
@@ -3589,6 +3620,16 @@ func _show_where_it_goes(ball: Ball) -> void:
 	var on_target := Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0 and ball.look == Ball.Look.FOOTBALL
 	var end := path[path.size() - 1] if not path.is_empty() else ball.position
 	kick_preview.show_path(path, on_target, float(ground.call(end.x, end.z)))
+
+## The velocity a kick of `strength` would give `ball` this very moment: the one
+## sum the aim indicator draws from and the real kick is made with, because both
+## ask Ball.launch_velocity the same question of the same child — where they
+## stand, face and look, whether they are sprinting, how high the camera is aimed.
+func _kick_launch(ball: Ball, strength: float) -> Vector3:
+	return Ball.launch_velocity(
+		ball.position, player.global_position, player.facing(), player.is_sprinting(),
+		maxf(strength, Ball.TAP_STRENGTH), camera_rig.aim_height(), _kick_look()
+	)
 
 ## The tick or the cross under a question. Everything that spends a child's
 ## coins comes through here.

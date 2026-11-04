@@ -1,21 +1,23 @@
 class_name KickPreview
 extends Node3D
 
-## A faint dotted arc in the air from the ball to where it will land, shown
-## while the kick button is held.
+## A dotted line from the ball to where it will land or stop, shown whenever a
+## ball is at the child's feet and while the kick button is held.
 ##
 ## Which way a kick went, and how far, was the question asked most from the
 ## phone: the kick goes along the striker-to-ball line and the loft follows
 ## the camera, both of which are right and neither of which a child can see
 ## before the foot moves. Games answer this with a trajectory line, and this
-## is that — kept faint and dotted so it reads as a hint and not as a ruler.
+## is that — dotted, so it reads as a hint and not as a ruler.
 ##
 ## The dots are one MultiMesh, placed by the game from `Ball.predict`, which
 ## is the ball's own arithmetic; the arc cannot disagree with the kick.
 
 const MAX_DOTS := 40
-const DOT_RADIUS := 0.065
-const COLOUR := Color(1.0, 1.0, 1.0, 0.5)
+## Big and bright enough to read from the run-up on a phone screen: a dot a
+## child can see is worth more than a faint one that is accurate.
+const DOT_RADIUS := 0.12
+const COLOUR := Color(1.0, 1.0, 1.0, 0.8)
 ## The arc and the ring turn this green when the ball is going into a goal
 ## mouth, between the posts and under the bar. A little stronger than the
 ## white, because it is the one thing in the picture worth noticing.
@@ -88,7 +90,7 @@ func show_path(points: PackedVector3Array, on_target := false, ring_y := NAN) ->
 	var tint := ON_TARGET if on_target else COLOUR
 	for i in MAX_DOTS:
 		if i < count:
-			var fade := 1.0 - 0.6 * float(i) / float(maxf(count - 1, 1))
+			var fade := 1.0 - 0.4 * float(i) / float(maxf(count - 1, 1))
 			multi.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * (0.7 + 0.3 * fade)), points[i]))
 			multi.set_instance_color(i, Color(tint.r, tint.g, tint.b, tint.a * fade))
 		else:

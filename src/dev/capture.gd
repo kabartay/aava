@@ -576,8 +576,8 @@ func _show_the_aim() -> void:
 	var velocity := Ball.launch_velocity(
 		ball.position, striker, look, false, _kick_strength, _kick_loft, look
 	)
-	var path := Ball.predict(
-		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, ground
+	var path := Ball.aim_path(
+		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), ground
 	)
 	var flight := PackedVector3Array([ball.position])
 	flight.append_array(path)

@@ -4245,6 +4245,15 @@ func at_fountain(at: Vector3) -> bool:
 
 ## A ball that drops through the ring scores; a ball that rolls off into the
 ## trees comes back to where it started.
+##
+## Each phone's basketballs, and the baskets they score, are its own child's:
+## nothing here is sent to the other phone, and a visitor's shot at the hoop
+## moves nothing on this screen. The footballs are shared because they are the
+## host's to simulate, with kick requests and a prediction to hide the delay
+## (see FootballGround); the same would have to be built here for a throw at
+## a ring, and a score that two children must agree on is not what a hoop is
+## for. So the count says only what this child threw in, and the cheer is
+## theirs alone.
 func _watch_balls() -> void:
 	if not _spots.has(PLAYGROUND):
 		return

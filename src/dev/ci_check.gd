@@ -75,6 +75,7 @@ func _initialize() -> void:
 	_check_the_rider_keeps_time_with_the_stride_and_the_reins_go_with_the_hands()
 	_check_getting_on_and_off_a_horse_is_a_climb_and_a_slide()
 	_check_the_animals_the_pickups_and_the_dams_agree_between_two_phones()
+	_check_the_host_arbitrates_a_pickup_a_machine_and_a_parking_two_phones_reach_together()
 	_check_a_big_valley_arrives_in_parts_and_the_panel_offers_both_ways()
 	_check_every_kind_of_day_can_be_finished()
 	_check_every_button_glyph_is_drawn()
@@ -273,6 +274,10 @@ func _initialize() -> void:
 	await _check_a_ball_passes_and_bounces_like_a_football()
 	await _check_posts_ring_and_the_net_is_dead()
 	await _check_the_guest_sees_the_same_kick()
+	await _check_a_ball_carried_at_a_run_stays_in_front_of_the_child()
+	await _check_a_hard_shot_rings_off_the_woodwork_whatever_the_phase()
+	await _check_a_ball_perched_on_the_goal_comes_down()
+	await _check_the_aim_line_is_where_the_kick_goes()
 	_check_no_rock_or_find_lies_across_the_bridge()
 	await _check_counts_read_right_and_a_new_interface_keeps_the_cafe_choices()
 	_check_nobody_climbs_on_a_mount_from_a_ride_seat()
@@ -27886,4 +27891,330 @@ func _check_the_shop_audit_fixes() -> void:
 		and wallet.has(ShopStock.MOTORCYCLE) and wallet.coins == Wallet.MAX_COINS - 10,
 		"a motorcycle is not sold into a purse with room for 10 coins"
 	)
+
+## A child who runs with the ball keeps it in front of them for as long as they
+## run. The air drag takes a little pace off a rolling ball every tick and the
+## push only brings it back to the child's own, so the ball used to creep in at
+## about 7 cm a second until it sat inside the child and then behind them: at 4.4 m/s
+## the gap was 0.51 m after a second and 0.00 m after nine, at 6.6 m/s it was
+## 0.47 m after one and minus 0.29 m after nine.
+func _check_a_ball_carried_at_a_run_stays_in_front_of_the_child() -> void:
+	print("a ball carried at a run stays in front of the child")
+	var made := _football_floor()
+	var away: Vector3 = made[1]
+	var ball := Ball.new(away)
+	get_root().add_child(ball)
+	await physics_frame
+	for pace: float in [4.4, 6.6]:
+		ball.reset_to(away + Vector3(-60.0, 0.0, 0.0))
+		await physics_frame
+		var child_x := ball.position.x - 3.0
+		var closest := 99.0
+		for i in 540:
+			child_x += pace / 60.0
+			await physics_frame
+			ball.linear_velocity = Ball.touch_velocity(
+				ball.position, ball.linear_velocity, Vector3(child_x, 0.0, away.z), Vector3(pace, 0.0, 0.0), 1.0 / 60.0
+			)
+			if i > 90:
+				closest = minf(closest, ball.position.x - child_x)
+		var gap := ball.position.x - child_x
+		_expect(closest > 0.45, "at %.1f m/s the ball is never nearer the child than %.2f m (the body alone is 0.34)" % [pace, closest])
+		_expect(gap > 0.45 and gap < 0.9, "and after nine seconds it is still %.2f m ahead, not on them" % gap)
+	ball.queue_free()
+	(made[0] as Node).queue_free()
+
+## A shot at a post or the bar rings off it at any pace, whichever part of the
+## stride it arrives at. The continuous collision pass stopped a fast ball at the
+## surface and handed the engine a speed it had already cut, so that nine of
+## forty head-on shots between 5 and 22 m/s came back at under a third of their
+## pace, several at under 1 m/s, and dropped at the post's foot.
+func _check_a_hard_shot_rings_off_the_woodwork_whatever_the_phase() -> void:
+	print("a hard shot rings off the woodwork whatever the phase")
+	var made := _football_floor()
+	var away: Vector3 = made[1]
+	var mouth := away + Vector3(60.0, 0.0, 0.0)
+	var goal := Goal.new(1, mouth)
+	get_root().add_child(goal)
+	var ball := Ball.new(mouth + Vector3(-5.0, 1.2, 0.0))
+	get_root().add_child(ball)
+	ball.gravity_scale = 0.0
+	var worst := 99.0
+	var worst_at := 0.0
+	for k: int in [13, 16, 21, 24, 28, 32, 33, 38, 39]:
+		var speed := 5.0 + 0.43 * float(k)
+		ball.reset_to(mouth)
+		await physics_frame
+		var start := mouth + Vector3(-3.0 - 0.013 * float(k), 0.0, Pitch.GOAL_WIDTH * 0.5 + 0.08)
+		start.y = mouth.y + 1.2
+		ball.position = start
+		PhysicsServer3D.body_set_state(ball.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, Transform3D(Basis(), start))
+		ball.linear_velocity = Vector3(speed, 0.0, 0.0)
+		var back := 0.0
+		for i in 60:
+			await physics_frame
+			back = minf(back, ball.linear_velocity.x)
+		if -back / speed < worst:
+			worst = -back / speed
+			worst_at = speed
+	_expect(worst > 0.3, "every shot off the post keeps over 0.3 of its pace (worst %.2f, at %.1f m/s)" % [worst, worst_at])
+	ball.queue_free()
+	goal.queue_free()
+	(made[0] as Node).queue_free()
+
+## A ball that comes to rest on top of a goalpost, the bar or the side of the net
+## stays there for good, because the net's deadening holds it. It is rolled off
+## after two seconds, out past the side of the net and not into it. Measured
+## before: a ball dropped on the top of the net's side wall was at rest 10 s later,
+## 2.64 m up, still there.
+func _check_a_ball_perched_on_the_goal_comes_down() -> void:
+	print("a ball perched on the goal comes down")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var ball: Ball = ground._balls[1]
+	var mouth := Pitch.goal_centre(1)
+	mouth.y = field.height_at(mouth.x, mouth.z)
+	for case: Array in [["the side of the net", Vector3(0.8, 4.0, 3.25)], ["the bar", Vector3(0.0, 4.0, 0.5)]]:
+		ground._cooldown = 0.0
+		ball.reset_to(mouth + Vector3(0.0, 2.0, 0.0))
+		await physics_frame
+		var spot: Vector3 = mouth + (case[1] as Vector3)
+		ball.position = spot
+		PhysicsServer3D.body_set_state(ball.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, Transform3D(Basis(), spot))
+		ball.linear_velocity = Vector3.ZERO
+		var rested := 0.0
+		for i in 120:
+			await physics_frame
+			if ball.position.y - mouth.y > 2.4 and ball.linear_velocity.length() < 1.0:
+				rested += 1.0 / 60.0
+		var perched := rested > 0.5
+		for i in 360:
+			await physics_frame
+		var up := ball.position.y - mouth.y
+		_expect(perched, "a ball dropped on %s rests there (%.1f s) at first" % [case[0], rested])
+		_expect(up < 1.0, "and comes down within seven seconds (%.2f m up)" % up)
+		_expect(not Pitch.is_goal(1, ball.position, Ball.RADIUS, mouth.y) and not ground._in_the_net.has(ball), "without scoring")
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## The line the child sees on the ground is the line the ball takes. The same
+## launch velocity feeds the line and the kick, with the close-range blend to the
+## way they face, the sprint and the strength all in it; the ring is where the
+## ball first comes down, within half a metre, and a drive along the grass is
+## drawn to about where it stops.
+func _check_the_aim_line_is_where_the_kick_goes() -> void:
+	print("the aim line is where the kick goes")
+	var made := _football_floor()
+	var away: Vector3 = made[1]
+	var flat := func(_x: float, _z: float) -> float:
+		return 0.0
+	var ball := Ball.new(away)
+	get_root().add_child(ball)
+	await physics_frame
+	var east := Vector3.RIGHT
+	# name, distance from the foot, bearing of the ball from the foot's facing
+	# (degrees), look off the facing (degrees), sprint, strength, loft
+	var cases: Array[Array] = [
+		["standing, ball a stride ahead", 0.6, 0.0, 0.0, false, 0.7, 0.6],
+		["running at it", 0.9, 0.0, 10.0, true, 0.4, 0.5],
+		["a step away, to the side, view turned", 0.3, 90.0, 30.0, false, 0.8, 0.5],
+		["at the edge of reach, view turned the other way", 1.05, 20.0, -25.0, false, 1.0, 0.4],
+		["a tap along the grass", 0.6, 0.0, 0.0, false, 0.0, 0.0],
+		["half a swing along the grass", 0.6, 0.0, 0.0, false, 0.5, 0.0],
+	]
+	for c: Array in cases:
+		var striker := away + Vector3(-30.0, 0.0, 0.0)
+		var bearing := deg_to_rad(float(c[2]))
+		var spot := striker + east.rotated(Vector3.UP, bearing) * float(c[1])
+		ball.reset_to(spot)
+		await physics_frame
+		var look := east.rotated(Vector3.UP, deg_to_rad(float(c[3])))
+		var strength := maxf(float(c[5]), Ball.TAP_STRENGTH)
+		var launch := Ball.launch_velocity(ball.position, striker, east, bool(c[4]), strength, float(c[6]), look)
+		var path := Ball.aim_path(ball.position, launch, ball.effective_linear_damp(), ball.gravity_strength(), flat)
+		var end := path[path.size() - 1]
+		var heading := Vector2(launch.x, launch.z).normalized()
+		var worst_turn := 0.0
+		for point in path:
+			var off := Vector2(point.x - ball.position.x, point.z - ball.position.z)
+			if off.length() > 0.2:
+				worst_turn = maxf(worst_turn, rad_to_deg(off.angle_to(heading)))
+		_expect(worst_turn < 2.0, "%s: the dots lie along the kick (%.1f degrees at worst)" % [c[0], worst_turn])
+		var began := ball.position
+		var speed := ball.kick(striker, east, bool(c[4]), strength, float(c[6]), look)
+		_expect(speed > 0.0 and ball.linear_velocity.is_equal_approx(launch), "%s: the kick leaves with exactly the velocity the line was drawn from (%.1f m/s)" % [c[0], speed])
+		var landed := Vector3.INF
+		var high := 0.0
+		var rolled := false
+		for i in 900:
+			await physics_frame
+			high = maxf(high, ball.position.y)
+			if landed == Vector3.INF and high > Ball.RADIUS + 0.4 and ball.position.y < Ball.RADIUS + 0.03 and ball.linear_velocity.y <= 0.5:
+				landed = ball.position
+			if i > 10 and ball.linear_velocity.length() < 0.05:
+				break
+		var away_from := Vector2(end.x - began.x, end.z - began.z).length()
+		if landed != Vector3.INF and away_from >= Ball.DRIVE_LANDS_WITHIN:
+			var gap := Vector2(landed.x - end.x, landed.z - end.z).length()
+			_expect(gap < 0.5, "%s: the ring is %.2f m from where it first lands, %.1f m out" % [c[0], gap, away_from])
+		else:
+			var stopped := Vector2(ball.position.x - began.x, ball.position.z - began.z).length()
+			_expect(absf(stopped - away_from) < maxf(1.0, 0.15 * stopped), "%s: the line runs %.1f m and the ball stops %.1f m out" % [c[0], away_from, stopped])
+	ball.queue_free()
+	# Nothing is drawn for a ball out of reach: the game asks the ground for the
+	# ball at the child's feet, and shows the line only when there is one.
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var near_ball: Ball = ground._balls[1]
+	var feet := near_ball.position + Vector3(-0.8, -Ball.RADIUS, 0.0)
+	_expect(ground.ball_near(feet) == near_ball, "a child a stride from the ball is offered it")
+	_expect(ground.ball_near(feet + Vector3(-5.0, 0.0, 0.0)) == null, "and one five metres off is offered nothing, so nothing is drawn")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var frame := game.substr(game.find("func _show_where_it_goes"))
+	frame = frame.substr(0, frame.find("\nfunc ", 1))
+	var loop := game.substr(game.find("if ball != null and not build_mode.active"), 260)
+	_expect(
+		loop.contains("not (world.football.has_ball(ball) and world.football.in_the_net(ball))") and loop.contains("_show_where_it_goes(ball)") and loop.contains("else:\n\t\t\tkick_preview.hide_path()"),
+		"the line is shown for a ball at the feet, not while building or in the net, and hidden otherwise"
+	)
+	_expect(frame.contains("_kick_launch(ball, player.kick_charge)"), "and is drawn from the one launch function")
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## Two children walk onto one stick in the same instant: the host's keeps it and
+## the guest's bag is put right quietly. A guest who gives a machine up is set
+## beside it, and a parking is told to the other guests only once corrected.
+func _check_the_host_arbitrates_a_pickup_a_machine_and_a_parking_two_phones_reach_together() -> void:
+	print("the host arbitrates what two phones reach together")
+	var field := HeightField.new(20260903)
+	var host := Session.new()
+	var guest := Session.new()
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	host._link = guest
+	guest._link = host
+	var host_pickups := Pickups.new(field, 20260903)
+	var guest_pickups := Pickups.new(field, 20260903)
+	get_root().add_child(host_pickups)
+	get_root().add_child(guest_pickups)
+	var tile := Vector2i.ZERO
+	for step in 40:
+		tile = Vector2i(step % 8, step / 8)
+		host_pickups._build_tile(tile)
+		if host_pickups.count_active() > 0:
+			break
+	guest_pickups._build_tile(tile)
+	var record: Dictionary = host_pickups._active[0]
+	var id: String = record["id"]
+	var kind: StringName = record["kind"]
+	var host_bag := Inventory.new()
+	var guest_bag := Inventory.new()
+	host_pickups.collected.connect(func(k: StringName, _at: Vector3) -> void: host_bag.add(k, 1))
+	guest_pickups.collected.connect(func(k: StringName, _at: Vector3) -> void: guest_bag.add(k, 1))
+	host_pickups.taken_here.connect(func(i: String) -> void: host.report_picked(i))
+	guest_pickups.taken_here.connect(func(i: String) -> void: guest.report_picked(i))
+	host.pickup_is_gone = func(i: String) -> bool: return host_pickups.taken.has(i)
+	host.remote_picked.connect(func(i: String) -> void: host_pickups.taken_elsewhere(i))
+	guest.remote_picked.connect(func(i: String) -> void: guest_pickups.taken_elsewhere(i))
+	guest.pick_refused.connect(func(i: String) -> void:
+		var back := guest_pickups.take_back(i)
+		if back != &"":
+			guest_bag.take_back(back))
+	# Both reach it before either has heard of the other: the host's own phone
+	# takes it first, then the guest's, whose word reaches the host after.
+	host_pickups.check_reach(record["position"])
+	guest_pickups.check_reach(record["position"])
+	_expect(host_bag.count(kind) >= 1, "the host's child keeps what they reached")
+	_expect(guest_bag.count(kind) == 0, "the guest's phone gave the second one back: %d" % guest_bag.count(kind))
+	# The common case: only the guest reaches one, and keeps it with no wait.
+	var other: Dictionary = {}
+	for r: Dictionary in guest_pickups._active:
+		other = r
+		break
+	if not other.is_empty():
+		var other_kind: StringName = other["kind"]
+		var before := guest_bag.count(other_kind)
+		guest_pickups.check_reach(other["position"])
+		_expect(guest_bag.count(other_kind) == before + 1, "a pickup nobody else wanted is the guest's at once")
+		_expect(host_pickups.taken.has(other["id"]), "and is gone from the host's valley")
+		guest_pickups._claims.clear()
+		guest._take_pick_refused(Session.HOST_ID, other["id"])
+		_expect(
+			guest_pickups.take_back(other["id"]) == &"",
+			"a refusal for something this phone never took takes nothing"
+		)
+	_expect(guest_pickups.take_back(id) == &"", "a thing is taken back once only")
+	var bag := Inventory.new()
+	bag.take_back(&"stick")
+	_expect(bag.count(&"stick") == 0, "a bag never goes below nothing")
+	var refusals: Array[String] = []
+	var stranger := Session.new()
+	stranger.role = Session.Role.VISITING
+	stranger.pick_refused.connect(func(i: String) -> void: refusals.append(i))
+	stranger._take_pick_refused(7, "1:2:3")
+	stranger._take_pick_refused(Session.HOST_ID, "../x")
+	_expect(refusals.is_empty(), "only the host can refuse, and only by a pickup's own name")
+	stranger.queue_free()
+	host_pickups.queue_free()
+	guest_pickups.queue_free()
+	host.queue_free()
+	guest.queue_free()
+	var net := _code_only(FileAccess.get_file_as_string("res://src/net/session.gd"))
+	var relay := net.substr(net.find("func _send_parked"))
+	relay = relay.substr(0, relay.find("\n@rpc", 1))
+	_expect(
+		not relay.contains("rpc_id") and not relay.contains(".rpc("),
+		"the host does not pass a guest's raw parking on to the other guests"
+	)
+	_expect(
+		net.contains("_send_parked.rpc_id(HOST_ID,") and net.contains("_send_picked.rpc_id(HOST_ID, id)"),
+		"a guest tells the host alone of a parking and a pickup"
+	)
+
+	# A guest who yields a machine is set beside it, not on the host's rider.
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var camp := field.camp_centre()
+	# Dry, level ground all round (not the river bank the camp's own offsets are).
+	var at := camp + Vector3(-60.0, 0.0, -20.0)
+	at.y = field.height_at(at.x, at.z)
+	mounts.place(&"horse:0", at)
+	mounts.ride_remote(&"horse:0", at, 0.0)
+	var beside := mounts.spot_beside(&"horse:0", at, 0.0)
+	var apart := Vector2(beside.x - at.x, beside.z - at.z).length()
+	_expect(apart >= 1.7, "the guest who gave way stands clear of the host's rider: %.2f m" % apart)
+	_expect(mounts.spot_is_clear(&"horse:0", beside), "on clear ground")
+	var right := at + Vector3(1.8, 0.0, 0.0)
+	mounts.place(&"bicycle:0", right)
+	var moved := mounts.spot_beside(&"horse:0", at, 0.0)
+	_expect(
+		Vector2(moved.x - right.x, moved.z - right.z).length() > 0.5,
+		"and not on another machine standing where they would have been put"
+	)
+	mounts.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var yield_body := game.substr(game.find("func _follow_their_mount"))
+	yield_body = yield_body.substr(0, yield_body.find("\nfunc ", 1))
+	_expect(
+		yield_body.contains("spot_beside(mount, at, facing)") and yield_body.contains("player.global_position = beside"),
+		"the yielding guest is moved beside the machine"
+	)
+	var parked_body := game.substr(game.find("func _on_remote_parked"))
+	parked_body = parked_body.substr(0, parked_body.find("\nfunc ", 1))
+	_expect(
+		not parked_body.contains("> 0.05") and parked_body.contains("session.report_parked(id, world.mounts.position_of(id)"),
+		"the host always tells the corrected parking"
+	)
+
+	# Basketballs stay each phone's own: nothing of them crosses the wire.
+	var places_src := _code_only(FileAccess.get_file_as_string("res://src/world/places.gd"))
+	_expect(
+		not places_src.contains("session") and not net.contains("basket"),
+		"basketballs and baskets are each phone's own, nothing is sent"
+	)
+	# Ducks are decoration, and not sent either.
+	_expect(not net.to_lower().contains("duck"), "the ducks are not sent between phones")
 

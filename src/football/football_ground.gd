@@ -33,6 +33,21 @@ const OUT_INSET := 1.0
 ## home. Generous, so that chasing a long ball is still part of the fun.
 const STRAY_DISTANCE := 46.0
 
+## A ball sitting still this far above the grass, this long, has landed on the
+## top of a goalpost, the bar or the side of the net, where the net's deadening
+## holds it for good and nobody can reach it: it is rolled off, back onto the
+## pitch. Still means it has stayed within PERCH_DRIFT of one spot, not that it
+## is slow: a ball on the bar hops a few centimetres at up to 1.8 m/s for ever.
+## The nudge is out past the
+## side of the net for a ball on its side wall (never in, which would score it),
+## and out onto the pitch for one on the bar or a post, with enough lift to
+## clear a frame only twelve centimetres thick.
+const PERCH_HEIGHT := 1.0
+const PERCH_DRIFT := 0.3
+const PERCH_FOR := 2.0
+const PERCH_NUDGE := 3.0
+const PERCH_LIFT := 3.0
+
 ## A goal went in at `goal_index`, and this is the score now: blue's, then red's.
 signal goal_scored(goal_index: int, blue: int, red: int)
 
@@ -181,6 +196,7 @@ func _play(delta: float) -> void:
 			return
 		if _float_in_the_river(ball, delta):
 			continue
+		_unperch(ball, delta)
 		# Not while a goal is being cheered: a ball lying in the net is behind
 		# the goal line, and fetched back as "out" it was gone before the next
 		# goal could be judged.
@@ -452,6 +468,35 @@ func _float_in_the_river(ball: Ball, delta: float) -> bool:
 	var pull := Vector3(current.x - ball.linear_velocity.x, 0.0, current.y - ball.linear_velocity.z)
 	ball.apply_central_force(pull * ball.mass * 2.0)
 	return true
+
+## A ball that has come to rest high up, on the frame of a goal, is nudged off it
+## after PERCH_FOR seconds.
+func _unperch(ball: Ball, delta: float) -> void:
+	var at := ball.position
+	var up := at.y - _field.height_at(at.x, at.z)
+	var seen: Dictionary = _perched.get(ball, {})
+	if up < PERCH_HEIGHT or seen.is_empty() or at.distance_to(seen["at"]) > PERCH_DRIFT:
+		if up < PERCH_HEIGHT:
+			_perched.erase(ball)
+		else:
+			_perched[ball] = {"at": at, "for": 0.0}
+		return
+	seen["for"] = float(seen["for"]) + delta
+	if float(seen["for"]) < PERCH_FOR:
+		return
+	_perched.erase(ball)
+	var centre := Pitch.centre()
+	var goal := 0 if at.distance_squared_to(Pitch.goal_centre(0)) < at.distance_squared_to(Pitch.goal_centre(1)) else 1
+	var rel := at - Pitch.goal_centre(goal)
+	var inward := Vector3(centre.x - at.x, 0.0, 0.0).normalized()
+	var way := inward
+	if absf(rel.z) > Pitch.GOAL_WIDTH * 0.5 - 0.6:
+		way = (inward * 0.5 + Vector3(0.0, 0.0, signf(rel.z))).normalized()
+	ball.sleeping = false
+	ball.linear_velocity = way * PERCH_NUDGE + Vector3.UP * PERCH_LIFT
+
+## How long each ball has sat still up high, in seconds.
+var _perched: Dictionary = {}
 
 ## A ball in the river, down a hill, or halfway to the mountains comes back.
 ## Without this, three balls become zero balls within ten minutes and the pitch

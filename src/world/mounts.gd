@@ -474,6 +474,20 @@ func _clear_spot_near(kind: StringName, at: Vector3, facing: float) -> Vector3:
 				return spot
 	return at
 
+## Where a child who has just given a machine up can stand beside it: the same
+## rings and bearings as `_clear_spot_near`, but never the machine's own spot,
+## which the other child is on. Starts to the right of the way it faces, as a
+## getting-off does (see `_where_to_leave_it`). Nowhere clear is a stride to the
+## right all the same, which is beside it if not tidy.
+func spot_beside(kind: StringName, at: Vector3, facing: float) -> Vector3:
+	for reach: float in CLEAR_SEARCH:
+		for step in 8:
+			var bearing := facing + TAU * float(step) / 8.0
+			var spot := at + Vector3(cos(bearing), 0.0, -sin(bearing)) * reach
+			if RespawnSpot.in_the_world(spot) and _is_dry_footing(spot) and spot_is_clear(kind, spot):
+				return spot
+	return at + Vector3(cos(facing), 0.0, -sin(facing)) * CLEAR_SEARCH[0]
+
 ## How far out `_clear_spot_near` looks, in metres: a stride aside, then
 ## further, as far as a child would push a bicycle to be rid of it.
 const CLEAR_SEARCH: Array[float] = [1.8, 2.9, 4.0, 5.5, 7.5]

@@ -70,6 +70,9 @@ signal guest_moving(id: int, code: int)
 signal remote_shared(taken: PackedStringArray, built: Array, progress: Dictionary, mounts: Dictionary)
 ## Somebody picked something up, by the id the valley gives it.
 signal remote_picked(id: String)
+## The host says it already had this pickup when this phone's child took it
+## too, so it was never theirs to keep (see `report_picked`).
+signal pick_refused(id: String)
 ## A mount was left standing by somebody who got off it.
 signal remote_parked(id: StringName, position: Vector3, facing: float)
 ## Where the host's animals are, for a guest: four numbers each — where it was
@@ -581,14 +584,40 @@ func report_shared(
 
 ## Something was picked up here, and is gone for both. `id` is the one the
 ## valley gave it, which is the same on both phones.
+##
+## The host is the arbiter. A guest's pick-up is the child's at once, so it
+## feels instant, but it is only provisional: it goes to the host alone, which
+## either passes it on to the other guests or, if the host's valley had already
+## given that thing away, answers `pick_refused` and the guest's phone takes it
+## back out of the bag. Told to everybody, as it was, two children who walked
+## onto one stick in the same instant were each paid for it.
 func report_picked(id: String) -> void:
-	if is_connected_to_anyone():
+	if not is_connected_to_anyone():
+		return
+	if _link != null:
+		_link._take_picked(HOST_ID if role == Role.HOSTING else _link_id, id)
+	elif role == Role.VISITING:
+		_send_picked.rpc_id(HOST_ID, id)
+	else:
 		_send_picked.rpc(id)
+
+## The host's answer to "is this stick already gone here?", set by the game. A
+## session on its own knows nothing of the valley, so it asks.
+var pickup_is_gone := Callable()
 
 ## A mount was got off, and left where it now stands. Its way there was told
 ## as its rider's position; this is where it stays.
+##
+## A guest tells the host alone. The host puts the machine on clear ground and
+## tells everybody, the guest included, the spot it chose; a guest's raw spot
+## used to be passed on to the other guests first, so they saw the machine in
+## a tree or a wall for an instant and then jump.
 func report_parked(id: StringName, at: Vector3, facing: float) -> void:
-	if is_connected_to_anyone():
+	if not is_connected_to_anyone():
+		return
+	if role == Role.VISITING and _link == null:
+		_send_parked.rpc_id(HOST_ID, String(id), at, facing)
+	else:
 		_send_parked.rpc(String(id), at, facing)
 
 ## Where the host's animals are, for a guest. Like the football, the animals
@@ -967,18 +996,61 @@ static func is_pickup_id(id: String) -> bool:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_picked(id: String) -> void:
-	if is_pickup_id(id):
-		remote_picked.emit(id)
-		for other in others_than(_sender()):
-			_send_picked.rpc_id(other, id)
+	_take_picked(_sender(), id)
+
+func _take_picked(from: int, id: String) -> void:
+	if not is_pickup_id(id):
+		return
+	# A guest only believes the host (or a check calling straight in).
+	if role == Role.VISITING and from != 0 and from != HOST_ID:
+		return
+	if role == Role.HOSTING and from != 0 and from != HOST_ID and pickup_is_gone.is_valid() \
+			and bool(pickup_is_gone.call(id)):
+		# The host's child, or another guest, had it first. No word to anyone
+		# else: nothing changed for them.
+		if _link != null:
+			_link._take_pick_refused(HOST_ID, id)
+		elif is_connected_to_anyone():
+			_send_pick_refused.rpc_id(from, id)
+		return
+	remote_picked.emit(id)
+	if role != Role.HOSTING or from == 0 or from == HOST_ID:
+		return
+	# Guests send to the host alone, so passing it on is the host's job whether
+	# or not the network relays other messages.
+	for other in _peers_but(from):
+		_send_picked.rpc_id(other, id)
+
+## Every peer connected but one, from the network itself rather than from the
+## guests who have introduced themselves: a stick is gone for a guest still
+## being introduced as much as for the rest.
+func _peers_but(from: int) -> Array[int]:
+	var out: Array[int] = []
+	if _link != null or not is_inside_tree() or multiplayer == null:
+		return out
+	for id: int in multiplayer.get_peers():
+		if id != from:
+			out.append(id)
+	return out
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_pick_refused(id: String) -> void:
+	_take_pick_refused(_sender(), id)
+
+func _take_pick_refused(from: int, id: String) -> void:
+	if is_pickup_id(id) and _from_the_host(from):
+		pick_refused.emit(id)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_parked(id: String, at: Vector3, facing: float) -> void:
 	if mount_named(id) == &"" or not believable(at) or not is_finite(facing):
 		return
+	var from := _sender()
+	if role == Role.VISITING and from != 0 and from != HOST_ID:
+		return
+	# Not passed on: the host puts it on clear ground and tells everybody where
+	# (see Main._on_remote_parked), the sender too.
 	remote_parked.emit(StringName(id), at, facing)
-	for other in others_than(_sender()):
-		_send_parked.rpc_id(other, id, at, facing)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_animals(states: PackedFloat32Array) -> void:

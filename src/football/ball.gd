@@ -233,13 +233,56 @@ static func within_reach(at: Vector3, from: Vector3) -> bool:
 ## the back of the goal drops where it hit.
 const NET_KEEPS := 0.12
 
+## A ball that struck a post, the bar or a wall at more than this should leave it
+## with the bounce of that surface, and is made to if the engine took it away. The
+## continuous collision pass that stops a fast ball at the surface hands back only
+## about a quarter to a third of what the material asks (measured 0.30 of the
+## speed off a post at 11.9 m/s, against 0.8 for the woodwork), and for one shot
+## in four it left the ball nearly dead at the post's foot instead of ringing off it.
+const REBOUND_FROM := 3.0
+
+## How fast the ball was going at the start of the last two steps: the engine
+## has already cut or turned it by the time `_integrate_forces` sees the contact,
+## and the cut comes a step before the turn.
+var _seen := Vector3.ZERO
+var _seen_earlier := Vector3.ZERO
+
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	var before := _seen
+	var earlier := _seen_earlier
+	_seen_earlier = _seen
+	_seen = state.linear_velocity
 	for i in state.get_contact_count():
 		var other := state.get_contact_collider_object(i) as Node
 		if other != null and other.is_in_group(Goal.NET_GROUP):
 			state.linear_velocity *= NET_KEEPS
 			state.angular_velocity *= NET_KEEPS
 			return
+	var worst := 0.0
+	var way := Vector3.ZERO
+	for i in state.get_contact_count():
+		var solid := state.get_contact_collider_object(i) as CollisionObject3D
+		# The grass has its own bounce, which the engine gets right.
+		if solid == null or (solid.collision_layer & TerrainSpec.LAYER_GROUND) != 0:
+			continue
+		# The surface's own normal, turned to face the ball: from the contact
+		# point alone it is unreliable when the ball has sunk into a post.
+		var outward := state.get_contact_local_normal(i)
+		if outward.dot(state.transform.origin - state.get_contact_local_position(i)) < 0.0:
+			outward = -outward
+		var closing := maxf(-before.dot(outward), -earlier.dot(outward))
+		if closing < REBOUND_FROM:
+			continue
+		var kept := BOUNCE
+		var body := solid as PhysicsBody3D
+		if body != null and body.physics_material_override != null:
+			kept = maxf(kept, body.physics_material_override.bounce)
+		var short := kept * closing - state.linear_velocity.dot(outward)
+		if short > worst:
+			worst = short
+			way = outward
+	if worst > 0.0:
+		state.linear_velocity += way * worst
 
 ## Give the ball a launch velocity, however it was worked out: by a kick on this
 ## phone, or by the host on behalf of a guest who asked for it.
@@ -391,6 +434,13 @@ const TOUCH_AHEAD := 0.85
 const PUSH_BOUNCE := 0.25
 ## How fast a ball is eased out from under a child who has stepped onto it.
 const PUSH_OUT := 1.0
+## How hard a ball that has sunk into a child running with it is nudged back out
+## to the front, in metres a second for each metre it has sunk. The air drag
+## takes a few centimetres a second off a rolling ball every tick and the push
+## only brings it back to the child's own pace, so over a long run the ball crept
+## in 7 cm a second until it sat inside the child and then behind them; this
+## holds it at arm's length instead, without ever launching it.
+const PUSH_LEAD := 3.0
 
 ## What the child's body does to a ball it is touching, flat along the ground.
 ## The ball and the child's capsule do not collide with one another in the
@@ -438,6 +488,8 @@ static func pushed_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v:
 		want = body_n + (body_n - ball_n) * PUSH_BOUNCE
 	if gap < contact - 0.08:
 		want = maxf(want, PUSH_OUT)
+	if body_n > 0.5:
+		want = maxf(want, body_n + (contact - gap) * PUSH_LEAD)
 	return ball_v + way * (want - ball_n)
 
 ## What a ball at `at` moving at `ball_v` does in this step, for a child at
@@ -467,17 +519,66 @@ static func touch_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v: 
 	var flat := Vector3(ball_v.x, 0.0, ball_v.z).lerp(want, pull)
 	return Vector3(flat.x, ball_v.y, flat.z)
 
+## The softest strike the button gives: even the shortest tap has to move the
+## ball, or a child taps it and concludes the button is broken. One number for the
+## kick, the aim indicator and the arrow-keys alike.
+const TAP_STRENGTH := 0.12
+
+## How far a ball that stays on the grass rolls for each metre a second it leaves
+## at, measured on a flat drive: 4.8 m from 3.5 m/s, 12.2 m from 8.9 m/s, 35.9 m
+## from 26 m/s. The aim indicator draws the roll with it, up to ROLL_SHOWN.
+const ROLL_PER_SPEED := 1.38
+const ROLL_SHOWN := 12.0
+## A kick that comes down within this far of the foot is a drive along the
+## grass, not a lob, and is drawn as a roll.
+const DRIVE_LANDS_WITHIN := 1.5
+## Spacing of the dots along a roll.
+const ROLL_DOT_GAP := 0.6
+
+## The line the aim indicator draws for a kick that leaves at `launch` from a ball
+## at `at`: the arc to where it first comes down when it is lofted, and when it
+## is a drive along the grass the line it rolls along, to about where it stops. At
+## the height of the ball's centre, as the ball itself travels. Built on `predict`,
+## so the arc is the ball's own arithmetic, and on the same `launch` the kick
+## uses; this adds nothing of its own to the direction or the speed.
+static func aim_path(at: Vector3, launch: Vector3, damp: float, gravity: float, ground: Callable) -> PackedVector3Array:
+	var path := predict(at, launch, damp, gravity, 2.6, 0.09, ground, true)
+	var flat := Vector3(launch.x, 0.0, launch.z)
+	if not path.is_empty():
+		var end := path[path.size() - 1]
+		if Vector2(end.x - at.x, end.z - at.z).length() >= DRIVE_LANDS_WITHIN:
+			return path
+	if flat.length_squared() < 0.0001:
+		return path
+	var way := flat.normalized()
+	var reach := minf(flat.length() * ROLL_PER_SPEED, ROLL_SHOWN)
+	var rolled := PackedVector3Array()
+	var gone := ROLL_DOT_GAP
+	while gone <= reach + 0.001:
+		var x := at.x + way.x * gone
+		var z := at.z + way.z * gone
+		rolled.append(Vector3(x, float(ground.call(x, z)) + RADIUS, z))
+		gone += ROLL_DOT_GAP
+	if rolled.is_empty():
+		var x := at.x + way.x * reach
+		var z := at.z + way.z * reach
+		rolled.append(Vector3(x, float(ground.call(x, z)) + RADIUS, z))
+	return rolled
+
 ## Where a ball launched from `start` at `velocity` will be, every `step`
 ## seconds for up to `seconds`, under this world's gravity and the ball's
 ## drag — integrated the way the physics server does it, so the dots land
-## where the ball does. Stops early where `ground` says the ball has landed.
-static func predict(start: Vector3, velocity: Vector3, damp: float, gravity: float, seconds: float, step: float, ground: Callable) -> PackedVector3Array:
+## where the ball does. Stops early where `ground` says the ball has landed: at
+## the first dot below the grass, or with `exact`, at the point between that dot
+## and the one before where it actually came down.
+static func predict(start: Vector3, velocity: Vector3, damp: float, gravity: float, seconds: float, step: float, ground: Callable, exact := false) -> PackedVector3Array:
 	var points := PackedVector3Array()
 	var at := start
 	var v := velocity
 	var fine := 1.0 / 120.0
 	var t := 0.0
 	var since_point := step
+	var last := start
 	while t < seconds:
 		v.y -= gravity * fine
 		v *= maxf(0.0, 1.0 - damp * fine)
@@ -486,10 +587,20 @@ static func predict(start: Vector3, velocity: Vector3, damp: float, gravity: flo
 		since_point += fine
 		if since_point >= step:
 			since_point = 0.0
-			if at.y < float(ground.call(at.x, at.z)) + RADIUS:
-				points.append(Vector3(at.x, float(ground.call(at.x, at.z)) + RADIUS, at.z))
+			var grass := float(ground.call(at.x, at.z)) + RADIUS
+			if at.y < grass and exact:
+				# The ball came down somewhere between the last dot and here, and
+				# the ring belongs where it did, not a whole step beyond: at a
+				# full swing that step is several metres.
+				var drop := last.y - at.y
+				var down := last.lerp(at, clampf((last.y - grass) / drop, 0.0, 1.0)) if drop > 0.0001 else last
+				points.append(Vector3(down.x, float(ground.call(down.x, down.z)) + RADIUS, down.z))
+				break
+			if at.y < grass:
+				points.append(Vector3(at.x, grass, at.z))
 				break
 			points.append(at)
+			last = at
 	return points
 
 ## The velocity `throw_to` would use for `target` before its wobble: for the

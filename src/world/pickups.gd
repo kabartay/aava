@@ -192,6 +192,7 @@ func check_reach(world_position: Vector3) -> void:
 			nearest = minf(nearest, away)
 			continue
 		taken[record["id"]] = true
+		_remember_the_claim(record["id"], record["kind"])
 		var node: Node3D = record["node"]
 		if is_instance_valid(node):
 			node.queue_free()
@@ -223,6 +224,36 @@ var _reach_scans := 0
 
 func reach_scans() -> int:
 	return _reach_scans
+
+## What this phone's child took lately, by id, with the time: a guest's pick-up
+## is provisional until the host has had its say (see Session.report_picked), and
+## if the host says the thing was already its own, the phone needs to know what
+## to take back out of the bag.
+var _claims: Dictionary = {}
+
+## Longer than any reply from a host on a family network takes; a claim older
+## than this is the child's for good.
+const CLAIM_WINDOW_MSEC := 15000
+
+func _remember_the_claim(id: String, kind: StringName) -> void:
+	var now := Time.get_ticks_msec()
+	for old: String in _claims.keys():
+		if now - int(_claims[old][1]) > CLAIM_WINDOW_MSEC:
+			_claims.erase(old)
+	_claims[id] = [kind, now]
+
+## The host had it first. Returns the kind of thing the child had been given for
+## it, so it can be taken from them again, or nothing if this phone never took
+## that one (or took it too long ago to be taken back). The pickup stays gone
+## from the valley: it is in the host's bag.
+func take_back(id: String) -> StringName:
+	if not _claims.has(id):
+		return &""
+	var claim: Array = _claims[id]
+	_claims.erase(id)
+	if Time.get_ticks_msec() - int(claim[1]) > CLAIM_WINDOW_MSEC:
+		return &""
+	return claim[0]
 
 ## Somebody else picked this up. It is gone here too, without a reward: it went
 ## into their bag. A tile not built yet will leave it out when it is.
