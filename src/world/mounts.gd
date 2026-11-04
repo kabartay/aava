@@ -110,6 +110,7 @@ func place(kind: StringName, at: Vector3, facing := 0.0) -> void:
 	_facings[kind] = facing
 	_nodes[kind] = node
 	_positions[kind] = grounded
+	_blockers_stale = true
 	_register(kind, node)
 
 ## Where a mount rests: on the ground, or, for a boat, on the water wherever
@@ -283,6 +284,7 @@ func _forget(id: StringName) -> void:
 	_waiting_to_be_solid.erase(id)
 	_found_blocked_at.erase(id)
 	_remote.erase(id)
+	_blockers_stale = true
 	if _settling == id:
 		_settling = &""
 
@@ -295,21 +297,58 @@ func _forget(id: StringName) -> void:
 ##
 ## The ridden one does not count. A child is standing in it.
 func blocks(x: float, z: float, margin: float) -> bool:
+	if _blockers_stale:
+		_rebuild_blockers()
+	# Flat triples of x, z and girth for the mounts that count, so the walk is
+	# over numbers already in hand and not a dictionary, a node and a lookup per
+	# mount. The box round each goes first, as it always did: a pair of
+	# subtractions turns most of them away without a square root.
+	var blockers := _blockers
+	var at := 0
+	var end := blockers.size()
+	while at < end:
+		var reach := blockers[at + 2] + margin
+		var dx := x - blockers[at]
+		var dz := z - blockers[at + 1]
+		at += 3
+		if dx > reach or dx < -reach or dz > reach or dz < -reach:
+			continue
+		if dx * dx + dz * dz < reach * reach:
+			return true
+	return false
+
+## Where the mounts that can block stand, as x, z, girth in turn. Rebuilt
+## when `_blockers_stale` says something it was built from has moved: a mount
+## placed, forgotten, dropped by a drifting current or moved to a clear spot,
+## or one gaining or losing a rider (the child's, or a visitor's). The ridden
+## mount moves every frame and is not in the list, so carrying it does not
+## spoil the list. This node sits at the world's origin, so a mount's position
+## is its global position (see `place`).
+var _blockers := PackedFloat64Array()
+var _blockers_stale := true
+
+func _rebuild_blockers() -> void:
+	_blockers_stale = false
+	_blockers.clear()
 	for id in _nodes:
 		var node: Node3D = _nodes[id]
 		if id == riding or not is_instance_valid(node) or _remote.has(id):
 			continue
-		# The box round it first. Every animal that is walking asks about every
-		# mount in the meadow, and nearly all of them are far off: a pair of
-		# subtractions turns most of them away without a square root or a
-		# vector made to measure with. This node sits at the world's origin,
-		# so its position is its global position (see `place`).
+		_blockers.append(node.position.x)
+		_blockers.append(node.position.z)
+		_blockers.append(MountKinds.girth(id))
+
+## The plain scan `blocks` replaced, kept for the checks to prove the list
+## gives the same answer.
+func blocks_plainly(x: float, z: float, margin: float) -> bool:
+	for id in _nodes:
+		var node: Node3D = _nodes[id]
+		if id == riding or not is_instance_valid(node) or _remote.has(id):
+			continue
 		var reach := MountKinds.girth(id) + margin
 		var dx := x - node.position.x
-		if dx > reach or dx < -reach:
-			continue
 		var dz := z - node.position.z
-		if dz > reach or dz < -reach:
+		if dx > reach or dx < -reach or dz > reach or dz < -reach:
 			continue
 		if dx * dx + dz * dz < reach * reach:
 			return true
@@ -337,6 +376,7 @@ func ride_remote(id: StringName, at: Vector3, facing: float) -> bool:
 	var node: Node3D = _nodes[id]
 	if not _remote.has(id):
 		_remote[id] = true
+		_blockers_stale = true
 		_set_solid(id, false)
 		_waiting_to_be_solid.erase(id)
 		node.visible = false
@@ -364,6 +404,7 @@ func release_remote(id: StringName) -> void:
 func _let_go_of(id: StringName) -> bool:
 	if not _remote.erase(id) or not exists(id):
 		return false
+	_blockers_stale = true
 	(_nodes[id] as Node3D).visible = true
 	_waiting_to_be_solid[id] = true
 	# Not `_settling = id`: there is one slot for the horse being eased back to
@@ -444,6 +485,7 @@ func adopt(data: Dictionary) -> void:
 		if id != riding:
 			_forget(id)
 	_remote.clear()
+	_blockers_stale = true
 	from_data(data)
 
 func _stand_at(id: StringName, at: Vector3, facing: float) -> void:
@@ -454,6 +496,7 @@ func _stand_at(id: StringName, at: Vector3, facing: float) -> void:
 	node.transform.basis = _lie_on_the_ground(spot, facing, id)
 	_facings[id] = facing
 	_positions[id] = spot
+	_blockers_stale = true
 
 ## The node a mount is drawn as. For the checks, and for anything that needs
 ## to reach inside it.
@@ -541,6 +584,7 @@ func mount(kind: StringName) -> bool:
 	if riding != &"" or not exists(kind) or _remote.has(kind):
 		return false
 	riding = kind
+	_blockers_stale = true
 	# A horse the child has only just got off is still easing back to standing,
 	# and there is one slot for that: cleared here, its legs stayed wherever
 	# the last stride had put them for as long as the game was open. It is put
@@ -967,6 +1011,7 @@ func _drift_the_boats(delta: float) -> void:
 		moved.y = _rest_height(id, moved)
 		node.position = moved
 		_positions[id] = moved
+		_blockers_stale = true
 
 ## Where the ridden horse's legs are, for the checks: the swing of each, in
 ## radians.
@@ -993,6 +1038,7 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 		return &""
 	var kind := riding
 	riding = &""
+	_blockers_stale = true
 	# Its legs are wherever the last stride left them. A horse got off at a
 	# gallop stood with its hind legs cocked out behind it for ever, because
 	# nothing moved them once nobody was riding it.

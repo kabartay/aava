@@ -37,6 +37,7 @@ func _initialize() -> void:
 	await _check_the_cafe_price_is_kept()
 	await _check_loading_reaches_what_is_already_built()
 	await _check_the_busy_frame_does_its_work_on_change()
+	await _check_the_animal_step_reuses_what_it_has_already_read()
 	_check_inventory_arithmetic()
 	_check_build_costs_are_real()
 	_check_a_grove_forms()
@@ -27289,4 +27290,106 @@ func _check_the_fairground_feather_is_not_painted_as_crag() -> void:
 		> Vector3(tint.r, tint.g, tint.b).distance_to(Vector3(TerrainSpec.COLOR_GRASS.r, TerrainSpec.COLOR_GRASS.g, TerrainSpec.COLOR_GRASS.b)),
 		"and is painted nearer grass than crag (%s)" % tint
 	)
+
+## The per-animal step reads the mounts and the ground less often, and gives the
+## answers the plain computation gives: `Mounts.blocks` from a list rebuilt when
+## a mount moves, and `_lean_with_the_ground` from ends read again only after a
+## hand's breadth of walking, with the ground under her feet handed on to
+## `_ground_under`.
+func _check_the_animal_step_reuses_what_it_has_already_read() -> void:
+	print("the animal step reuses what it has already read")
+	await process_frame
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	# Mounts: the list of blockers follows every way a mount can change.
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var agree := true
+	var disagreements := 0
+	var asked := 0
+	var stages: Array[String] = []
+	for stage in 9:
+		match stage:
+			0:
+				for index in 3:
+					mounts.place(MountKinds.horse_id(index), camp + Vector3(6.0 * float(index), 0.0, 0.0))
+				mounts.place(MountKinds.BICYCLE, camp + Vector3(-8.0, 0.0, 0.0))
+			1:
+				mounts.place(MountKinds.horse_id(1), camp + Vector3(6.0, 0.0, 9.0))
+			2:
+				mounts.ride_remote(MountKinds.horse_id(0), camp + Vector3(30.0, 0.0, 4.0), 0.5)
+			3:
+				mounts.release_remote(MountKinds.horse_id(0))
+			4:
+				mounts.mount(MountKinds.BICYCLE)
+				mounts.carry(camp + Vector3(-3.0, 0.0, 5.0), 0.3)
+			5:
+				mounts.carry(camp + Vector3(2.0, 0.0, 6.0), 1.0)
+			6:
+				mounts.dismount(camp + Vector3(12.0, 0.0, 3.0), 0.0)
+			7:
+				mounts.sell_one(MountKinds.HORSE, camp)
+			8:
+				mounts.adopt({"quad:0": [camp.x + 4.0, 0.0, camp.z + 4.0]})
+		stages.append(str(stage))
+		for _i in 150:
+			var x := camp.x + rng.randf_range(-16.0, 36.0)
+			var z := camp.z + rng.randf_range(-8.0, 16.0)
+			var margin := rng.randf_range(0.1, 1.2)
+			asked += 1
+			if mounts.blocks(x, z, margin) != mounts.blocks_plainly(x, z, margin):
+				agree = false
+				disagreements += 1
+	_expect(agree, "blocks() agrees with the plain scan after every kind of change (%d of %d differ)" % [disagreements, asked])
+	_expect(mounts.blocks(camp.x + 4.0, camp.z + 4.0, 0.2), "and a mount just put there does block")
+	mounts.queue_free()
+
+	# The lean: a cow walked over hilly ground tips as the plain computation
+	# would, to within half a degree, and stands at the same height to a hand.
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var half := AnimalKinds.body_size(AnimalKinds.COW).z * 0.5
+	var worst_tilt := 0.0
+	var worst_lift := 0.0
+	var worst_ground := 0.0
+	var walked := 0
+	for route in 6:
+		var start := camp + Vector3.RIGHT.rotated(Vector3.UP, float(route)) * (120.0 + 60.0 * float(route))
+		var cow := animals.put_one_at(AnimalKinds.COW, start)
+		var node: Node3D = cow["node"]
+		# The twin does the plain sum from fresh readings at every step.
+		var twin_node := Node3D.new()
+		animals.add_child(twin_node)
+		var twin_lift := 0.0
+		var heading := rng.randf_range(0.0, TAU)
+		for step in 600:
+			heading += rng.randf_range(-0.01, 0.01)
+			var forward := Vector3(-sin(heading), 0.0, -cos(heading))
+			node.position += forward * 0.025
+			node.rotation.y = heading
+			animals._lean_with_the_ground(cow, node, 1.0 / 60.0)
+			var ground := float(animals._ground_under(cow, node.position, 1.0 / 60.0))
+			worst_ground = maxf(worst_ground, absf(ground - animals._footing(node.position.x, node.position.z)))
+
+			twin_node.position = node.position
+			twin_node.rotation.y = heading
+			var ahead := Vector3(-sin(heading), 0.0, -cos(heading)) * half
+			var front: float = animals._footing(node.position.x + ahead.x, node.position.z + ahead.z)
+			var back: float = animals._footing(node.position.x - ahead.x, node.position.z - ahead.z)
+			var pitch := clampf(atan2(front - back, half * 2.0), -Animals.LEANS_TO, Animals.LEANS_TO)
+			twin_node.rotation.x = lerpf(twin_node.rotation.x, pitch, 1.0 - exp(-12.0 / 60.0))
+			var leaning := sin(twin_node.rotation.x) * half
+			twin_lift = maxf(0.0, maxf(front - leaning, back + leaning) - animals._footing(node.position.x, node.position.z))
+			worst_tilt = maxf(worst_tilt, absf(node.rotation.x - twin_node.rotation.x))
+			worst_lift = maxf(worst_lift, absf(float(cow["lift"]) - twin_lift))
+			walked += 1
+	_expect(
+		worst_tilt < deg_to_rad(0.5),
+		"a walking cow's lean is within half a degree of the plain sum: worst %.3f deg over %d steps" % [rad_to_deg(worst_tilt), walked]
+	)
+	_expect(worst_lift < 0.02, "and her lift within two centimetres: worst %.4f m" % worst_lift)
+	_expect(worst_ground == 0.0, "the ground under her feet handed on is exactly the ground read afresh")
+	animals.queue_free()
 

@@ -997,8 +997,32 @@ func _lean_with_the_ground(animal: Dictionary, node: Node3D, delta: float) -> vo
 	var half := AnimalKinds.body_size(kind).z * 0.5
 	var facing := node.rotation.y
 	var ahead := Vector3(-sin(facing), 0.0, -cos(facing)) * half
-	var front := _footing(node.position.x + ahead.x, node.position.z + ahead.z)
-	var back := _footing(node.position.x - ahead.x, node.position.z - ahead.z)
+	# The two ends are read afresh only when the animal has moved a hand's
+	# breadth, turned a little, or a second has gone by. A walking animal
+	# covers two or three centimetres a frame, and the ground under a body's
+	# length does not change its tilt by anything the eye can see in that
+	# distance (the check measures it at under half a degree); the second is
+	# for a dam going up under one that is standing still.
+	var seen: Vector3 = animal.get("lean_seen", Vector3(INF, INF, INF))
+	var age := float(animal.get("lean_age", 0.0)) + delta
+	var front: float
+	var back: float
+	if (
+		age < GROUND_RECHECK
+		and absf(facing - seen.z) < LEAN_REUSE_TURN
+		and Vector2(node.position.x - seen.x, node.position.z - seen.y).length_squared()
+			< LEAN_REUSE_MOVE * LEAN_REUSE_MOVE
+	):
+		front = animal["lean_front"]
+		back = animal["lean_back"]
+		animal["lean_age"] = age
+	else:
+		front = _footing(node.position.x + ahead.x, node.position.z + ahead.z)
+		back = _footing(node.position.x - ahead.x, node.position.z - ahead.z)
+		animal["lean_front"] = front
+		animal["lean_back"] = back
+		animal["lean_seen"] = Vector3(node.position.x, node.position.z, facing)
+		animal["lean_age"] = 0.0
 	# front - back, not back - front.
 	#
 	# Rotating about the body's own X by a positive angle lifts what is at -Z,
@@ -1026,9 +1050,19 @@ func _lean_with_the_ground(animal: Dictionary, node: Node3D, delta: float) -> vo
 	# which is what it should: a cow on a gentle hill is not on stilts.
 	var leaning := sin(node.rotation.x) * half
 	var stand := maxf(front - leaning, back + leaning)
-	animal["lift"] = maxf(
-		0.0, stand - _footing(node.position.x, node.position.z)
-	)
+	# The ground under her feet is read here and handed on to `_ground_under`,
+	# which asks for the same point a few lines later in the same step and
+	# would otherwise walk the whole height field again for the same number.
+	var ground := _footing(node.position.x, node.position.z)
+	animal["ground"] = ground
+	animal["ground_at"] = Vector2(node.position.x, node.position.z)
+	animal["ground_age"] = 0.0
+	animal["lift"] = maxf(0.0, stand - ground)
+
+## How far an animal may walk, and how far it may turn, before the ground at
+## either end of it is read again.
+const LEAN_REUSE_MOVE := 0.03
+const LEAN_REUSE_TURN := 0.02
 
 ## How far an animal will tip to the ground under it.
 const LEANS_TO := deg_to_rad(22.0)
