@@ -60,6 +60,7 @@ var _taps := 0
 ## The last few taps, said in a failure so a stuck child can be traced.
 var _recent: Array[String] = []
 var _holds_completed := 0
+var _undone_by_hold := 0
 
 ## Boot the game, give the child a lot to lose, and tap for `frames` frames
 ## spread over every place and mode the child can be in.
@@ -77,6 +78,7 @@ func run(tree: SceneTree, frames: int, probe_every_phase := false, only: Array =
 	_before = _snapshot()
 	var phases: Array = only if not only.is_empty() else [
 		&"home", &"home_building", &"cafe", &"fairground", &"campfire", &"shop", &"settings",
+		&"pitch", &"ride",
 	]
 	var each := maxi(frames / phases.size(), 1)
 	for phase: StringName in phases:
@@ -239,6 +241,9 @@ func _attach_rings() -> void:
 		ring.completed.connect(func() -> void:
 			_meant = true
 			_holds_completed += 1
+			# A parent's held undo takes the last piece down on purpose.
+			if _name_of(ring.get_parent() as BaseButton) == "_undo_button":
+				_undone_by_hold += 1
 			_meant_log.append("%s: held %s" % [_phase, _name_of(ring.get_parent() as BaseButton)]))
 
 func _rings() -> Array[HoldRing]:
@@ -289,6 +294,14 @@ func _enter(phase: StringName) -> void:
 			await _go_to(_a_spot_at(&"shop", camp, Places.SHOP))
 			hud.set_shop_open(true, wallet.coins, wallet.owned)
 			hud._shop_tapped(ShopStock.BICYCLE)
+		&"pitch":
+			# On the grass beside a ball, so the kick button and the aim preview
+			# are showing from the first frame.
+			var ball_at: Vector3 = world.football.ball_positions()[0]
+			await _go_to(ball_at + Vector3(-1.2, 0.0, 0.0))
+		&"ride":
+			var horse_at: Vector3 = report["house_origin"] + Vector3(-5.0, 0.0, 3.0)
+			await _go_to(horse_at + Vector3(1.0, 0.0, 0.0))
 		&"settings":
 			await _go_to(report["house_origin"] + Vector3(-1.0, 0.0, 6.0))
 			hud._menu.visible = true
@@ -329,7 +342,62 @@ func _tap_about(frames: int) -> void:
 		if parent:
 			seconds = PARENT_HOLD_SECONDS
 		var target := _pick_target()
+		if _phase == "pitch" or _phase == "ride":
+			await _chaos()
 		spent += await _press(target[0], String(target[1]), seconds, parent)
+
+## What a toddler does with the phone that is not a tap on a button: leans on the
+## keys, spins the view, is put somewhere else. Beside the ball and on a mount,
+## where each of these once broke something. None of it may spend anything.
+func _chaos() -> void:
+	var player: Player = _main.get("player")
+	var world: World = _main.get("world")
+	var rig: CameraRig = _main.get("camera_rig")
+	var dice := _rng.randi() % 10
+	match dice:
+		0, 1:
+			# Walk or ride off in a random direction for a few frames.
+			var actions: Array[StringName] = [
+				InputActions.MOVE_FORWARD, InputActions.MOVE_BACK, InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+			]
+			var action: StringName = actions[_rng.randi() % 4]
+			Input.action_press(action, 1.0)
+			for _i in _rng.randi_range(5, 40):
+				await _next_frame()
+			Input.action_release(action)
+		2:
+			rig.yaw += _rng.randf_range(-PI, PI)
+			rig.pitch = clampf(rig.pitch + _rng.randf_range(-0.6, 0.6), -1.2, 0.5)
+		3:
+			# The keyboard's kick, held a random while, through the same two calls.
+			Input.action_press(InputActions.KICK, 1.0)
+			for _i in _rng.randi_range(1, 70):
+				await _next_frame()
+			Input.action_release(InputActions.KICK)
+		4:
+			if _phase == "pitch":
+				# Put back beside a ball, as a child walking round the pitch is.
+				var balls := world.football.ball_positions()
+				var at := balls[_rng.randi() % balls.size()] + Vector3(_rng.randf_range(-2.0, 2.0), 0.0, _rng.randf_range(-2.0, 2.0))
+				await _go_to(at)
+			else:
+				_main.call("_on_ride")
+		5:
+			if _phase == "ride":
+				# Get on or off mid-motion, with a key held.
+				Input.action_press(InputActions.MOVE_FORWARD, 1.0)
+				for _i in _rng.randi_range(5, 30):
+					await _next_frame()
+				_main.call("_on_ride")
+				for _i in _rng.randi_range(1, 10):
+					await _next_frame()
+				Input.action_release(InputActions.MOVE_FORWARD)
+		6:
+			if _phase == "ride":
+				# Put somewhere else while riding, as a respawn does.
+				await _go_to(player.global_position + Vector3(_rng.randf_range(-6.0, 6.0), 0.0, _rng.randf_range(-6.0, 6.0)))
+		_:
+			pass
 
 ## One short tap on every button that is showing, so that no button is left to
 ## chance: a random run can miss a rarely offered one for a whole phase.
@@ -484,6 +552,13 @@ func _reconcile() -> void:
 func _watch_the_child() -> void:
 	var player: Player = _main.get("player")
 	var world: World = _main.get("world")
+	_watch_the_world(player, world)
+	if player.riding != &"":
+		report["frames_riding"] = int(report.get("frames_riding", 0)) + 1
+	if (_main.get("kick_preview") as KickPreview).dots_shown() > 0:
+		report["frames_aim_shown"] = int(report.get("frames_aim_shown", 0)) + 1
+	if player.is_charging():
+		report["frames_charging"] = int(report.get("frames_charging", 0)) + 1
 	var ground := world.field.height_at(player.global_position.x, player.global_position.z)
 	if player.global_position.y < ground - 1.5 and not player.is_carried and not player.strapped_in:
 		var line := "[%s] the child is under the ground (%.1f below it, after: %s)" % [
@@ -491,6 +566,30 @@ func _watch_the_child() -> void:
 		]
 		if not failures.has(line):
 			failures.append(line)
+
+## No NaN anywhere that moves, and no ball under the ground.
+func _watch_the_world(player: Player, world: World) -> void:
+	var camera: Camera3D = _tree.root.get_camera_3d()
+	var places: Array = [["the child", player.global_position], ["its velocity", player.velocity]]
+	if camera != null:
+		places.append(["the camera", camera.global_position])
+	for ball_at: Vector3 in world.football.ball_positions():
+		places.append(["a football", ball_at])
+		var floor_y := world.field.height_at(ball_at.x, ball_at.z)
+		if ball_at.is_finite() and ball_at.y < floor_y - 3.0 and ball_at.y > world.field.water_level_at(ball_at.x, ball_at.z):
+			var line := "[%s] a football fell through the ground (%.1f below, after: %s)" % [_phase, floor_y - ball_at.y, _last_tap]
+			if not failures.has(line):
+				failures.append(line)
+	for kind: StringName in [MountKinds.BICYCLE, MountKinds.HORSE]:
+		for i in 3:
+			var id := StringName("%s:%d" % [kind, i])
+			if world.mounts.exists(id):
+				places.append(["mount " + String(id), world.mounts.position_of(id)])
+	for entry: Array in places:
+		if not (entry[1] as Vector3).is_finite():
+			var line := "[%s] %s is at %v (not finite, after: %s)" % [_phase, entry[0], entry[1], _last_tap]
+			if not failures.has(line):
+				failures.append(line)
 
 # --- what must still be true ------------------------------------------------
 
@@ -518,6 +617,8 @@ func _compare(before: Dictionary, after: Dictionary) -> void:
 	for key: String in before["pieces"]:
 		if int((after["pieces"] as Dictionary).get(key, 0)) < int(before["pieces"][key]):
 			gone.append(key)
+	if gone.size() <= _undone_by_hold:
+		gone.clear()
 	if not gone.is_empty():
 		failures.append("built pieces or trees missing at the end: %s" % ", ".join(gone.slice(0, 6)))
 	for item: StringName in before["owned"]:

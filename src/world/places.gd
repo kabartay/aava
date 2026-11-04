@@ -366,10 +366,32 @@ const TRAMPOLINE_REBOUND := 0.6
 ## The ring's height is the real one; the ring is wider than a real one, so a
 ## throw that is nearly right goes in. The net has a child under it, not a
 ## league.
-const HOOP := Vector3(-13.0, 0.0, -3.0)
+## Moved 1.3 m south and 0.2 m west with its court, which had been laid across
+## the corner of the rubber mat under the near swing frame (the mat reaches
+## z = -2.65) and the edge of the trampoline's ring.
+const HOOP := Vector3(-13.2, 0.0, -4.3)
 const HOOP_HEIGHT := 3.3
 const HOOP_RING := 0.30
 const HOOP_REACH := HOOP_RING + 0.22
+## The hoop's court: a hard painted pad under the hoop and the ground the
+## balls lie on, in the pad's own coordinates. Its long side runs out from the
+## pole into the playground; it stops short of the swing frames. Its top stands
+## three centimetres proud of the levelled ground, so it can never share a
+## pixel with the terrain, and its edge is a gentle bevel rather than a kerb,
+## so a child walks onto it instead of snagging on it.
+const COURT_CENTRE := Vector3(-11.1, 0.0, -5.85)
+const COURT_HALF := Vector2(2.9, 2.85)
+const COURT_HEIGHT := 0.03
+const COURT_BEVEL := 0.3
+## The paint on it stands this far above the court, and no less: any thinner
+## and it flickers against the court's top at a distance.
+const COURT_LINE_LIFT := 0.012
+## The key under the hoop: how far out from the baseline it runs and half its
+## width, measured from the hoop's own z.
+const COURT_KEY_LENGTH := 4.2
+const COURT_KEY_HALF := 1.2
+## Who claims the ground in ClearGround for everything these places build.
+const GROUND_OWNER := &"places"
 const BASKETBALLS: Array[Vector3] = [
 	Vector3(-11.0, 0.5, -4.4), Vector3(-10.2, 0.5, -5.8), Vector3(-11.8, 0.5, -6.0),
 ]
@@ -482,6 +504,8 @@ func _init(height_field: HeightField) -> void:
 ## Put the three places around the camp. Called once.
 func stand_up(camp: Vector3) -> void:
 	_camp = camp
+	# What these places keep clear of grass is claimed again below, not twice.
+	ClearGround.forget(GROUND_OWNER)
 	# Positions come from PlaceSpec, which is also what the height field levels
 	# and excavates against. Repeating the offsets here would let the buildings
 	# drift off their own flat ground the first time one was moved.
@@ -1112,6 +1136,22 @@ func _build_shop(at: Vector3) -> void:
 		_add(tool, step, Transform3D(
 			Basis(), Vector3(0.0, 0.05 + float(tread) * 0.06, porch_z - 0.7 + float(tread) * 0.5)
 		), stone)
+	# The deck and the floor are solid, or a child walked through the porch at
+	# ground level with the boards at their knees. The two steps are one
+	# ramp, which a child walks up, instead of two kerbs to snag a foot on: it
+	# rises 18 cm over 80 cm (about thirteen degrees) to the deck's top.
+	_collide(solid, _box_shape(Vector3(w + 0.6, 0.18, 2.6)), Transform3D(Basis(), Vector3(0.0, 0.09, front - 1.3)))
+	var ramp := ConvexPolygonShape3D.new()
+	ramp.points = PackedVector3Array([
+		Vector3(-1.8, 0.0, front - 3.4), Vector3(1.8, 0.0, front - 3.4),
+		Vector3(-1.8, 0.18, front - 2.6), Vector3(1.8, 0.18, front - 2.6),
+		Vector3(-1.8, 0.0, front - 2.6), Vector3(1.8, 0.0, front - 2.6),
+	])
+	_collide(solid, ramp, Transform3D())
+	_collide(solid, _box_shape(Vector3(w, 0.12, d)), Transform3D(Basis(), Vector3(0.0, 0.06, mid)))
+	# Neither the floor nor the porch grows grass.
+	ClearGround.rect(GROUND_OWNER, at + Vector3(0.0, 0.0, mid), w * 0.5 + 0.3, d * 0.5 + 0.3)
+	ClearGround.rect(GROUND_OWNER, at + Vector3(0.0, 0.0, front - 1.7), (w + 0.6) * 0.5, 1.7)
 
 	# Display windows either side of the door, which is the other half of what
 	# makes a shop a shop: you can see in before you go in.
@@ -2435,6 +2475,7 @@ func _build_playground(at: Vector3) -> void:
 	_build_play_surfaces(at, solid)
 	_build_lamps(at, solid)
 	_build_hoop(at, solid)
+	_build_court(at, solid)
 	for bin_at in BINS:
 		_build_bin(at, bin_at, solid)
 	_build_fountain(at, solid)
@@ -2640,6 +2681,8 @@ func _build_pool(at: Vector3) -> void:
 	var iron := Color(0.20, 0.21, 0.23)
 	var paint := Color(0.94, 0.58, 0.26)
 
+	# The water, the tiled rim round it and the diving block beyond: no grass.
+	ClearGround.rect(GROUND_OWNER, at, POOL_HALF_X + 0.6, POOL_HALF_Z + 1.0)
 	# No walls and no floor: the height field has already dug the hollow, and a
 	# box of walls inside it would fight the terrain for the same pixels. A
 	# tiled rim round the water, and a lane line down the middle under it.
@@ -3045,6 +3088,8 @@ func _build_cafe(at: Vector3) -> void:
 	var mat := BoxMesh.new()
 	mat.size = Vector3(1.8, 0.03, 0.9)
 	_add(tool, mat, Transform3D(Basis(), Vector3(0.0, 0.015, front - 0.5)), Color(0.36, 0.30, 0.24))
+	ClearGround.rect(GROUND_OWNER, at + Vector3(0.0, 0.0, mid), w * 0.5 + 0.3, d * 0.5 + 0.3)
+	ClearGround.rect(GROUND_OWNER, at + Vector3(0.0, 0.0, front - 0.5), 0.9, 0.45)
 	var floor_slab := BoxMesh.new()
 	floor_slab.size = Vector3(w - thick, 0.06, d - thick)
 	_add(tool, floor_slab, Transform3D(Basis(), Vector3(0.0, 0.03, mid)), boards)
@@ -4396,6 +4441,7 @@ func _build_play_surfaces(at: Vector3, solid: StaticBody3D) -> void:
 		var slab_shape := BoxShape3D.new()
 		slab_shape.size = slab.size
 		_collide(solid, slab_shape, where)
+		ClearGround.rect(GROUND_OWNER, at + centre, size.x * 0.5, size.y * 0.5)
 	# Round the trampoline: a disc wider than its frame.
 	var disc := CylinderMesh.new()
 	disc.top_radius = TRAMPOLINE_RADIUS + 0.8
@@ -4409,6 +4455,7 @@ func _build_play_surfaces(at: Vector3, solid: StaticBody3D) -> void:
 	disc_shape.radius = disc.top_radius
 	disc_shape.height = disc.height
 	_collide(solid, disc_shape, disc_at)
+	ClearGround.circle(GROUND_OWNER, at + TRAMPOLINE, disc.top_radius)
 
 	# The sandpit: four boards round a bed of sand, with a bucket in it. The
 	# boards close all four sides and are low enough to step over.
@@ -4420,6 +4467,7 @@ func _build_play_surfaces(at: Vector3, solid: StaticBody3D) -> void:
 	var floor_shape := BoxShape3D.new()
 	floor_shape.size = floor_mesh.size
 	_collide(solid, floor_shape, floor_at)
+	ClearGround.rect(GROUND_OWNER, at + SANDPIT, half + 0.12, half + 0.12)
 	for side in PackedFloat32Array([-1.0, 1.0]):
 		for along_x: bool in [true, false]:
 			var board := BoxMesh.new()
@@ -4489,6 +4537,98 @@ func _build_trampoline(at: Vector3, solid: StaticBody3D) -> void:
 	stand.radius = TRAMPOLINE_RADIUS
 	stand.height = 0.12
 	_collide(solid, stand, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP - 0.06, 0.0)))
+
+## The hoop's court: a hard painted pad with a bevelled edge, a key under the
+## hoop, a free-throw arc and a boundary line. Solid, with the same bevel, so
+## the pad is flush for the foot and for the eye. Registered with ClearGround so
+## no tuft grows through it.
+func _build_court(at: Vector3, solid: StaticBody3D) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var base := Color(0.27, 0.39, 0.52)
+	var paint := Color(0.92, 0.92, 0.90)
+	var key := Color(0.62, 0.30, 0.24)
+	_add_pad(tool, solid, COURT_CENTRE, COURT_HALF, COURT_HEIGHT, COURT_BEVEL, base)
+	var top := COURT_HEIGHT
+	# The key, painted a second colour, a hair above the court.
+	var key_x := HOOP.x - 0.8 + COURT_KEY_LENGTH * 0.5
+	var key_pad := BoxMesh.new()
+	key_pad.size = Vector3(COURT_KEY_LENGTH, COURT_LINE_LIFT, COURT_KEY_HALF * 2.0)
+	_add(tool, key_pad, Transform3D(Basis(), Vector3(key_x, top + COURT_LINE_LIFT * 0.25, HOOP.z)), key)
+	var lift := top + COURT_LINE_LIFT * 0.75
+	# Lines: the boundary a hand inside the edge, the key's three sides, the
+	# free-throw line and its arc.
+	var low := COURT_CENTRE - Vector3(COURT_HALF.x - 0.25, 0.0, COURT_HALF.y - 0.25)
+	var high := COURT_CENTRE + Vector3(COURT_HALF.x - 0.25, 0.0, COURT_HALF.y - 0.25)
+	_court_line(tool, Vector3(low.x, lift, low.z), Vector3(high.x, lift, low.z), paint)
+	_court_line(tool, Vector3(low.x, lift, high.z), Vector3(high.x, lift, high.z), paint)
+	_court_line(tool, Vector3(low.x, lift, low.z), Vector3(low.x, lift, high.z), paint)
+	_court_line(tool, Vector3(high.x, lift, low.z), Vector3(high.x, lift, high.z), paint)
+	var key_end := HOOP.x - 0.8 + COURT_KEY_LENGTH
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		_court_line(tool, Vector3(HOOP.x - 0.8, lift, HOOP.z + side * COURT_KEY_HALF), Vector3(key_end, lift, HOOP.z + side * COURT_KEY_HALF), paint)
+	_court_line(tool, Vector3(key_end, lift, HOOP.z - COURT_KEY_HALF), Vector3(key_end, lift, HOOP.z + COURT_KEY_HALF), paint)
+	var arc := 10
+	for i in arc:
+		var a0 := -PI * 0.5 + PI * float(i) / float(arc)
+		var a1 := -PI * 0.5 + PI * float(i + 1) / float(arc)
+		_court_line(tool, Vector3(
+			key_end + cos(a0) * COURT_KEY_HALF, lift, HOOP.z + sin(a0) * COURT_KEY_HALF
+		), Vector3(
+			key_end + cos(a1) * COURT_KEY_HALF, lift, HOOP.z + sin(a1) * COURT_KEY_HALF
+		), paint)
+	_finish_into(tool, at)
+	ClearGround.rect(
+		GROUND_OWNER, at + COURT_CENTRE, COURT_HALF.x + COURT_BEVEL, COURT_HALF.y + COURT_BEVEL
+	)
+
+## A painted line from one point to another, lying flat at the height given.
+static func _court_line(tool: SurfaceTool, from: Vector3, to: Vector3, colour: Color) -> void:
+	var along := to - from
+	var line := BoxMesh.new()
+	line.size = Vector3(along.length() + 0.05, COURT_LINE_LIFT * 0.5, 0.07)
+	var yaw := atan2(-along.z, along.x)
+	_add(tool, line, Transform3D(Basis(Vector3.UP, yaw), (from + to) * 0.5), colour)
+
+## A flat pad on the ground whose edge slopes down to it: a frustum with its
+## top `height` above the levelled ground and its foot `bevel` further out,
+## sunk a hair below the ground so no gap opens at the foot. The same hull is
+## its collider, so a child walks onto it up the bevel rather than into a
+## kerb. `centre` and `solid` are in the place's own coordinates.
+static func _add_pad(
+	tool: SurfaceTool, solid: StaticBody3D, centre: Vector3, half: Vector2,
+	height: float, bevel: float, colour: Color
+) -> void:
+	var sink := -0.02
+	var foot_half := half + Vector2(bevel, bevel)
+	var points := PackedVector3Array()
+	for corner in 4:
+		var sx := -1.0 if corner % 2 == 0 else 1.0
+		var sz := -1.0 if corner < 2 else 1.0
+		points.append(centre + Vector3(sx * half.x, height, sz * half.y))
+	for corner in 4:
+		var sx := -1.0 if corner % 2 == 0 else 1.0
+		var sz := -1.0 if corner < 2 else 1.0
+		points.append(centre + Vector3(sx * foot_half.x, sink, sz * foot_half.y))
+	# Corners 0..3 are the top, 4..7 the foot: -x-z, +x-z, -x+z, +x+z.
+	var middle := centre + Vector3(0.0, height * 0.5, 0.0)
+	for face: Array in [
+		[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [1, 5, 7, 3], [3, 7, 6, 2], [2, 6, 4, 0],
+	]:
+		var quad: Array[Vector3] = []
+		for index: int in face:
+			quad.append(points[index])
+		# Godot draws clockwise as front: the first triangle's cross product
+		# has to point into the hull. Flipped when it does not.
+		var cross := (quad[1] - quad[0]).cross(quad[2] - quad[0])
+		if cross.dot((quad[0] + quad[2]) * 0.5 - middle) > 0.0:
+			quad.reverse()
+		for index: int in [0, 1, 2, 0, 2, 3]:
+			tool.set_color(colour)
+			tool.add_vertex(quad[index])
+	var hull := ConvexPolygonShape3D.new()
+	hull.points = points
+	_collide(solid, hull, Transform3D())
 
 ## A basketball hoop: pole, backboard, ring. The ring counts what falls
 ## through it; the balls beside it are ordinary balls with an orange coat.

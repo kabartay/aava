@@ -1780,6 +1780,35 @@ func _open_together() -> void:
 	together_opened.emit()
 	_layout()
 
+## Android's back button: put away the panel that is on top, and say whether
+## there was one. Nothing open means the caller may leave the game. One panel
+## per press, the one drawn last first, so a child who pressed back twice by
+## accident does not lose the screen under it as well.
+func close_top_panel() -> bool:
+	if _mic_notice != null and _mic_notice.visible:
+		hide_mic_refused()
+		return true
+	if _offer != null:
+		close_look_offer()
+		return true
+	if _danger.visible:
+		_danger.visible = false
+		_reset_ring.cancel()
+		_reset_button.text = Text.of("ui_reset_hold")
+		_layout()
+		return true
+	if _menu.visible:
+		_toggle_menu()
+		return true
+	if together.visible:
+		together.close()
+		_layout()
+		return true
+	if _shop.visible:
+		shop_toggled.emit()
+		return true
+	return false
+
 func _toggle_menu() -> void:
 	_menu.visible = not _menu.visible
 	# Over the map rather than under it. The minimap is added last so that it
@@ -2507,7 +2536,21 @@ func _layout() -> void:
 			safe.position.y + safe.size.y * 0.30 - _mic_notice.size.y * 0.5
 		)
 
+	# Under the button that opened it. A phone whose bottom edge is taken by a
+	# gesture bar leaves the settings, the tallest panel, hanging off the
+	# bottom of the safe area with its last row out of reach, so the panel then
+	# moves up beside the top row's first button instead, which stays uncovered
+	# and can still close it.
 	_menu.position = _menu_button.position + Vector2(0.0, BUTTON + TOP_GAP)
+	var panel_height := maxf(
+		_menu.get_combined_minimum_size().y, _danger.get_combined_minimum_size().y
+	)
+	var bottom_limit := safe.position.y + safe.size.y - 8.0
+	if _menu.position.y + panel_height > bottom_limit:
+		_menu.position = Vector2(
+			_menu_button.position.x + BUTTON + TOP_GAP,
+			maxf(safe.position.y + MARGIN, bottom_limit - panel_height)
+		)
 	_danger.position = _menu.position
 	if _offer != null:
 		_offer.size = Vector2.ZERO
@@ -2857,6 +2900,10 @@ func _layout() -> void:
 		else:
 			_shoot_button.position = Vector2(right_start, _storey_row.position.y)
 
+## Set by the checks to stand in for a phone's cutout (HUD coordinates);
+## empty means "ask the display".
+var safe_area_override := Rect2()
+
 ## The safe area arrives in physical screen pixels, so it has to be pulled
 ## through the stretch transform to mean anything in the HUD's coordinates —
 ## and then clipped to the viewport.
@@ -2869,6 +2916,9 @@ func _layout() -> void:
 ## silence, which is the worst way for a control to fail.
 func _safe_area() -> Rect2:
 	var viewport := Rect2(Vector2.ZERO, get_viewport().get_visible_rect().size)
+	# A cutout dictated by the checks, in HUD coordinates.
+	if safe_area_override.size.x > 0.0:
+		return safe_area_override.intersection(viewport)
 	var raw := DisplayServer.get_display_safe_area()
 	if raw.size.x <= 0 or raw.size.y <= 0:
 		return viewport

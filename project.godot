@@ -11,6 +11,8 @@ config/description="An open world that comes alive as you build in it."
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
+; Back is handled by main.gd: it closes the open panel first, and only quits with none.
+config/quit_on_go_back=false
 ; Pin the save directory now. On desktop it is otherwise derived from
 ; config/name, so renaming the project later would orphan every save file.
 config/use_custom_user_dir=true

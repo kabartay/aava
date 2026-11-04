@@ -675,6 +675,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if player.is_on_floor() and not _off_the_ground():
 		_last_on_ground = player.global_position
+	_lift_out_of_a_pocket(delta)
 	# Which ride a child is aboard, and whether it is one that charges. A
 	# ticket is taken when they get on, not while they stay on: the carousel
 	# turns for a minute and a ride is a ride.
@@ -3190,8 +3191,61 @@ func _on_care() -> void:
 func _on_shop() -> void:
 	hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
 
+## How long a child on foot pushes the stick without getting anywhere before the
+## ground round them is looked at, how far counts as getting somewhere, and how
+## long to leave it before looking again.
+const POCKET_WAIT := 4.0
+const POCKET_PROGRESS := 1.0
+
+var _pocket_anchor := Vector3.ZERO
+var _pocket_wait := 0.0
+
+## A child shut in a hollow of the mountain, whose walls are all too steep to
+## climb, has nowhere to go and no way home. Pushing the stick for a few seconds
+## without moving is what asks; the ground is then read from the height field,
+## and only a closed pocket moves anybody — a child leaning on a tree is not
+## lifted out of anything. See RespawnSpot.way_out_of_a_pocket.
+func _lift_out_of_a_pocket(delta: float) -> void:
+	var here := player.global_position
+	var pushing := Input.get_vector(
+		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+		InputActions.MOVE_FORWARD, InputActions.MOVE_BACK
+	).length() > 0.5
+	if (
+		not pushing or not player.is_on_floor() or player.riding != &""
+		or player.is_carried or player.strapped_in or _aboard != &""
+		or Vector2(here.x - _pocket_anchor.x, here.z - _pocket_anchor.z).length() > POCKET_PROGRESS
+	):
+		_pocket_anchor = here
+		_pocket_wait = 0.0
+		return
+	_pocket_wait += delta
+	if _pocket_wait < POCKET_WAIT:
+		return
+	_pocket_wait = 0.0
+	var out := RespawnSpot.way_out_of_a_pocket(world.field, here, world.field.find_spawn_point())
+	if not out.is_finite():
+		return
+	out = RespawnSpot.choose(
+		world.field, structures, world.places, world.park, world.signpost, out,
+		world.field.find_spawn_point()
+	)
+	player.velocity = Vector3.ZERO
+	world.terrain.ensure_ground_at(out)
+	player.global_position = out + Vector3.UP * SPAWN_CLEARANCE
+	_pocket_anchor = player.global_position
+	hud.announce(Text.of("say_caught"), 2.4)
+
 ## Put somebody who has fallen out of the world back on top of it.
 func _catch_a_fall(at: Vector3) -> void:
+	# A position that is not a number is not above any ground: every comparison
+	# below is false for it, so it would be "caught" and put back at the same
+	# nothing. The last dry ground is somewhere real.
+	if not at.is_finite():
+		player.velocity = Vector3.ZERO
+		player.global_position = _last_on_ground + Vector3.UP * SPAWN_CLEARANCE
+		hud.announce(Text.of("say_caught"), 2.4)
+		return
 	var ground := world.field.height_at(at.x, at.z)
 	if at.y > ground - Player.CAUGHT_BELOW:
 		return
@@ -3987,6 +4041,16 @@ func _notification(what: int) -> void:
 	# kill the process without another word. A child who built a house and went
 	# to show somebody lost up to a whole autosave interval of it, and left the
 	# game in exactly the state where a kill corrupts the file.
+	# Back with a panel open puts the panel away. Only back with nothing open
+	# leaves the game, which is done here because the engine's own quit on back
+	# is turned off in project.godot: it quit with the settings, the shop or the
+	# parents' room open, and a child pressing back to close one lost the game.
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		if hud != null and hud.close_top_panel():
+			return
+		_write_save()
+		get_tree().quit()
+		return
 	if (
 		what == NOTIFICATION_WM_CLOSE_REQUEST
 		or what == NOTIFICATION_WM_GO_BACK_REQUEST

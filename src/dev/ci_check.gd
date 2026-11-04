@@ -179,6 +179,7 @@ func _initialize() -> void:
 	_check_playing_together()
 	_check_a_visit_survives_a_mount_and_a_handover()
 	await _check_the_together_pages_fit_the_screen()
+	await _check_every_panel_fits_a_cutout_and_back_closes_it()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
 	_check_the_microphone_closes_when_the_last_visitor_goes()
@@ -388,6 +389,10 @@ func _initialize() -> void:
 	_check_the_far_country_paints_a_raised_pond_bed_as_silt()
 	_check_no_grass_comes_up_through_the_bridge_deck()
 	_check_no_grass_stands_on_a_doormat_or_porch()
+	_check_clear_ground_keeps_grass_off_anything_registered()
+	_check_every_built_floor_court_and_deck_is_kept_clear_of_grass()
+	await _check_the_shop_porch_is_solid_and_walkable()
+	await _check_the_hoop_court_is_solid_flush_and_marked()
 	_check_the_fairground_feather_is_not_painted_as_crag()
 	_check_the_flags_fly_the_valley_wind()
 	_check_the_belt_treads_are_evenly_spaced_and_the_trestles_splay_across()
@@ -535,6 +540,7 @@ func _initialize() -> void:
 	await _check_switching_voice_off_lets_go_of_a_held_talk_button()
 	await _check_a_stray_tap_does_not_burn_wood_or_give_sticks_or_fell_for_coins()
 	await _check_a_toddler_tapping_at_random_loses_nothing()
+	_check_the_kick_aim_is_finite_for_any_stance()
 	_check_a_phone_put_away_lets_go_of_the_stick_and_a_long_frame_ejects_nobody()
 	_check_coming_back_from_the_background_holds_the_clock_and_grows_the_saplings()
 	_check_the_engine_dies_away_and_close_voices_are_capped()
@@ -543,6 +549,8 @@ func _initialize() -> void:
 	_check_a_remote_piece_on_the_child_sets_them_beside_it()
 	_check_an_animal_is_not_born_in_a_built_piece()
 	_check_the_chunk_under_a_fast_child_always_has_collision()
+	await _check_a_child_shut_in_a_pocket_of_the_range_is_lifted_out()
+	_check_the_fallback_to_the_camp_is_open_ground()
 	await _check_the_wheeled_machines_pull_away_stop_turn_and_lean_as_they_should()
 	await _check_the_parts_of_a_ridden_machine_keep_time_with_the_ground()
 	_check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine()
@@ -7248,7 +7256,8 @@ func _check_places_worth_walking_to() -> void:
 	# every block of the hedge, the four corner trunks, the three lamp posts.
 	# Added with the soft ground: three rubber mats, the trampoline's ring, the
 	# sand, four sandpit boards and a bucket; two platform rails; two struts.
-	var fixed_solids := 22 + 3 + 1 + 1 + 4 + 1 + 2 + 2
+	# And the hoop court's hull.
+	var fixed_solids := 22 + 3 + 1 + 1 + 4 + 1 + 2 + 2 + 1
 	var expected_solids := fixed_solids + places.hedge_segment_count() + 4 + Places.LAMPS.size()
 	_expect(places.hedge_segment_count() >= 30, "the hedge is %d solid blocks" % places.hedge_segment_count())
 	_expect(
@@ -21392,6 +21401,105 @@ func _check_the_host_passes_a_guests_changes_to_the_other_guests() -> void:
 	host.free()
 	guest.free()
 	linked.free()
+## Every panel a child can open stays inside the safe area at the shapes phones
+## come in — 20:9, a taller 22:10, a 4:3 tablet, a plain 16:9 — with a notch on
+## each side and a gesture bar below, in every language; the settings, the
+## tallest, used to hang off the bottom. And Android's back button closes the
+## panel on top, one at a time, before it may leave the game.
+func _check_every_panel_fits_a_cutout_and_back_closes_it() -> void:
+	print("every panel fits a cutout, and the back button closes them one by one")
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	var hud := Hud.new()
+	window.add_child(hud)
+	await process_frame
+	for size: Vector2i in [Vector2i(1600, 720), Vector2i(1584, 720), Vector2i(1280, 960), Vector2i(1280, 720)]:
+		window.size = size
+		window.content_scale_size = size
+		for cutout: Rect2 in [Rect2(), Rect2(90.0, 0.0, float(size.x) - 180.0, float(size.y) - 40.0)]:
+			hud.safe_area_override = cutout
+			for code: StringName in Text.LANGUAGES:
+				Text.set_language(code)
+				await process_frame
+				for panel: String in ["menu", "danger", "shop", "cafe", "together", "offer"]:
+					hud.close_look_offer()
+					hud.together.close()
+					hud.set_shop_open(false, 50, {})
+					hud.set_cafe_menu_open(false, true, 5)
+					hud._menu.visible = false
+					hud._danger.visible = false
+					var shown: Control = null
+					match panel:
+						"menu":
+							hud._toggle_menu()
+							shown = hud._menu
+						"danger":
+							hud._danger.visible = true
+							shown = hud._danger
+						"shop":
+							hud.set_shop_open(true, 50, {})
+							shown = hud._shop
+						"cafe":
+							hud.set_cafe_menu_open(true, true, 5)
+							shown = hud._cafe_menu
+						"together":
+							hud.together.open()
+							shown = hud.together
+						"offer":
+							hud.offer_look()
+							shown = hud._offer
+					hud._layout()
+					await process_frame
+					await process_frame
+					var area := hud._safe_area()
+					var drawn := Rect2(shown.position, shown.size)
+					_expect(
+						area.encloses(drawn.grow(-0.5)),
+						"the %s panel %s lies inside the safe area %s at %s, %s" % [panel, drawn, area, size, code]
+					)
+					if panel == "menu" or panel == "danger":
+						_expect(
+							not drawn.intersects(Rect2(hud._menu_button.position, hud._menu_button.size)),
+							"and leaves the settings button uncovered, so it can close it (%s, %s, %s)" % [size, cutout, code]
+						)
+	Text.set_language(Text.EN)
+	hud.safe_area_override = Rect2()
+	window.size = was_size
+	window.content_scale_size = was_content
+
+	# Back, with the panels stacked: the top one goes first, each press one
+	# panel, and with nothing open it reports so and the game may leave.
+	hud.close_look_offer()
+	hud.together.close()
+	hud.set_shop_open(false, 50, {})
+	hud._menu.visible = false
+	hud._danger.visible = false
+	_expect(not hud.close_top_panel(), "back with nothing open is not taken by the interface")
+	hud._toggle_menu()
+	hud.offer_look()
+	_expect(hud.close_top_panel() and not hud.look_offer_open() and hud._menu.visible, "back puts the first-run panel away first, and leaves the settings")
+	_expect(hud.close_top_panel() and not hud._menu.visible, "then the settings")
+	hud._toggle_menu()
+	hud._danger.visible = true
+	hud._menu.visible = false
+	_expect(hud.close_top_panel() and not hud._danger.visible, "the parents' room goes on back too")
+	hud.together.open()
+	_expect(hud.close_top_panel() and not hud.together.visible, "and the play-together panel")
+	var asked := [false]
+	hud.shop_toggled.connect(func() -> void: asked[0] = true)
+	hud.set_shop_open(true, 50, {})
+	_expect(hud.close_top_panel() and asked[0], "and the shop asks to be closed the way its own button does")
+	hud.set_shop_open(false, 50, {})
+	_expect(not hud.close_top_panel(), "after the last one back is free again")
+	hud.queue_free()
+
+	# The engine's own quit on back would leave the game with a panel open.
+	var project := FileAccess.get_file_as_string("res://project.godot")
+	_expect(project.contains("config/quit_on_go_back=false"), "the engine does not quit on back by itself")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(game.contains("hud.close_top_panel()"), "main.gd asks the interface before leaving on back")
+
 ## The play-together pages must fit the 720-pixel-high screen in every language.
 ##
 ## The keypad page stacks a ninety-six point number, a note, four rows of
@@ -27029,13 +27137,38 @@ func _check_an_animal_is_not_born_in_a_built_piece() -> void:
 func _check_a_toddler_tapping_at_random_loses_nothing() -> void:
 	print("a toddler tapping at random loses nothing")
 	var fuzz = preload("res://src/dev/toddler_fuzz.gd").new()
-	await fuzz.run(self, 350, false, [&"home", &"home_building", &"campfire", &"fairground", &"settings"])
+	await fuzz.run(self, 420, false, [&"home", &"home_building", &"campfire", &"fairground", &"settings", &"pitch", &"ride"])
 	_expect(int(fuzz.report.get("taps", 0)) >= 40, "the fuzz really tapped (%d taps)" % int(fuzz.report.get("taps", 0)))
 	_expect(int(fuzz.report.get("holds_completed", 0)) >= 1, "and a hold made on purpose still went through")
 	_expect(int(fuzz.report.get("house_pieces", 0)) > 10, "the child had a house to lose (%d pieces)" % int(fuzz.report.get("house_pieces", 0)))
 	for line: String in fuzz.failures:
 		_fail(line)
 	_expect(fuzz.failures.is_empty(), "the child lost nothing and was never stuck")
+## However the child stands, faces and looks, and however long or short the hold,
+## the kick and the dotted aim line it is drawn from are finite and never empty:
+## a NaN there once would put dots, ring and ball at nowhere.
+func _check_the_kick_aim_is_finite_for_any_stance() -> void:
+	print("the kick aim is finite and drawn for any stance")
+	var ground := func(_x: float, _z: float) -> float: return 0.0
+	var bad := 0
+	var spots: Array[Vector3] = [Vector3(0.0, 0.24, 0.0), Vector3(3.0, 0.24, 1.0)]
+	var dirs: Array[Vector3] = [Vector3.ZERO, Vector3(0.0, 0.0, -1.0), Vector3(0.0, 1.0, 0.0)]
+	var strengths: Array[float] = [0.0, 0.12, 1.0, 5.0, -1.0]
+	var lofts: Array[float] = [-1.0, 0.0, 1.0, 9.0]
+	for at: Vector3 in spots:
+		for facing: Vector3 in dirs:
+			for look: Vector3 in dirs:
+				for strength: float in strengths:
+					for loft: float in lofts:
+						var v := Ball.launch_velocity(at, Vector3.ZERO, facing, true, strength, loft, look)
+						var path := Ball.aim_path(at, v, 0.3, 9.8, ground)
+						if not v.is_finite() or path.is_empty():
+							bad += 1
+						for point: Vector3 in path:
+							if not point.is_finite():
+								bad += 1
+	_expect(bad == 0, "no stance gives a NaN or an empty aim line (%d bad)" % bad)
+
 ## The three buttons the fuzz found that a tap could spend something through:
 ## a log on the fire, a stick to the dam, and the axe on a wild tree while there
 ## are coins in the purse to be charged for it.
@@ -27298,6 +27431,240 @@ func _check_no_grass_stands_on_a_doormat_or_porch() -> void:
 						on_floor += 1
 	_expect(counted > 100, "there are %d tufts round the café and the shop to look at" % counted)
 	_expect(on_floor == 0, "%d tufts stand on a floor, doormat or porch" % on_floor)
+
+## The shared "keep clear" registry, on its own: rectangles (turned or not) and
+## circles keep a margin, an owner forgets only its own claims, and a tile far
+## from everything asks for nothing. Then the real thing: a tile whose whole
+## area is claimed grows no grass, and grows it again once released.
+func _check_clear_ground_keeps_grass_off_anything_registered() -> void:
+	print("clear ground keeps grass off anything registered")
+	ClearGround.forget_all()
+	ClearGround.rect(&"test_a", Vector3(100.0, 0.0, 100.0), 2.0, 1.0)
+	ClearGround.rect(&"test_a", Vector3(200.0, 0.0, 100.0), 4.0, 0.5, PI * 0.5)
+	ClearGround.circle(&"test_b", Vector3(300.0, 0.0, 100.0), 3.0)
+	_expect(ClearGround.count() == 3, "three claims are held (%d)" % ClearGround.count())
+	_expect(
+		ClearGround.kept_at(101.9, 100.9),
+		"a corner inside a rectangle is kept clear"
+	)
+	_expect(
+		ClearGround.kept_at(102.0 + ClearGround.MARGIN - 0.01, 100.0)
+		and not ClearGround.kept_at(102.0 + ClearGround.MARGIN + 0.05, 100.0), "the margin reaches a tuft's width past the edge and no further"
+	)
+	# A rectangle turned a quarter turn is long in z, not in x.
+	_expect(
+		ClearGround.kept_at(200.0, 103.5) and not ClearGround.kept_at(203.5, 100.0),
+		"a turned rectangle is turned"
+	)
+	_expect(ClearGround.kept_at(301.0, 102.0) and not ClearGround.kept_at(304.0, 100.0), "a circle is a circle")
+	_expect(ClearGround.near(0.0, 0.0, 32.0, 32.0).is_empty(), "a tile far from every claim asks for nothing")
+	ClearGround.forget(&"test_a")
+	_expect(
+		ClearGround.count() == 1 and not ClearGround.kept_at(100.0, 100.0),
+		"an owner forgets its own claims and only those"
+	)
+	ClearGround.forget_all()
+
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var cafe := PlaceSpec.centre_of(&"cafe", camp)
+	var best := Vector2i.ZERO
+	var most := -1
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			var coord := Vector2i(int(floorf(cafe.x / 32.0)) + dx, int(floorf(cafe.z / 32.0)) + dz)
+			var found: int = (VegetationTile.bake(field, coord, 32, 20260903, null, true)["grass"] as Array).size()
+			if found > most:
+				most = found
+				best = coord
+	_expect(most > 50, "the tile chosen has grass to remove (%d tufts)" % most)
+	var centre := Vector3(float(best.x * 32 + 16), 0.0, float(best.y * 32 + 16))
+	ClearGround.rect(&"test_c", centre, 16.0, 16.0)
+	var covered: int = (VegetationTile.bake(field, best, 32, 20260903, null, true)["grass"] as Array).size()
+	_expect(covered == 0, "a tile claimed whole grows %d tufts" % covered)
+	ClearGround.forget(&"test_c")
+	var released: int = (VegetationTile.bake(field, best, 32, 20260903, null, true)["grass"] as Array).size()
+	_expect(released == most, "and grows its %d again once released (%d)" % [most, released])
+	ClearGround.forget_all()
+
+## Every flat thing the places lay on the grass registers itself, and no tuft
+## of the real scatter stands on any of it: the shop's floor and porch, the
+## café's floor and doormat, the pool and its rim, the hoop's court.
+func _check_every_built_floor_court_and_deck_is_kept_clear_of_grass() -> void:
+	print("every built floor, court and deck is kept clear of grass")
+	ClearGround.forget_all()
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+	_expect(ClearGround.count() >= 6, "the places claim %d pieces of ground" % ClearGround.count())
+	var playground: Vector3 = places._spots[Places.PLAYGROUND]
+	_expect(
+		ClearGround.kept_at(playground.x + Places.COURT_CENTRE.x, playground.z + Places.COURT_CENTRE.z)
+		and ClearGround.kept_at(
+			playground.x + Places.COURT_CENTRE.x + Places.COURT_HALF.x + Places.COURT_BEVEL,
+			playground.z + Places.COURT_CENTRE.z
+		),
+		"the hoop's court, bevel and all, is claimed"
+	)
+	var shop: Vector3 = places._spots[Places.SHOP]
+	var front_of_shop := shop.z + Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5
+	_expect(
+		ClearGround.kept_at(shop.x, front_of_shop - 3.3)
+		and ClearGround.kept_at(shop.x + Places.SHOP_WIDTH * 0.5 + 0.2, front_of_shop - 2.4)
+		and ClearGround.kept_at(shop.x, shop.z + Places.SHOP_MID_Z),
+		"the shop's porch, steps and floor are claimed"
+	)
+	var pool: Vector3 = places._spots[Places.POOL]
+	_expect(
+		ClearGround.kept_at(pool.x + Places.POOL_HALF_X + 0.5, pool.z)
+		and ClearGround.kept_at(pool.x, pool.z - Places.POOL_HALF_Z - 0.6),
+		"the pool's deck and diving block are claimed"
+	)
+	var counted := 0
+	var stood_on := 0
+	for place: StringName in [&"playground", &"cafe", &"shop", &"pool"]:
+		var centre := PlaceSpec.centre_of(place, camp)
+		var tile_x := int(floorf(centre.x / 32.0))
+		var tile_z := int(floorf(centre.z / 32.0))
+		for dx in range(-1, 2):
+			for dz in range(-1, 2):
+				var baked := VegetationTile.bake(field, Vector2i(tile_x + dx, tile_z + dz), 32, 20260903, null, true)
+				for tuft: Transform3D in baked["grass"]:
+					counted += 1
+					var at := tuft.origin + Vector3((tile_x + dx) * 32, 0.0, (tile_z + dz) * 32)
+					if ClearGround.kept_at(at.x, at.z):
+						stood_on += 1
+	_expect(counted > 200, "there are %d tufts round the places to look at" % counted)
+	_expect(stood_on == 0, "%d tufts stand on a claimed floor, court or deck" % stood_on)
+	ClearGround.forget(Places.GROUND_OWNER)
+	_expect(ClearGround.count() == 0, "a place forgets what it claimed")
+	places.queue_free()
+	ClearGround.forget_all()
+
+## A raycast straight down at (x, z), from `above` metres over `from_y`.
+func _ground_hit(from_y: float, x: float, z: float) -> float:
+	var space := get_root().get_world_3d().direct_space_state
+	var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(
+		Vector3(x, from_y, z), Vector3(x, from_y - 4.0, z)
+	))
+	return NAN if hit.is_empty() else (hit["position"] as Vector3).y
+
+## The shop's porch deck and floor were drawn and not solid: a child walked
+## through the boards at ground level, with the deck at their knees. The deck
+## is solid at its drawn height, the two steps are one ramp a child can walk up
+## (rise per step of walking small, slope under what the character climbs),
+## and the floor inside is solid at its own height, a step down from the deck.
+func _check_the_shop_porch_is_solid_and_walkable() -> void:
+	print("the shop porch is solid and walkable")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	await physics_frame
+	await physics_frame
+	var shop: Vector3 = places._spots[Places.SHOP]
+	var front := shop.z + Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5
+	var probe := shop.y + 1.5
+	var deck := _ground_hit(probe, shop.x + 6.0, front - 1.3) - shop.y
+	_expect(absf(deck - 0.18) < 0.01, "the deck is solid at its drawn height (%.3f m)" % deck)
+	var corner := _ground_hit(probe, shop.x + Places.SHOP_WIDTH * 0.5 + 0.2, front - 2.4) - shop.y
+	_expect(absf(corner - 0.18) < 0.01, "to its far corner (%.3f m)" % corner)
+	var floor_top := _ground_hit(probe, shop.x + 3.0, shop.z + Places.SHOP_MID_Z - 2.0) - shop.y
+	_expect(absf(floor_top - 0.12) < 0.01, "and the floor inside is solid at its own (%.3f m)" % floor_top)
+	_expect(floor_top < deck + 0.001, "so the way in is a step down, never up")
+	var last := 0.0
+	var steepest := 0.0
+	var first := NAN
+	var z := front - 3.35
+	while z <= front - 2.5:
+		var height := _ground_hit(probe, shop.x, z) - shop.y
+		if is_nan(first):
+			first = height
+		steepest = maxf(steepest, absf(height - last))
+		last = height
+		z += 0.05
+	_expect(first < 0.04, "the ramp meets the ground at its foot (%.3f m)" % first)
+	_expect(absf(last - 0.18) < 0.01, "and the deck at its top (%.3f m)" % last)
+	# 5 cm of walking: a rise over this is steeper than the slope the character climbs.
+	_expect(
+		steepest <= 0.05 * tan(Player.CLIMBS_TO),
+		"no step along the ramp is higher than a walk can climb (%.3f m per 5 cm)" % steepest
+	)
+	places.queue_free()
+	ClearGround.forget_all()
+
+## The hoop stood on bare grass: no court, no lines. The court is a hard pad
+## whose top is solid at its drawn height a few centimetres over the levelled
+## ground (so it cannot z-fight the terrain), whose edge is a bevel to walk up
+## and not a kerb, which stands wholly on levelled ground, clear of the swing
+## frames, with the hoop's pole on it and paint standing proud of the surface.
+func _check_the_hoop_court_is_solid_flush_and_marked() -> void:
+	print("the hoop court is solid, flush and marked")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	await physics_frame
+	await physics_frame
+	var spot: Vector3 = places._spots[Places.PLAYGROUND]
+	var centre := spot + Places.COURT_CENTRE
+	var probe := spot.y + 1.0
+	var middle := _ground_hit(probe, centre.x + 2.0, centre.z + 1.5) - spot.y
+	_expect(absf(middle - Places.COURT_HEIGHT) < 0.005, "the court is solid at its drawn height (%.3f m)" % middle)
+	_expect(
+		Places.COURT_HEIGHT >= 0.02 and Places.COURT_HEIGHT <= 0.05,
+		"proud of the ground by a few centimetres, enough that terrain cannot z-fight it"
+	)
+	var steepest := 0.0
+	var last := 0.0
+	var x := centre.x - Places.COURT_HALF.x - Places.COURT_BEVEL - 0.2
+	while x <= centre.x - Places.COURT_HALF.x + 0.2:
+		var height := _ground_hit(probe, x, centre.z) - spot.y
+		steepest = maxf(steepest, absf(height - last))
+		last = height
+		x += 0.05
+	_expect(absf(last - Places.COURT_HEIGHT) < 0.005, "the bevel climbs to the top (%.3f m)" % last)
+	_expect(steepest <= 0.05 * tan(Player.CLIMBS_TO) and steepest < 0.02, "and is a slope, not a kerb (%.3f m per 5 cm)" % steepest)
+	var worst := 0.0
+	for sx: float in [-1.0, 1.0]:
+		for sz: float in [-1.0, 1.0]:
+			var corner := centre + Vector3(
+				sx * (Places.COURT_HALF.x + Places.COURT_BEVEL), 0.0, sz * (Places.COURT_HALF.y + Places.COURT_BEVEL)
+			)
+			worst = maxf(worst, absf(field.height_at(corner.x, corner.z) - spot.y))
+	_expect(worst < 0.02, "the whole court stands on levelled ground (%.3f m of fall at its corners)" % worst)
+	var hoop := spot + Places.HOOP
+	_expect(
+		absf(hoop.x - centre.x) < Places.COURT_HALF.x and absf(hoop.z - centre.z) < Places.COURT_HALF.y,
+		"the hoop's pole stands on the court"
+	)
+	# The swing frames' feet stand off the court's edge.
+	var swing_edge := spot.x + Places.SWING_FRAMES[0] - Places.SWING_WIDTH * 0.5
+	_expect(
+		centre.x + Places.COURT_HALF.x + Places.COURT_BEVEL < swing_edge + 0.01
+		or centre.z + Places.COURT_HALF.y + Places.COURT_BEVEL < spot.z - 1.1,
+		"and clear of the swing frame's feet"
+	)
+	# And off every rubber mat and the trampoline's ring: it was first laid
+	# across the corner of the mat under the near swing frame.
+	var court := Rect2(
+		Vector2(Places.COURT_CENTRE.x, Places.COURT_CENTRE.z) - Places.COURT_HALF - Vector2.ONE * Places.COURT_BEVEL,
+		(Places.COURT_HALF + Vector2.ONE * Places.COURT_BEVEL) * 2.0
+	)
+	var mat_half_z := Places.SWING_ROPE * sin(Places.SWING_ARC) + 0.4
+	for frame_x: float in Places.SWING_FRAMES:
+		var mat := Rect2(Vector2(frame_x - (Places.SWING_WIDTH + 1.0) * 0.5, -mat_half_z), Vector2(Places.SWING_WIDTH + 1.0, mat_half_z * 2.0))
+		_expect(not court.intersects(mat), "the court is off the swing mat at x %.2f" % frame_x)
+	var ring_centre := Vector2(Places.TRAMPOLINE.x, Places.TRAMPOLINE.z)
+	var nearest := ring_centre.clamp(court.position, court.end)
+	_expect(nearest.distance_to(ring_centre) > Places.TRAMPOLINE_RADIUS + 0.8, "and off the trampoline's ring (%.2f m from its centre)" % nearest.distance_to(ring_centre))
+	_expect(Places.COURT_CENTRE.distance_to(Places.HOOP) < Places.COURT_HALF.x, "the hoop still stands on its court")
+	_expect(Vector2(court.position).length() < Places.HEDGE_RADIUS - Places.HEDGE_THICKNESS * 0.5 and Vector2(court.position.x, court.end.y).length() < Places.HEDGE_RADIUS - Places.HEDGE_THICKNESS * 0.5, "and the court is inside the hedge")
+	_expect(Places.COURT_LINE_LIFT >= 0.01, "paint stands at least a centimetre off the court")
+	places.queue_free()
+	ClearGround.forget_all()
 
 ## The fairground is levelled into a hillside that stands thirteen metres
 ## above it on its north-east side, so the levelling's feather is a steep cut
@@ -29080,4 +29447,119 @@ func _pool_swim_out(places: Places, field: HeightField, spot: Vector3, side: Str
 	Input.action_release(InputActions.MOVE_FORWARD)
 	swimmer.free()
 	return result
+
+## A hollow in the range whose walls are all too steep to climb is a trap.
+##
+## The terraces cut into the mountains leave a few pockets high up the range,
+## each a few strides across and ringed by ground steeper than a child climbs
+## (Player.CLIMBS_TO). A child who dropped into one could push the stick for as
+## long as they liked and there was no button to go home with. The flood fill
+## over the height field that finds them lives in RespawnSpot; the game asks it
+## after a few seconds of pushing without moving. The three pockets here were
+## found by a flood fill over the whole valley out to 1.4 km, and are fixed
+## numbers because the valley is a pure function of the seed.
+func _check_a_child_shut_in_a_pocket_of_the_range_is_lifted_out() -> void:
+	print("a child shut in a pocket of the range is lifted out")
+	var field := HeightField.new(20260903)
+	var spawn := field.find_spawn_point()
+	var pockets: Array[Vector2] = [Vector2(-776.0, 406.0), Vector2(864.0, -382.0), Vector2(986.0, -258.0)]
+	var outs: Array[Vector3] = []
+	for pocket in pockets:
+		var in_it := Vector3(pocket.x, field.height_at(pocket.x, pocket.y), pocket.y)
+		var out := RespawnSpot.way_out_of_a_pocket(field, in_it, spawn)
+		_expect(out.is_finite(), "the pocket at %s is found to be closed" % [pocket])
+		if not out.is_finite():
+			continue
+		var distance := Vector2(out.x - in_it.x, out.z - in_it.z).length()
+		_expect(distance < 36.0, "and the way out is %.0f m off, not a trip to the camp" % distance)
+		_expect(
+			not RespawnSpot.way_out_of_a_pocket(field, out, spawn).is_finite(),
+			"the ground they are put on is open: a second look finds nothing to lift them from"
+		)
+		_expect(
+			field.steepness_at(out.x, out.z) <= RespawnSpot.POCKET_STANDING
+			and not RespawnSpot.is_wet(field, null, out),
+			"and it is dry, gentle ground"
+		)
+		outs.append(out)
+
+	# Open ground is never a pocket, so nobody walking the valley is moved.
+	var moved := 0
+	for step in 12:
+		var angle := TAU * float(step) / 12.0
+		for radius: float in [30.0, 150.0, 330.0]:
+			var x := cos(angle) * radius
+			var z := sin(angle) * radius
+			var here := Vector3(x, field.height_at(x, z), z)
+			if RespawnSpot.way_out_of_a_pocket(field, here, spawn).is_finite():
+				moved += 1
+	_expect(moved == 0, "no point on the valley floor is a pocket (%d found)" % moved)
+	_expect(not RespawnSpot.way_out_of_a_pocket(field, spawn, spawn).is_finite(), "nor is the camp")
+	var source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(
+		source.contains("RespawnSpot.way_out_of_a_pocket(") and source.contains("_lift_out_of_a_pocket(delta)"),
+		"the game asks after a few seconds of pushing without getting anywhere"
+	)
+	_expect(
+		source.contains("if not at.is_finite():"),
+		"and a position that is not a number is caught as a fall is"
+	)
+
+	if outs.is_empty():
+		return
+	# Set down where the lift puts them, on real ground, at two physics rates:
+	# they stand on it rather than sinking into the range or sliding off.
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	var put := outs[0]
+	terrain.follow(put)
+	var deadline := Time.get_ticks_msec() + 60000
+	while not terrain.is_idle() and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	terrain.ensure_ground_at(put)
+	var was := Engine.physics_ticks_per_second
+	for rate: int in [60, 30]:
+		Engine.physics_ticks_per_second = rate
+		var child := Player.new()
+		child.position = put + Vector3.UP * 1.2
+		get_root().add_child(child)
+		for _tick in rate * 2:
+			await physics_frame
+		var ground := field.height_at(child.global_position.x, child.global_position.z)
+		_expect(
+			child.global_position.is_finite() and child.is_on_floor()
+			and absf(child.global_position.y - ground) < 0.35,
+			"at %d ticks a second the child lifted out stands on the ground (%.2f m over it)" % [
+				rate, child.global_position.y - ground
+			]
+		)
+		child.queue_free()
+	Engine.physics_ticks_per_second = was
+	terrain.queue_free()
+
+## The camp is where a child falls back to, and a house the other child built
+## over it leaves them in a wall all the same.
+func _check_the_fallback_to_the_camp_is_open_ground() -> void:
+	print("the fallback to the camp is open ground")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var park := _StubPark.new()
+	var spawn := field.find_spawn_point()
+	var c := HouseParts.snap_cell(spawn.x, spawn.z)
+	var base := field.height_at(c.x, c.y)
+	for edge: Vector2 in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+		var wx := c.x + edge.x
+		var wz := c.y + edge.y
+		structures.place(HouseParts.WALL, Vector3(wx, field.height_at(wx, wz), wz), 0.0 if edge.x == 0.0 else PI * 0.5)
+	var in_wall := Vector3(c.x + 1.0, base, c.y)
+	_expect(RespawnSpot.built_over(structures, in_wall), "a camp stands inside a wall")
+	for saved: Vector3 in [Vector3(NAN, 0.0, 0.0), Vector3(1e7, 0.0, 0.0), in_wall]:
+		var put := RespawnSpot.choose(field, structures, null, park, null, saved, in_wall)
+		_expect(
+			put.is_finite() and not RespawnSpot.built_over(structures, put),
+			"a child with nowhere else to go is not put in the wall of their camp (%s)" % [put]
+		)
+	structures.queue_free()
 

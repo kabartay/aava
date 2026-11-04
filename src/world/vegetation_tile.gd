@@ -120,6 +120,11 @@ static func bake(
 		var rng := RandomNumberGenerator.new()
 		rng.seed = hash(Vector3i(world_seed, coord.x, coord.y))
 		var bridge_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+		# Every built floor, mat, court and deck that has said it is there, read
+		# once for the tile (see ClearGround).
+		var cleared := ClearGround.near(
+			origin_x, origin_z, origin_x + float(tile_size), origin_z + float(tile_size)
+		)
 		for _i in GRASS_CANDIDATES:
 			var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
 			var world_x := origin_x + local.x
@@ -163,6 +168,9 @@ static func bake(
 			# grass came up through the café's and the shop's — and on the
 			# doormat and porch deck, which are floor outside the walls.
 			if PlaceSpec.on_floor(world_x, world_z, field.camp_centre()):
+				continue
+			# Nor on anything else built flat on the ground that registered itself.
+			if not cleared.is_empty() and ClearGround.covers(cleared, world_x, world_z):
 				continue
 			# Trodden ground grows a tuft here and there, not a lawn. Decided by
 			# a hash of the spot rather than a draw from the generator, so the

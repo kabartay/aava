@@ -148,10 +148,34 @@ static func choose(
 	signpost: Signpost, saved: Vector3, spawn: Vector3
 ) -> Vector3:
 	if not in_the_world(saved):
-		return spawn
+		return _open_ground_near(field, structures, places, park, signpost, spawn, spawn)
 	var spot := _settled(field, structures, signpost, saved)
 	if is_allowed(field, structures, places, park, spot):
 		return spot
+	var near := _nearest_allowed(field, structures, places, park, signpost, saved)
+	if near.is_finite():
+		return near
+	return _open_ground_near(field, structures, places, park, signpost, spawn, spawn)
+
+## The camp, or the nearest open ground to it. The camp is where a child falls
+## back to, and a house built over it by the other child leaves them in a wall
+## all the same: a fallback has to be allowed as well.
+static func _open_ground_near(
+	field: HeightField, structures: Structures, places: Object, park: Object,
+	signpost: Signpost, centre: Vector3, spawn: Vector3
+) -> Vector3:
+	var spot := _settled(field, structures, signpost, centre)
+	if is_allowed(field, structures, places, park, spot):
+		return spot
+	var near := _nearest_allowed(field, structures, places, park, signpost, centre)
+	return near if near.is_finite() else spawn
+
+## The nearest spot round `saved` that is allowed, on ground gentle enough to
+## stand on, or `Vector3.INF`.
+static func _nearest_allowed(
+	field: HeightField, structures: Structures, places: Object, park: Object,
+	signpost: Signpost, saved: Vector3
+) -> Vector3:
 	for ring in SEARCH_RINGS:
 		for step in 8:
 			var angle := TAU * float(step) / 8.0 + 0.6
@@ -163,7 +187,98 @@ static func choose(
 				continue
 			if is_allowed(field, structures, places, park, near):
 				return near
-	return spawn
+	return Vector3.INF
+
+## How far each side of a child the walled-in test looks, in cells of
+## POCKET_CELL metres. A way out that is further than this is a way out: the
+## pockets in the valley's terraces are a few strides across.
+const POCKET_CELL := 2.0
+const POCKET_CELLS := 12
+
+## The steepest ground a child will be put down on when lifted out of a pocket.
+## Gentler than the slope they can climb, so they are not set on a wall they
+## slide back down.
+const POCKET_STANDING := 0.3
+
+## Whether the ground a child stands on is a closed pocket: a hollow whose walls
+## are all steeper than a child can climb, with no way out on foot. The terraces
+## of the range leave a few, high on the mountain, and a child who dropped into
+## one had nothing but the wall to push against and no way home.
+##
+## Answered from the height field alone, as a flood fill over a window of
+## ground round the child. Ground joins ground where the rise between two
+## neighbouring cells is within what the body climbs (Player.CLIMBS_TO), and the
+## child is free when their ground reaches the edge of the window. Returns the
+## nearest gentle, dry ground that is free, or `Vector3.INF` when the child is
+## not walled in. When no free ground is in the window at all, `fallback`.
+static func way_out_of_a_pocket(field: HeightField, at: Vector3, fallback: Vector3) -> Vector3:
+	var half := POCKET_CELLS
+	var side := half * 2 + 1
+	var origin := Vector2(at.x - float(half) * POCKET_CELL, at.z - float(half) * POCKET_CELL)
+	var heights := PackedFloat32Array()
+	heights.resize(side * side)
+	for iz in side:
+		for ix in side:
+			heights[iz * side + ix] = field.height_at(
+				origin.x + float(ix) * POCKET_CELL, origin.y + float(iz) * POCKET_CELL
+			)
+	var limit := tan(Player.CLIMBS_TO) * POCKET_CELL
+
+	# Label every piece of connected ground, and note which touch the window's edge.
+	var label := PackedInt32Array()
+	label.resize(side * side)
+	var free: Array[bool] = [false]
+	var steps: Array[int] = [1, -1, side, -side]
+	for start in side * side:
+		if label[start] != 0:
+			continue
+		var id := free.size()
+		free.append(false)
+		label[start] = id
+		var stack: Array[int] = [start]
+		while not stack.is_empty():
+			var here: int = stack.pop_back()
+			var hx := here % side
+			var hz := floori(float(here) / float(side))
+			if hx == 0 or hz == 0 or hx == side - 1 or hz == side - 1:
+				free[id] = true
+			for step in steps:
+				var there := here + step
+				if there < 0 or there >= side * side:
+					continue
+				# Stepping along a row must not wrap onto the next one.
+				if (step == 1 and hx == side - 1) or (step == -1 and hx == 0):
+					continue
+				if label[there] != 0:
+					continue
+				if absf(heights[there] - heights[here]) <= limit:
+					label[there] = id
+					stack.append(there)
+
+	var centre := half * side + half
+	if free[label[centre]]:
+		return Vector3.INF
+
+	var best := fallback
+	var best_distance := INF
+	for iz in range(1, side - 1):
+		for ix in range(1, side - 1):
+			var cell := iz * side + ix
+			if not free[label[cell]]:
+				continue
+			var x := origin.x + float(ix) * POCKET_CELL
+			var z := origin.y + float(iz) * POCKET_CELL
+			var distance := Vector2(x - at.x, z - at.z).length_squared()
+			if distance >= best_distance:
+				continue
+			if heights[cell] < field.water_level_at(x, z) + 0.5 or field.is_pond(x, z):
+				continue
+			# As the ground is felt underfoot, not as the 2 m grid averages it.
+			if field.steepness_at(x, z) > POCKET_STANDING:
+				continue
+			best_distance = distance
+			best = Vector3(x, heights[cell], z)
+	return best
 
 static func _settled(field: HeightField, structures: Structures, signpost: Signpost, at: Vector3) -> Vector3:
 	var spot := at

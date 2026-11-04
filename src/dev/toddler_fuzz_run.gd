@@ -25,6 +25,9 @@ func _initialize() -> void:
 		fuzz.report.get("taps", 0), fuzz.report.get("holds_completed", 0),
 		str(fuzz.report.get("coins", []))
 	])
+	print("  riding %d frames, aim shown %d, charging %d" % [
+		fuzz.report.get("frames_riding", 0), fuzz.report.get("frames_aim_shown", 0),
+		fuzz.report.get("frames_charging", 0)])
 	for line in fuzz.report.get("meant", []):
 		print("  meant: %s" % line)
 	for line in fuzz.failures:
