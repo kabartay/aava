@@ -2125,6 +2125,10 @@ func close_top_panel() -> bool:
 
 func _toggle_menu() -> void:
 	_menu.visible = not _menu.visible
+	# One of the two at a time: the together panel does not stay open under the
+	# settings, as _open_together shuts the settings in turn.
+	if _menu.visible and together.visible:
+		together.close()
 	# Over the map rather than under it. The minimap is added last so that it
 	# draws above the rest of the interface, which is right until something
 	# opens underneath it: settings came up behind the open map, and the name
@@ -2461,6 +2465,20 @@ func _input(event: InputEvent) -> void:
 		slide_kick_aim(drag.screen_relative, get_viewport().get_visible_rect().size.y)
 		get_viewport().set_input_as_handled()
 
+## The game was put away or lost focus with a finger on the kick or shoot
+## button: the release will never arrive. Forget the finger and the aim, and
+## let the buttons go without sending the release (that would loose a shot the
+## child did not take), and hide the power bar.
+func drop_the_kick_hold() -> void:
+	_kick_finger = -1
+	_kick_aim = Vector2.ZERO
+	# Disabling a button that is held ends the press without a button_up.
+	for button: Button in [_kick_button, _shoot_button]:
+		if button != null:
+			button.disabled = true
+			button.disabled = false
+	set_kick_preview(false, 0.0, 0.0)
+
 func _forget_kick_finger() -> void:
 	_kick_finger = -1
 
@@ -2481,6 +2499,15 @@ func minimap() -> Minimap:
 
 ## The map is built by whoever owns the world, because it needs the height
 ## field, and the HUD is not the place to know about terrain.
+## Open the map as an earlier interface's was, after a rebuild.
+func restore_map(state: Dictionary) -> void:
+	if _minimap == null or state.is_empty():
+		return
+	_minimap.restore_view(state)
+	_map_button.modulate = Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
+	_refresh_guide_badge()
+	_layout()
+
 func attach_minimap(minimap: Minimap) -> void:
 	_minimap = minimap
 	minimap.keep_small(_building)

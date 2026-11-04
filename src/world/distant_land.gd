@@ -91,6 +91,13 @@ func _notification(what: int) -> void:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 
+## A free that arrives while the worker is inside a method of this node is
+## refused ("Object is locked and can't be freed"), and PREDELETE comes after
+## that question, so leaving the tree waits too. The ring is taken in as well,
+## so a node that comes back in finds its picture and not a dead task id.
+func _exit_tree() -> void:
+	wait_for_it()
+
 func follow(world_position: Vector3) -> void:
 	_wanted_at = world_position
 	_collect()

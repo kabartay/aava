@@ -2975,6 +2975,10 @@ func open_turnstile(entering := true) -> void:
 	if _turnstile != null:
 		_turnstile.collision_layer = 0
 
+## Whether a ticket has been paid for and nobody has gone through on it yet.
+func entry_pending() -> bool:
+	return _turnstile_open > 0.0 and _turnstile_entering
+
 func turnstile_open() -> bool:
 	return _turnstile_open > 0.0
 

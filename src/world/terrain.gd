@@ -42,6 +42,7 @@ var _centre := Vector2i(9999, 9999)
 
 ## Chunks currently being baked on a worker, by coordinate, and the finished
 ## bakes waiting to become nodes. The mutex guards only the handover list.
+var _next_job := 0
 var _baking: Dictionary = {}
 var _finished: Array = []
 var _finished_mutex := Mutex.new()
@@ -162,9 +163,28 @@ func _rebuild_queue() -> void:
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_PREDELETE:
 		return
-	for coord in _baking:
-		WorkerThreadPool.wait_for_task_completion(_baking[coord]["task"])
+	_join_all()
 	_baking.clear()
+
+## A free that arrives while a worker is inside a method of this node is
+## refused ("Object is locked and can't be freed"), and PREDELETE comes after
+## that question, so leaving the tree is the last moment that can still wait.
+## Only on the way out: a node that comes back in carries on, its jobs marked as
+## joined so that nothing asks the pool about a finished task twice.
+func _exit_tree() -> void:
+	_join_all()
+
+func _join_all() -> void:
+	for coord in _baking:
+		_join(_baking[coord])
+
+## Wait for one job's task, once. The id of a task that has been waited for is
+## dead, and asking the pool about it again is an error.
+func _join(job: Dictionary) -> void:
+	if job.get("joined", false):
+		return
+	WorkerThreadPool.wait_for_task_completion(job["task"])
+	job["joined"] = true
 
 func _process(_delta: float) -> void:
 	_assemble_finished()
@@ -238,7 +258,7 @@ func ensure_ground_at(world_position: Vector3) -> void:
 	var coord := TerrainSpec.chunk_at(world_position)
 	var job = _baking.get(coord)
 	if job != null:
-		WorkerThreadPool.wait_for_task_completion(job["task"])
+		_join(job)
 		_baking.erase(coord)
 	var gap := coord - _centre
 	# Far from the focus (the streamer has not been told about the move yet) the
@@ -306,21 +326,26 @@ func _submit_chunk(coord: Vector2i, ring: int) -> void:
 		return
 	var step: int = TerrainSpec.RINGS[ring]["step"]
 	var collide: bool = TerrainSpec.RINGS[ring]["collide"]
+	_next_job += 1
 	_baking[coord] = {
+		"id": _next_job,
 		"ring": ring,
 		"collide": collide,
 		"generation": _generation,
 		"task": WorkerThreadPool.add_task(
-			_bake_on_worker.bind(coord, step, collide, _generation), true,
+			_bake_on_worker.bind(coord, step, collide, _generation, _next_job), true,
 			"aava terrain chunk"
 		),
 	}
 
 ## Runs on a worker thread. Nothing here touches the scene tree, and the height
 ## field it reads writes nothing back — see HeightField's constructor.
-func _bake_on_worker(coord: Vector2i, step: int, collide: bool, generation: int) -> void:
+func _bake_on_worker(
+	coord: Vector2i, step: int, collide: bool, generation: int, job_id: int
+) -> void:
 	var baked := TerrainChunk.bake(field, coord, step, collide)
 	baked["generation"] = generation
+	baked["job"] = job_id
 	_finished_mutex.lock()
 	_finished.append(baked)
 	_finished_mutex.unlock()
@@ -343,12 +368,18 @@ func _assemble_finished_now() -> void:
 	for baked in ready_now:
 		var coord: Vector2i = baked["coord"]
 		var job = _baking.get(coord)
-		_baking.erase(coord)
-		if job == null:
-			# The chunk went out of range while it was baking. Its work is
-			# thrown away rather than added to a world nobody is looking at.
+		# Only the job that asked for this bake owns it. A bake whose job was
+		# dropped (ensure_ground_at waits for it and builds the chunk itself)
+		# can land after the same coordinate has been submitted again, and was
+		# then matched to the new job: the new one was waited for on the main
+		# thread, and the stale chunk shown in its place.
+		if job == null or int(job["id"]) != int(baked.get("job", -1)):
+			# The chunk went out of range while it was baking, or this is a
+			# bake nobody is waiting for. Its work is thrown away rather than
+			# added to a world nobody is looking at.
 			continue
-		WorkerThreadPool.wait_for_task_completion(job["task"])
+		_baking.erase(coord)
+		_join(job)
 		# Nothing removes a job from `_baking` when the player walks on, so
 		# "went out of range while baking" was never actually true of the test
 		# above: the finished chunk was assembled anyway, far behind the player,

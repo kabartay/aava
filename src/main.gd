@@ -1786,13 +1786,18 @@ func _rebuild_hud() -> void:
 	# on the menu — is held only there, and is carried across.
 	var cafe_paid := hud != null and hud.cafe_is_paid()
 	var dish: StringName = hud.chosen_dish() if hud != null else Dishes.USUAL
+	# And how the map was open: size, zoom and centre.
+	var map_state := {}
 	if hud != null:
+		if hud.minimap() != null:
+			map_state = hud.minimap().view_state()
 		hud.queue_free()
 	hud = Hud.new()
 	hud.name = "Hud"
 	add_child(hud)
 	hud.restore_cafe_choices(cafe_paid, dish)
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
+	hud.restore_map(map_state)
 	_connect_the_rest_of_the_hud()
 	_show_the_state()
 	# A button freed while it is held never sends its release, as the talk button
@@ -4492,6 +4497,7 @@ func _notification(what: int) -> void:
 		or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT
 	):
 		_let_go_of_the_controls()
+		_drop_the_kick_hold()
 	# A phone puts the game away and brings it back days later without starting
 	# it again, so the day it was opened on went on being "today": yesterday's
 	# task stayed offered, and finishing it paid out for a day long gone.
@@ -4555,6 +4561,17 @@ func _let_go_of_the_controls() -> void:
 		InputActions.MOVE_BACK, InputActions.SPRINT, InputActions.JUMP,
 	]:
 		Input.action_release(action)
+
+## A kick or a bow that was being drawn when the game lost the screen is
+## dropped, not loosed: the charge is cancelled, the finger and aim forgotten and
+## the preview put away.
+func _drop_the_kick_hold() -> void:
+	if player != null and player.is_charging():
+		player.release_charge()
+	if hud != null:
+		hud.drop_the_kick_hold()
+	if kick_preview != null:
+		kick_preview.hide_path()
 
 ## Offer the new day's task if midnight has passed since the last one was set.
 func _turn_the_day() -> void:
@@ -4640,7 +4657,10 @@ func _save_data() -> Dictionary:
 ## the child walks away from it. A phone put down at the fairground is saved and
 ## may be killed before that happens, and the ticket — ten coins — was gone for
 ## a ride nobody had; it is written down as still held, and a game that carries
-## on simply writes the true count at the next save.
+## on simply writes the true count at the next save. The pool's entry, paid at
+## the gate for a pass nobody has gone through yet, is written back as coins the
+## same way. A meal is not here: it is eaten the moment it is paid for, and the
+## kiosk's tickets are already in the purse.
 func _wallet_to_save() -> Dictionary:
 	var data := wallet.to_data()
 	var lent := 0
@@ -4653,7 +4673,9 @@ func _wallet_to_save() -> Dictionary:
 	]:
 		if paid:
 			lent += 1
-	data["tickets"] = int(data["tickets"]) + lent
+	data["tickets"] = SaveGame.as_int(data["tickets"]) + lent
+	if world != null and world.places != null and world.places.entry_pending():
+		data["coins"] = mini(SaveGame.as_int(data["coins"]) + Places.POOL_TICKET, Wallet.MAX_COINS)
 	return data
 
 ## What the valley itself holds: what has been built, felled, dammed and taken.

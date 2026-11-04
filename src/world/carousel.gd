@@ -1060,10 +1060,22 @@ const MUSIC_STILL_DB := -26.0
 
 var _music: AudioStreamPlayer3D
 var _music_task := -1
+## The bake was waited for on leaving the tree and not yet put on the player.
+var _music_ready := false
 var _music_stream: AudioStreamWAV
 
 func _bake_music() -> void:
 	_music_stream = Sounds.music_box()
+
+## A free that arrives while the worker is inside a method of this node is
+## refused ("Object is locked and can't be freed"), and PREDELETE comes after
+## that question, so leaving the tree waits too. The tune is kept, and starts
+## when the node is back in the tree and physics runs again.
+func _exit_tree() -> void:
+	if _music_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_music_task)
+		_music_task = -1
+		_music_ready = true
 
 ## Never freed while the bake is still running: it writes into this object.
 func _notification(what: int) -> void:
@@ -1076,9 +1088,11 @@ func music_playing() -> bool:
 	return _music != null and _music.playing
 
 func _physics_process(delta: float) -> void:
-	if _music_task >= 0 and WorkerThreadPool.is_task_completed(_music_task):
-		WorkerThreadPool.wait_for_task_completion(_music_task)
-		_music_task = -1
+	if _music_ready or (_music_task >= 0 and WorkerThreadPool.is_task_completed(_music_task)):
+		if _music_task >= 0:
+			WorkerThreadPool.wait_for_task_completion(_music_task)
+			_music_task = -1
+		_music_ready = false
 		_music.stream = _music_stream
 		_music.play()
 	var step := _sync_step(delta)

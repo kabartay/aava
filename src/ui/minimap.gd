@@ -388,6 +388,12 @@ func follow(player: Node3D, camera: CameraRig, structures: Structures) -> void:
 	_follow_camera = camera
 	_follow_structures = structures
 
+## A free that arrives while the worker is inside a method of this node is
+## refused ("Object is locked and can't be freed"), and PREDELETE comes after
+## that question, so leaving the tree waits too, and takes the picture in.
+func _exit_tree() -> void:
+	wait_for_bake()
+
 ## Wait for whatever is still baking before this object goes.
 ##
 ## A bake on a worker thread writes its result back into this object. Freed
@@ -860,6 +866,30 @@ func set_view(range_metres: float, centre: Vector2) -> void:
 func zoom_to(range_metres: float) -> void:
 	_zoom_goal = 0.0
 	_view.range_m = MapView.clamp_range(range_metres)
+
+## How the map is open, to hand to a new map when the interface is rebuilt (a
+## change of language builds a new one): its size, and its zoom and centre when
+## the child has moved them.
+func view_state() -> Dictionary:
+	return {
+		"size": int(_size), "range": _view.range_m, "free": _free,
+		"centre": _view.centre,
+	}
+
+## Open as an earlier map was. Held small while building, as always.
+func restore_view(state: Dictionary) -> void:
+	var wanted: int = clampi(SaveGame.as_int(state.get("size", Size.HIDDEN)), 0, Size.FULL)
+	if _kept_small and (wanted == Size.LARGE or wanted == Size.FULL):
+		wanted = Size.SMALL
+	_size = wanted as Size
+	_apply_size()
+	if _size == Size.HIDDEN:
+		return
+	var range_metres: float = SaveGame.as_float(state.get("range", _view.range_m))
+	if SaveGame.as_bool(state.get("free", false)) and state.get("centre") is Vector2:
+		set_view(range_metres, state["centre"])
+	else:
+		zoom_to(range_metres)
 
 ## The metres across, and the world point in the middle, of what is on screen.
 func view_range() -> float:

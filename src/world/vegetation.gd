@@ -420,9 +420,27 @@ func _rebuild_queue() -> void:
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_PREDELETE:
 		return
-	for coord in _baking:
-		WorkerThreadPool.wait_for_task_completion(_baking[coord]["task"])
+	_join_all()
 	_baking.clear()
+
+## A free that arrives while a worker is inside a method of this node is
+## refused ("Object is locked and can't be freed"), and PREDELETE comes after
+## that question, so leaving the tree is the last moment that can still wait.
+## Only on the way out; a node that comes back in carries on, its jobs marked
+## as joined so that nothing asks the pool about a finished task twice.
+func _exit_tree() -> void:
+	_join_all()
+
+func _join_all() -> void:
+	for coord in _baking:
+		_join(_baking[coord])
+
+## Wait for one job's task, once: a task's id is dead after it has been waited.
+func _join(job: Dictionary) -> void:
+	if job.get("joined", false):
+		return
+	WorkerThreadPool.wait_for_task_completion(job["task"])
+	job["joined"] = true
 
 func _process(_delta: float) -> void:
 	_assemble_finished()
@@ -486,7 +504,7 @@ func _assemble_finished_now() -> void:
 		_baking.erase(coord)
 		if job == null:
 			continue
-		WorkerThreadPool.wait_for_task_completion(job["task"])
+		_join(job)
 		# A tile the player has walked away from while it baked is not drawn: the
 		# job stays in `_baking` when the tile leaves the wanted set, so without
 		# this it was assembled out of range and sat there, trees and all, until

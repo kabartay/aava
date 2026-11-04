@@ -654,6 +654,11 @@ func _initialize() -> void:
 	await _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main_thread()
 	await _check_rebuilding_the_interface_leaves_nothing_behind_and_the_players_are_silenced_on_exit()
 	await _check_the_map_bake_hands_its_regions_back_on_the_main_thread()
+	await _check_settings_and_the_together_panel_are_never_open_together_c15()
+	await _check_a_quit_after_paying_loses_nothing_and_a_new_hud_keeps_the_map_c15()
+	await _check_leaving_the_tree_waits_for_the_workers_and_coming_back_works_c15()
+	await _check_a_stale_chunk_bake_is_not_matched_to_a_newer_job_c15()
+	await _check_a_pause_drops_the_kick_hold_without_firing_it_c15()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -1560,6 +1565,7 @@ func _check_the_cafe_serves() -> void:
 	var wall_probe := CameraRig.new(Player.new())
 	_expect((wall_probe._arm.collision_mask & TerrainSpec.LAYER_WALLS) != 0, "because its arm stops at walls")
 	_expect((wall_probe._arm.collision_mask & TerrainSpec.LAYER_PROPS) == 0, "and still not at furniture")
+	wall_probe._player.free()
 	wall_probe.free()
 	_expect(places.cafe_seat_count() == 15, "%d seats: three stools, six chairs inside, two on the sofa, four on the terrace" % places.cafe_seat_count())
 	var inside := spot + Places.CAFE_TABLES[0]
@@ -6366,6 +6372,7 @@ func _check_an_unshirted_child_looks_the_same_to_everyone() -> void:
 		not game.contains("Player.DEFAULT_SHIRT"),
 		"nothing draws this child in a colour no brother could ever be shown back"
 	)
+	visitors.free()
 
 func _check_a_child_can_say_who_they_are() -> void:
 	print("a child can say who they are")
@@ -7031,6 +7038,7 @@ func _check_caring_pays() -> void:
 	var restored := Animals.new(field, 20260904)
 	restored.from_data(animals.to_data())
 	_expect(restored.friends.has(AnimalKinds.DOG), "friends survive a save")
+	restored.free()
 
 	animal["node"].queue_free()
 	empty["node"].queue_free()
@@ -8421,7 +8429,9 @@ func _check_paths_lead_somewhere() -> void:
 	var bank := open_water + Vector3(Lakes.at(1, Lakes.POND_LONG) + 12.0, 0.0, 0.0)
 	bank.y = field.height_at(bank.x, bank.z)
 	_expect(builder.would_build_at(bank), "but the bank beside it is ordinary ground")
+	var builder_structures := builder.structures
 	builder.queue_free()
+	builder_structures.free()
 
 	# The lake walk has to start at the lake and end at the shop's door, however
 	# it wanders in between.
@@ -11006,7 +11016,9 @@ func _check_the_map_symbols_and_the_way_to_them() -> void:
 		kinds_named[entry[0]] = true
 	for kind: int in PlaceGlyph.Kind.values():
 		_expect(kinds_named.has(kind), "the key lists every kind of place: %d" % kind)
-	_expect(not (PlaceGlyph.new(PlaceGlyph.Kind.MOUNTAIN)).is_destination(), "the far mountain is looked at, not walked to")
+	var far_mountain_glyph := PlaceGlyph.new(PlaceGlyph.Kind.MOUNTAIN)
+	_expect(not far_mountain_glyph.is_destination(), "the far mountain is looked at, not walked to")
+	far_mountain_glyph.free()
 
 	# No two stickers lie on each other, and none on the child's arrow, at any
 	# size, with the child standing where stickers crowd most: at the camp, at
@@ -21436,6 +21448,7 @@ func _check_the_four_animals_are_smooth_painted_skins() -> void:
 				low_count > 0 and high_count > 0 and low / float(maxi(low_count, 1)) > high / float(maxi(high_count, 1)),
 				"the %s's belly is paler than her back" % kind
 			)
+		node.free()
 
 	# The cow's patches are regions of her surface that differ from coat to
 	# coat, and leave much of her white.
@@ -33079,6 +33092,247 @@ func _check_the_pool_holds_its_fence_and_lets_a_swimmer_out() -> void:
 	Engine.physics_ticks_per_second = ticks
 	terrain.queue_free()
 	places.queue_free()
+
+## Settings and playing together are two panels over the same part of the
+## screen. Opening one puts the other away, from either side, so a child who
+## pressed the gear with the together panel up is not left with both.
+func _check_settings_and_the_together_panel_are_never_open_together_c15() -> void:
+	print("settings and the together panel are never open at once")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud.together.open()
+	_expect(hud.together.visible and not hud._menu.visible, "the together panel is open on its own")
+	hud._toggle_menu()
+	_expect(hud._menu.visible, "the gear opens the settings")
+	_expect(not hud.together.visible, "and puts the together panel away")
+	hud._open_together()
+	hud.together.open()
+	_expect(hud.together.visible and not hud._menu.visible, "opening together puts the settings away")
+	hud._toggle_menu()
+	hud._toggle_menu()
+	_expect(not hud._menu.visible and not hud.together.visible, "closing the settings leaves neither open")
+	_expect(not hud.close_top_panel(), "and back has nothing left to close")
+	hud.queue_free()
+	await process_frame
+
+## Coins that have bought nothing yet are saved as coins: the pool's five at the
+## turnstile before anyone has gone through, and a ride's ticket that has been
+## taken for a ride that has not begun. A meal is not among them (eaten the
+## moment it is paid for) and the kiosk's tickets are already in the purse. And
+## a rebuilt interface (a change of language) opens the map as it was.
+func _check_a_quit_after_paying_loses_nothing_and_a_new_hud_keeps_the_map_c15() -> void:
+	print("a quit after paying loses nothing, and a new interface keeps the map's size")
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260905)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var world: World = game.get("world")
+	await _settle_the_ground(world)
+	var wallet: Wallet = game.get("wallet")
+	wallet.coins = 40
+	wallet.tickets = 0
+	var saved: Dictionary = game.call("_wallet_to_save")
+	_expect(SaveGame.as_int(saved["coins"]) == 40 and SaveGame.as_int(saved["tickets"]) == 0, "nothing pending, the purse is saved as it is")
+	# Paid at the gate, nobody through yet.
+	wallet.spend(Places.POOL_TICKET)
+	world.places.open_turnstile()
+	_expect(world.places.entry_pending(), "the turnstile is open for a ticket nobody has used")
+	saved = game.call("_wallet_to_save")
+	_expect(SaveGame.as_int(saved["coins"]) == 40, "a quit before the turnstile is passed saves the five coins: %s" % saved["coins"])
+	_expect(wallet.coins == 35, "and the purse itself is untouched")
+	# Through it: the ticket is spent.
+	var gate := world.places._turnstile.position
+	world.places.the_child_is_at(gate + Vector3(-Places.TURNSTILE_CLEAR - 1.0, 0.0, 0.0))
+	_expect(not world.places.entry_pending(), "once through, nothing is pending")
+	saved = game.call("_wallet_to_save")
+	_expect(SaveGame.as_int(saved["coins"]) == 35, "and the five coins are spent for good")
+	# A pass on the way out was free.
+	world.places.open_turnstile(false)
+	saved = game.call("_wallet_to_save")
+	_expect(SaveGame.as_int(saved["coins"]) == 35, "the way out is free, so it adds nothing")
+	world.places.the_child_is_at(gate + Vector3(Places.TURNSTILE_CLEAR + 1.0, 0.0, 0.0))
+	# A ride ticket taken for a ride that has not begun.
+	game.set("_carousel_paid", true)
+	saved = game.call("_wallet_to_save")
+	_expect(SaveGame.as_int(saved["tickets"]) == 1, "a taken ticket for a ride not begun is saved as held")
+	game.set("_carousel_paid", false)
+	# A full purse never goes over its ceiling.
+	wallet.coins = Wallet.MAX_COINS
+	world.places.open_turnstile()
+	saved = game.call("_wallet_to_save")
+	_expect(SaveGame.as_int(saved["coins"]) == Wallet.MAX_COINS, "and the saved purse never passes its ceiling")
+	world.places.open_turnstile(false)
+	world.places.the_child_is_at(gate + Vector3(Places.TURNSTILE_CLEAR + 1.0, 0.0, 0.0))
+	wallet.coins = 40
+
+	# The map across a rebuild of the interface.
+	var map: Minimap = (game.get("hud") as Hud).minimap()
+	map.show_map()
+	map.open_at("large")
+	map.set_view(300.0, Vector2(30.0, 40.0))
+	game.call("_rebuild_hud")
+	await process_frame
+	await process_frame
+	var fresh: Minimap = (game.get("hud") as Hud).minimap()
+	_expect(fresh != map, "the interface was made again")
+	_expect(fresh.is_big(), "the big map is still big")
+	_expect(is_equal_approx(fresh.view_range(), 300.0) and fresh.view_centre().is_equal_approx(Vector2(30.0, 40.0)), "at the zoom and centre it had")
+	fresh.hide_map()
+	game.call("_rebuild_hud")
+	await process_frame
+	_expect(not (game.get("hud") as Hud).minimap().is_showing(), "a map that was put away stays away")
+	game.queue_free()
+	await process_frame
+
+## A node that owns a worker task waits for it on leaving the tree, because the
+## engine refuses to free a locked object before PREDELETE is ever sent. A node
+## that comes back in still works, and nothing waits while it stays put.
+func _check_leaving_the_tree_waits_for_the_workers_and_coming_back_works_c15() -> void:
+	print("leaving the tree waits for the workers, and a node that returns still works")
+	var field := HeightField.new(20260903)
+	var spot := Vector3(500.0, 0.0, 500.0)
+
+	var carousel := Carousel.new(Vector3.ZERO)
+	get_root().add_child(carousel)
+	_expect(carousel._music_task >= 0, "the carousel's tune is being baked")
+	get_root().remove_child(carousel)
+	_expect(carousel._music_task < 0, "leaving the tree waited for the tune")
+	get_root().add_child(carousel)
+	carousel._physics_process(1.0 / 60.0)
+	_expect(carousel._music.stream != null and carousel.music_playing(), "and back in the tree it still plays it")
+	carousel.free()
+
+	var land := DistantLand.new(field)
+	get_root().add_child(land)
+	land.follow(spot)
+	_expect(land._task >= 0, "the far country is being baked")
+	get_root().remove_child(land)
+	_expect(land._task < 0 and land.is_drawn(), "leaving the tree waited for it and took the picture in")
+	land.free()
+
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	map.show_map()
+	map._start_bake(Vector3.ZERO)
+	_expect(map._bake_task >= 0, "the map is being baked")
+	get_root().remove_child(map)
+	_expect(map._bake_task < 0 and map.is_drawn(), "leaving the tree waited for it and took the picture in")
+	get_root().add_child(map)
+	map._start_bake(Vector3(20.0, 0.0, 20.0))
+	map.wait_for_bake()
+	_expect(map._bake_task < 0, "and back in the tree it bakes again")
+	map.free()
+
+	var forest := Vegetation.new(field, 20260903)
+	get_root().add_child(forest)
+	forest.follow(spot)
+	forest._process(1.0 / 60.0)
+	_expect(not forest._baking.is_empty(), "tiles are being baked")
+	get_root().remove_child(forest)
+	var joined := true
+	for coord: Vector2i in forest._baking:
+		joined = joined and bool(forest._baking[coord].get("joined", false))
+	_expect(joined, "leaving the tree waited for every tile")
+	get_root().add_child(forest)
+	var deadline := Time.get_ticks_msec() + 20000
+	while Time.get_ticks_msec() < deadline and forest._tiles.is_empty():
+		forest._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	_expect(not forest._tiles.is_empty(), "and back in the tree the tiles still arrive")
+	get_root().remove_child(forest)
+	forest.free()
+
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	terrain.follow(spot)
+	terrain._process(1.0 / 60.0)
+	_expect(not terrain._baking.is_empty(), "chunks are being baked")
+	get_root().remove_child(terrain)
+	joined = true
+	for coord: Vector2i in terrain._baking:
+		joined = joined and bool(terrain._baking[coord].get("joined", false))
+	_expect(joined, "leaving the tree waited for every chunk")
+	get_root().add_child(terrain)
+	deadline = Time.get_ticks_msec() + 30000
+	while not terrain.is_idle() and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	_expect(terrain.is_idle() and terrain.has_ground_at(spot), "and back in the tree the ground still arrives")
+	get_root().remove_child(terrain)
+	terrain.free()
+
+## A bake whose job was dropped (ensure_ground_at waits for it and builds the
+## chunk itself) can land after the same coordinate has been submitted again.
+## It is not the new job's result: the new job stays, unwaited, to deliver its
+## own, and nothing on the main thread waits for it.
+func _check_a_stale_chunk_bake_is_not_matched_to_a_newer_job_c15() -> void:
+	print("a stale chunk bake is not matched to a newer job for the same chunk")
+	var field := HeightField.new(20260903)
+	var spot := Vector3(500.0, 0.0, 500.0)
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	terrain.follow(spot)
+	terrain._process(1.0 / 60.0)
+	_expect(not terrain._baking.is_empty(), "a chunk is baking")
+	var coord: Vector2i = terrain._baking.keys()[0]
+	var middle := Vector3(
+		(float(coord.x) + 0.5) * TerrainSpec.CHUNK_SIZE, 0.0,
+		(float(coord.y) + 0.5) * TerrainSpec.CHUNK_SIZE
+	)
+	terrain.ensure_ground_at(middle)
+	_expect(terrain.has_ground_at(middle) and not terrain._baking.has(coord), "the chunk is built here and now and its job dropped")
+	# The same chunk asked for again, by a job that takes its time.
+	var slow := WorkerThreadPool.add_task(func() -> void: OS.delay_msec(400), false, "slow stand-in")
+	terrain._baking[coord] = {
+		"id": 1000000, "ring": 0, "collide": true,
+		"generation": terrain._generation, "task": slow,
+	}
+	var started := Time.get_ticks_msec()
+	for _i in 8:
+		terrain._assemble_finished_now()
+	_expect(Time.get_ticks_msec() - started < 300, "the stale bake did not make the main thread wait for the new job")
+	_expect(terrain._baking.has(coord) and not bool(terrain._baking[coord].get("joined", false)), "and the new job is still the one that owns its chunk")
+	WorkerThreadPool.wait_for_task_completion(slow)
+	terrain._baking.erase(coord)
+	terrain.queue_free()
+	await process_frame
+
+## Home, a call or the app switcher takes the game away with a finger on the
+## kick or the bow: the release never comes. The hold is dropped, not loosed.
+func _check_a_pause_drops_the_kick_hold_without_firing_it_c15() -> void:
+	print("a pause drops the kick hold without firing it")
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260905)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var hud: Hud = game.get("hud")
+	var player: Player = game.get("player")
+	var released: Array[int] = [0]
+	hud.kick_released.connect(func() -> void: released[0] += 1)
+	hud._kick_finger = 3
+	hud._kick_aim = Vector2(0.5, 0.5)
+	player.start_charging()
+	hud._kick_button.button_down.emit()
+	hud._kick_aim = Vector2(0.5, 0.5)
+	hud._kick_finger = 3
+	hud.set_kick_preview(true, 0.5, 0.5)
+	_expect(hud._power_bar.visible, "the power bar is up while the kick is held")
+	game.notification(MainLoop.NOTIFICATION_APPLICATION_PAUSED)
+	_expect(hud.kick_finger() == -1 and hud.kick_aim() == Vector2.ZERO, "the kick finger and aim are forgotten")
+	_expect(not player.is_charging() and player.kick_charge == 0.0, "the charge is cancelled")
+	_expect(not hud._power_bar.visible, "the preview is hidden")
+	_expect(released[0] == 0, "and nothing was loosed")
+	game.queue_free()
+	await process_frame
 
 ## A finger down or up, pushed through the root viewport the way the phone's
 ## touch screen delivers it: at a real position, to whichever control is there.
