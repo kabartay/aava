@@ -535,6 +535,8 @@ func at_the_button(at: Vector3) -> bool:
 ## choose a car and get in.
 func book() -> void:
 	_booked = true
+	if sync_following:
+		sync_asked.emit(SYNC_BOOK, 0)
 
 func booked() -> bool:
 	return _booked
@@ -1438,7 +1440,14 @@ func _roll(delta: float) -> void:
 		# the train simply stands there. Wanting to go round again is a thing
 		# a child says at the button, by paying for it.
 		if _waiting <= 0.0:
-			if _rider_aboard and _carrying and not _booked:
+			if sync_following:
+				# The host says when it goes, and until it does this train
+				# stands, with its doors open.
+				if not _sync_leave:
+					_waiting = 0.2
+				else:
+					_sync_leave = false
+			elif _any_aboard() and _carrying and not _booked:
 				# The lap this rider bought is over and they are still in the
 				# car: it stands until they get out, or until they pay for
 				# another. It must not hold a rider who has only just got in —
@@ -1446,7 +1455,7 @@ func _roll(delta: float) -> void:
 				# the fault it was fixing.
 				_waiting = 0.2
 			else:
-				_carrying = _rider_aboard
+				_carrying = _any_aboard()
 		_speed = 0.0
 		return
 
@@ -1478,9 +1487,13 @@ func _roll(delta: float) -> void:
 
 	var was := _at_distance
 	# Along the real track, not along the number it is measured in.
-	_at_distance = fposmod(
-		_at_distance + _speed * delta / stretch_at(_at_distance), total
-	)
+	var advance := _speed * delta / stretch_at(_at_distance)
+	if sync_following and _sync_err != 0.0:
+		# Made up a little each frame, never in one jump: more when behind.
+		var extra := clampf(_sync_err, -0.3 * advance, 0.6 * advance)
+		_sync_err -= extra
+		advance += extra
+	_at_distance = fposmod(_at_distance + advance, total)
 
 	# Pull up at the platform once a lap, on the way past it.
 	var stop_at := distance_of(BOARDS_AT)
@@ -1491,7 +1504,7 @@ func _roll(delta: float) -> void:
 	# A train with somebody in it always stops, booked or not: the ride is one
 	# lap, and the platform is the only way off. Without this a child who got
 	# in went round for ever.
-	if passed and (_booked or _rider_aboard):
+	if passed and (_booked or _any_aboard() or (sync_following and _sync_stops)):
 		_at_distance = stop_at
 		_speed = 0.0
 		_waiting = DWELL
@@ -1514,3 +1527,123 @@ func car_at(index: int) -> Node3D:
 
 func car_distance() -> float:
 	return _at_distance
+
+
+# --- one coaster on two phones ----------------------------------------------
+#
+# The host's train is the train: where it is, how fast, whether it stands at the
+# platform and whether the next ride is booked. A guest's runs the same physics,
+# is steered along the track towards the host's train (a little more speed when
+# behind, a little less when ahead, never a jump while somebody is in a car),
+# and stops at the platform and leaves it when the host says. Harnesses, doors
+# and straps stay each phone's own, drawn from the train's state.
+
+## Said when this coaster, following, wants the host to do something.
+signal sync_asked(what: int, arg: int)
+const SYNC_BOOK := 0
+
+var sync_following := false
+## How far along the track (in the units of `_at_distance`) this train is
+## behind the host's.
+var _sync_err := 0.0
+## The host's train is leaving the platform, and will stop at it next time round.
+var _sync_leave := false
+var _sync_stops := false
+## Whether a child on another phone is in a car, by peer id. Host only.
+var _remote_aboard: Dictionary = {}
+
+## Further out than this and a train nobody is in is set to the host's outright.
+const SYNC_SNAP := 40.0
+
+func _any_aboard() -> bool:
+	if _rider_aboard:
+		return true
+	for peer: Variant in _remote_aboard:
+		if bool(_remote_aboard[peer]):
+			return true
+	return false
+
+## Whether this phone's own child is in a car, for the host.
+func sync_rider() -> bool:
+	return _rider_aboard
+
+func sync_state() -> PackedFloat32Array:
+	return PackedFloat32Array([
+		_at_distance, _speed, maxf(_waiting, 0.0), 1.0 if _booked else 0.0,
+		1.0 if (_booked or _any_aboard()) else 0.0,
+	])
+
+func sync_apply(state: PackedFloat32Array, age: float) -> void:
+	if state.size() < 5:
+		return
+	var total := circuit()
+	_booked = state[3] > 0.5
+	_sync_stops = state[4] > 0.5
+	var host_waiting := maxf(state[2], 0.0)
+	var stop_at := distance_of(BOARDS_AT)
+	if host_waiting > 0.0:
+		_sync_leave = false
+		if _waiting <= 0.0 or absf(wrapf(_at_distance - stop_at, -total * 0.5, total * 0.5)) > 1.0:
+			# The host's train has pulled in: so does this one, where it is.
+			_at_distance = stop_at
+			_speed = 0.0
+			_sync_err = 0.0
+		_waiting = maxf(host_waiting - age, 0.0001)
+		return
+	if _waiting > 0.0:
+		# The host's train is leaving: this one may, once its bars are down.
+		_sync_leave = true
+		_waiting = minf(_waiting, 0.0001)
+	var ahead := state[1] * age
+	var target := fposmod(state[0] + ahead / maxf(stretch_at(state[0]), 0.01), total)
+	var err := wrapf(target - _at_distance, -total * 0.5, total * 0.5)
+	if absf(err) > SYNC_SNAP and _strap_car < 0 and not _rider_aboard:
+		_at_distance = target
+		err = 0.0
+	_sync_err = err
+	# Speed follows position: told a part of the way, so that two trains out
+	# by a little do not stay out by the speed they gathered from it.
+	_speed = lerpf(_speed, state[1], 0.5)
+
+func sync_set_rider(peer: int, aboard: bool) -> void:
+	if aboard:
+		_remote_aboard[peer] = true
+	else:
+		_remote_aboard.erase(peer)
+
+func sync_forget(peer: int) -> void:
+	_remote_aboard.erase(peer)
+
+## The car this phone's own child is in, as (car, 0, 0), or car -1.
+func sync_seat_of(at: Vector3) -> Vector3:
+	if _strap_car >= 0:
+		return Vector3(_strap_car, 0.0, 0.0)
+	for index in _cars.size():
+		var local := _cars[index].global_transform.affine_inverse() * at
+		if absf(local.x) < 0.95 and absf(local.z) < 0.65 and local.y > -0.4 and local.y < 2.0:
+			return Vector3(index, 0.0, 0.0)
+	return Vector3(-1.0, 0.0, 0.0)
+
+func seat_world(index: int, _along := Vector2.ZERO) -> Transform3D:
+	return seat_of(clampi(index, 0, _cars.size() - 1))
+
+func sync_flags() -> int:
+	return 2 if _rider_aboard else 0
+
+func sync_set_flags(peer: int, flags: int) -> void:
+	sync_set_rider(peer, flags & 2 != 0)
+
+func sync_signature() -> int:
+	return (1 if _waiting > 0.0 else 0) | (2 if _booked else 0) | (4 if _any_aboard() else 0)
+
+func sync_release() -> void:
+	sync_following = false
+	_sync_err = 0.0
+	_sync_leave = false
+	_sync_stops = false
+	_remote_aboard.clear()
+
+## A guest books the host's train.
+func sync_ask(_peer: int, what: int, _arg: int) -> void:
+	if what == SYNC_BOOK:
+		book()

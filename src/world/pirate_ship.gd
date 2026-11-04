@@ -824,21 +824,47 @@ func _place_hull() -> void:
 func hold_still(held: bool) -> void:
 	_held = held
 
+## Whether this phone's own child, or (on the host) a child on another phone,
+## is aboard without a ticket for this swing.
+func _is_held() -> bool:
+	if _held:
+		return true
+	for peer: Variant in _sync_holds:
+		if bool(_sync_holds[peer]):
+			return true
+	return false
+
+## Whether this phone's own child is the one keeping the boat still.
+func held() -> bool:
+	return _held
+
 func _physics_process(delta: float) -> void:
 	var before := _hull.position
 	var before_at := _hull.transform
-	_phase_time += delta
+	var step := _sync_step(delta)
+	_phase_time += step
 	match _phase:
 		Phase.STILL:
 			_angle = 0.0
 			# An unpaid child aboard keeps it still (see the drop tower's
 			# note): the solid hull lifts and swings them whether or not the
 			# game carries them, so answering "no" was a free ride.
-			if _held:
+			if _is_held():
 				_phase_time = minf(_phase_time, STILL_HOLD - HELD_LEAD)
 				# Somebody has stepped aboard as the bars came down: up they go,
 				# and the boat waits for the answer.
 				_closing = false
+			elif sync_following:
+				# The host's boat is the boat: bars when theirs come down,
+				# and away when theirs goes, with this boat's own bars down.
+				_phase_time = minf(_phase_time, STILL_HOLD)
+				_closing = _sync_closing or _sync_go
+				if _sync_go and _harness_closed >= 0.99:
+					_closing = false
+					_sync_go = false
+					_phase = Phase.SWINGING
+					_phase_time = _sync_since_go
+					_swing_time = _sync_since_go
 			elif _phase_time >= STILL_HOLD:
 				# Bars first, then the swing: not a frame earlier.
 				_closing = true
@@ -849,7 +875,7 @@ func _physics_process(delta: float) -> void:
 					_phase_time = 0.0
 					_swing_time = 0.0
 		Phase.SWINGING:
-			_swing_time += delta
+			_swing_time += step
 			var envelope := 1.0
 			if _swing_time < RAMP_TIME:
 				envelope = smoothstep(0.0, 1.0, _swing_time / RAMP_TIME)
@@ -967,3 +993,105 @@ func _inside_hull(at: Vector3) -> bool:
 ## down. For the checks.
 func angle() -> float:
 	return _angle
+
+
+# --- one boat on two phones -----------------------------------------------
+#
+# As the drop tower's ring (see DropTower): the host's boat is the boat, this
+# one runs the same timetable on a clock the host steers, and its own bars and
+# straps stay its own.
+
+var sync_following := false
+var _sync_err := 0.0
+var _sync_go := false
+var _sync_since_go := 0.0
+var _sync_closing := false
+var _sync_holds: Dictionary = {}
+
+const SYNC_LOOP := STILL_HOLD + SWING_TIME
+const SYNC_SNAP := 4.0
+const SYNC_GO_WINDOW := 2.0
+
+static func _sync_clock_of(phase: int, time: float) -> float:
+	if phase == Phase.STILL:
+		return minf(time, STILL_HOLD)
+	return STILL_HOLD + minf(time, SWING_TIME)
+
+func sync_clock() -> float:
+	return _sync_clock_of(_phase, _phase_time)
+
+func sync_state() -> PackedFloat32Array:
+	return PackedFloat32Array([float(_phase), _phase_time, 1.0 if _closing else 0.0])
+
+func sync_apply(state: PackedFloat32Array, age: float) -> void:
+	if state.size() < 3:
+		return
+	var phase := clampi(int(state[0]), 0, Phase.SWINGING)
+	var time := maxf(state[1], 0.0)
+	_sync_closing = state[2] > 0.5
+	var now := time if phase == Phase.STILL else time + age
+	_sync_go = phase == Phase.SWINGING and now < SYNC_GO_WINDOW
+	_sync_since_go = now
+	var err := fposmod(_sync_clock_of(phase, now) - sync_clock() + SYNC_LOOP * 0.5, SYNC_LOOP) - SYNC_LOOP * 0.5
+	if absf(err) > SYNC_SNAP and _strap_seat < 0 and not _held:
+		_phase = phase as Phase
+		_phase_time = now
+		_swing_time = now if phase == Phase.SWINGING else 0.0
+		_closing = _sync_closing and phase == Phase.STILL
+		if phase != Phase.STILL:
+			_harness_closed = 1.0
+		_sync_go = false
+		err = 0.0
+	_sync_err = err
+
+func _sync_step(delta: float) -> float:
+	if not sync_following or _phase == Phase.STILL:
+		return delta
+	var room := delta * clampf(absf(_sync_err), 1.0, 3.0)
+	var extra := clampf(_sync_err, -0.5 * delta, room)
+	_sync_err -= extra
+	return delta + extra
+
+func sync_set_hold(peer: int, held: bool) -> void:
+	if held:
+		_sync_holds[peer] = true
+	else:
+		_sync_holds.erase(peer)
+
+func sync_forget(peer: int) -> void:
+	_sync_holds.erase(peer)
+
+## The seat this phone's own child is in (strapped to, or sitting on), as
+## (index, 0, 0), or index -1.
+func sync_seat_of(at: Vector3) -> Vector3:
+	if _strap_seat >= 0:
+		return Vector3(_strap_seat, 0.0, 0.0)
+	for index in _seats.size():
+		var local := (_hull.global_transform * _seats[index]).affine_inverse() * at
+		if absf(local.x) < 0.5 and absf(local.z) < 0.4 and local.y > -0.2 and local.y < 0.4:
+			return Vector3(index, 0.0, 0.0)
+	return Vector3(-1.0, 0.0, 0.0)
+
+func seat_world(index: int, _along := Vector2.ZERO) -> Transform3D:
+	return _hull.global_transform * _seats[clampi(index, 0, _seats.size() - 1)]
+
+## What this phone's own child is doing to the ride, packed for the host.
+func sync_flags() -> int:
+	return 1 if _held else 0
+
+## A child on another phone's flags, on the host.
+func sync_set_flags(peer: int, flags: int) -> void:
+	sync_set_hold(peer, flags & 1 != 0)
+
+## What would make the host tell its guests this ride's state at once rather
+## than at the next beat.
+func sync_signature() -> int:
+	return int(_phase) * 2 + (1 if _closing else 0)
+
+## Back to running by itself: the host has gone, or this phone left.
+func sync_release() -> void:
+	sync_following = false
+	_sync_err = 0.0
+	_sync_go = false
+	_sync_closing = false
+	_sync_holds.clear()

@@ -60,6 +60,12 @@ var _visitors: Dictionary = {}
 ## Main._seat_at). Left unset, nobody sits on a ride. Which ride a child is on is
 ## known from where they are, so nothing about it is sent.
 var seat_finder := Callable()
+## Asked which seat of a ride somebody has said they are in (see RideSync): a
+## peer id in, a seat as `seat_finder` gives one out, or empty. Their body is
+## put in that seat on this phone's own ride, wherever the ride is now, rather
+## than where they were a moment ago when they said so: a ring dropping from the
+## top is thirty metres on in a tenth of a second.
+var ride_seat_of := Callable()
 ## Asked for the head of the animal nearest a place (a Node3D, or null): the one
 ## a child reaching out is reaching to.
 var animal_finder := Callable()
@@ -380,7 +386,12 @@ func _process(delta: float) -> void:
 			if child is Label3D:
 				(child as Label3D).modulate = SPEAKING_COLOUR if lit else Color.WHITE
 				(child as Label3D).scale = Vector3.ONE * (1.3 if lit else 1.0)
-		node.position = node.position.lerp(record["wanted"], weight)
+		var sat: Dictionary = ride_seat_of.call(id) if ride_seat_of.is_valid() else {}
+		record["ride_seat"] = sat
+		if sat.is_empty():
+			node.position = node.position.lerp(record["wanted"], weight)
+		else:
+			node.position = (sat["place"] as Transform3D).origin
 		node.rotation.y = lerp_angle(node.rotation.y, float(record["facing"]), weight)
 		var motion: RigMotion = record["motion"]
 		if motion != null:
@@ -448,7 +459,9 @@ func _animate(record: Dictionary, motion: RigMotion, node: Node3D, delta: float,
 	else:
 		# Still climbing down from a horse takes as long as climbing up did.
 		motion.sit_time = Mounts.BOARD_TIME if record.get("boarding", false) else 0.2
-		var seated: Dictionary = seat_finder.call(node.global_position) if seat_finder.is_valid() else {}
+		var seated: Dictionary = record.get("ride_seat", {})
+		if seated.is_empty() and seat_finder.is_valid():
+			seated = seat_finder.call(node.global_position)
 		motion.seat = seated.get("pose", &"")
 		motion.seat_placed = not seated.is_empty()
 		motion.seat_place = seated.get("place", motion.seat_place)

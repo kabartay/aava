@@ -88,6 +88,20 @@ signal remote_football_scores(blue: int, red: int, goal: int)
 signal remote_kick(from: int, ball: int, velocity: Vector3)
 signal remote_new_game(from: int)
 
+## The rides, which are the host's. A ride's state as the host has it, told to a
+## guest (see RideSync): `age` is how old it is on arrival, in seconds. A child
+## on another phone sitting down in a seat of a ride (or leaving it: seat -1),
+## what they say they are doing to a ride (see RideSync.flags_of), and what they
+## ask the host's ride to do (the host only).
+signal remote_ride_state(ride: int, state: PackedFloat32Array, age: float)
+signal remote_ride_seat(from: int, ride: int, seat: Vector3)
+signal remote_ride_flags(from: int, ride: int, flags: int)
+signal remote_ride_ask(from: int, ride: int, what: int, arg: int)
+## Somebody paid at the pool's turnstile, and it turned for them.
+signal remote_turnstile(from: int)
+## Somebody's game has said, and agrees, that it is the same version as this.
+signal peer_agreed(id: int)
+
 ## A single fixed port, because the alternative is asking a six-year-old to type
 ## one. High enough to need no privileges, and not one anything common uses.
 const PORT := 27717
@@ -100,6 +114,25 @@ const MAX_GUESTS := 3
 ## walking pace once interpolated, and a twentieth of the traffic of every
 ## frame.
 const MOVE_INTERVAL := 1.0 / 12.0
+
+## What two phones must agree on before they say anything else to each other:
+## the version of the messages. Godot numbers a node's messages by sorting
+## their names, so two builds with different messages would run each other's
+## wrong ones. Raised whenever a message is added, changed or removed.
+const PROTOCOL := 2
+const HELLO_MAGIC := "AAVA"
+## How long a phone is given to say hello before its game is taken to be one
+## that does not (an older version).
+const HELLO_PATIENCE := 8.0
+
+## How many rides a message can name, and the most numbers a ride's state is.
+const RIDE_COUNT := 5
+const RIDE_FLOATS := 8
+## What a guest can ask a ride to do.
+const ASK_BOOK := 0
+const ASK_BOARD := 1
+const ASK_STEP_OFF := 2
+const MAX_SEAT := 15
 
 enum Role { ALONE, HOSTING, VISITING }
 
@@ -148,7 +181,22 @@ var _link: Session = null
 ## guest has a peer id of its own; the host is always HOST_ID.
 var _link_id := 2
 
+## For the checks: a delay and a jitter (seconds) on what travels over a link,
+## so that a link can be as slow and as uneven as a family's Wi-Fi.
+var link_latency := 0.0
+var link_jitter := 0.0
+var _link_clock := 0.0
+var _link_last_due := 0.0
+var _link_pending: Array = []
+var _link_rng := RandomNumberGenerator.new()
+
+## The version each phone said it is, by peer id, for those that did.
+var peer_protocol: Dictionary = {}
+var _hello_wait: Dictionary = {}
+
 var _peer: ENetMultiplayerPeer = null
+## A port other than the usual one. Only the checks use it.
+var port_override := 0
 var _since_move := 0.0
 var _last_sent := Vector3(1e9, 1e9, 1e9)
 var _last_facing := 0.0
@@ -204,7 +252,7 @@ func host(display_name: String, wearing := -1, looking := []) -> bool:
 	shirt = wearing
 	look = Character.clean(looking)
 	_peer = ENetMultiplayerPeer.new()
-	var error := _peer.create_server(PORT, MAX_GUESTS)
+	var error := _peer.create_server(port_override if port_override > 0 else PORT, MAX_GUESTS)
 	if error != OK:
 		_peer = null
 		failed.emit(_explain(error))
@@ -213,6 +261,7 @@ func host(display_name: String, wearing := -1, looking := []) -> bool:
 	multiplayer.multiplayer_peer = _peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	_listen_for_hello()
 	role = Role.HOSTING
 	opened.emit(PORT)
 	return true
@@ -229,7 +278,7 @@ func join(address: String, display_name: String, wearing := -1, looking := []) -
 	shirt = wearing
 	look = Character.clean(looking)
 	_peer = ENetMultiplayerPeer.new()
-	var error := _peer.create_client(address, PORT)
+	var error := _peer.create_client(address, port_override if port_override > 0 else PORT)
 	if error != OK:
 		_peer = null
 		failed.emit(_explain(error))
@@ -241,6 +290,7 @@ func join(address: String, display_name: String, wearing := -1, looking := []) -
 	multiplayer.server_disconnected.connect(_on_host_left)
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	_listen_for_hello()
 	role = Role.VISITING
 	return true
 
@@ -257,6 +307,9 @@ func _ready_to_connect() -> bool:
 func close() -> void:
 	_part_pieces.clear()
 	_part_stumps.clear()
+	peer_protocol.clear()
+	_hello_wait.clear()
+	_link_pending.clear()
 	if _peer != null:
 		_peer.close()
 		_peer = null
@@ -271,7 +324,7 @@ func close() -> void:
 		multiplayer.multiplayer_peer = null
 	for signal_name: StringName in [
 		&"peer_connected", &"peer_disconnected", &"connected_to_server",
-		&"connection_failed", &"server_disconnected",
+		&"connection_failed", &"server_disconnected", &"peer_packet",
 	]:
 		for connection in multiplayer.get_signal_connection_list(signal_name):
 			multiplayer.disconnect(signal_name, connection["callable"])
@@ -356,6 +409,10 @@ static func _is_private_172(address: String) -> bool:
 
 func _process(delta: float) -> void:
 	_since_move += delta
+	for id: int in _hello_wait.keys():
+		_hello_wait[id] = float(_hello_wait[id]) + delta
+		if float(_hello_wait[id]) > HELLO_PATIENCE:
+			_refuse_version(id)
 
 ## Tell everyone else where this child is. Called every frame by the game; sends
 ## at most MOVE_INTERVAL apart, and only when they have actually moved.
@@ -632,6 +689,141 @@ func report_animals(states: PackedFloat32Array) -> void:
 		_link._take_animals(HOST_ID, states)
 	else:
 		_send_animals.rpc(states)
+
+## The rides are the host's. For each, the host tells every guest its state:
+## whole and reliably when something that matters changed (a phase, a booking),
+## and unreliably as a slow beat in between, which corrects the clocks. A few
+## numbers each: see the rides' `sync_state`.
+func report_ride_state(ride: int, state: PackedFloat32Array, reliable: bool) -> void:
+	if role != Role.HOSTING or not is_connected_to_anyone() or not _a_ride(ride):
+		return
+	if _link != null:
+		var other := _link
+		_to_link(func() -> void: other._take_ride_state(HOST_ID, ride, state))
+		return
+	for id in agreed_guests():
+		if reliable:
+			_send_ride_state.rpc_id(id, ride, state)
+		else:
+			_send_ride_beat.rpc_id(id, ride, state)
+
+## This child has sat down in a seat of a ride, or got up (seat.x is -1), so the
+## other phones draw them in it: seat.x is the seat, the rest where in it for the
+## rides that say (the wheel). A guest tells the host, which tells the others.
+func report_ride_seat(ride: int, seat: Vector3) -> void:
+	if not is_connected_to_anyone() or not _a_ride(ride):
+		return
+	if _link != null:
+		var other := _link
+		var from := HOST_ID if role == Role.HOSTING else _link_id
+		_to_link(func() -> void: other._take_ride_seat(from, ride, seat))
+	elif role == Role.VISITING:
+		if int(peer_protocol.get(HOST_ID, 0)) == PROTOCOL:
+			_send_ride_seat.rpc_id(HOST_ID, ride, seat)
+	else:
+		for id in agreed_guests():
+			_send_ride_seat.rpc_id(id, ride, seat)
+
+## What this child is doing to a ride, as the ride packs it (`sync_flags`): a
+## guest tells the host, which decides what the ride does. Reliable.
+func report_ride_flags(ride: int, flags: int) -> void:
+	if not is_following() or not _a_ride(ride):
+		return
+	if _link != null:
+		var other := _link
+		_to_link(func() -> void: other._take_ride_flags(_link_id, ride, flags))
+	elif int(peer_protocol.get(HOST_ID, 0)) == PROTOCOL:
+		_send_ride_flags.rpc_id(HOST_ID, ride, flags)
+
+## A guest asks the host's ride for something: to be booked, to be boarded at an
+## animal, to be let off.
+func report_ride_ask(ride: int, what: int, arg: int) -> void:
+	if not is_following() or not _a_ride(ride):
+		return
+	if _link != null:
+		var other := _link
+		_to_link(func() -> void: other._take_ride_ask(_link_id, ride, what, arg))
+	elif int(peer_protocol.get(HOST_ID, 0)) == PROTOCOL:
+		_send_ride_ask.rpc_id(HOST_ID, ride, what, arg)
+
+## This child paid at the pool's turnstile: it turns on the other phones too.
+## Only the turning is told; whether it lets anybody through is each phone's own.
+func report_turnstile() -> void:
+	if not is_connected_to_anyone():
+		return
+	if _link != null:
+		var other := _link
+		var from := HOST_ID if role == Role.HOSTING else _link_id
+		_to_link(func() -> void: other._take_turnstile(from))
+	elif role == Role.VISITING:
+		if int(peer_protocol.get(HOST_ID, 0)) == PROTOCOL:
+			_send_turnstile.rpc_id(HOST_ID)
+	else:
+		for id in agreed_guests():
+			_send_turnstile.rpc_id(id)
+
+## Guests that said hello and are the same version: the only ones the rides
+## and the turnstile are told to.
+func agreed_guests() -> Array[int]:
+	var out: Array[int] = []
+	if _link != null or role != Role.HOSTING:
+		return out
+	for id: int in guests:
+		if int(peer_protocol.get(id, 0)) == PROTOCOL:
+			out.append(id)
+	return out
+
+## Is somebody here for the rides to be told to? The host's, with a link or a
+## guest who is the same version.
+func has_ride_company() -> bool:
+	if role != Role.HOSTING or not is_connected_to_anyone():
+		return false
+	if _link != null:
+		return not guests.is_empty()
+	return not agreed_guests().is_empty()
+
+## Is this the guest of a host whose rides are the rides? Following, and the
+## host is the same version, so that it sends them.
+func can_follow_rides() -> bool:
+	if not is_following():
+		return false
+	return _link != null or int(peer_protocol.get(HOST_ID, 0)) == PROTOCOL
+
+## How long a message from `from` took to get here, as well as it can be told:
+## half the round trip the connection measures, or the delay a check gave the link.
+func delay_from(from: int) -> float:
+	if _link != null:
+		return _link.link_latency
+	if _peer == null:
+		return 0.0
+	var other := _peer.get_peer(from)
+	if other == null:
+		return 0.0
+	return clampf(float(other.get_statistic(ENetPacketPeer.PEER_ROUND_TRIP_TIME)) * 0.0005, 0.0, 0.5)
+
+static func _a_ride(ride: int) -> bool:
+	return ride >= 0 and ride < RIDE_COUNT
+
+## Hand `sent` to the other end of a link, after the delay and jitter a check
+## asked for: never out of order, as a real connection does not.
+func _to_link(sent: Callable) -> void:
+	if link_latency <= 0.0 and link_jitter <= 0.0:
+		sent.call()
+		return
+	var due := maxf(_link_clock + link_latency + _link_rng.randf() * link_jitter, _link_last_due)
+	_link_last_due = due
+	_link_pending.append([due, sent])
+
+## Let `delta` seconds pass on a link with a delay. For the checks.
+func link_step(delta: float) -> void:
+	_link_clock += delta
+	var waiting: Array = []
+	for entry: Array in _link_pending:
+		if float(entry[0]) <= _link_clock:
+			(entry[1] as Callable).call()
+		else:
+			waiting.append(entry)
+	_link_pending = waiting
 
 # --- what arrives ---------------------------------------------------------
 #
@@ -1068,6 +1260,85 @@ func _take_animals(from: int, states: PackedFloat32Array) -> void:
 	remote_animals.emit(states)
 
 @rpc("any_peer", "call_remote", "reliable")
+func _send_ride_state(ride: int, state: PackedFloat32Array) -> void:
+	_take_ride_state(multiplayer.get_remote_sender_id(), ride, state)
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func _send_ride_beat(ride: int, state: PackedFloat32Array) -> void:
+	_take_ride_state(multiplayer.get_remote_sender_id(), ride, state)
+
+func _take_ride_state(from: int, ride: int, state: PackedFloat32Array) -> void:
+	if not _from_the_host(from) or not _a_ride(ride):
+		return
+	if state.is_empty() or state.size() > RIDE_FLOATS:
+		return
+	for number in state:
+		if not is_finite(number) or absf(number) > BELIEVABLE_REACH:
+			return
+	remote_ride_state.emit(ride, state, delay_from(HOST_ID if from == 0 else from))
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_ride_seat(ride: int, seat: Vector3) -> void:
+	_take_ride_seat(_sender(), ride, seat)
+
+func _take_ride_seat(from: int, ride: int, seat: Vector3) -> void:
+	if not _a_ride(ride) or not seat.is_finite():
+		return
+	if seat.x < -1.0 or seat.x > MAX_SEAT or absf(seat.y) > 10.0 or absf(seat.z) > 10.0:
+		return
+	# A guest believes the host (or a check calling straight in) and a host
+	# believes the guests it has met.
+	if role == Role.VISITING and from != 0 and from != HOST_ID:
+		return
+	if role == Role.HOSTING and from != 0 and not guests.has(from):
+		return
+	remote_ride_seat.emit(from, ride, seat)
+	if role != Role.HOSTING or from == 0 or from == HOST_ID or _link != null:
+		return
+	# A guest tells the host alone; telling the other guests is the host's job.
+	for id in agreed_guests():
+		if id != from:
+			_send_ride_seat.rpc_id(id, ride, seat)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_ride_flags(ride: int, flags: int) -> void:
+	_take_ride_flags(_sender(), ride, flags)
+
+func _take_ride_flags(from: int, ride: int, flags: int) -> void:
+	if role != Role.HOSTING or not guests.has(from) or not _a_ride(ride):
+		return
+	if flags < 0 or flags > 0xFFFF:
+		return
+	remote_ride_flags.emit(from, ride, flags)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_ride_ask(ride: int, what: int, arg: int) -> void:
+	_take_ride_ask(_sender(), ride, what, arg)
+
+func _take_ride_ask(from: int, ride: int, what: int, arg: int) -> void:
+	if role != Role.HOSTING or not guests.has(from) or not _a_ride(ride):
+		return
+	if what < ASK_BOOK or what > ASK_STEP_OFF or arg < 0 or arg > 255:
+		return
+	remote_ride_ask.emit(from, ride, what, arg)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_turnstile() -> void:
+	_take_turnstile(_sender())
+
+func _take_turnstile(from: int) -> void:
+	if role == Role.VISITING and from != 0 and from != HOST_ID:
+		return
+	if role == Role.HOSTING and from != 0 and not guests.has(from):
+		return
+	remote_turnstile.emit(from)
+	if role != Role.HOSTING or from == 0 or from == HOST_ID or _link != null:
+		return
+	for id in agreed_guests():
+		if id != from:
+			_send_turnstile.rpc_id(id)
+
+@rpc("any_peer", "call_remote", "reliable")
 func _send_dam_stick(site: float) -> void:
 	if not is_finite(site) or absf(site) > BELIEVABLE_REACH:
 		return
@@ -1115,6 +1386,16 @@ func _take_name(from: int, display_name: String, chose: int, looking: Variant = 
 		guest_arrived.emit(from, safe, wearing)
 
 func _on_peer_connected(id: int) -> void:
+	# Nothing but a hello until the other phone has said which version it is:
+	# see PROTOCOL. What used to go here goes when that is agreed.
+	_hello_wait[id] = 0.0
+	_send_hello(id)
+
+## The other phone is the same version: now they are introduced.
+func _greet(id: int) -> void:
+	# Nobody to greet on a session that is not on a connection (a check).
+	if _peer == null:
+		return
 	# Our name and shirt go to them; theirs come back the same way.
 	_send_name.rpc_id(id, who, shirt, look)
 	# And where we are goes with it. Positions are only sent when somebody has
@@ -1128,7 +1409,56 @@ func _on_peer_connected(id: int) -> void:
 	_last_sent = Vector3(1e9, 1e9, 1e9)
 	_since_move = MOVE_INTERVAL
 
+func _listen_for_hello() -> void:
+	var scene := multiplayer as SceneMultiplayer
+	if scene != null and not scene.peer_packet.is_connected(_on_peer_packet):
+		scene.peer_packet.connect(_on_peer_packet)
+
+## The hello is not an rpc, which is the point of it: an rpc is numbered by the
+## sorted names of the messages a build has, and a build with other messages
+## would take it for something else. A plain packet is the same in every build.
+func _send_hello(id: int) -> void:
+	var scene := multiplayer as SceneMultiplayer
+	if scene == null:
+		return
+	var packet := HELLO_MAGIC.to_ascii_buffer()
+	packet.append(PROTOCOL)
+	scene.send_bytes(packet, id, MultiplayerPeer.TRANSFER_MODE_RELIABLE, 0)
+
+func _on_peer_packet(id: int, packet: PackedByteArray) -> void:
+	if packet.size() != HELLO_MAGIC.length() + 1:
+		return
+	if packet.slice(0, HELLO_MAGIC.length()) != HELLO_MAGIC.to_ascii_buffer():
+		return
+	take_hello(id, packet[HELLO_MAGIC.length()])
+
+## What a hello says. Apart from the packet so that it can be tried without a
+## second machine.
+func take_hello(id: int, protocol: int) -> void:
+	if not _hello_wait.has(id):
+		return
+	_hello_wait.erase(id)
+	if protocol != PROTOCOL:
+		_refuse_version(id)
+		return
+	peer_protocol[id] = protocol
+	_greet(id)
+	peer_agreed.emit(id)
+
+## A phone that is another version of the game (or says nothing) is not talked
+## to. A host lets it go; a guest goes home and says it could not connect.
+func _refuse_version(id: int) -> void:
+	_hello_wait.erase(id)
+	if role == Role.HOSTING:
+		if _peer != null:
+			_peer.disconnect_peer(id)
+	elif role == Role.VISITING:
+		close()
+		failed.emit("the other game is another version")
+
 func _on_peer_disconnected(id: int) -> void:
+	peer_protocol.erase(id)
+	_hello_wait.erase(id)
 	peer_gone.emit(id)
 	guest_positions.erase(id)
 	guest_mounts.erase(id)
@@ -1167,6 +1497,8 @@ static func words_for(reason: String) -> StringName:
 			return &"fail_too_big"
 		"could not open the valley":
 			return &"fail_open"
+		"the other game is another version":
+			return &"fail_connect"
 		_:
 			return &"fail_connect"
 

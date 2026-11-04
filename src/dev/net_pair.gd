@@ -13,8 +13,14 @@ extends SceneTree
 ## host's ball arrived where the host has it.
 
 const LIMIT := 25.0
-const GUEST_RESULT := "user://netpair_guest.txt"
+var GUEST_RESULT := "user://netpair_guest.txt"
 var _guest_pid := 0
+## A port other than the usual one, so that two runs (or two agents) do not
+## meet on one: `--port=NNNNN` for the host, passed on to the guest it starts.
+var _port := 0
+var _park: Park
+var _rides: RideSync
+var _ride_messages := 0
 
 var _role := "host"
 var _session: Session
@@ -32,9 +38,22 @@ func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--role="):
 			_role = argument.trim_prefix("--role=")
+		if argument.begins_with("--port="):
+			_port = argument.trim_prefix("--port=").to_int()
+	if _port > 0:
+		GUEST_RESULT = "user://netpair_guest_%d.txt" % _port
 	_field = HeightField.new(20260903)
 	_session = Session.new()
+	_session.port_override = _port
 	root.add_child(_session)
+	# The rides, as the game has them: the host's are the rides.
+	_park = Park.new(_field)
+	root.add_child(_park)
+	_rides = RideSync.new()
+	_rides.attach(_session, _park)
+	root.add_child(_rides)
+	_session.remote_ride_state.connect(func(_ride: int, _state: PackedFloat32Array, _age: float) -> void:
+		_ride_messages += 1)
 	_ground = FootballGround.new(_field)
 	root.add_child(_ground)
 	_ground.attach(_session)
@@ -70,7 +89,7 @@ func _connect() -> void:
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(GUEST_RESULT))
 			_guest_pid = OS.create_process(OS.get_executable_path(), [
 				"--headless", "--path", ProjectSettings.globalize_path("res://"),
-				"--script", "res://src/dev/net_pair.gd", "--", "--role=guest",
+				"--script", "res://src/dev/net_pair.gd", "--", "--role=guest", "--port=%d" % _port,
 			])
 			print("NETPAIR host: started guest process %d" % _guest_pid)
 	else:
@@ -134,6 +153,8 @@ func _host_step() -> bool:
 			# The guest kicks the ball by asking; wait for it to move.
 			if _centre_ball().position.distance_to(_ball_start) > 3.0:
 				print("NETPAIR host: the ball moved %.1f m" % _centre_ball().position.distance_to(_ball_start))
+				if not _session.has_ride_company():
+					_fail("the host has nobody its rides are told to (no hello agreed)")
 				_next(2)
 			elif _stage_time > 15.0:
 				_fail("the guest's kick never moved the ball")
@@ -172,5 +193,11 @@ func _guest_step() -> bool:
 				_fail("the host's ball never reached this phone")
 		3:
 			if _stage_time > 2.0:
+				if not _session.can_follow_rides() or not _park.drop_tower.sync_following:
+					_fail("the guest's rides do not follow the host's")
+				elif _ride_messages < 3:
+					_fail("only %d ride messages reached the guest" % _ride_messages)
+				else:
+					print("NETPAIR guest: %d ride messages, rides follow the host's" % _ride_messages)
 				return _finish()
 	return false

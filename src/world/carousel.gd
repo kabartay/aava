@@ -1081,7 +1081,8 @@ func _physics_process(delta: float) -> void:
 		_music_task = -1
 		_music.stream = _music_stream
 		_music.play()
-	_phase_time += delta
+	var step := _sync_step(delta)
+	_phase_time += step
 	match _phase:
 		Phase.STILL:
 			_speed = 0.0
@@ -1101,9 +1102,10 @@ func _physics_process(delta: float) -> void:
 				_phase = Phase.STILL
 				_phase_time = 0.0
 				_speed = 0.0
-	_swept = TURN_RATE * _speed * delta
-	_turned = fmod(_turned + _swept, TAU)
-	_bob_clock += _speed * delta
+	_swept = TURN_RATE * _speed * step + _sync_turn_step(delta)
+	_turned = fposmod(_turned + _swept, TAU)
+	_bob_clock += _speed * step + _sync_bob_step(delta)
+	_ask_age += delta
 	var spin := Transform3D(Basis(Vector3.UP, _turned), Vector3.ZERO)
 	_turntable.transform = spin
 	_horses.transform = spin
@@ -1173,7 +1175,7 @@ func seat_near(at: Vector3) -> Transform3D:
 
 ## Nobody is aboard and it is not going: a child who has paid may be put on.
 func free_to_board() -> bool:
-	return _phase == Phase.STILL and _rider < 0
+	return _phase == Phase.STILL and _rider < 0 and not _sync_busy
 
 ## Seat a child who has paid on the animal nearest them, and start the ride.
 ## False if it is not free to. Where they stand is all that is asked: nobody
@@ -1191,8 +1193,13 @@ func board(at: Vector3) -> bool:
 			nearest = apart
 			best = horse
 	_rider = best
+	_rider_peer = 0
 	_phase = Phase.SPIN_UP
 	_phase_time = 0.0
+	# On a guest's phone it is the host's carousel that is asked to start.
+	if sync_following:
+		_ask_age = 0.0
+		sync_asked.emit(SYNC_BOARD, best)
 	return true
 
 ## Is somebody in a saddle, going round or waiting to be let off?
@@ -1226,6 +1233,9 @@ func rider_seat() -> Transform3D:
 func step_off() -> Vector3:
 	var here := rider_seat()
 	_rider = -1
+	_rider_peer = 0
+	if sync_following:
+		sync_asked.emit(SYNC_STEP_OFF, 0)
 	var out := Vector2(here.origin.x - global_position.x, here.origin.z - global_position.z)
 	var spot := out.normalized() * (RADIUS * RING + 1.4)
 	return Vector3(
@@ -1272,3 +1282,171 @@ func glow(darkness: float) -> void:
 ## How far round it has turned. For the checks.
 func turned() -> float:
 	return _turned
+
+
+# --- one carousel on two phones --------------------------------------------
+#
+# The host's carousel is the carousel: whether it is turning, how far, and who
+# is on it. A guest's runs the same timetable on a clock the host steers, starts
+# only when the host starts, and asks the host to start when its child boards.
+# One child rides at a time, on either phone, as it always has.
+
+## Said when this carousel, following, wants the host to do something.
+signal sync_asked(what: int, arg: int)
+const SYNC_BOARD := 1
+const SYNC_STEP_OFF := 2
+
+var sync_following := false
+var _sync_err := 0.0
+var _sync_turn_err := 0.0
+var _sync_bob_err := 0.0
+## The host's carousel has somebody on it (told to a guest).
+var _sync_busy := false
+## Which phone the rider is on, when it is not this one (0): a peer id. On the
+## host only.
+var _rider_peer := 0
+## How long ago this phone's own child asked to ride, for telling "the host has
+## not heard yet" from "the host said no".
+var _ask_age := 99.0
+
+const SYNC_LOOP := SPIN_UP_TIME + RIDE_TIME + SLOW_TIME
+const SYNC_SNAP := 4.0
+
+static func _sync_clock_of(phase: int, time: float) -> float:
+	match phase:
+		Phase.SPIN_UP:
+			return minf(time, SPIN_UP_TIME)
+		Phase.RIDING:
+			return SPIN_UP_TIME + minf(time, RIDE_TIME)
+		Phase.SLOWING:
+			return SPIN_UP_TIME + RIDE_TIME + minf(time, SLOW_TIME)
+	return 0.0
+
+func sync_clock() -> float:
+	return _sync_clock_of(_phase, _phase_time)
+
+func sync_state() -> PackedFloat32Array:
+	return PackedFloat32Array([float(_phase), _phase_time, _turned, _bob_clock, float(_rider)])
+
+func sync_apply(state: PackedFloat32Array, age: float) -> void:
+	if state.size() < 5:
+		return
+	var phase := clampi(int(state[0]), 0, Phase.SLOWING)
+	var now := maxf(state[1], 0.0) + (age if phase != Phase.STILL else 0.0)
+	_sync_busy = state[4] >= 0.0
+	var moving := _speed > 0.0 or _phase != Phase.STILL
+	var host_clock := _sync_clock_of(phase, now)
+	var near_end := host_clock > SYNC_LOOP - 1.0
+	if phase == Phase.STILL:
+		# The host's carousel has stopped. Ours stops when its own clock runs
+		# out, unless this phone started it a moment ago and the host has not
+		# heard yet, or it was refused.
+		if _phase != Phase.STILL and _sync_clock_of(_phase, _phase_time) < SYNC_LOOP - 1.0 \
+				and _ask_age > 1.5:
+			_phase = Phase.STILL
+			_phase_time = 0.0
+			_speed = 0.0
+			_rider = -1
+		_sync_err = 0.0
+	elif _phase == Phase.STILL and not near_end:
+		# It has been started, by the host's child, or by a guest on the host.
+		_phase = phase as Phase
+		_phase_time = now
+		_sync_err = 0.0
+	elif _phase != Phase.STILL:
+		var err := fposmod(host_clock - sync_clock() + SYNC_LOOP * 0.5, SYNC_LOOP) - SYNC_LOOP * 0.5
+		if absf(err) > SYNC_SNAP and _rider < 0:
+			_phase = phase as Phase
+			_phase_time = now
+			err = 0.0
+		_sync_err = err
+	var spun := _speed_of(phase, now)
+	var target := state[2] + TURN_RATE * spun * age
+	var turn_err := wrapf(target - _turned, -PI, PI)
+	if (not moving and _rider < 0) or absf(turn_err) > deg_to_rad(40.0) and _rider < 0:
+		_turned = fposmod(target, TAU)
+		turn_err = 0.0
+	_sync_turn_err = turn_err
+	_sync_bob_err = wrapf(state[3] + spun * age - _bob_clock, -PI / BOB_RATE, PI / BOB_RATE) \
+		if moving else 0.0
+
+## How fast (nought to one) the carousel goes at a point of its round.
+static func _speed_of(phase: int, time: float) -> float:
+	match phase:
+		Phase.SPIN_UP:
+			return smoothstep(0.0, 1.0, time / SPIN_UP_TIME)
+		Phase.RIDING:
+			return 1.0
+		Phase.SLOWING:
+			return 1.0 - smoothstep(0.0, 1.0, time / SLOW_TIME)
+	return 0.0
+
+func _sync_step(delta: float) -> float:
+	if not sync_following or _phase == Phase.STILL:
+		return delta
+	var room := delta * clampf(absf(_sync_err), 1.0, 3.0)
+	var extra := clampf(_sync_err, -0.5 * delta, room)
+	_sync_err -= extra
+	return delta + extra
+
+## This frame's extra turn, in radians, towards the host's angle.
+func _sync_turn_step(delta: float) -> float:
+	if not sync_following or _sync_turn_err == 0.0:
+		return 0.0
+	var bound := TURN_RATE * maxf(_speed, 0.25) * delta
+	var extra := clampf(_sync_turn_err, -0.5 * bound, bound)
+	_sync_turn_err -= extra
+	return extra
+
+func _sync_bob_step(delta: float) -> float:
+	if not sync_following or _sync_bob_err == 0.0:
+		return 0.0
+	var bound := maxf(_speed, 0.25) * delta
+	var extra := clampf(_sync_bob_err, -0.5 * bound, bound)
+	_sync_bob_err -= extra
+	return extra
+
+## A guest asks, on the host: to board (`arg` is the animal it chose) or to
+## get off. Refused, quietly, if the carousel is not free.
+func sync_ask(peer: int, what: int, arg: int) -> void:
+	if what == SYNC_BOARD:
+		if _phase != Phase.STILL or _rider >= 0:
+			return
+		_rider = clampi(arg, 0, HORSES - 1)
+		_rider_peer = peer
+		_phase = Phase.SPIN_UP
+		_phase_time = 0.0
+	elif what == SYNC_STEP_OFF and _rider_peer == peer:
+		_rider = -1
+		_rider_peer = 0
+
+func sync_forget(peer: int) -> void:
+	if _rider_peer == peer and _rider >= 0:
+		_rider = -1
+		_rider_peer = 0
+
+func sync_rider() -> int:
+	return _rider if _rider_peer == 0 else -1
+
+## The animal this phone's own child is on, as (animal, 0, 0), or animal -1.
+func sync_seat_of(_at: Vector3) -> Vector3:
+	return Vector3(float(_rider if _rider_peer == 0 else -1), 0.0, 0.0)
+
+func seat_world(index: int, _along := Vector2.ZERO) -> Transform3D:
+	return saddles()[clampi(index, 0, HORSES - 1)]
+
+func sync_flags() -> int:
+	return 0
+
+func sync_set_flags(_peer: int, _flags: int) -> void:
+	pass
+
+func sync_signature() -> int:
+	return int(_phase) | ((_rider + 1) << 4)
+
+func sync_release() -> void:
+	sync_following = false
+	_sync_err = 0.0
+	_sync_turn_err = 0.0
+	_sync_bob_err = 0.0
+	_sync_busy = false

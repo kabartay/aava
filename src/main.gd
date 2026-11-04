@@ -36,6 +36,7 @@ var journal: Journal
 var profiles: Profiles
 var session: Session
 var visitors: Visitors
+var ride_sync: RideSync
 var voice: Voice
 var ambience: Ambience
 var animal_voices: AnimalVoices
@@ -290,6 +291,16 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	voice = Voice.new()
 	voice.attach(session)
 	add_child(voice)
+
+	# The rides are the host's: a guest's phone follows them, and the other
+	# child is drawn in the seat they said they are in.
+	ride_sync = RideSync.new()
+	ride_sync.local_position = func() -> Vector3:
+		return player.global_position if player != null else Vector3.INF
+	ride_sync.attach(session, world.park)
+	add_child(ride_sync)
+	visitors.ride_seat_of = ride_sync.seat_of_guest
+	session.remote_turnstile.connect(func(_from: int) -> void: world.places.turn_for_another())
 
 	session.opened.connect(_on_session_opened)
 	session.joined.connect(_on_session_joined)
@@ -4019,6 +4030,7 @@ func _on_ticket() -> void:
 		return
 	wallet.spend(Places.POOL_TICKET)
 	world.places.open_turnstile()
+	session.report_turnstile()
 	sounds.play(Sounds.Sound.PICKUP, 1.1)
 	hud.announce(Text.of("say_welcome_pool"), 2.4)
 

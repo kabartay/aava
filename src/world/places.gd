@@ -2973,7 +2973,23 @@ func the_child_is_at(at: Vector3) -> void:
 		_turnstile_open = 0.0
 		_turnstile.collision_layer = TerrainSpec.LAYER_PROPS
 
+## The turnstile turns for a child on another phone who has paid, for as long as
+## it takes to pass it: what is drawn, and nothing else. This phone's own bar
+## stays shut to its own child until they have a ticket of their own.
+const TURNSTILE_TURN := 2.0
+var _turnstile_turn := 0.0
+
+func turn_for_another() -> void:
+	_turnstile_turn = TURNSTILE_TURN
+
+func turning_for_another() -> bool:
+	return _turnstile_turn > 0.0
+
 func _tick_turnstile(delta: float) -> void:
+	if _turnstile_turn > 0.0:
+		_turnstile_turn -= delta
+		if _turnstile_arms != null and _turnstile_open <= 0.0:
+			_turnstile_arms.rotation.y += delta * 2.4
 	if _turnstile_open <= 0.0:
 		return
 	_turnstile_open -= delta

@@ -50,6 +50,10 @@ func _initialize() -> void:
 	_check_a_shot_stays_in_the_goal()
 	_check_goals_are_judged()
 	_check_net_restart_and_kicks_in_the_cheer()
+	_check_two_phones_ride_on_one_clock()
+	_check_a_guest_boarding_sits_on_both_phones()
+	_check_a_guest_who_leaves_mid_ride_is_put_down_safely()
+	_check_the_rides_say_hello_and_are_cheap_to_tell()
 	_check_kick_can_be_aimed()
 	_check_two_sides_keep_score_on_the_board()
 	_check_new_game_and_old_saves()
@@ -31460,4 +31464,428 @@ func _check_the_map_symbols_follow_pan_and_zoom() -> void:
 ## Colours as an 8-bit picture keeps them.
 func _close_colours(a: Color, b: Color) -> bool:
 	return absf(a.r - b.r) < 0.02 and absf(a.g - b.g) < 0.02 and absf(a.b - b.b) < 0.02
+
+# --- two phones, one fairground ------------------------------------------------
+
+## A host and a guest, each with a fairground of its own and a link between
+## them that takes `latency` seconds and up to `jitter` more, each way. The
+## guest's child and the host's are put wherever `spots[1]` and `spots[0]` say.
+func _ride_pair(latency := 0.0, jitter := 0.0) -> Dictionary:
+	var field := HeightField.new(20260903)
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	host._link = guest
+	guest._link = host
+	host.guests[guest._link_id] = "Amir"
+	host.link_latency = latency
+	host.link_jitter = jitter
+	guest.link_latency = latency
+	guest.link_jitter = jitter
+	var host_park := Park.new(field)
+	var guest_park := Park.new(field)
+	get_root().add_child(host_park)
+	get_root().add_child(guest_park)
+	var spots: Array[Vector3] = [Vector3.INF, Vector3.INF]
+	var host_sync := RideSync.new()
+	var guest_sync := RideSync.new()
+	host_sync.local_position = func() -> Vector3: return spots[0]
+	guest_sync.local_position = func() -> Vector3: return spots[1]
+	host_sync.attach(host, host_park)
+	guest_sync.attach(guest, guest_park)
+	get_root().add_child(host_sync)
+	get_root().add_child(guest_sync)
+	return {
+		"host": host, "guest": guest, "host_park": host_park, "guest_park": guest_park,
+		"host_sync": host_sync, "guest_sync": guest_sync, "spots": spots,
+	}
+
+func _free_ride_pair(pair: Dictionary) -> void:
+	for key: String in ["host_sync", "guest_sync", "host_park", "guest_park", "host", "guest"]:
+		(pair[key] as Node).free()
+
+func _rides_of(park: Park) -> Array[Node]:
+	return [park.carousel, park.wheel, park.coaster, park.drop_tower, park.pirate_ship]
+
+## One tick of both phones: every ride of each, the two syncs, and the link.
+func _ride_tick(pair: Dictionary, dt: float, guest_too := true) -> void:
+	for ride: Node in _rides_of(pair["host_park"]):
+		ride.call(&"_physics_process", dt)
+	if guest_too:
+		for ride: Node in _rides_of(pair["guest_park"]):
+			ride.call(&"_physics_process", dt)
+	(pair["host_sync"] as RideSync).step(dt)
+	(pair["guest_sync"] as RideSync).step(dt)
+	(pair["host"] as Session).link_step(dt)
+	(pair["guest"] as Session).link_step(dt)
+
+## How far apart two readings of a cycle of `length` are, the short way round.
+func _cycle_gap(a: float, b: float, length: float) -> float:
+	return fposmod(a - b + length * 0.5, length) - length * 0.5
+
+## The guest's rides start a good way out of step with the host's, and the link
+## is slow and uneven. They come to one clock, without the guest's ring ever
+## jumping, and what it costs the network is small.
+func _check_two_phones_ride_on_one_clock() -> void:
+	print("two phones' rides keep one clock over a slow, uneven link")
+	var dt := 1.0 / 30.0
+	var pair := _ride_pair(0.08, 0.10)
+	var hp: Park = pair["host_park"]
+	var gp: Park = pair["guest_park"]
+	var guest: Session = pair["guest"]
+	var heard := [0, 0]
+	guest.remote_ride_state.connect(func(_ride: int, state: PackedFloat32Array, _age: float) -> void:
+		heard[0] += 1
+		heard[1] += var_to_bytes(state).size())
+	# The guest's phone has been running on its own for a while.
+	for _i in int(23.0 * 30.0):
+		for ride: Node in _rides_of(gp):
+			ride.call(&"_physics_process", dt)
+	var out := absf(_cycle_gap(gp.drop_tower.sync_clock(), hp.drop_tower.sync_clock(), DropTower.SYNC_LOOP))
+	_expect(out > 4.0, "the guest's tower starts %.0f s out of step with the host's" % out)
+	# The host's child is on the carousel; the train and the wheel are running.
+	var deck := hp.carousel.global_position
+	hp.carousel.board(deck + Vector3(Carousel.RADIUS * Carousel.RING, Carousel.FLOOR_HEIGHT, 0.0))
+	var settle := int(8.0 * 30.0)
+	var worst := {"tower": 0.0, "ship": 0.0, "wheel": 0.0, "coaster": 0.0, "carousel": 0.0, "turn": 0.0}
+	var phases_match := 0
+	var samples := 0
+	var host_step := 0.0
+	var guest_step := 0.0
+	var last_host := hp.drop_tower.ring_height()
+	var last_guest := gp.drop_tower.ring_height()
+	var run := int(75.0 * 30.0)
+	for tick in run:
+		_ride_tick(pair, dt)
+		var host_y := hp.drop_tower.ring_height()
+		var guest_y := gp.drop_tower.ring_height()
+		if tick > settle:
+			host_step = maxf(host_step, absf(host_y - last_host))
+			guest_step = maxf(guest_step, absf(guest_y - last_guest))
+			worst["tower"] = maxf(worst["tower"], absf(_cycle_gap(
+				gp.drop_tower.sync_clock(), hp.drop_tower.sync_clock(), DropTower.SYNC_LOOP)))
+			worst["ship"] = maxf(worst["ship"], absf(_cycle_gap(
+				gp.pirate_ship.sync_clock(), hp.pirate_ship.sync_clock(), PirateShip.SYNC_LOOP)))
+			worst["wheel"] = maxf(worst["wheel"], absf(wrapf(gp.wheel.turned() - hp.wheel.turned(), -PI, PI)))
+			worst["coaster"] = maxf(worst["coaster"], absf(wrapf(
+				gp.coaster.car_distance() - hp.coaster.car_distance(),
+				-RollerCoaster.circuit() * 0.5, RollerCoaster.circuit() * 0.5)))
+			if hp.carousel.phase() != Carousel.Phase.STILL or gp.carousel.phase() != Carousel.Phase.STILL:
+				samples += 1
+				if hp.carousel.phase() == gp.carousel.phase():
+					phases_match += 1
+				worst["carousel"] = maxf(worst["carousel"], absf(_cycle_gap(
+					gp.carousel.sync_clock(), hp.carousel.sync_clock(), Carousel.SYNC_LOOP)))
+				if hp.carousel.speed() > 0.5:
+					worst["turn"] = maxf(worst["turn"], absf(wrapf(
+						gp.carousel.turned() - hp.carousel.turned(), -PI, PI)))
+		last_host = host_y
+		last_guest = guest_y
+	_expect(gp.drop_tower.sync_following and gp.wheel.sync_following, "the guest's rides follow the host's")
+	_expect(not hp.drop_tower.sync_following, "and the host's follow nobody")
+	_expect(worst["tower"] < 0.5, "the two towers keep within %.2f s of one clock" % worst["tower"])
+	_expect(worst["ship"] < 0.5, "the two ships within %.2f s" % worst["ship"])
+	_expect(worst["wheel"] < 0.06, "the two wheels within %.3f rad" % worst["wheel"])
+	_expect(worst["coaster"] < 5.0, "the two trains within %.1f m of the track" % worst["coaster"])
+	_expect(samples > 600, "the carousel ran for %d ticks" % samples)
+	_expect(worst["carousel"] < 0.5, "the two carousels within %.2f s" % worst["carousel"])
+	_expect(worst["turn"] < 0.15, "turned within %.3f rad of each other" % worst["turn"])
+	_expect(phases_match >= samples - 30, "and in the same phase (%d of %d ticks)" % [phases_match, samples])
+	_expect(
+		host_step > 0.5 and guest_step <= host_step * 2.05 + 0.01,
+		"the guest's ring never moved by more than twice the host's biggest step (%.2f against %.2f m)" % [guest_step, host_step]
+	)
+	var seconds := float(run) * dt
+	_expect(float(heard[0]) / seconds < 9.0, "%.1f ride messages a second, at most" % (float(heard[0]) / seconds))
+	_expect(float(heard[1]) / seconds < 400.0, "and %.0f bytes a second of state" % (float(heard[1]) / seconds))
+	_free_ride_pair(pair)
+
+## A guest sits down in a ride on its own phone and asks the host: the host's
+## ride is the same ride with the same child in the same seat, restraints and all.
+func _check_a_guest_boarding_sits_on_both_phones() -> void:
+	print("a guest who boards sits on both phones")
+	var dt := 1.0 / 30.0
+	var pair := _ride_pair(0.05, 0.03)
+	var hp: Park = pair["host_park"]
+	var gp: Park = pair["guest_park"]
+	var host: Session = pair["host"]
+	var guest: Session = pair["guest"]
+	var host_sync: RideSync = pair["host_sync"]
+	var spots: Array[Vector3] = pair["spots"]
+	var me: int = guest._link_id
+	for _i in 30:
+		_ride_tick(pair, dt)
+
+	# The carousel: the guest boards, and the host's turns with them on it.
+	var saddle := gp.carousel.saddles()[3].origin
+	spots[1] = saddle
+	_expect(gp.carousel.free_to_board(), "the guest's carousel is free to board")
+	_expect(gp.carousel.board(saddle), "the guest boards it")
+	for _i in 30:
+		_ride_tick(pair, dt)
+	_expect(hp.carousel.has_rider() and hp.carousel.rider_horse() == gp.carousel.rider_horse(),
+		"the host's carousel has the guest on the same animal (%d)" % hp.carousel.rider_horse())
+	_expect(hp.carousel.phase() != Carousel.Phase.STILL, "and is turning")
+	_expect(not hp.carousel.free_to_board(), "nobody else boards it")
+	var told := host_sync.seat_told_of(me)
+	_expect(told.size() == 2 and int(told[0]) == 0 and int((told[1] as Vector3).x) == 3,
+		"the host was told the guest sits on animal 3 of the carousel: %s" % str(told))
+	var drawn := host_sync.seat_of_guest(me)
+	_expect(drawn.get("pose", &"") == &"carousel", "and draws them seated as on a carousel")
+	_expect(
+		(drawn["place"] as Transform3D).origin.distance_to(hp.carousel.saddles()[3].origin) < 0.01,
+		"in that animal's saddle on the host's own carousel"
+	)
+	for _i in int(8.0 * 30.0):
+		spots[1] = gp.carousel.saddles()[3].origin
+		_ride_tick(pair, dt)
+	_expect(hp.carousel.phase() == gp.carousel.phase(), "both carousels in the same phase after eight seconds")
+	gp.carousel.step_off()
+	spots[1] = Vector3.INF
+	for _i in 40:
+		_ride_tick(pair, dt)
+	_expect(not hp.carousel.has_rider(), "the guest getting off frees the host's carousel")
+	_expect(host_sync.seat_told_of(me).is_empty(), "and the host is told they are no longer in a seat")
+
+	# A booking: the wheel and the train are the host's to send.
+	gp.wheel.book()
+	gp.coaster.book()
+	for _i in 30:
+		_ride_tick(pair, dt)
+	_expect(hp.wheel.called() or hp.wheel.waiting() > 0.0, "the guest's call for a gondola reached the host's wheel")
+	_expect(hp.coaster.booked() or hp.coaster.boarding(), "and its booking the host's train")
+	var wheel_together := false
+	var train_together := false
+	for _i in int(160.0 * 30.0):
+		_ride_tick(pair, dt)
+		if hp.wheel.waiting() > 1.0 and gp.wheel.waiting() > 1.0:
+			wheel_together = true
+		if hp.coaster.boarding() and gp.coaster.boarding():
+			train_together = true
+		if wheel_together and train_together:
+			break
+	_expect(wheel_together, "a gondola stood at the boards on both phones at once")
+	_expect(train_together, "and the train stood at the platform on both")
+
+	# The drop tower: the guest keeps the ring down until it has paid; then it
+	# rides, strapped, and the host sees the same child in the same seat all the
+	# way up and down.
+	var tower := gp.drop_tower
+	var origin := tower.seat_world(2).origin
+	spots[1] = origin + Vector3(0.0, 0.05, 0.0)
+	tower.hold_at_ground(true)
+	for _i in 30:
+		_ride_tick(pair, dt)
+	_expect(hp.drop_tower._is_held(), "an unpaid guest on a seat holds the host's ring at the ground too")
+	var told_tower := host_sync.seat_told_of(me)
+	_expect(told_tower.size() == 2 and int(told_tower[0]) == 3 and int((told_tower[1] as Vector3).x) == 2,
+		"and the host knows the seat they are in: %s" % str(told_tower))
+	tower.hold_at_ground(false)
+	for _i in 30:
+		_ride_tick(pair, dt)
+	_expect(not hp.drop_tower._is_held(), "paid, the hold is let go")
+	var ground_gap := 0.0
+	var up_together := 0
+	var top_together := 0
+	var strapped := false
+	var seat_ok := 0
+	var seat_seen := 0
+	var worst_gap := 0.0
+	for _i in int(75.0 * 30.0):
+		# What the game does with a child in a ring: strapped when the bars are
+		# down, put where the seat is.
+		if tower.restrained() and not tower.strapped():
+			strapped = tower.strap(spots[1])
+		if tower.strapped():
+			spots[1] = tower.strap_place().origin
+		_ride_tick(pair, dt)
+		var seat := host_sync.seat_of_guest(me)
+		if not seat.is_empty():
+			seat_seen += 1
+			if seat["pose"] == &"drop_tower":
+				seat_ok += 1
+			var gap: float = (seat["place"] as Transform3D).origin.distance_to(spots[1])
+			if hp.drop_tower._phase == DropTower.Phase.GROUND or hp.drop_tower._phase == DropTower.Phase.TOP:
+				ground_gap = maxf(ground_gap, gap)
+			worst_gap = maxf(worst_gap, absf(_cycle_gap(
+				tower.sync_clock(), hp.drop_tower.sync_clock(), DropTower.SYNC_LOOP)))
+		if hp.drop_tower._phase == DropTower.Phase.ASCEND and tower._phase == DropTower.Phase.ASCEND \
+				and hp.drop_tower.restrained() and tower.restrained():
+			up_together += 1
+		if hp.drop_tower._phase == DropTower.Phase.TOP and tower._phase == DropTower.Phase.TOP \
+				and hp.drop_tower.restrained() and tower.restrained():
+			top_together += 1
+	_expect(strapped, "the guest was strapped in when the bars came down")
+	_expect(seat_seen > 1000 and seat_ok == seat_seen,
+		"the host drew the guest in a seat of the tower all the way (%d of %d ticks)" % [seat_ok, seat_seen])
+	_expect(up_together > 300, "both rings climbed with their bars down (%d ticks)" % up_together)
+	_expect(top_together > 60, "and both stood at the top with them down (%d ticks)" % top_together)
+	_expect(ground_gap < 1.5, "where the ring stood still the drawn child was %.2f m from the real one" % ground_gap)
+	_expect(worst_gap < 0.5, "the rings stayed within %.2f s of each other" % worst_gap)
+	_free_ride_pair(pair)
+
+## The connection ends while a guest is strapped into a ride: the ride goes on by
+## itself on the guest's phone and sets them down at the end of it, the bars up
+## only then; the host's ride lets go of whatever the guest held, and the guest
+## is no longer drawn in a seat.
+func _check_a_guest_who_leaves_mid_ride_is_put_down_safely() -> void:
+	print("a guest who leaves mid-ride is put down safely")
+	var dt := 1.0 / 30.0
+	var pair := _ride_pair(0.04, 0.02)
+	var hp: Park = pair["host_park"]
+	var gp: Park = pair["guest_park"]
+	var host: Session = pair["host"]
+	var guest: Session = pair["guest"]
+	var host_sync: RideSync = pair["host_sync"]
+	var spots: Array[Vector3] = pair["spots"]
+	var me: int = guest._link_id
+	var ship := gp.pirate_ship
+	spots[1] = ship.seat_world(1).origin + Vector3(0.0, 0.05, 0.0)
+	ship.hold_still(true)
+	for _i in 20:
+		_ride_tick(pair, dt)
+	_expect(hp.pirate_ship._is_held(), "the host's ship is held still by the guest aboard")
+	ship.hold_still(false)
+	var left := false
+	var loose_in_motion := 0
+	var strapped_before := false
+	var swung := false
+	for tick in int(130.0 * 30.0):
+		if ship.restrained() and not ship.strapped():
+			ship.strap(spots[1])
+		elif not ship.restrained() and ship.strapped():
+			ship.unstrap()
+		if ship.strapped():
+			spots[1] = ship.strap_place().origin
+		if left and absf(ship.angle()) > 0.02 and not ship.strapped():
+			loose_in_motion += 1
+		_ride_tick(pair, dt)
+		if not left and hp.pirate_ship._phase == PirateShip.Phase.SWINGING \
+				and hp.pirate_ship._phase_time > 12.0 and ship.strapped():
+			strapped_before = true
+			swung = absf(ship.angle()) > 0.1
+			# The line goes down: the guest's phone is no longer following, and
+			# the host's loses the guest.
+			host.guests.erase(me)
+			host._on_peer_disconnected(me)
+			guest.close()
+			left = true
+			_expect(host_sync.seat_told_of(me).is_empty(), "the host no longer draws the guest in a seat")
+			_expect(not hp.pirate_ship._is_held(), "and nothing of theirs is held on the host's ship")
+		if left and ship.at_rest() and not ship.strapped():
+			break
+	_expect(strapped_before and swung, "the guest was strapped in a swinging ship when the line went")
+	_expect(not ship.sync_following, "the guest's ship runs by itself from then on")
+	_expect(loose_in_motion == 0, "the guest was never loose while the boat moved (%d ticks)" % loose_in_motion)
+	_expect(ship.at_rest() and not ship.strapped() and not ship.restrained(),
+		"set down at the end of the swing, with the bars up")
+	_expect(ship.seat_world(1).origin.distance_to(spots[1]) < 1.0,
+		"in their seat on the platform: %.2f m from it" % ship.seat_world(1).origin.distance_to(spots[1]))
+	# A guest on the carousel who vanishes leaves it free for the next child.
+	var pair2 := _ride_pair(0.0, 0.0)
+	var hp2: Park = pair2["host_park"]
+	var gp2: Park = pair2["guest_park"]
+	var me2: int = (pair2["guest"] as Session)._link_id
+	(pair2["spots"] as Array[Vector3])[1] = gp2.carousel.saddles()[0].origin
+	for _i in 10:
+		_ride_tick(pair2, dt)
+	gp2.carousel.board(gp2.carousel.saddles()[0].origin)
+	for _i in 20:
+		_ride_tick(pair2, dt)
+	_expect(hp2.carousel.has_rider(), "a guest is on the host's carousel")
+	(pair2["host"] as Session).guests.erase(me2)
+	(pair2["host"] as Session)._on_peer_disconnected(me2)
+	_expect(not hp2.carousel.has_rider(), "and when they drop out it is free again")
+	_free_ride_pair(pair2)
+	_free_ride_pair(pair)
+
+## A phone that is another version is not talked to; the rides' messages are
+## small and bounded; the turnstile turns for the other child as well.
+func _check_the_rides_say_hello_and_are_cheap_to_tell() -> void:
+	print("the rides say hello, and are cheap to tell")
+	var host := Session.new()
+	var guest := Session.new()
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	var agreed: Array[int] = []
+	host.peer_agreed.connect(func(id: int) -> void: agreed.append(id))
+	# Nothing is said to a phone before it has said hello.
+	host._hello_wait[7] = 0.0
+	host.take_hello(7, Session.PROTOCOL)
+	_expect(agreed == [7] and host.peer_protocol[7] == Session.PROTOCOL, "a phone of the same version is welcomed")
+	host._hello_wait[8] = 0.0
+	host.take_hello(8, Session.PROTOCOL + 1)
+	_expect(not host.peer_protocol.has(8) and not host._hello_wait.has(8), "another version is not")
+	host.take_hello(9, Session.PROTOCOL)
+	_expect(not host.peer_protocol.has(9), "and a hello nobody was waiting for is nothing")
+	host.guests = {7: "Amir", 8: "Bo"}
+	_expect(host.agreed_guests() == [7], "only the same version is told about the rides")
+	var said: Array = []
+	guest.failed.connect(func(reason: String) -> void: said.append(reason))
+	guest._hello_wait[1] = 0.0
+	guest.take_hello(1, Session.PROTOCOL - 1)
+	_expect(said == ["the other game is another version"], "a guest meeting another version is told it did not work")
+	_expect(Session.words_for(said[0]) == &"fail_connect", "in words the game already has")
+	_expect(guest.role == Session.Role.ALONE, "and goes home")
+	guest.role = Session.Role.VISITING
+	said.clear()
+	guest._hello_wait[1] = Session.HELLO_PATIENCE - 0.05
+	guest._process(0.1)
+	_expect(said == ["the other game is another version"], "so is one whose host never says hello (an older game)")
+	_expect(not guest.can_follow_rides(), "and its rides are its own")
+	host.free()
+	guest.free()
+
+	# What the rides tell, and what a hostile or confused phone may tell.
+	var bytes := 0
+	var field := HeightField.new(20260903)
+	var park := Park.new(field)
+	get_root().add_child(park)
+	for ride: Node in _rides_of(park):
+		var state: PackedFloat32Array = ride.call(&"sync_state")
+		_expect(state.size() >= 1 and state.size() <= Session.RIDE_FLOATS, "a ride's state is a few numbers (%d)" % state.size())
+		bytes += var_to_bytes(state).size()
+	_expect(bytes < 160, "all five rides' state is %d bytes, once a second at most" % bytes)
+	park.free()
+	var pair := _ride_pair()
+	var gs: Session = pair["guest"]
+	var hs: Session = pair["host"]
+	var seen: Array = []
+	gs.remote_ride_state.connect(func(ride: int, _s: PackedFloat32Array, _a: float) -> void: seen.append(ride))
+	gs._take_ride_state(Session.HOST_ID, 9, PackedFloat32Array([1.0]))
+	gs._take_ride_state(Session.HOST_ID, 1, PackedFloat32Array([NAN]))
+	gs._take_ride_state(Session.HOST_ID, 1, PackedFloat32Array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
+	gs._take_ride_state(5, 1, PackedFloat32Array([1.0]))
+	_expect(seen.is_empty(), "a ride that does not exist, a number that is not one, too many, or another guest's word is ignored")
+	gs._take_ride_state(Session.HOST_ID, 1, PackedFloat32Array([1.0, 2.0, 0.0]))
+	_expect(seen == [1], "and the host's word is taken")
+	var asked: Array = []
+	hs.remote_ride_ask.connect(func(from: int, ride: int, what: int, arg: int) -> void: asked.append([from, ride, what, arg]))
+	hs._take_ride_ask(gs._link_id, 0, 9, 0)
+	hs._take_ride_ask(99, 0, 0, 0)
+	_expect(asked.is_empty(), "a guest cannot ask a ride for what there is not, nor a stranger for anything")
+	hs._take_ride_ask(gs._link_id, 1, Session.ASK_BOOK, 0)
+	_expect(asked.size() == 1, "but may ask for a booking")
+	gs._take_ride_ask(Session.HOST_ID, 1, Session.ASK_BOOK, 0)
+	_expect(asked.size() == 1, "and a host is not asked by a guest's phone")
+	var turned: Array = []
+	gs.remote_turnstile.connect(func(from: int) -> void: turned.append(from))
+	hs.report_turnstile()
+	_expect(turned == [Session.HOST_ID], "the host paying at the turnstile is told to the guest")
+	_free_ride_pair(pair)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	var before: float = places._turnstile_arms.rotation.y
+	places.turn_for_another()
+	places._tick_turnstile(0.5)
+	_expect(places._turnstile_arms.rotation.y > before, "the other child's ticket turns the bar on this phone")
+	_expect(not places.turnstile_open(), "without opening it to this phone's own child")
+	_expect(places._turnstile.collision_layer == TerrainSpec.LAYER_PROPS, "which stays solid")
+	places.queue_free()
 

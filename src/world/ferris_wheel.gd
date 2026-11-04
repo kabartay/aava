@@ -428,11 +428,26 @@ func book() -> void:
 	if _called or _holding > 0.0:
 		return
 	_called = true
+	# On a guest's phone it is the host's wheel that comes round: ask it.
+	if sync_following:
+		sync_asked.emit(SYNC_BOOK, 0)
 
 ## The game says whether somebody in the gondola at the boards has not paid.
 ## The wheel then stands there, bar up, rather than carrying them.
 func keep_at_boards(kept: bool) -> void:
 	_kept = kept
+
+## Whether this phone's own child is the one keeping the wheel at the boards.
+func kept() -> bool:
+	return _kept
+
+func _is_kept() -> bool:
+	if _kept:
+		return true
+	for peer: Variant in _sync_holds:
+		if bool(_sync_holds[peer]):
+			return true
+	return false
 
 var _kept := false
 ## How much of the stand is left, in seconds, when a kept wheel is let go.
@@ -782,10 +797,18 @@ func _physics_process(delta: float) -> void:
 		# Kept standing, with the bar up, while somebody in it has not paid:
 		# they are asked again and are free to step out, and nobody is carried
 		# round for nothing or shut in.
-		if _kept:
+		if _is_kept():
 			_holding = maxf(_holding - delta, minf(_holding, KEPT_LEAD))
 		else:
 			_holding = maxf(0.0, _holding - delta)
+		if sync_following:
+			# Standing at the boards on the host's say-so; the angle is
+			# brought to theirs, slowly, while it stands.
+			_turned = fposmod(_turned + _sync_turn_step(delta, true), TAU)
+	elif sync_following and _bars_are_down():
+		# The host decides when a gondola has come and when the wheel stops:
+		# this wheel only turns, a little faster or slower as it is steered.
+		_turned = fposmod(_turned + TURN_RATE * delta + _sync_turn_step(delta, false), TAU)
 	elif _bars_are_down():
 		# A rider is carried one whole turn and then set down. Asked for a
 		# little before the turn is up, because the wheel has to be told to
@@ -796,6 +819,13 @@ func _physics_process(delta: float) -> void:
 			if _turned_with_rider >= TAU - 0.06 and not _called:
 				_called = true
 				_turned_with_rider = 0.0
+		# A child on another phone is carried a turn as well, from the boards
+		# they got in at, and the wheel is brought round for them in the same way.
+		for peer: int in _remote_turned.keys():
+			_remote_turned[peer] = float(_remote_turned[peer]) + TURN_RATE * delta
+			if float(_remote_turned[peer]) >= TAU - 0.06 and not _called:
+				_called = true
+				_remote_turned[peer] = 0.0
 		# A gondola arrives at the boards every tenth of a turn. Whether one
 		# has just arrived is asked by watching how far the wheel is from the
 		# next arrival: that distance shrinks as it turns and jumps back up
@@ -934,3 +964,116 @@ func rim_point(angle: float) -> Vector3:
 
 func gondola(index: int) -> Node3D:
 	return _cars[index]
+
+
+# --- one wheel on two phones ------------------------------------------------
+#
+# The host's wheel is the wheel: where it has turned to, whether a gondola has
+# been called and whether one is standing at the boards. A guest's wheel turns
+# at the same rate, is steered towards the host's angle, and stops and starts
+# when the host says. Bars and straps stay each phone's own.
+
+## Said when this wheel, following, wants the host to do something: (what, arg).
+signal sync_asked(what: int, arg: int)
+const SYNC_BOOK := 0
+
+var sync_following := false
+## How far (radians) this wheel is behind the host's.
+var _sync_turn_err := 0.0
+## What children on other phones are doing, by peer id. Only the host has these.
+var _sync_holds: Dictionary = {}
+var _remote_cars: Dictionary = {}
+var _remote_turned: Dictionary = {}
+
+## Further out than this, and a wheel nobody is strapped in is set to the
+## host's at once.
+const SYNC_SNAP := deg_to_rad(20.0)
+
+func sync_state() -> PackedFloat32Array:
+	return PackedFloat32Array([_turned, _holding, 1.0 if _called else 0.0])
+
+func sync_apply(state: PackedFloat32Array, age: float) -> void:
+	if state.size() < 3:
+		return
+	var holding := maxf(state[1], 0.0)
+	_called = state[2] > 0.5
+	_holding = maxf(holding - age, 0.0) if holding > 0.0 else 0.0
+	var target := state[0] + (TURN_RATE * age if holding <= 0.0 else 0.0)
+	var err := wrapf(target - _turned, -PI, PI)
+	if absf(err) > SYNC_SNAP and _strap_car < 0 and not _kept:
+		_turned = fposmod(target, TAU)
+		err = 0.0
+	_sync_turn_err = err
+
+func _sync_turn_step(delta: float, standing: bool) -> float:
+	var bound := TURN_RATE * delta
+	var extra := clampf(_sync_turn_err, -0.5 * bound, 0.5 * bound) if standing \
+		else clampf(_sync_turn_err, -0.5 * bound, bound)
+	_sync_turn_err -= extra
+	return extra
+
+func sync_set_hold(peer: int, held: bool) -> void:
+	if held:
+		_sync_holds[peer] = true
+	else:
+		_sync_holds.erase(peer)
+
+## A child on another phone is in this gondola, or in none (-1).
+func sync_set_rider(peer: int, car: int) -> void:
+	if car < 0 or car >= GONDOLAS:
+		_remote_cars.erase(peer)
+		_remote_turned.erase(peer)
+		return
+	if int(_remote_cars.get(peer, -1)) != car:
+		_remote_turned[peer] = 0.0
+	_remote_cars[peer] = car
+
+func sync_forget(peer: int) -> void:
+	_sync_holds.erase(peer)
+	_remote_cars.erase(peer)
+	_remote_turned.erase(peer)
+
+## The gondola this phone's own child is in, for the host.
+func sync_rider() -> int:
+	return _rider
+
+## The seat this phone's own child is in, as (gondola, along x, along z), or
+## gondola -1.
+func sync_seat_of(at: Vector3) -> Vector3:
+	var index := _strap_car
+	var local := _strap_local
+	if index < 0:
+		index = gondola_under(at)
+		if index < 0 or bar_open(index) >= 0.5:
+			return Vector3(-1.0, 0.0, 0.0)
+		local = _cars[index].global_transform.affine_inverse() * at
+	return Vector3(
+		index, clampf(local.x, SEAT_FRONT, SEAT_BACK), clampf(local.z, -SEAT_ALONG, SEAT_ALONG)
+	)
+
+func seat_world(index: int, along := Vector2(1.35, 0.0)) -> Transform3D:
+	return seat_of(clampi(index, 0, _cars.size() - 1), Vector2(
+		clampf(along.x, SEAT_FRONT, SEAT_BACK), clampf(along.y, -SEAT_ALONG, SEAT_ALONG)
+	))
+
+func sync_flags() -> int:
+	return (1 if _kept else 0) | ((_rider + 1) << 8)
+
+func sync_set_flags(peer: int, flags: int) -> void:
+	sync_set_hold(peer, flags & 1 != 0)
+	sync_set_rider(peer, (flags >> 8) - 1)
+
+func sync_signature() -> int:
+	return (1 if _called else 0) | (2 if _holding > 0.0 else 0)
+
+func sync_release() -> void:
+	sync_following = false
+	_sync_turn_err = 0.0
+	_sync_holds.clear()
+	_remote_cars.clear()
+	_remote_turned.clear()
+
+## A guest asks the host's wheel for a gondola.
+func sync_ask(_peer: int, what: int, _arg: int) -> void:
+	if what == SYNC_BOOK:
+		book()

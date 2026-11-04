@@ -483,9 +483,24 @@ func _build_ring(body: AnimatableBody3D) -> void:
 func hold_at_ground(held: bool) -> void:
 	_held = held
 
+## Whether this phone's own child, or (on the host) a child on another phone,
+## is sitting on the ring without a ticket for this go.
+func _is_held() -> bool:
+	if _held:
+		return true
+	for peer: Variant in _sync_holds:
+		if bool(_sync_holds[peer]):
+			return true
+	return false
+
+## Whether this phone's own child is the one keeping the ring down. For the
+## sync, which tells the host.
+func held() -> bool:
+	return _held
+
 func _physics_process(delta: float) -> void:
 	var before := _ring.position.y
-	_phase_time += delta
+	_phase_time += _sync_step(delta)
 	match _phase:
 		Phase.GROUND:
 			# Somebody is in a seat who has not paid: the ring waits for them
@@ -493,11 +508,22 @@ func _physics_process(delta: float) -> void:
 			# solid, and the engine lifts a child standing on one whether or not
 			# the game carries them, so "no" was a free climb. Kept a few
 			# seconds short of going, so a yes is not then a quarter-minute wait.
-			if _held:
+			if _is_held():
 				_phase_time = minf(_phase_time, GROUND_HOLD - HELD_LEAD)
 				# Somebody has stepped on while the bars were coming down:
 				# they come up again, and the ring waits for the answer.
 				_closing = false
+			elif sync_following:
+				# Another phone's ring is the ring: this one closes its bars
+				# when that one does and goes when that one goes, and not
+				# before its own bars are down.
+				_phase_time = minf(_phase_time, GROUND_HOLD)
+				_closing = _sync_closing or _sync_go
+				if _sync_go and _harness_closed >= 0.99:
+					_closing = false
+					_sync_go = false
+					_phase = Phase.ASCEND
+					_phase_time = _sync_since_go
 			elif _phase_time >= GROUND_HOLD:
 				# The harnesses come down first; the ring goes when they are
 				# down, and not a frame before.
@@ -658,3 +684,134 @@ func at_rest() -> bool:
 ## How high the ring has climbed right now. For the checks.
 func ring_height() -> float:
 	return _ring.position.y
+
+
+# --- one ring on two phones -----------------------------------------------
+#
+# The host's ring is the ring. A guest's phone runs the same ring on the same
+# timetable, but its clock is steered by what the host says (`sync_apply`): a
+# little faster when it is behind, a little slower when it is ahead, never a
+# jump in the middle of a climb. Its own safety rules stay its own: the bars
+# are down before it moves and a rider is strapped until they are up.
+
+## Is this ring following another phone's? Set by RideSync.
+var sync_following := false
+## Seconds this ring's clock is behind (positive) or ahead of the host's, still
+## to be made up.
+var _sync_err := 0.0
+## The host has set off from the ground and this ring may too, once its own bars
+## are down; and how long ago it did, so the climb begins where theirs is.
+var _sync_go := false
+var _sync_since_go := 0.0
+var _sync_closing := false
+## Whether a child on another phone keeps the ring at the ground, by peer id.
+## Only the host holds these.
+var _sync_holds: Dictionary = {}
+
+## The phase and the clock and the state of the bars: the whole of what a
+## guest needs to run the same ring.
+const SYNC_LOOP := GROUND_HOLD + ASCEND_TIME + TOP_HOLD + DROP_TIME
+## Further out than this and a ring nobody is held in is set to the host's
+## outright (on arriving, say); nearer it is only ever steered.
+const SYNC_SNAP := 4.0
+## How soon after the host sets off a guest's ring may still go with it.
+const SYNC_GO_WINDOW := 2.0
+
+static func _sync_clock_of(phase: int, time: float) -> float:
+	match phase:
+		Phase.GROUND:
+			return minf(time, GROUND_HOLD)
+		Phase.ASCEND:
+			return GROUND_HOLD + minf(time, ASCEND_TIME)
+		Phase.TOP:
+			return GROUND_HOLD + ASCEND_TIME + minf(time, TOP_HOLD)
+	return GROUND_HOLD + ASCEND_TIME + TOP_HOLD + minf(time, DROP_TIME)
+
+## Where in its round the ring is, in seconds.
+func sync_clock() -> float:
+	return _sync_clock_of(_phase, _phase_time)
+
+func sync_state() -> PackedFloat32Array:
+	return PackedFloat32Array([float(_phase), _phase_time, 1.0 if _closing else 0.0])
+
+## The host's state has arrived, `age` seconds old.
+func sync_apply(state: PackedFloat32Array, age: float) -> void:
+	if state.size() < 3:
+		return
+	var phase := clampi(int(state[0]), 0, Phase.DROP)
+	var time := maxf(state[1], 0.0)
+	_sync_closing = state[2] > 0.5
+	# A ring waiting at the ground does not age; the others do.
+	var now := time if phase == Phase.GROUND else time + age
+	_sync_go = phase == Phase.ASCEND and now < SYNC_GO_WINDOW
+	_sync_since_go = now
+	var err := fposmod(_sync_clock_of(phase, now) - sync_clock() + SYNC_LOOP * 0.5, SYNC_LOOP) - SYNC_LOOP * 0.5
+	if absf(err) > SYNC_SNAP and _strap_seat < 0 and not _held:
+		_phase = phase as Phase
+		_phase_time = now
+		_closing = _sync_closing and phase == Phase.GROUND
+		if phase != Phase.GROUND:
+			_harness_closed = 1.0
+		else:
+			# The ground branch leaves the ring where it is: set it down.
+			_ring.position.y = GROUND_Y
+		_sync_go = false
+		err = 0.0
+	_sync_err = err
+
+## This frame's time: the real one, plus or minus a share of what the ring is
+## out by, so the clocks meet without a jump.
+func _sync_step(delta: float) -> float:
+	if not sync_following or _phase == Phase.GROUND:
+		return delta
+	var room := delta * clampf(absf(_sync_err), 1.0, 3.0)
+	var extra := clampf(_sync_err, -0.5 * delta, room)
+	_sync_err -= extra
+	return delta + extra
+
+## A child on another phone says whether it keeps the ring at the ground.
+func sync_set_hold(peer: int, held: bool) -> void:
+	if held:
+		_sync_holds[peer] = true
+	else:
+		_sync_holds.erase(peer)
+
+## That phone has gone.
+func sync_forget(peer: int) -> void:
+	_sync_holds.erase(peer)
+
+## The seat this phone's own child is in (strapped to, or sitting on), as
+## (index, 0, 0), or index -1.
+func sync_seat_of(at: Vector3) -> Vector3:
+	if _strap_seat >= 0:
+		return Vector3(_strap_seat, 0.0, 0.0)
+	for index in _seats.size():
+		var local := (_ring.global_transform * _seats[index]).affine_inverse() * at
+		if absf(local.x) < 0.4 and absf(local.z) < 0.4 and local.y > -0.2 and local.y < 0.4:
+			return Vector3(index, 0.0, 0.0)
+	return Vector3(-1.0, 0.0, 0.0)
+
+## A seat as it stands now, in the world.
+func seat_world(index: int, _along := Vector2.ZERO) -> Transform3D:
+	return _ring.global_transform * _seats[clampi(index, 0, _seats.size() - 1)]
+
+## What this phone's own child is doing to the ride, packed for the host.
+func sync_flags() -> int:
+	return 1 if _held else 0
+
+## A child on another phone's flags, on the host.
+func sync_set_flags(peer: int, flags: int) -> void:
+	sync_set_hold(peer, flags & 1 != 0)
+
+## What would make the host tell its guests this ride's state at once rather
+## than at the next beat.
+func sync_signature() -> int:
+	return int(_phase) * 2 + (1 if _closing else 0)
+
+## Back to running by itself: the host has gone, or this phone left.
+func sync_release() -> void:
+	sync_following = false
+	_sync_err = 0.0
+	_sync_go = false
+	_sync_closing = false
+	_sync_holds.clear()
