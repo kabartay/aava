@@ -12,7 +12,11 @@ extends SceneTree
 ## then checks what it sees: the host that the ball moved, the guest that the
 ## host's ball arrived where the host has it.
 
-const LIMIT := 25.0
+## How long the football run may take, in wall-clock time: with --fixed-fps a
+## host's game time runs far ahead of the guest process still starting up.
+const LIMIT_MSEC := 25000
+var _wall_start := Time.get_ticks_msec()
+var _day := false
 var GUEST_RESULT := "user://netpair_guest.txt"
 var _guest_pid := 0
 ## A port other than the usual one, so that two runs (or two agents) do not
@@ -42,6 +46,10 @@ func _initialize() -> void:
 			_port = argument.trim_prefix("--port=").to_int()
 	if _port > 0:
 		GUEST_RESULT = "user://netpair_guest_%d.txt" % _port
+	if OS.get_cmdline_user_args().has("--mode=day"):
+		_day = true
+		_start_day()
+		return
 	_field = HeightField.new(20260903)
 	_session = Session.new()
 	_session.port_override = _port
@@ -77,6 +85,35 @@ func _initialize() -> void:
 	root.add_child(floor_body)
 	print("NETPAIR %s started" % _role)
 
+## The long session of two whole games (see net_day.gd): `--mode=day`. The host
+## makes the two children's profiles and clears the meeting place, then starts
+## the guest as a process of its own, as in football mode.
+func _start_day() -> void:
+	if _port <= 0:
+		_port = 29500
+	# A run's own names and meeting folder, so that nothing of an earlier run is
+	# met and nothing has to be cleared: both are given the run's stamp, as
+	# `--stamp=N --player=HostyN` for the host (the guest is passed its own).
+	var stamp := 0
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--stamp="):
+			stamp = argument.trim_prefix("--stamp=").to_int()
+	if _role == "host":
+		var profiles := Profiles.new()
+		profiles.load_index()
+		profiles.add_player("Hosty%d" % stamp)
+		profiles.add_player("Guesty%d" % stamp)
+		profiles.save_index()
+		_guest_pid = OS.create_process(OS.get_executable_path(), [
+			"--headless", "--fixed-fps", "60", "--path", ProjectSettings.globalize_path("res://"),
+			"--script", "res://src/dev/net_pair.gd", "--", "--mode=day", "--role=guest",
+			"--port=%d" % _port, "--stamp=%d" % stamp, "--player=Guesty%d" % stamp,
+		])
+		print("NETPAIR host: started guest process %d" % _guest_pid)
+	var day := NetDay.new(self, _role, _port, stamp)
+	root.add_child(day)
+	day.run()
+
 ## Opening or joining waits for the first frame: the tree's multiplayer is not
 ## there yet while the script is still being initialised.
 func _connect() -> void:
@@ -88,7 +125,7 @@ func _connect() -> void:
 			# process of its own, and reads its verdict from a file at the end.
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(GUEST_RESULT))
 			_guest_pid = OS.create_process(OS.get_executable_path(), [
-				"--headless", "--path", ProjectSettings.globalize_path("res://"),
+				"--headless", "--fixed-fps", "60", "--path", ProjectSettings.globalize_path("res://"),
 				"--script", "res://src/dev/net_pair.gd", "--", "--role=guest", "--port=%d" % _port,
 			])
 			print("NETPAIR host: started guest process %d" % _guest_pid)
@@ -104,11 +141,13 @@ func _next(stage: int) -> void:
 	_stage_time = 0.0
 
 func _process(delta: float) -> bool:
+	if _day:
+		return false
 	if _time == 0.0:
 		_connect()
 	_time += delta
 	_stage_time += delta
-	if _time > LIMIT:
+	if Time.get_ticks_msec() - _wall_start > LIMIT_MSEC:
 		_fail("timed out in stage %d" % _stage)
 	if not _failed.is_empty():
 		return _finish()
@@ -159,8 +198,10 @@ func _host_step() -> bool:
 			elif _stage_time > 15.0:
 				_fail("the guest's kick never moved the ball")
 		2:
-			# Stay up a moment so the guest can see the ball settle.
-			if _stage_time > 4.0:
+			# Stay up until the guest has had its say (or a while in wall-clock
+			# time): at --fixed-fps this process's game time runs far ahead of
+			# the guest's, and four game seconds are gone before it looks.
+			if _stage_time > 4.0 and (FileAccess.file_exists(GUEST_RESULT) or Time.get_ticks_msec() - _wall_start > LIMIT_MSEC - 5000):
 				if not _saw_mount:
 					_fail("the guest's mount never arrived with its position")
 				return _finish()

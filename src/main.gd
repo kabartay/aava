@@ -4644,8 +4644,12 @@ func _save_data() -> Dictionary:
 func _wallet_to_save() -> Dictionary:
 	var data := wallet.to_data()
 	var lent := 0
+	# The wheel's ticket is lent only until the child is in a gondola: from then
+	# on it has been spent on the ride (see _wheel_boarded), as the coaster's is
+	# the moment its rider sits down.
 	for paid: bool in [
-		_coaster_paid, _wheel_rider_paid, _carousel_paid, _ride_waiting_paid != &""
+		_coaster_paid, _wheel_rider_paid and not _wheel_boarded, _carousel_paid,
+		_ride_waiting_paid != &""
 	]:
 		if paid:
 			lent += 1

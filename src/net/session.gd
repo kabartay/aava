@@ -883,8 +883,12 @@ static func believable(at: Vector3) -> bool:
 ## one each), and the bursts are what a phone that stood still for ten seconds
 ## and then caught up can legitimately say in one breath.
 const LIMITS := {
-	&"position": [40.0, 40.0],
-	&"balls": [40.0, 30.0],
+	# Bursts of about thirteen seconds of what a phone sends at its pace
+	# (positions at 12 a second, balls at up to 30): a phone that stalled for
+	# four or five seconds, as one put in a pocket does, hands over everything
+	# the other sent meanwhile in one breath, and the last of it was refused.
+	&"position": [160.0, 40.0],
+	&"balls": [160.0, 30.0],
 	&"animals": [12.0, 6.0],
 	&"scores": [12.0, 3.0],
 	&"kick": [20.0, 10.0],

@@ -3476,6 +3476,12 @@ func _build_stick() -> void:
 func let_go_of_touches() -> void:
 	if _pad != null:
 		_pad.release_all()
+	# The kick button's slide and the volume slider's finger are lost the same
+	# way: a stale kick finger took the next touch of that index for an aim and
+	# swallowed it, so the view would not turn until that finger was lifted.
+	_kick_finger = -1
+	_kick_aim = Vector2.ZERO
+	_volume_finger = -1
 	for action: StringName in [
 		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
 		InputActions.MOVE_FORWARD, InputActions.MOVE_BACK,

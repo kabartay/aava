@@ -66,6 +66,7 @@ func _initialize() -> void:
 	_check_no_packet_from_the_other_phone_can_hurt_the_game()
 	_check_a_guest_cannot_do_the_hosts_things_and_a_stranger_cannot_do_anything()
 	_check_a_flood_is_dropped_and_a_burst_after_a_freeze_is_not()
+	_check_a_four_second_stall_does_not_cost_the_newest_positions()
 	_check_the_hello_survives_garbage_and_cannot_be_used_to_knock_a_guest_out()
 	_check_a_bad_network_loses_nothing_and_strands_nobody()
 	_check_real_phones_refuse_a_rogue_and_stay_cheap()
@@ -644,6 +645,9 @@ func _initialize() -> void:
 	_check_a_first_run_does_not_list_a_folder_that_is_not_there()
 	_check_back_puts_a_big_map_away_and_leaves_a_small_one()
 	await _check_a_ticket_lent_to_a_ride_is_saved_and_a_rebuild_lets_go_of_a_kick()
+	_check_a_boarded_gondola_is_not_written_down_as_a_ticket_held()
+	_check_letting_go_of_touches_forgets_the_kick_and_volume_fingers()
+	_check_no_packet_can_make_the_restock_message_do_harm()
 	_check_the_sky_keeps_the_valley_readable_and_the_render_cost_in_budget()
 	await _check_a_standing_ride_makes_no_calls_it_has_already_made()
 	await _check_a_long_session_does_not_grow_the_scene()
@@ -23256,6 +23260,82 @@ func _check_a_child_sits_in_every_seat_they_are_carried_in() -> void:
 	_expect(main_source.contains("player.saddle_lift = world.mounts.saddle_lift()"), "the game gives the child the saddle's lift")
 	_expect(main_source.contains("visitors.seat_finder = _seat_at") and main_source.contains("player.seat_pose = seated.get("), "and asks the same question of where each child stands")
 
+## A ticket that has been spent is not a ticket held. The purse writes down a
+## ticket lent to a ride that has not taken the child yet, but a child sitting in
+## a gondola has had the ride the ticket was for, and a save made then (the
+## autosave, a phone put down on the wheel) must not hand over a free ticket.
+func _check_a_boarded_gondola_is_not_written_down_as_a_ticket_held() -> void:
+	print("a boarded gondola is not written down as a ticket held")
+	var game: Node = (load("res://src/main.gd") as GDScript).new()
+	var wallet := Wallet.new()
+	wallet.tickets = 1
+	game.set("wallet", wallet)
+	game.set("_wheel_rider_paid", true)
+	game.set("_wheel_boarded", false)
+	var saved: Dictionary = game.call("_wallet_to_save")
+	_expect(int(saved["tickets"]) == 2, "a gondola booked but not yet boarded is lent (%d)" % int(saved["tickets"]))
+	game.set("_wheel_boarded", true)
+	saved = game.call("_wallet_to_save")
+	_expect(int(saved["tickets"]) == 1 and wallet.tickets == 1, "a gondola the child is in has spent its ticket (%d)" % int(saved["tickets"]))
+	game.free()
+
+## A finger lost to the pause is lost to every control that follows one: the
+## kick button's slide and the volume slider as well as the stick and the look
+## pad. A kick finger left behind took the next touch of the same index for an
+## aim, and the view would not turn until that finger was lifted.
+func _check_letting_go_of_touches_forgets_the_kick_and_volume_fingers() -> void:
+	print("letting go of touches forgets the kick and volume fingers")
+	var hud := Hud.new()
+	hud.set("_kick_finger", 0)
+	hud.set("_volume_finger", 2)
+	hud.slide_kick_aim(Vector2(30.0, -40.0), 720.0)
+	_expect(hud.kick_aim() != Vector2.ZERO and hud.kick_finger() == 0, "a kick slide is under way")
+	hud.let_go_of_touches()
+	_expect(hud.kick_finger() == -1, "the kick finger is forgotten")
+	_expect(hud.kick_aim() == Vector2.ZERO, "and the aim it had made is dropped")
+	_expect(int(hud.get("_volume_finger")) == -1, "and the volume finger")
+	hud.free()
+
+## The restock message is the one handler the random-packet check was written
+## before: it takes a list of ids from the host alone, and passes on only names
+## a pickup can have, at most one pass's worth, whatever it is sent.
+func _check_no_packet_can_make_the_restock_message_do_harm() -> void:
+	print("no packet can make the restock message do harm")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261105
+	var guest_pack := _fuzz_session(Session.Role.VISITING, [1, 9], {1: "Host", 9: "Cy"})
+	var host_pack := _fuzz_session(Session.Role.HOSTING, [7, 8], {7: "Amir", 8: "Bo"})
+	var guest: Session = guest_pack["session"]
+	var host: Session = host_pack["session"]
+	var heard: Array[PackedStringArray] = []
+	guest.remote_restocked.connect(func(ids: PackedStringArray) -> void: heard.append(ids))
+	var from_host := 0
+	host.remote_restocked.connect(func(_ids: PackedStringArray) -> void: from_host += 1)
+	var senders: Array[int] = [7, 8, 1, 9, 0, 55, -3, 2147483647]
+	var lengths: Array[int] = [0, 1, 3, 40, 64, 65, 200]
+	for round in 600:
+		guest.rate_clock += 10.0
+		host.rate_clock += 10.0
+		var ids := PackedStringArray()
+		for _i in lengths[rng.randi() % lengths.size()]:
+			ids.append(_hostile_text(rng))
+		guest.check_sender = senders[rng.randi() % senders.size()]
+		host.check_sender = senders[rng.randi() % senders.size()]
+		guest._send_restocked(ids)
+		host._send_restocked(ids)
+	guest.check_sender = 0
+	host.check_sender = 0
+	var clean := true
+	for ids: PackedStringArray in heard:
+		clean = clean and ids.size() <= Session.MAX_RESTOCKED and not ids.is_empty()
+		for id in ids:
+			clean = clean and Session.is_pickup_id(id)
+	_expect(not heard.is_empty(), "the fuzz reached the restock handler (%d lists passed)" % heard.size())
+	_expect(clean, "and every list passed on is short and made only of names a pickup can have")
+	_expect(from_host == 0, "and a host never believes a restock message")
+	guest.free()
+	host.free()
+
 ## Points over the surface of a drawn mesh, in the world: every triangle on a
 ## grid, because a beam drawn as a box has only its corners for vertices and a
 ## face can sit between them.
@@ -34919,6 +34999,38 @@ func _check_a_standing_ride_makes_no_calls_it_has_already_made() -> void:
 	eye.queue_free()
 	walkway.queue_free()
 	await process_frame
+
+## What a two-process session found: a phone stalled for four and a half seconds
+## (one put in a pocket, a Wi-Fi hiccup) hands over every position the other sent
+## meanwhile in one breath, and the bucket of forty let the first forty through
+## and refused the newest. Positions at twelve a second and balls at up to thirty
+## must survive a stall of that length whole, while a real flood is still cut.
+func _check_a_four_second_stall_does_not_cost_the_newest_positions() -> void:
+	print("a stalled phone's backlog of positions and balls is not refused")
+	var pack := _fuzz_session(Session.Role.VISITING, [1], {1: "Host"})
+	var guest: Session = pack["session"]
+	var seen: Dictionary = pack["seen"]
+	guest.rate_clock = 100.0
+	guest.check_sender = 1
+	var backlog := int(ceil(4.5 / Session.MOVE_INTERVAL))
+	for i in backlog:
+		guest._send_position(Vector3(float(i), 0.0, 0.0), 0.0)
+	_expect(int(guest.dropped.get(&"position", 0)) == 0 and int(seen["count"]) >= backlog,
+		"%d positions sent during a 4.5 s stall all arrive when it ends (%d dropped)" % [backlog, int(guest.dropped.get(&"position", 0))])
+	var states := PackedFloat32Array()
+	states.resize(Session.BALL_FLOATS)
+	var told_of := [0]
+	guest.remote_balls.connect(func(_states: PackedFloat32Array) -> void: told_of[0] += 1)
+	for _i in int(4.5 * 30.0):
+		guest._send_balls(states)
+	_expect(int(told_of[0]) == int(4.5 * 30.0), "and 135 ball messages of the same stall all arrive (%d)" % int(told_of[0]))
+	# A flood in one instant is still cut at the burst.
+	guest.rate_clock += 100.0
+	var before := int(guest.spent.get(&"position", 0))
+	for i in 1000:
+		guest._send_position(Vector3(float(i), 0.0, 0.0), 0.0)
+	_expect(int(guest.spent[&"position"]) - before == int((Session.LIMITS[&"position"] as Array)[0]), "while a flood of a thousand is still cut at the burst")
+	guest.free()
 
 ## Twenty minutes of play leaves the scene the size it was. The whole game runs
 ## for a stretch of simulated time with the clock sped up (the same _process and
