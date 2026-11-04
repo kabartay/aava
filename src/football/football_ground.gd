@@ -4,9 +4,10 @@ extends Node3D
 ## The football ground: two goals, a few balls, and the score.
 ##
 ## The pitch surface itself is not here — it is part of the terrain, levelled
-## and painted by the height field, so it has collision and detail for free and
+## and striped by the height field, so it has collision and detail for free and
 ## can never drift out of alignment with the ground. What is here is everything
-## the terrain cannot be: the goals, the balls, and the counting.
+## the terrain cannot be: the goals, the balls, and the counting, and the white
+## lines, which are too thin for the terrain's one-metre vertices to paint.
 
 ## How many balls lie about. More than one because two brothers will want one
 ## each, and because a ball kicked into the river should not end the game.
@@ -132,6 +133,9 @@ func _init(field: HeightField) -> void:
 		var mouth := Pitch.goal_centre(index)
 		mouth.y = _field.height_at(mouth.x, mouth.z)
 		add_child(Goal.new(index, mouth))
+
+	# The paint and the corner flags: one mesh of lines and four small nodes.
+	add_child(PitchMarkings.new(_field))
 
 	var foot := Pitch.scoreboard_foot()
 	_board = Scoreboard.new(_field.height_at(foot.x, foot.z))

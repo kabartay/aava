@@ -43,6 +43,7 @@ func _initialize() -> void:
 	_check_a_grove_forms()
 	_check_save_round_trip()
 	_check_an_unreadable_save_is_kept()
+	_check_the_family_list_survives_a_crash()
 	_check_old_and_odd_saves_load_sanely()
 	_check_nothing_is_missing()
 	_check_the_pitch_is_playable()
@@ -53,6 +54,7 @@ func _initialize() -> void:
 	_check_two_sides_keep_score_on_the_board()
 	_check_new_game_and_old_saves()
 	_check_the_scoreboard_stands_clear_and_is_kept_clear()
+	_check_the_pitch_markings_are_where_a_pitch_has_them()
 	_check_the_aim_follows_the_camera_and_the_preview_agrees()
 	_check_rocks_are_jumpable()
 	_check_the_camera_zooms()
@@ -27392,4 +27394,246 @@ func _check_the_animal_step_reuses_what_it_has_already_read() -> void:
 	_expect(worst_lift < 0.02, "and her lift within two centimetres: worst %.4f m" % worst_lift)
 	_expect(worst_ground == 0.0, "the ground under her feet handed on is exactly the ground read afresh")
 	animals.queue_free()
+
+## The white lines and the corner flags are measured, not looked at: the penalty
+## spots on the centre line at the stated distance from each goal mouth, every
+## line vertex inside the pitch and floating the stated lift above the grass,
+## the four flags at the four corners and clear of everything else that stands
+## near the pitch, and nothing painted behind a goal's mouth.
+func _check_the_pitch_markings_are_where_a_pitch_has_them() -> void:
+	print("the pitch markings are where a pitch has them")
+	var field := HeightField.new(20260903)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var markings: PitchMarkings = null
+	for child in ground.get_children():
+		if child is PitchMarkings:
+			markings = child
+	if markings == null:
+		_fail("the football ground has no PitchMarkings")
+		ground.queue_free()
+		return
+	var centre := Pitch.centre()
+	# Penalty spots: on the centre line, PENALTY_SPOT metres in front of the mouth.
+	for index in 2:
+		var spot := Pitch.penalty_spot(index)
+		var mouth := Pitch.goal_centre(index)
+		var gap := Vector2(centre.x + spot.x - mouth.x, centre.z + spot.y - mouth.z).length()
+		_expect(is_equal_approx(centre.z + spot.y, mouth.z), "goal %d: its penalty spot is on the centre line" % index)
+		_expect(absf(gap - Pitch.PENALTY_SPOT) < 0.001, "goal %d: its penalty spot is %.2f m from the mouth, not %.2f" % [index, gap, Pitch.PENALTY_SPOT])
+		_expect(Pitch.PENALTY_SPOT < Pitch.PENALTY_DEPTH and Pitch.GOAL_AREA_DEPTH < Pitch.PENALTY_SPOT, "goal %d: the spot is inside the penalty area and beyond the goal area" % index)
+	_expect(Pitch.GOAL_AREA_HALF_WIDTH * 2.0 > Pitch.GOAL_WIDTH and Pitch.PENALTY_HALF_WIDTH > Pitch.GOAL_AREA_HALF_WIDTH, "the goal area is wider than the goal and the penalty area wider again")
+
+	# The paint: one mesh, every vertex in play, on the grass at the lift, and
+	# none behind a goal mouth, where the frame and the net stand.
+	var paint := markings.get_node("Lines") as MeshInstance3D
+	var arrays := paint.mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	_expect(verts.size() > 0 and verts.size() < 12000, "the paint is one small mesh (%d vertices)" % verts.size())
+	var worst_height := 0.0
+	var outside := 0
+	var behind_goal := 0
+	for v in verts:
+		worst_height = maxf(worst_height, absf(v.y - field.height_at(v.x, v.z) - PitchMarkings.LIFT))
+		if not Pitch.is_in_play(v.x, v.z) or absf(v.x - centre.x) > Pitch.GOAL_LINE_X + 0.0001:
+			outside += 1
+		for index in 2:
+			var mouth := Pitch.goal_centre(index)
+			var beyond := (mouth.x - v.x) if index == 0 else (v.x - mouth.x)
+			if beyond > 0.0001 and absf(v.z - mouth.z) < Pitch.GOAL_WIDTH * 0.5 + Pitch.POST_RADIUS:
+				behind_goal += 1
+	_expect(outside == 0, "%d paint vertices lie outside the pitch rectangle" % outside)
+	_expect(worst_height < 0.0001, "the paint floats %.3f m above the grass everywhere (worst error %.5f)" % [PitchMarkings.LIFT, worst_height])
+	_expect(behind_goal == 0, "%d paint vertices lie behind a goal mouth, under the net" % behind_goal)
+
+	# The boxes and the "D" lie where the layout says: the penalty area's front
+	# line is PENALTY_DEPTH from the goal line, and the arc stays outside it.
+	var off_pitch := 0
+	for line in Pitch.marking_lines():
+		for point in line:
+			if absf(point.x) > Pitch.GOAL_LINE_X or absf(point.y) > Pitch.HALF_WIDTH:
+				off_pitch += 1
+	_expect(off_pitch == 0, "every marking centre-line point is on the pitch (%d are not)" % off_pitch)
+	for index in 2:
+		var sign := -1.0 if index == 0 else 1.0
+		var arc := Pitch.arc_points(Pitch.penalty_spot(index), Pitch.PENALTY_ARC_RADIUS, (PI if index == 1 else 0.0) - 0.5, (PI if index == 1 else 0.0) + 0.5)
+		_expect(arc.size() > 2 and absf(arc[0].distance_to(Pitch.penalty_spot(index)) - Pitch.PENALTY_ARC_RADIUS) < 0.0001, "the arc is a circle round the spot")
+		var front := sign * (Pitch.GOAL_LINE_X - Pitch.PENALTY_DEPTH)
+		var d_arc := Pitch.marking_lines()[3 + index * 3 + 2]
+		var inside := 0
+		for point in d_arc:
+			if (point.x - front) * sign > 0.001:
+				inside += 1
+		_expect(inside == 0 and d_arc.size() > 4, "goal %d: the D is drawn only outside the penalty area" % index)
+
+	# Corner flags: four, one in each corner, inside the pitch, no body to trap
+	# anyone, and clear of the goals, the floodlights and the scoreboard.
+	_expect(markings.flag_count() == 4, "four corner flags (%d)" % markings.flag_count())
+	var quadrants: Dictionary = {}
+	var board := Pitch.scoreboard_foot()
+	for foot in markings.flag_feet():
+		var qx := signf(foot.x - centre.x)
+		var qz := signf(foot.z - centre.z)
+		quadrants["%d,%d" % [int(qx), int(qz)]] = true
+		_expect(Pitch.is_in_play(foot.x, foot.z), "a corner flag stands on the pitch")
+		_expect(absf(absf(foot.x - centre.x) - Pitch.GOAL_LINE_X) < 0.1 and absf(absf(foot.z - centre.z) - Pitch.HALF_WIDTH) < 0.1, "a corner flag stands in a corner (%.2f, %.2f from the centre)" % [foot.x - centre.x, foot.z - centre.z])
+		for index in 2:
+			var mouth := Pitch.goal_centre(index)
+			_expect(Vector2(foot.x - mouth.x, foot.z - mouth.z).length() > Pitch.GOAL_WIDTH * 0.5 + 1.0, "a corner flag is clear of goal %d" % index)
+		for lamp_x: float in [-1.0, 1.0]:
+			for lamp_z: float in [-1.0, 1.0]:
+				var lamp := Vector2(centre.x + lamp_x * (Pitch.HALF_LENGTH + 2.5), centre.z + lamp_z * (Pitch.HALF_WIDTH + 2.5))
+				_expect(Vector2(foot.x, foot.z).distance_to(lamp) > 1.5, "a corner flag is clear of a floodlight")
+		_expect(not Pitch.under_scoreboard(foot.x, foot.z, 1.0), "a corner flag is clear of the scoreboard")
+		_expect(Pitch.is_in_play(foot.x, foot.z) and Vector2(foot.x - board.x, foot.z - board.z).length() > 5.0, "and well away from its foot")
+	_expect(quadrants.size() == 4, "the flags are in four different corners")
+	var bodies := 0
+	for _node: Node in markings.find_children("*", "CollisionObject3D", true, false):
+		bodies += 1
+	_expect(bodies == 0, "nothing on the markings is solid, so a pole can trap no one (%d bodies)" % bodies)
+	var poles := (markings.get_node("Poles") as MeshInstance3D).mesh.get_aabb()
+	_expect(absf(poles.size.y - Pitch.FLAG_POLE_HEIGHT) < 0.01 and poles.size.x < 40.0, "the poles are %.2f m tall" % poles.size.y)
+	ground.queue_free()
+
+## A folder of players for the crash checks to break, away from the real one.
+func _crash_folder(label: String) -> Profiles:
+	var family := Profiles.new()
+	family.folder = "user://c6_scratch_%s" % label
+	_crash_clear(family.folder)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(family.folder))
+	family.maps = {Profiles.HOME_MAP: Profiles.HOME_SEED}
+	return family
+
+func _crash_clear(folder: String) -> void:
+	var absolute := ProjectSettings.globalize_path(folder)
+	if not DirAccess.dir_exists_absolute(absolute):
+		return
+	for leftover in DirAccess.get_files_at(absolute):
+		DirAccess.remove_absolute(absolute + "/" + leftover)
+	DirAccess.remove_absolute(absolute)
+
+func _crash_reload(family: Profiles) -> Profiles:
+	var again := Profiles.new()
+	again.folder = family.folder
+	again.load_index()
+	return again
+
+## A family whose phone was killed in the middle of a rename, or whose index
+## was lost, still finds every child and every save at the next start. Each
+## state below is built by hand in a scratch folder and loaded the way the
+## game loads it.
+func _check_the_family_list_survives_a_crash() -> void:
+	# 1. Killed after the index was written and before the files moved.
+	var one := _crash_folder("rename")
+	one.add_player("Amir")
+	var valley := one.create_world(Profiles.HOME_MAP, "Amir")
+	var two := one.create_world(Profiles.HOME_MAP, "Amir")
+	SaveGame.write({"coins": 7}, one.save_path_for("Amir", valley))
+	SaveGame.write({"coins": 8}, one.save_path_for("Amir", valley))
+	SaveGame.write({"coins": 9}, one.save_path_for("Amir", two))
+	# One valley's files already moved when the phone died, the other's not.
+	DirAccess.rename_absolute(
+		ProjectSettings.globalize_path(one.save_path_for("Amir", two)),
+		ProjectSettings.globalize_path(one.save_path_for("Bilal", two))
+	)
+	one.players = ["Bilal"] as Array[String]
+	for id in one.worlds:
+		one.worlds[id]["owner"] = "Bilal"
+	one.current_player = "Bilal"
+	one.pending_rename = {"from": "Amir", "to": "Bilal"}
+	one.save_index()
+	var after := _crash_reload(one)
+	_expect(after.players == (["Bilal"] as Array[String]), "after a rename killed half way there is one child, under the new name")
+	_expect(
+		int(SaveGame.read(after.save_path_for("Bilal", valley)).get("coins", -1)) == 8,
+		"the save that had not moved is found under the new name"
+	)
+	_expect(
+		FileAccess.file_exists(after.save_path_for("Bilal", valley) + ".previous"),
+		"and so is the copy beside it"
+	)
+	_expect(
+		not FileAccess.file_exists(after.save_path_for("Amir", valley)),
+		"nothing is left behind under the old name"
+	)
+	_expect(
+		int(SaveGame.read(after.save_path_for("Bilal", two)).get("coins", -1)) == 9,
+		"the save that had moved is still there"
+	)
+	_expect(after.pending_rename.is_empty(), "and the rename is finished, not pending for ever")
+	_crash_clear(one.folder)
+
+	# 1b. A save no index knows of is attached to a profile, not ignored.
+	var orphans := _crash_folder("orphan")
+	orphans.add_player("Amir")
+	var home := orphans.create_world(Profiles.HOME_MAP, "Amir")
+	SaveGame.write({"coins": 1}, orphans.save_path_for("Amir", home))
+	SaveGame.write({"coins": 2}, orphans.folder + "/cara--" + home + ".json")
+	SaveGame.write({"coins": 3}, orphans.folder + "/dara--" + home + ".json")
+	DirAccess.rename_absolute(
+		ProjectSettings.globalize_path(orphans.folder + "/dara--" + home + ".json"),
+		ProjectSettings.globalize_path(orphans.folder + "/dara--" + home + ".json.previous")
+	)
+	var found := _crash_reload(orphans)
+	_expect(found.players.has("Cara"), "a save with no profile is given one, named from its file")
+	_expect(found.players.has("Dara"), "also when only its copy beside it is left")
+	_expect(found.may_enter(home, "Cara"), "and that child can enter the valley the save is in")
+	_expect(int(SaveGame.read(found.save_path_for("Cara", home)).get("coins", -1)) == 2, "the save itself is untouched")
+	_expect(_crash_reload(found).players.has("Cara"), "and the profile is written to the index, so it is there next time too")
+	_crash_clear(orphans.folder)
+
+	# 2. A lost index: rebuilt from the saves, nothing deleted.
+	var lost := _crash_folder("lost")
+	lost.add_player("Amir")
+	var play := lost.create_world(Profiles.HOME_MAP, "Amir")
+	SaveGame.write({"coins": 4}, lost.save_path_for("Amir", play))
+	OS.delay_msec(1100)
+	SaveGame.write({"coins": 5}, lost.folder + "/eli--" + play + ".json")
+	var garbage := "{ not json"
+	var bad := FileAccess.open(lost.index_path(), FileAccess.WRITE)
+	bad.store_string(garbage)
+	bad.close()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(lost.index_path() + ".previous"))
+	var rebuilt := _crash_reload(lost)
+	_expect(rebuilt.players.has("Amir") and rebuilt.players.has("Eli"), "an unreadable index is rebuilt from the saves: every child is back")
+	_expect(rebuilt.current_player == "Eli", "the child who played most recently is the one chosen")
+	_expect(rebuilt.current_world == play, "and in the valley that save is in")
+	_expect(
+		FileAccess.get_file_as_string(lost.index_path() + ".unreadable") == garbage,
+		"the unreadable index is kept aside, whole"
+	)
+	_expect(_crash_reload(rebuilt).players.size() == 2, "the rebuilt list is written, so the next start reads it")
+	_crash_clear(lost.folder)
+
+	# 3. The index has a copy beside it, as a save does.
+	var kept := _crash_folder("copy")
+	kept.add_player("Fatima")
+	kept.add_player("Gus")
+	_expect(FileAccess.file_exists(kept.index_path() + ".previous"), "writing the index keeps the one before it")
+	var spoilt := FileAccess.open(kept.index_path(), FileAccess.WRITE)
+	spoilt.store_string("{\"players\": [")
+	spoilt.close()
+	var back := _crash_reload(kept)
+	_expect(back.players.has("Fatima"), "an index cut off half way falls back to the copy")
+	_expect(FileAccess.file_exists(kept.index_path()), "and the copy is put back as the index")
+	_expect(FileAccess.file_exists(kept.index_path() + ".unreadable"), "with the cut-off one kept aside")
+	# Killed between the two renames of the write: only the copy is left.
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(kept.index_path()))
+	_expect(_crash_reload(kept).players.has("Fatima"), "an index with only its copy left still lists the children")
+	_crash_clear(kept.folder)
+
+	# 4. Files set aside never pass for saves, and never hide one.
+	var aside := _crash_folder("aside")
+	aside.add_player("Hana")
+	var land := aside.create_world(Profiles.HOME_MAP, "Hana")
+	SaveGame.write({"coins": 6}, aside.save_path_for("Hana", land))
+	for ending: String in [".unreadable", ".unreadable-2", ".writing"]:
+		var stray := FileAccess.open(aside.folder + "/ines--" + land + ".json" + ending, FileAccess.WRITE)
+		stray.store_string("{}")
+		stray.close()
+	var clear := _crash_reload(aside)
+	_expect(not clear.players.has("Ines"), "a file kept aside is not a child's save")
+	_expect(int(SaveGame.read(clear.save_path_for("Hana", land)).get("coins", -1)) == 6, "and the real save is read as before")
+	_expect(DirAccess.get_files_at(ProjectSettings.globalize_path(aside.folder)).size() == 6, "nothing in the folder was deleted")
+	_crash_clear(aside.folder)
 

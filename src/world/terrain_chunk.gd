@@ -370,61 +370,17 @@ static func _tint(
 
 	return color
 
-## Mown stripes, touchlines, halfway line, centre circle and penalty spots.
+## Mown stripes.
 ##
-## The markings are painted into the terrain's vertex colours rather than laid
-## on as decals or a separate mesh. That costs nothing to draw and can never
-## drift out of alignment with the ground — but it does mean a line is only as
-## crisp as the vertex spacing, which is why the pitch sits where terrain is
-## sampled every metre.
-static func _pitch_tint(x: float, z: float) -> Color:
-	var centre := Pitch.centre()
-	var local_x := x - centre.x
-	var local_z := z - centre.z
+## The white lines are not painted here: the terrain is sampled every metre, so
+## an eleven-centimetre line is missed or smeared across a quad when painted
+## into vertex colours. They are a mesh laid on the grass, see PitchMarkings.
+static func _pitch_tint(x: float, _z: float) -> Color:
+	var local_x := x - Pitch.centre().x
 
 	# Stripes run goal to goal, the way a mower drives up and down a pitch.
 	var stripe := int(floor((local_x + TerrainSpec.STRIPE_WIDTH * 64.0) / TerrainSpec.STRIPE_WIDTH))
-	var color := (
+	return (
 		TerrainSpec.COLOR_PITCH_LIGHT if stripe % 2 == 0
 		else TerrainSpec.COLOR_PITCH_DARK
 	)
-
-	if not Pitch.is_in_play(x, z):
-		# Outside the touchline the grass is the same, just unpainted.
-		return color
-
-	var half := TerrainSpec.LINE_WIDTH * 0.5
-	var painted := false
-
-	# Touchlines and goal lines.
-	if absf(absf(local_x) - Pitch.HALF_LENGTH) < half:
-		painted = true
-	if absf(absf(local_z) - Pitch.HALF_WIDTH) < half:
-		painted = true
-
-	# The halfway line.
-	if absf(local_x) < half:
-		painted = true
-
-	# The centre circle.
-	var from_centre := Vector2(local_x, local_z).length()
-	if absf(from_centre - 5.6) < half:
-		painted = true
-
-	# The centre spot and the two penalty spots.
-	if from_centre < 0.28:
-		painted = true
-	var sides := PackedFloat32Array([-1.0, 1.0])
-	for sign in sides:
-		if Vector2(local_x - sign * (Pitch.HALF_LENGTH - 6.5), local_z).length() < 0.28:
-			painted = true
-
-	# Penalty areas.
-	for sign in sides:
-		var area_x: float = sign * (Pitch.HALF_LENGTH - 9.0)
-		if absf(local_x - area_x) < half and absf(local_z) < 8.4:
-			painted = true
-		if absf(absf(local_z) - 8.4) < half and (local_x - area_x) * sign < 0.0 and absf(local_x) <= Pitch.HALF_LENGTH:
-			painted = true
-
-	return TerrainSpec.COLOR_PITCH_LINE if painted else color

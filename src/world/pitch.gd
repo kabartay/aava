@@ -134,6 +134,119 @@ static func is_goal(index: int, ball: Vector3, ball_radius: float, surface := 0.
 	var roof := lerpf(GOAL_HEIGHT, 0.06, clampf(beyond / GOAL_DEPTH, 0.0, 1.0))
 	return ball.y - surface < roof
 
+# --- markings -----------------------------------------------------------------
+#
+# What is painted on the grass. Geometry only, in metres relative to CENTRE with
+# +x towards the east goal, so the drawing (PitchMarkings), the checks and
+# anything that wants to know where the penalty spot is all read one answer.
+#
+# Everything is a real pitch's layout scaled by the same factor as the pitch
+# itself, about 0.38 (40 by 26 metres against 105 by 68), then nudged where a
+# child's pitch needs it: the goal area is a little deeper than 2.1 m and the
+# circle a little larger than 3.5 m, because at true scale they are slivers
+# that a phone screen cannot draw as shapes.
+
+## Width of the painted lines, in metres.
+const LINE_WIDTH := 0.11
+
+## The goal line is where goals are given, which is the goal mouth and not the
+## edge of the mown surface: the posts stand GOAL_INSET inside it. The painted
+## line has its outer edge on the mouth, under the front of the frame.
+const GOAL_LINE_X := HALF_LENGTH - GOAL_INSET
+
+## Penalty area: 18 m wide and 7 m deep (a real one is 40.3 by 16.5 m).
+const PENALTY_HALF_WIDTH := 9.0
+const PENALTY_DEPTH := 7.0
+## Goal area, the six-yard box: 10 m wide and 2.8 m deep (18.3 by 5.5 m).
+const GOAL_AREA_HALF_WIDTH := 5.0
+const GOAL_AREA_DEPTH := 2.8
+## Penalty spot, from the goal line (11 m on a real pitch), and the arc round it
+## that keeps everyone else back (9.15 m).
+const PENALTY_SPOT := 5.0
+const PENALTY_ARC_RADIUS := 3.5
+const CENTRE_CIRCLE_RADIUS := 4.0
+const CORNER_ARC_RADIUS := 1.0
+const SPOT_RADIUS := 0.2
+
+## Straight segments of a ring are this many degrees apiece: fine enough that a
+## 4 m circle shows no corners, coarse enough to stay a few hundred triangles.
+const ARC_STEP_DEGREES := 6.0
+
+## Corner flags: a thin pole and a small triangle of cloth.
+const FLAG_POLE_HEIGHT := 1.5
+const FLAG_POLE_RADIUS := 0.025
+
+## Where each corner flag stands, relative to CENTRE: on the inside corner of
+## the two lines that meet there, so the pole is on the paint and on the pitch.
+static func corner_flag_spots() -> Array[Vector2]:
+	var inset := LINE_WIDTH * 0.5
+	var out: Array[Vector2] = []
+	for sx: float in [-1.0, 1.0]:
+		for sz: float in [-1.0, 1.0]:
+			out.append(Vector2(sx * (GOAL_LINE_X - inset), sz * (HALF_WIDTH - inset)))
+	return out
+
+## Where the penalty spot of goal `index` is, relative to CENTRE.
+static func penalty_spot(index: int) -> Vector2:
+	var sign := -1.0 if index == 0 else 1.0
+	return Vector2(sign * (GOAL_LINE_X - PENALTY_SPOT), 0.0)
+
+## The spots, as (x, z) relative to CENTRE: centre, then the two penalty spots.
+static func marking_spots() -> Array[Vector2]:
+	return [Vector2.ZERO, penalty_spot(0), penalty_spot(1)]
+
+## An arc of `radius` round `at` from angle `from` to `to` (radians, about +y),
+## as points. Always ends exactly on `to`.
+static func arc_points(at: Vector2, radius: float, from: float, to: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var steps := maxi(2, int(ceil(absf(to - from) / deg_to_rad(ARC_STEP_DEGREES))))
+	for i in steps + 1:
+		var a := lerpf(from, to, float(i) / float(steps))
+		out.append(at + Vector2(cos(a), sin(a)) * radius)
+	return out
+
+## Every painted line as a centre-line polyline, relative to CENTRE. A polyline
+## whose last point equals its first is closed. Lines are centred half a width
+## inside the edge they mark, so that their outer edge is the boundary and the
+## whole of the paint lies inside the pitch.
+static func marking_lines() -> Array[PackedVector2Array]:
+	var lines: Array[PackedVector2Array] = []
+	var inset := LINE_WIDTH * 0.5
+	var gx := GOAL_LINE_X - inset
+	var hz := HALF_WIDTH - inset
+	# Touchlines and goal lines, one closed loop.
+	lines.append(PackedVector2Array([
+		Vector2(-gx, -hz), Vector2(gx, -hz), Vector2(gx, hz), Vector2(-gx, hz), Vector2(-gx, -hz)
+	]))
+	# Halfway line.
+	lines.append(PackedVector2Array([Vector2(0.0, -hz), Vector2(0.0, hz)]))
+	# Centre circle.
+	lines.append(arc_points(Vector2.ZERO, CENTRE_CIRCLE_RADIUS, 0.0, TAU))
+	for index in 2:
+		var sign := -1.0 if index == 0 else 1.0
+		# The boxes grow out of the goal line's centre-line, so they join it.
+		var goal_x := sign * gx
+		var area_x := sign * (GOAL_LINE_X - PENALTY_DEPTH)
+		lines.append(PackedVector2Array([
+			Vector2(goal_x, -PENALTY_HALF_WIDTH), Vector2(area_x, -PENALTY_HALF_WIDTH),
+			Vector2(area_x, PENALTY_HALF_WIDTH), Vector2(goal_x, PENALTY_HALF_WIDTH)
+		]))
+		var small_x := sign * (GOAL_LINE_X - GOAL_AREA_DEPTH)
+		lines.append(PackedVector2Array([
+			Vector2(goal_x, -GOAL_AREA_HALF_WIDTH), Vector2(small_x, -GOAL_AREA_HALF_WIDTH),
+			Vector2(small_x, GOAL_AREA_HALF_WIDTH), Vector2(goal_x, GOAL_AREA_HALF_WIDTH)
+		]))
+		# The "D": the part of the circle round the spot that is outside the box.
+		var spot := penalty_spot(index)
+		var reach := acos((PENALTY_DEPTH - PENALTY_SPOT) / PENALTY_ARC_RADIUS)
+		var facing := PI if index == 1 else 0.0
+		lines.append(arc_points(spot, PENALTY_ARC_RADIUS, facing - reach, facing + reach))
+	# Corner arcs, each a quarter circle centred on its flag and bending in.
+	for corner in corner_flag_spots():
+		var inward := atan2(-signf(corner.y), -signf(corner.x))
+		lines.append(arc_points(corner, CORNER_ARC_RADIUS, inward - PI * 0.25, inward + PI * 0.25))
+	return lines
+
 ## The scoreboard: five metres tall, at the middle of the north touchline and
 ## one metre outside the apron, so it is never on the pitch or the run-up and
 ## can be read from the far touchline. Its numbers live here, in the leaf

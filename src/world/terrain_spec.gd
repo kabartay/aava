@@ -96,14 +96,11 @@ const COLOR_SNOW := Color(0.92, 0.94, 0.97)
 ## rather than like a hill in winter.
 const COLOR_ICE := Color(0.78, 0.86, 0.94)
 
-## Mown grass, and the paint on it. Two tones of green rather than one, because
+## Mown grass, and the paint laid on it (see PitchMarkings). Two tones of green rather than one, because
 ## a pitch that is the same colour as the meadow does not read as a pitch.
 const COLOR_PITCH_DARK := Color(0.21, 0.47, 0.22)
 const COLOR_PITCH_LIGHT := Color(0.34, 0.65, 0.30)
 const COLOR_PITCH_LINE := Color(0.93, 0.95, 0.92)
-
-## Width of the painted lines, in metres.
-const LINE_WIDTH := 0.24
 
 ## Width of a mown stripe. Stripes are what make grass read as tended.
 const STRIPE_WIDTH := 5.0

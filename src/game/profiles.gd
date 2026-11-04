@@ -59,6 +59,18 @@ var worlds: Dictionary = {}
 var current_player := ""
 var current_world := ""
 
+## Where this list and the saves live. Always FOLDER in the game; a variable
+## so that the checks can break a folder of their own without touching a real
+## family's.
+var folder := FOLDER
+
+## A rename the phone was killed in the middle of: the child's old and new
+## names, kept in the index until every save has moved (see rename_player).
+var pending_rename := {}
+
+func index_path() -> String:
+	return folder + "/index.json"
+
 ## Load the index, or start a fresh one.
 func load_index() -> void:
 	players.clear()
@@ -66,28 +78,22 @@ func load_index() -> void:
 	maps = {HOME_MAP: HOME_SEED}
 	current_player = ""
 	current_world = ""
+	pending_rename = {}
 
-	if not FileAccess.file_exists(INDEX):
-		return
-	var file := FileAccess.open(INDEX, FileAccess.READ)
-	if file == null:
-		return
-	var parsed = SaveGame.parse_quietly(file.get_as_text())
-	file.close()
-	# Kept aside rather than written over, for the reason SaveGame.set_aside
-	# gives. This file is the list of who is who: lose it and every child's
-	# save is still on the phone with nothing pointing at it.
-	if parsed is not Dictionary:
-		push_warning("player index is not valid JSON; starting fresh")
-		SaveGame.set_aside(INDEX)
-		return
+	# Read the way a save is: the index, else the copy kept beside it, with
+	# anything unreadable set aside under a name of its own and never deleted.
+	# This file is the list of who is who: lose it and every child's save is
+	# still on the phone with nothing pointing at it, so when nothing at all
+	# can be read the list is rebuilt from the saves themselves below.
+	var data := SaveGame.read_versioned(index_path(), VERSION)
+	# Whole, but from the copy beside it: the index itself is missing or was
+	# set aside, so it is written again in its own place.
+	var from_copy := not data.is_empty() and not FileAccess.file_exists(index_path())
+	_fill_from(data)
+	if reconcile(data.is_empty()) or from_copy:
+		save_index()
 
-	var data: Dictionary = parsed
-	if int(data.get("version", 0)) != VERSION:
-		push_warning("player index is version %s, expected %d" % [data.get("version"), VERSION])
-		SaveGame.set_aside(INDEX)
-		return
-
+func _fill_from(data: Dictionary) -> void:
 	# Each container is checked for its type before it is walked: a hand-edited
 	# index with "players" as a string, or a world that is a number, keeps what
 	# is valid instead of erroring and losing the lot.
@@ -138,19 +144,27 @@ func load_index() -> void:
 	var last_world := String(data.get("current_world", ""))
 	if worlds.has(last_world):
 		current_world = last_world
+	var pending = data.get("renaming", {})
+	if pending is Dictionary and pending.get("from") is String and pending.get("to") is String:
+		pending_rename = {"from": pending["from"], "to": pending["to"]}
 
 ## Written the way a save is — beside the file and renamed over it — because
 ## it was opened in place, which empties it before a byte of the new list goes
 ## in, and a phone that kills the game in that moment left an empty list of
 ## children with all of their saves still on the disk.
 func save_index() -> bool:
-	return SaveGame.write({
+	var data := {
 		"players": players,
 		"maps": maps,
 		"worlds": worlds,
 		"current_player": current_player,
 		"current_world": current_world,
-	}, INDEX, VERSION)
+	}
+	if not pending_rename.is_empty():
+		data["renaming"] = pending_rename
+	# SaveGame.write keeps the list it replaces as `.previous`, so a list
+	# that comes back unreadable has the last whole one to go back to.
+	return SaveGame.write(data, index_path(), VERSION)
 
 ## A name has to be usable as a filename and readable by a six-year-old. Latin
 ## letters, Cyrillic, digits, spaces and hyphens — enough for the three names
@@ -267,8 +281,26 @@ func rename_player(old_name: String, new_name: String) -> bool:
 		var guest_at := guests.find(old_name)
 		if guest_at >= 0:
 			guests[guest_at] = trimmed
+	if current_player == old_name:
+		current_player = trimmed
+	# The index goes first, saying a rename is under way, and the files move
+	# after it. Written last it left a kill between the two with an index
+	# still on the old name and saves under the new one, which nothing could
+	# put right. Now the next start finishes the move (see reconcile).
+	if not old_name.is_empty():
+		pending_rename = {"from": old_name, "to": trimmed}
+		save_index()
+	_move_saves(old_name, trimmed)
+	pending_rename = {}
+	save_index()
+	return true
+
+## Move every save of one child, and the copy beside it, from one name to
+## another. Safe to run twice: it only moves what is still where it was.
+func _move_saves(old_name: String, new_name: String) -> void:
+	for id in worlds:
 		var from := ProjectSettings.globalize_path(save_path_for(old_name, String(id)))
-		var to := ProjectSettings.globalize_path(save_path_for(trimmed, String(id)))
+		var to := ProjectSettings.globalize_path(save_path_for(new_name, String(id)))
 		if from == to:
 			continue
 		# The save and the copy beside it move on their own: a phone killed
@@ -283,10 +315,120 @@ func rename_player(old_name: String, new_name: String) -> bool:
 			if FileAccess.file_exists(to + suffix):
 				SaveGame.set_aside(to + suffix)
 			DirAccess.rename_absolute(from + suffix, to + suffix)
-	if current_player == old_name:
-		current_player = trimmed
-	save_index()
-	return true
+
+## Make the index and the folder agree after a start that may follow a crash.
+## Returns true if the index was changed and should be written.
+##
+## Three things, in this order. A rename that was interrupted is finished.
+## Then every save file in the folder is looked at, and one whose child or
+## valley the index does not know is attached to a profile named by its file
+## name, never ignored: a parent who opens the folder sees whose afternoon is
+## in which file, and the game must see the same. Lastly, when no index could
+## be read at all (`rebuild`), the child who played most recently is the one
+## chosen, judged by which save was written last.
+##
+## Only the saves are read from names: `<name>--<valley>.json`, or the same
+## with `.previous` for one whose second rename never happened. Files kept
+## aside (`.unreadable`) and half-written ones (`.writing`) are not saves, so
+## they can neither be mistaken for one nor hide one, and nothing is deleted.
+func reconcile(rebuild := false) -> bool:
+	var changed := false
+	if not pending_rename.is_empty():
+		var from := String(pending_rename["from"])
+		var to := String(pending_rename["to"])
+		if players.has(to):
+			_move_saves(from, to)
+		pending_rename = {}
+		changed = true
+	var newest := -1
+	var newest_player := ""
+	var newest_world := ""
+	var names := DirAccess.get_files_at(folder)
+	names.sort()
+	for file_name in names:
+		var stem := ""
+		if file_name.ends_with(".json"):
+			stem = file_name.trim_suffix(".json")
+		elif file_name.ends_with(".json.previous"):
+			stem = file_name.trim_suffix(".json.previous")
+		else:
+			continue
+		var found := _split_save_name(stem)
+		if found.is_empty():
+			continue
+		var slug: String = found[0]
+		var world_id: String = found[1]
+		if slug == "world":
+			continue
+		var owner := ""
+		for each in players:
+			if _slug(each) == slug:
+				owner = each
+		if owner.is_empty():
+			# Capitals are lost in a file name; the first letter is put back
+			# so a parent sees "Amir" and not "amir".
+			var guess := slug.substr(0, 1).to_upper() + slug.substr(1)
+			if not is_valid_name(guess) or not player_named(guess).is_empty():
+				continue
+			owner = guess
+			players.append(owner)
+			changed = true
+			push_warning("save %s had no profile; added %s" % [file_name, owner])
+		if not worlds.has(world_id):
+			var map_name := _map_of_slug(world_id)
+			if map_name.is_empty():
+				push_warning("save %s is in a valley the index does not know and no map to make it from" % file_name)
+				continue
+			worlds[world_id] = {"map": map_name, "owner": owner, "guests": []}
+			changed = true
+		elif not may_enter(world_id, owner):
+			(worlds[world_id]["guests"] as Array).append(owner)
+			changed = true
+		var stamp := FileAccess.get_modified_time(folder + "/" + file_name)
+		if stamp > newest:
+			newest = stamp
+			newest_player = owner
+			newest_world = world_id
+	if rebuild and not newest_player.is_empty():
+		current_player = newest_player
+		current_world = newest_world
+		changed = true
+	return changed
+
+## A save's file name, without its ending, as [name slug, valley id]. The
+## split is at the "--" that leaves a valley the index knows; failing that,
+## at the last one.
+func _split_save_name(stem: String) -> Array:
+	var cuts: Array[int] = []
+	var from := 0
+	while true:
+		var at := stem.find("--", from)
+		if at < 0:
+			break
+		cuts.append(at)
+		from = at + 1
+	if cuts.is_empty():
+		return []
+	for cut in cuts:
+		if worlds.has(stem.substr(cut + 2)) and cut > 0:
+			return [stem.substr(0, cut), stem.substr(cut + 2)]
+	var last: int = cuts[cuts.size() - 1]
+	if last == 0 or last + 2 >= stem.length():
+		return []
+	return [stem.substr(0, last), stem.substr(last + 2)]
+
+## The map a valley id was made from ("home-2" is a copy of "home"), or an
+## empty string. A valley whose map is not known is left alone rather than
+## given the wrong ground.
+func _map_of_slug(world_id: String) -> String:
+	var dash := world_id.rfind("-")
+	if dash <= 0 or not world_id.substr(dash + 1).is_valid_int():
+		return ""
+	var prefix := world_id.substr(0, dash)
+	for map_name in maps:
+		if _slug(String(map_name)) == prefix:
+			return String(map_name)
+	return ""
 
 func choose_player(name: String) -> bool:
 	if not players.has(name):
@@ -392,8 +534,8 @@ func worlds_for(player: String) -> Array[String]:
 ## have their own afternoon even while sharing the ground.
 func save_path_for(player: String, world_id: String) -> String:
 	if player.is_empty():
-		return "%s/%s.json" % [FOLDER, _slug(world_id)]
-	return "%s/%s--%s.json" % [FOLDER, _slug(player), _slug(world_id)]
+		return "%s/%s.json" % [folder, _slug(world_id)]
+	return "%s/%s--%s.json" % [folder, _slug(player), _slug(world_id)]
 
 ## Is the world the game is pointing at one the current player may be in? The
 ## index remembers the world last played, and a different child chosen since —
@@ -409,7 +551,7 @@ func current_save_path() -> String:
 ## structures, the felled trees, the dams. Shared by everyone in this copy,
 ## which is what makes an invitation mean something.
 func world_path_for(world_id: String) -> String:
-	return "%s/world--%s.json" % [FOLDER, _slug(world_id)]
+	return "%s/world--%s.json" % [folder, _slug(world_id)]
 
 func current_world_path() -> String:
 	return world_path_for(current_world)

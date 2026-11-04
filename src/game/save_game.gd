@@ -108,11 +108,17 @@ static func _finite(value: Variant) -> Variant:
 	return value
 
 static func read(path := PATH) -> Dictionary:
+	return read_versioned(path, VERSION)
+
+## `read()` for a file with a version of its own, like the player index: the
+## same fallback to `.previous` and the same setting aside, so the list of
+## children is as hard to lose as a child's valley.
+static func read_versioned(path: String, version: int) -> Dictionary:
 	var previous := path + ".previous"
 	if not FileAccess.file_exists(path):
 		# Killed between the two renames in `write()`: the save is only
 		# missing its name, and the last whole copy is sitting beside it.
-		return _read_whole(previous) if FileAccess.file_exists(previous) else {}
+		return _read_whole(previous, version) if FileAccess.file_exists(previous) else {}
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return {}
@@ -120,28 +126,28 @@ static func read(path := PATH) -> Dictionary:
 	file.close()
 	if parsed is not Dictionary:
 		set_aside(path)
-		var earlier := _read_whole(previous)
+		var earlier := _read_whole(previous, version)
 		if earlier.is_empty():
 			push_warning("%s is not valid JSON; starting a new world" % path)
 		else:
 			push_warning("%s is not valid JSON; went back to the save before it" % path)
 		return earlier
 	var data: Dictionary = parsed
-	if int(data.get("version", 0)) != VERSION:
-		push_warning("save file is version %s, expected %d; starting a new world" % [data.get("version"), VERSION])
+	if int(data.get("version", 0)) != version:
+		push_warning("save file is version %s, expected %d; starting a new world" % [data.get("version"), version])
 		set_aside(path)
 		return {}
 	return data
 
 ## The previous copy of a save, if it is whole and of this version; otherwise
 ## nothing, and the game starts afresh as it would have without one.
-static func _read_whole(path: String) -> Dictionary:
+static func _read_whole(path: String, version := VERSION) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return {}
 	var parsed = parse_quietly(file.get_as_text())
 	file.close()
-	if parsed is Dictionary and int((parsed as Dictionary).get("version", 0)) == VERSION:
+	if parsed is Dictionary and int((parsed as Dictionary).get("version", 0)) == version:
 		return parsed
 	return {}
 

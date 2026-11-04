@@ -163,12 +163,12 @@ const POSES := {
 	},
 	# The pirate ship's seat: the origin is the top of the cushion, 0.6 deep and
 	# 0.8 wide, with the back's face 0.3 behind it. The legs go out along it
-	# and the hands hold the side arms of the lap bar, which stand 0.34 out and
+	# and the hands hold the side arms of the lap bar, which stand 0.37 out and
 	# are 0.7 up where they pass the chest (PirateShip.BAR_*): the bar itself is
 	# 0.48 ahead of the middle, more than a child's arm.
 	&"pirate_ship": {
 		"seat": Vector3(0.0, 0.0, 0.17), "lean": 0.05, "nod": 0.0,
-		"hand": Vector3(-0.34, 0.69, -0.12), "reach": 1.15,
+		"hand": Vector3(-0.37, 0.69, -0.12), "reach": 1.15,
 		"foot": Vector3(-0.12, 0.10, -0.22), "toe": 0.2,
 		"knee": Vector3(-0.2, 1.0, -0.2), "elbow": Vector3(-1.0, -0.2, 0.3),
 		"style": &"",

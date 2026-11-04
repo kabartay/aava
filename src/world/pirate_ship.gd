@@ -59,6 +59,13 @@ const BAR_BELOW := 0.58
 const BAR_LENGTH := sqrt(BAR_AHEAD * BAR_AHEAD + BAR_BELOW * BAR_BELOW)
 ## How far it turns from standing up to lying across the lap, in radians.
 const BAR_CLOSE := atan2(BAR_AHEAD, -BAR_BELOW)
+## How far out from the seat's middle each side arm of the bar stands: flush
+## with the cushion's edge (0.4) less the arm's own half-width. A child who
+## glances round turns the head up to 0.75 radians, and the bear's, the widest
+## skull of the five, came within 0.269 m of the arm when the arms stood 0.34
+## out; 0.37 keeps every child at least 0.29 m clear (see seat_pose.gd for the
+## hands, which hold the arms at the same distance).
+const ARM_OUT := SEAT_WIDTH * 0.5 - 0.03
 ## Half the opening in the boat's side that faces the platform.
 const GATE_HALF := 0.9
 
@@ -691,7 +698,7 @@ func _build_hull(body: AnimatableBody3D) -> void:
 					var arm := BoxMesh.new()
 					arm.size = Vector3(0.06, BAR_LENGTH, 0.06)
 					Park._add(
-						bar_tool, arm, Transform3D(Basis(), Vector3(0.0, BAR_LENGTH * 0.5, arm_side * (SEAT_WIDTH * 0.5 - 0.06))),
+						bar_tool, arm, Transform3D(Basis(), Vector3(0.0, BAR_LENGTH * 0.5, arm_side * ARM_OUT)),
 						RollerCoaster.HARNESS.darkened(0.3)
 					)
 				var bar := BoxMesh.new()

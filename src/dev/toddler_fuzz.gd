@@ -438,7 +438,10 @@ func _press(at: Vector2, what: String, seconds: float, steady: bool) -> int:
 			drag.screen_relative = drag.relative
 			viewport.push_input(drag, true)
 		for ring in rings:
-			ring._process(FRAME)
+			# A tap can rebuild the interface (a language flag, a menu), and the
+			# rings of the old one are freed under the finger.
+			if is_instance_valid(ring):
+				ring._process(FRAME)
 		await _next_frame()
 	var up := InputEventScreenTouch.new()
 	up.index = 0
