@@ -51,6 +51,14 @@ func instruction() -> String:
 func is_finished() -> bool:
 	return step == Step.FREE
 
+## The kind of place on the map this step leads to, as a PlaceGlyph.Kind, or -1
+## where the step is not somewhere to go. The map pulses that sticker, so a
+## child told to "go to the pitch" can see where it is.
+func place_kind() -> int:
+	if step == Step.PITCH:
+		return PlaceGlyph.Kind.PITCH
+	return -1
+
 ## Called whenever anything is collected.
 func on_collected(_inventory: Inventory, kind: StringName = ItemKinds.STICK) -> void:
 	if step != Step.GATHER:

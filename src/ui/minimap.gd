@@ -401,6 +401,7 @@ func _process(delta: float) -> void:
 	advance(delta)
 	if _follow_player == null or not is_instance_valid(_follow_player):
 		return
+	_pulse_suggested()
 	# The guide follows the child whether or not the map is open.
 	guide_step(
 		_follow_player.global_position,
@@ -934,6 +935,29 @@ func _size_the_guidance(pixels: float) -> void:
 	_legend.fit(Vector2(pixels, pixels))
 	if not key_wanted:
 		_legend.set_open(false)
+
+## The kind of place the current task is done at (PlaceGlyph.Kind), or -1. Its
+## sticker swells and shrinks gently on the map, so the "what to do next" line
+## has a place to look at. Only a hint: nothing is chosen on the child's behalf.
+var _suggested := -1
+
+func suggest(kind: int) -> void:
+	_suggested = kind
+
+func suggested() -> int:
+	return _suggested
+
+## How much bigger a suggested sticker is drawn at this moment, 1 to 1.18.
+static func pulse_scale(seconds: float) -> float:
+	return 1.09 + 0.09 * sin(seconds * 4.0)
+
+func _pulse_suggested() -> void:
+	var seconds := float(Time.get_ticks_msec()) / 1000.0
+	for destination in _destinations:
+		var glyph: PlaceGlyph = destination["glyph"]
+		var wanted := _suggested >= 0 and int(glyph.kind) == _suggested
+		glyph.pivot_offset = glyph.size * 0.5
+		glyph.scale = Vector2.ONE * (pulse_scale(seconds) if wanted else 1.0)
 
 ## The guide, for whoever draws the pointer on the play screen.
 func guide() -> MapGuide:

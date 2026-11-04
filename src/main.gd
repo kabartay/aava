@@ -1527,6 +1527,8 @@ func _process(delta: float) -> void:
 	# which is right and is invisible.
 	if player.is_charging() and hud.is_shooting():
 		player.hold_the_bow(true, player.kick_charge)
+		# The body turns to where the arrow will go, so the bow is seen aimed.
+		player.face(_arrow_aim(), delta)
 		_show_where_the_arrow_goes()
 	else:
 		player.hold_the_bow(false, 0.0)
@@ -1553,6 +1555,7 @@ func _process(delta: float) -> void:
 		AnimalKinds.wish(near_animal["kind"]) if not near_animal.is_empty() else ""
 	)
 	tasks.on_moved(player.global_position)
+	_point_the_map_at_the_task()
 	build_mode.aim(player.global_position, camera_rig.yaw)
 	hud.set_storey(
 		build_mode.storey(),
@@ -1594,7 +1597,7 @@ func _process(delta: float) -> void:
 	# frame, its arc was hidden the moment it was drawn, and every arrow flew
 	# at the weakest pull there is.
 	if player.is_charging() and hud.is_shooting():
-		hud.set_kick_preview(false, 0.0, 0.0)
+		hud.set_kick_preview(true, player.kick_charge, _arrow_loft())
 	elif player.is_charging():
 		if ball == null:
 			player.release_charge()
@@ -1810,6 +1813,25 @@ func _show_the_state() -> void:
 ## Today's task used to appear only once it was already done — the line was
 ## written by the handler for finishing it and by nothing else — so the one
 ## thing worth doing each day was never on the screen while it was worth doing.
+## The place the line on the screen is about gets a pulsing sticker on the map,
+## and the opening thread's walk to the pitch is offered a pointer on the play
+## screen too, once, if the child has not chosen somewhere already: told to go
+## to the pitch, a three-year-old otherwise has only a word to go on.
+var _task_pointer_offered := false
+
+func _point_the_map_at_the_task() -> void:
+	var map := hud.minimap()
+	if map == null:
+		return
+	var kind := tasks.place_kind() if not tasks.is_finished() else today.place_kind()
+	map.suggest(kind)
+	if tasks.step != Tasks.Step.PITCH:
+		_task_pointer_offered = false
+	elif not _task_pointer_offered:
+		_task_pointer_offered = true
+		if not map.guide().active:
+			map.choose_kind(PlaceGlyph.Kind.PITCH)
+
 func _task_line() -> String:
 	if not tasks.is_finished():
 		return tasks.instruction()
@@ -1906,6 +1928,15 @@ var _slid := 0.0
 var _dining := 0.0
 var _dining_seat := Vector3.ZERO
 var _dining_facing := 0.0
+## Seconds after sitting down before the stick can stand the child up again.
+const DINING_GRACE := 0.8
+
+## Whether the stick is pushed hard enough to mean "off I go".
+func _wants_to_walk_away() -> bool:
+	return Input.get_vector(
+		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+		InputActions.MOVE_FORWARD, InputActions.MOVE_BACK
+	).length() > 0.5
 
 ## Whether the slide, a chair or the swing has hold of the child right now.
 func _is_being_carried() -> bool:
@@ -1953,6 +1984,13 @@ func _carry(delta: float, at: Vector3) -> void:
 		player.carried_to = _dining_seat + Vector3(0.0, -Places.DINING_SINK, 0.0)
 		player.is_carried = true
 		player.face(Vector3(-sin(_dining_facing), 0.0, -cos(_dining_facing)), delta)
+		# Pushing the stick stands a child up from the table, as it gets them
+		# off the swing: a meal that cannot be left is a trap for a child who
+		# has finished, or has seen something else. The plate is theirs and
+		# stays; only the sitting ends. Not in the first moment, while the
+		# stick that walked them to the table may still be leaning.
+		if _dining > 0.0 and Places.MEAL_SHOWN * 0.8 - _dining > DINING_GRACE and _wants_to_walk_away():
+			_dining = 0.0
 		if _dining <= 0.0:
 			player.is_carried = false
 			# Out of a chair of their own before the furniture is solid to them
@@ -3045,7 +3083,7 @@ func _on_shoot_release() -> void:
 		return
 	var charge := player.release_charge()
 	world.archery.loose(
-		_arrow_from(), _arrow_aim(), charge, camera_rig.aim_height()
+		_arrow_from(), _arrow_aim(), charge, _arrow_loft()
 	)
 	sounds.play(Sounds.Sound.KICK, 1.4)
 
@@ -3065,8 +3103,16 @@ func _arrow_aim() -> Vector3:
 	var looking := -camera_rig.camera.global_transform.basis.z
 	looking.y = 0.0
 	if looking.length_squared() < 0.0001:
-		return player.facing()
-	return looking.normalized()
+		looking = player.facing()
+	# Then turned by the finger sliding on the held button, right positive, the
+	# way a kick is (see _kick_turn): the same gesture for the same button.
+	return looking.normalized().rotated(Vector3.UP, -_kick_turn())
+
+## How high the shot goes: the finger's slide up the held button, 0 (level) to
+## 1 (a high lob), exactly as for a kick. It was the camera's pitch, which a
+## child has no reason to connect with the bow.
+func _arrow_loft() -> float:
+	return _kick_loft()
 
 func _arrow_from() -> Vector3:
 	return player.global_position + Vector3.UP * 1.2
@@ -4100,7 +4146,7 @@ func _on_ticket() -> void:
 func _show_where_the_arrow_goes() -> void:
 	var from := _arrow_from()
 	var velocity := Archery.launch_velocity(
-		_arrow_aim(), player.facing(), player.kick_charge, camera_rig.aim_height()
+		_arrow_aim(), player.facing(), player.kick_charge, _arrow_loft()
 	)
 	var ground := func(x: float, z: float) -> float:
 		return world.field.height_at(x, z)

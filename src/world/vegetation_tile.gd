@@ -244,6 +244,10 @@ static func generate_trees(
 	# keeps its neighbours at a distance, or cutting one would let the tree that
 	# had been crowded out spring up in its place.
 	var spots: Array[Vector2] = []
+	# Everything built flat on the ground that has said it is there (see
+	# ClearGround), read once for the tile. A trunk standing in a mat or a floor
+	# is a solid pole in the middle of it.
+	var cleared := ClearGround.near(origin_x, origin_z, origin_x + float(tile_size), origin_z + float(tile_size))
 
 	for _i in TREE_CANDIDATES:
 		var local := Vector3(rng.randf() * tile_size, 0.0, rng.randf() * tile_size)
@@ -289,6 +293,10 @@ static func generate_trees(
 		if crowded:
 			continue
 		spots.append(here)
+		# Like a felled tree, a tree kept off a built floor still holds its spot,
+		# so its neighbours do not move when a floor is registered late.
+		if not cleared.is_empty() and ClearGround.covers(cleared, world_x, world_z):
+			continue
 		if felled != null and felled.is_felled(world_x, world_z):
 			continue
 

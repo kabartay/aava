@@ -17,6 +17,8 @@ signal missed()
 ## landed so a child can see where they hit.
 const MAX_FLIGHT := 6.0
 const LINGER := 2.5
+## Most arrows in the air or standing in the straw at once.
+const MAX_ARROWS := 12
 
 ## Arrow speed at a bare touch and at full draw.
 const SPEED_MIN := 14.0
@@ -95,6 +97,9 @@ func target_centre(index: int) -> Vector3:
 func shooting_line() -> Vector3:
 	return _origin
 
+func arrows_out() -> int:
+	return _arrows.size()
+
 func arrows_in_flight() -> int:
 	var flying := 0
 	for arrow in _arrows:
@@ -157,6 +162,13 @@ static func predict(at: Vector3, velocity: Vector3, seconds: float, step: float,
 	return points
 
 func loose(from: Vector3, direction: Vector3, charge: float, aim_height: float) -> void:
+	# A child who hammers the button cannot pile up arrows without end: past
+	# the cap the oldest goes, in flight or not.
+	while _arrows.size() >= MAX_ARROWS:
+		var oldest: Dictionary = _arrows.pop_front()
+		var old_node: Node3D = oldest["node"]
+		if is_instance_valid(old_node):
+			old_node.queue_free()
 	var launch_speed := launch_velocity(direction, _facing, charge, aim_height)
 	var speed := launch_speed.length()
 	var launch := launch_speed.normalized()

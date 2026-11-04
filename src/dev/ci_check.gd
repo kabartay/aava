@@ -35,6 +35,7 @@ func _initialize() -> void:
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
 	await _check_the_cafe_price_is_kept()
+	await _check_the_small_activities_are_kind_and_lead_somewhere()
 	await _check_loading_reaches_what_is_already_built()
 	await _check_the_busy_frame_does_its_work_on_change()
 	await _check_the_animal_step_reuses_what_it_has_already_read()
@@ -597,6 +598,7 @@ func _initialize() -> void:
 	_check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine()
 	_check_the_riders_feet_are_on_the_bicycles_pedals_and_it_is_drawn_warm()
 	await _check_the_shop_audit_fixes()
+	_check_the_sky_keeps_the_valley_readable_and_the_render_cost_in_budget()
 	await _check_a_standing_ride_makes_no_calls_it_has_already_made()
 	await _check_a_long_session_does_not_grow_the_scene()
 	await _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main_thread()
@@ -635,6 +637,42 @@ func _code_only(source: String) -> String:
 			continue
 		out += line + "\n"
 	return out
+
+## The light across a whole day and the project's render settings: night never
+## goes below a readable floor, the next destination is clear of fog by day,
+## and the costly settings the perf audit flagged stay where they were set.
+func _check_the_sky_keeps_the_valley_readable_and_the_render_cost_in_budget() -> void:
+	var sky := Atmosphere.new()
+	get_root().add_child(sky)
+	var env: Environment = sky.get_child(0).environment
+	var sun: DirectionalLight3D = sky.get_child(1)
+	var darkest_ambient := 99.0
+	var dimmest_night_light := 99.0
+	for step: int in 48:
+		var t := float(step) / 48.0
+		sky.set_time(t)
+		darkest_ambient = minf(darkest_ambient, env.ambient_light_energy)
+		if sky.darkness() > 0.99:
+			dimmest_night_light = minf(dimmest_night_light, sun.light_energy)
+	_expect(darkest_ambient >= 0.29,
+		"the valley's ambient light never drops below a readable floor (%.2f)" % darkest_ambient)
+	_expect(dimmest_night_light >= 0.3,
+		"the moon keeps the hills and path visible at midnight (%.2f)" % dimmest_night_light)
+	sky.set_time(0.5)
+	var seen := 150.0
+	var haze := pow(
+		clampf((seen - env.fog_depth_begin) / (env.fog_depth_end - env.fog_depth_begin), 0.0, 1.0),
+		env.fog_depth_curve)
+	_expect(haze < 0.02, "by day a destination 150 m away is not touched by fog (%.3f)" % haze)
+	_expect(env.fog_depth_end > Atmosphere.FOG_BEGIN * 4.0,
+		"the air still reaches the far country")
+	_expect(sun.directional_shadow_mode != DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS,
+		"the sun does not pay for four shadow splits")
+	_expect(sun.directional_shadow_max_distance <= 260.0 and sun.directional_shadow_split_1 * sun.directional_shadow_max_distance >= 30.0,
+		"shadows reach no further than 260 m and the near split covers 30 m or more")
+	var msaa := int(ProjectSettings.get_setting("rendering/anti_aliasing/quality/msaa_3d", 0))
+	_expect(msaa <= 1, "3D multisampling is 2x at most (%d)" % msaa)
+	sky.queue_free()
 
 func _expect(condition: bool, message: String) -> void:
 	if condition:
@@ -14790,6 +14828,100 @@ func _check_loading_reaches_what_is_already_built() -> void:
 	hearths.from_data([[roundi(at.x * 10.0), roundi(at.y * 10.0), roundi(at.z * 10.0), 0.0]])
 	_expect(not hearths.is_burning(at), "a saved fire with nothing left is not lit")
 	hearths.queue_free()
+## The bow aimed like the kick, arrows capped, pickups kept out of places,
+## a child able to stand up from a meal, and the task's place pulsing on the map.
+func _check_the_small_activities_are_kind_and_lead_somewhere() -> void:
+	print("the bow is aimed by the finger, pickups stay out of places, tasks point somewhere")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var aim_fn := game.substr(game.find("func _arrow_aim()"))
+	aim_fn = aim_fn.substr(0, aim_fn.find("\nfunc ", 10))
+	_expect(aim_fn.contains("_kick_turn()"), "the arrow is turned by the finger's slide, as a kick is")
+	var loft_fn := game.substr(game.find("func _arrow_loft()"))
+	loft_fn = loft_fn.substr(0, loft_fn.find("\nfunc ", 10))
+	_expect(loft_fn.contains("_kick_loft()") and not game.contains("camera_rig.aim_height()"), "and lifted by it, not by the camera's pitch")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var shoot: Button = hud._shoot_button
+	_expect(shoot.keep_pressed_outside, "a finger that slides off the bow button still looses on letting go")
+	var height := hud.get_viewport().get_visible_rect().size.y
+	hud.slide_kick_aim(Vector2(Hud.KICK_TURN_REACH * height * 0.5, -Hud.KICK_LOFT_REACH * height * 0.5), height)
+	_expect(hud.kick_aim().x > 0.0 and is_equal_approx(hud.kick_aim().y, 0.5), "sliding right and up turns and lifts the shot")
+	shoot.button_down.emit()
+	_expect(hud.kick_aim() == Vector2.ZERO, "pressing the bow button starts every draw straight")
+	var hud_source := _code_only(FileAccess.get_file_as_string("res://src/ui/hud.gd"))
+	_expect(hud_source.contains("_shoot_button.is_visible_in_tree() and _shoot_button.get_global_rect()"), "the slide is read from the finger on the bow button")
+	hud.queue_free()
+
+	# A slid shot goes where it is told: right of straight is right.
+	var straight := Archery.launch_velocity(Vector3.FORWARD, Vector3.FORWARD, 1.0, 0.0)
+	var turned := Archery.launch_velocity(Vector3.FORWARD.rotated(Vector3.UP, -deg_to_rad(30.0)), Vector3.FORWARD, 1.0, 0.0)
+	_expect(turned.x > 0.0 and is_equal_approx(turned.length(), straight.length()), "an arrow turned right goes right at the same speed")
+
+	# Arrows cannot pile up.
+	var field := HeightField.new(20260904)
+	var range_ := Archery.new(field)
+	get_root().add_child(range_)
+	range_.stand_up(Pitch.centre() + Vector3(0.0, 0.0, 60.0), Vector3.FORWARD)
+	for _i in Archery.MAX_ARROWS * 3:
+		range_.loose(range_.shooting_line() + Vector3.UP * 1.2, Vector3.FORWARD, 0.5, 0.0)
+	_expect(range_.arrows_out() <= Archery.MAX_ARROWS, "a hammered button leaves at most %d arrows out (%d)" % [Archery.MAX_ARROWS, range_.arrows_out()])
+	for _i in 600:
+		range_._physics_process(0.016)
+	_expect(range_.arrows_out() == 0, "and every arrow is cleaned up after it lands")
+	range_.queue_free()
+
+	# Pickups never lie in the pool, on the pitch, in the playground or the park.
+	var valley := HeightField.new(20260903)
+	var camp := valley.camp_centre()
+	var pickups := Pickups.new(valley, 20260903)
+	get_root().add_child(pickups)
+	var stray := 0
+	var seen := 0
+	var spots: Array[Vector3] = [
+		camp + PlaceSpec.OFFSETS[&"pool"], Pitch.CENTRE, ParkSpec.centre(),
+		camp + PlaceSpec.OFFSETS[&"playground"], camp + PlaceSpec.OFFSETS[&"range"],
+	]
+	for spot in spots:
+		pickups.follow(spot)
+		for _i in 400:
+			pickups._process(0.016)
+			if pickups.is_idle():
+				break
+		for record in pickups._active:
+			var at: Vector3 = record["position"]
+			seen += 1
+			if KeepOut.kept(at.x, at.z, camp, valley.river_centre_x(BridgeSpec.CENTRE_Z)) or PlaceSpec.excavation(at.x, at.z, camp) > 0.0:
+				stray += 1
+	_expect(seen > 0 and stray == 0, "no pickup lies on a place's ground or in the pool (%d of %d)" % [stray, seen])
+	pickups.queue_free()
+
+	# Tasks lead somewhere, and the map says where.
+	var opening := Tasks.new()
+	opening.step = Tasks.Step.PITCH
+	_expect(opening.place_kind() == PlaceGlyph.Kind.PITCH, "told to walk to the pitch, the map knows which sticker that is")
+	opening.step = Tasks.Step.GATHER
+	_expect(opening.place_kind() == -1, "gathering sticks is not a place")
+	opening.free()
+	var day := Today.new()
+	var seen_kinds := {}
+	for offset in Today.KINDS.size():
+		day.begin(offset * 86400 + 43200)
+		seen_kinds[day.kind()] = day.place_kind()
+	_expect(seen_kinds[Today.SHOOT] == PlaceGlyph.Kind.RANGE and seen_kinds[Today.SCORE] == PlaceGlyph.Kind.PITCH, "shooting is done at the range and scoring at the pitch")
+	_expect(seen_kinds[Today.PLANT] == -1, "planting is done anywhere")
+	var map := Minimap.new(valley)
+	get_root().add_child(map)
+	map.suggest(PlaceGlyph.Kind.PITCH)
+	_expect(map.suggested() == PlaceGlyph.Kind.PITCH, "the map keeps the suggested place")
+	for step in 40:
+		var swell := Minimap.pulse_scale(float(step) * 0.1)
+		_expect(swell >= 1.0 and swell <= 1.19, "the pulsing sticker stays between 1 and 1.19 times its size (%.2f)" % swell)
+	map.queue_free()
+
+	# A child can stand up from a meal.
+	_expect(game.contains("_wants_to_walk_away()") and game.contains("DINING_GRACE"), "pushing the stick stands a child up from the table, after a first moment")
+
 func _check_the_microphone_closes_when_the_app_is_taken_away() -> void:
 	print("the microphone closes when the app is paused mid-press")
 	var voice := Voice.new()
@@ -28967,10 +29099,46 @@ func _check_clear_ground_keeps_grass_off_anything_registered() -> void:
 	ClearGround.rect(&"test_c", centre, 16.0, 16.0)
 	var covered: int = (VegetationTile.bake(field, best, 32, 20260903, null, true)["grass"] as Array).size()
 	_expect(covered == 0, "a tile claimed whole grows %d tufts" % covered)
+	var woods := _tile_with_most_trees(field)
+	var wood_before := VegetationTile.generate_trees(field, woods, 32, 20260903, null)
+	_expect(wood_before.size() > 5, "the wood chosen has trees to remove (%d)" % wood_before.size())
+	ClearGround.rect(&"test_d", Vector3(float(woods.x * 32 + 16), 0.0, float(woods.y * 32 + 16)), 16.0, 16.0)
+	var wood_covered := VegetationTile.generate_trees(field, woods, 32, 20260903, null).size()
+	_expect(wood_covered == 0, "a wood claimed whole grows %d trees" % wood_covered)
+	ClearGround.forget(&"test_d")
+	var wood_released := VegetationTile.generate_trees(field, woods, 32, 20260903, null)
+	var same_wood := wood_released.size() == wood_before.size()
+	for i in mini(wood_released.size(), wood_before.size()):
+		if (wood_released[i]["position"] as Vector3) != (wood_before[i]["position"] as Vector3):
+			same_wood = false
+	_expect(same_wood, "and grows the same trees again once released")
+	# Claiming one trunk's spot removes that tree and moves no other.
+	var one: Vector3 = wood_before[0]["position"]
+	ClearGround.circle(&"test_d", one, 0.1)
+	var wood_one := VegetationTile.generate_trees(field, woods, 32, 20260903, null)
+	var kept_rest := wood_one.size() == wood_before.size() - 1
+	for tree in wood_one:
+		if (tree["position"] as Vector3).is_equal_approx(one):
+			kept_rest = false
+	_expect(kept_rest, "a claim on one trunk's spot fells that tree alone (%d of %d)" % [wood_one.size(), wood_before.size()])
+	ClearGround.forget(&"test_d")
 	ClearGround.forget(&"test_c")
 	var released: int = (VegetationTile.bake(field, best, 32, 20260903, null, true)["grass"] as Array).size()
 	_expect(released == most, "and grows its %d again once released (%d)" % [most, released])
 	ClearGround.forget_all()
+
+## The tile around the origin with the most trees in it, for the checks.
+func _tile_with_most_trees(field: HeightField) -> Vector2i:
+	var best := Vector2i.ZERO
+	var most := -1
+	for dx in range(-12, 13):
+		for dz in range(-12, 13):
+			var coord := Vector2i(dx, dz)
+			var found := VegetationTile.generate_trees(field, coord, 32, 20260903, null).size()
+			if found > most:
+				most = found
+				best = coord
+	return best
 
 ## Every flat thing the places lay on the grass registers itself, and no tuft
 ## of the real scatter stands on any of it: the shop's floor and porch, the

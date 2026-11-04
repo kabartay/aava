@@ -36,6 +36,15 @@ const FOG_SKY_AFFECT := 0.18
 const SATURATION := 1.12
 ## The flattest the sun or moon is allowed to shine, in radians (about 9°).
 const MIN_LIGHT_PITCH := 0.16
+## The least ambient light the valley ever has, and the moon's strength. Raised
+## from 0.20 and 0.26: on the phone a night valley must still show where the
+## path, the river and the hills are without the lantern.
+## How far the sun's shadows reach, and where the near map ends (a fraction of
+## that distance).
+const SHADOW_DISTANCE := 200.0
+const SHADOW_SPLIT_1 := 0.18
+const NIGHT_AMBIENT := 0.30
+const MOON_ENERGY := 0.34
 
 ## Under the surface.
 ##
@@ -74,8 +83,9 @@ var _fog_in_water := UNDER_FOG
 
 ## Colour of the sunlight across a day, sampled by sun height.
 var _sun_colors := [
-	Color(0.99, 0.62, 0.36),  # horizon: low, warm, raking
-	Color(1.00, 0.88, 0.72),  # morning
+	Color(1.00, 0.55, 0.26),  # horizon: low, warm, raking
+	Color(1.00, 0.72, 0.42),  # the golden hour
+	Color(1.00, 0.92, 0.80),  # mid-morning and mid-afternoon
 	Color(1.00, 0.97, 0.92),  # noon: near white
 ]
 
@@ -151,11 +161,14 @@ func _init() -> void:
 
 	_sun = DirectionalLight3D.new()
 	_sun.shadow_enabled = true
-	_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	_sun.directional_shadow_max_distance = 260.0
-	_sun.directional_shadow_split_1 = 0.06
-	_sun.directional_shadow_split_2 = 0.16
-	_sun.directional_shadow_split_3 = 0.42
+	# Two splits, not four: the perf audit measured about 29% fewer primitives,
+	# and the map's quadrants are twice as big. The near split reaches 36 m,
+	# so a child, their friend and the pitch keep crisp shadows; the far one
+	# runs to where the fog begins (FOG_BEGIN 220 m), beyond which a tree's
+	# shadow is invisible anyway.
+	_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	_sun.directional_shadow_max_distance = SHADOW_DISTANCE
+	_sun.directional_shadow_split_1 = SHADOW_SPLIT_1
 	# Normal bias fights shadow acne on the terrain's long, shallow slopes,
 	# where a plain depth bias would detach shadows from their casters instead.
 	_sun.shadow_normal_bias = 1.4
@@ -202,7 +215,12 @@ func _apply_time() -> void:
 	_sun.rotation = Vector3(-pitch, deg_to_rad(-38.0) + sun_angle * 0.35, 0.0)
 
 	var day := clampf(height, 0.0, 1.0)
-	_sun.light_energy = lerpf(0.0, 1.05, smoothstep(-0.05, 0.30, height))
+	# Reaches full strength a little sooner than it used to (0.30): the long
+	# golden hour is the best light of the day and was spent as murk.
+	# The ramp is bent (power 0.7) so the sun is already strong when it is a
+	# hand above the hills: a straight ramp left the low sun at a third of its
+	# strength, and dawn and dusk read as murk.
+	_sun.light_energy = 1.05 * pow(smoothstep(-0.06, 0.22, height), 0.7)
 	_sun.light_color = _sun_color(day)
 
 	# Dusk is the sun low but still up; night is the sun gone. They were one
@@ -212,8 +230,13 @@ func _apply_time() -> void:
 	var dusk := 1.0 - smoothstep(0.0, 0.35, height)
 	var night := smoothstep(0.02, -0.20, height)
 
-	var sky_top := Color(0.20, 0.42, 0.78).lerp(Color(0.30, 0.24, 0.44), dusk)
-	var sky_horizon := Color(0.79, 0.89, 0.97).lerp(Color(0.96, 0.55, 0.36), dusk)
+	# Dusk is a clear blue going to peach, not to the brown-violet it was: the
+	# old mauve mixed with the green meadow into mud.
+	# Dawn and dusk are lifted a little (the tonemapper otherwise sinks the
+	# low-sun meadow into brown); noon and night keep the base exposure.
+	_environment.tonemap_exposure = 1.1 + 0.18 * dusk * (1.0 - night)
+	var sky_top := Color(0.20, 0.42, 0.78).lerp(Color(0.27, 0.31, 0.60), dusk)
+	var sky_horizon := Color(0.79, 0.89, 0.97).lerp(Color(1.00, 0.64, 0.42), dusk)
 	# Deep blue rather than black: a child should be able to make out the shape
 	# of the valley at night, just not what is lying in the grass.
 	_sky_material.sky_top_color = sky_top.lerp(Color(0.045, 0.062, 0.135), night)
@@ -233,7 +256,7 @@ func _apply_time() -> void:
 	)
 
 	_fog_in_air = _sky_material.sky_horizon_color.lerp(
-		Color(0.86, 0.91, 0.96).lerp(Color(0.10, 0.13, 0.22), night), 0.35
+		Color(0.80, 0.88, 0.97).lerp(Color(0.10, 0.13, 0.22), night), 0.35
 	)
 	# Night was 0.045, judged on a laptop in a lit room. On the tablet it is
 	# very nearly black: a child cannot see the ground, the animals are dark
@@ -247,7 +270,7 @@ func _apply_time() -> void:
 	# then sank to 0.20 — a flash of brightness at dusk.
 	_fog_in_water = UNDER_FOG.lerp(Color(0.012, 0.03, 0.05), night)
 	_ambient_in_air = lerpf(
-		lerpf(0.12, 0.55, smoothstep(-0.15, 0.25, height)), 0.20, night
+		lerpf(0.30, 0.55, smoothstep(-0.15, 0.25, height)), NIGHT_AMBIENT, night
 	)
 	# The sky has had its say; the water gets the last word, because what is
 	# between the eye and everything else wins over what is lighting it.
@@ -256,7 +279,7 @@ func _apply_time() -> void:
 	# The moon stands in for the sun once it is down, so shadows do not vanish
 	# entirely and the ground keeps its shape.
 	if night > 0.0:
-		_sun.light_energy = lerpf(_sun.light_energy, 0.26, night)
+		_sun.light_energy = lerpf(_sun.light_energy, MOON_ENERGY, night)
 		_sun.light_color = _sun.light_color.lerp(Color(0.62, 0.72, 1.0), night)
 ## The camera is `depth` metres under the surface — zero when it is in the air.
 ## Called every frame by the game, and eased here rather than at the call site
@@ -315,9 +338,14 @@ func darkness() -> float:
 	return smoothstep(0.02, -0.20, height)
 
 func _sun_color(day: float) -> Color:
-	if day < 0.5:
-		return _sun_colors[0].lerp(_sun_colors[1], day * 2.0)
-	return _sun_colors[1].lerp(_sun_colors[2], (day - 0.5) * 2.0)
+	# Four stops over the sun's height, the gold held through the first third
+	# of its climb so the golden hour lasts as long as it does in a real
+	# valley instead of passing as a brief blush.
+	if day < 0.2:
+		return _sun_colors[0].lerp(_sun_colors[1], day / 0.2)
+	if day < 0.55:
+		return _sun_colors[1].lerp(_sun_colors[2], (day - 0.2) / 0.35)
+	return _sun_colors[2].lerp(_sun_colors[3], (day - 0.55) / 0.45)
 
 ## Jump straight to a moment in the day. Used by the screenshot tool so a look
 ## can be judged at a chosen hour instead of whenever the capture happened to run.

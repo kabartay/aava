@@ -90,6 +90,19 @@ func done() -> int:
 func is_finished() -> bool:
 	return last_finished == _day
 
+## The kind of place on the map today's task is done at (a PlaceGlyph.Kind), or
+## -1 when it is not done in one place or is already done.
+func place_kind() -> int:
+	if is_finished():
+		return -1
+	match kind():
+		SCORE:
+			return PlaceGlyph.Kind.PITCH
+		SHOOT:
+			return PlaceGlyph.Kind.RANGE
+		_:
+			return -1
+
 ## A line describing today's task, already counted.
 func describe() -> String:
 	if is_finished():

@@ -335,6 +335,13 @@ func _kind_at(x: float, z: float, roll: float) -> StringName:
 	# lake, because that is what they were.
 	if field.is_pond(x, z):
 		return &""
+	# Nor on ground that belongs to a place: in the pool's basin, on the
+	# football pitch, in the playground, in front of the big wheel — where a
+	# stone lay under the water or in the middle of a match. The same rule that
+	# keeps a sapling off it (see KeepOut), and the pool's hole as well.
+	var camp := field.camp_centre()
+	if KeepOut.kept(x, z, camp, field.river_centre_x(BridgeSpec.CENTRE_Z)) or PlaceSpec.excavation(x, z, camp) > 0.0:
+		return &""
 	# Nor indoors: a stick lying on the floor of the shop is a stick that grew
 	# through it.
 	if PlaceSpec.indoors(x, z, field.camp_centre()):

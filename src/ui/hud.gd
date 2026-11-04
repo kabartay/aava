@@ -619,8 +619,19 @@ func _init() -> void:
 	# child who can shoot at goal can already shoot a bow.
 	_shoot_button = _icon_button(ActionIcon.Kind.SHOOT)
 	_shoot_button.visible = false
-	_shoot_button.button_down.connect(func() -> void: shoot_started.emit())
-	_shoot_button.button_up.connect(func() -> void: shoot_released.emit())
+	# The bow is aimed the way the kick is: the finger slides on the held
+	# button (see _input), sideways to turn, up to lift.
+	_shoot_button.button_down.connect(func() -> void:
+		_kick_aim = Vector2.ZERO
+		shoot_started.emit()
+	)
+	_shoot_button.button_up.connect(func() -> void:
+		shoot_released.emit()
+		# After the release has read it, so the next draw starts straight.
+		_kick_aim = Vector2.ZERO
+		_kick_finger = -1
+	)
+	_shoot_button.keep_pressed_outside = true
 	add_child(_shoot_button)
 
 	# One button for whatever the place a child is standing in offers, labelled
@@ -2277,7 +2288,10 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
 		if touch.pressed:
-			if _kick_finger < 0 and _kick_button.is_visible_in_tree() and _kick_button.get_global_rect().has_point(touch.position):
+			if _kick_finger < 0 and (
+				(_kick_button.is_visible_in_tree() and _kick_button.get_global_rect().has_point(touch.position))
+				or (_shoot_button.is_visible_in_tree() and _shoot_button.get_global_rect().has_point(touch.position))
+			):
 				_kick_finger = touch.index
 		elif touch.index == _kick_finger:
 			if touch.canceled:
