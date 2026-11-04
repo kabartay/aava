@@ -238,11 +238,22 @@ const POOL_HALF_Z := PlaceSpec.POOL_HALF_Z
 const POOL_FENCE_X := POOL_HALF_X + PlaceSpec.POOL_FENCE_MARGIN
 const POOL_FENCE_Z := POOL_HALF_Z + PlaceSpec.POOL_FENCE_MARGIN
 const POOL_GATE_HALF := 0.8
+## How tall the fence and the turnstile are to the body, against the metre and
+## a third they are to the eye. A jump takes a child's feet 1.4 m up and their
+## capsule is round at the bottom, so a fence that was solid to 1.3 m was
+## cleared by a running jump from any side: the ticket was a suggestion.
+## Collision costs nothing to make tall and nobody looks at the top of it.
+const POOL_FENCE_SOLID := 3.0
 const POOL_TICKET := 5
 ## How long the turnstile stays open once paid, and how near a child must be
 ## for it to offer a ticket.
 const TURNSTILE_OPEN := 7.0
 const TURNSTILE_REACH := 2.6
+## How near, from the inside, a child must be for the turnstile to turn for
+## them: at the bar, not merely somewhere in the gateway's half of the pool,
+## where a child who had just come in set it turning again behind them. Less
+## than TURNSTILE_CLEAR, which is where it shuts, for the same reason.
+const TURNSTILE_EXIT_REACH := 0.9
 ## The loungers: laid along the poolside rather than across it, in the three
 ## metres between the water's rim and the fence. Across it they were two
 ## metres long in a three-metre gap and stuck through the railings.
@@ -2646,11 +2657,11 @@ func _build_pool(at: Vector3) -> void:
 			sign_of * (POOL_HALF_Z + 0.2) if along else 0.0
 		)
 		_add(tool, rim, Transform3D(Basis(), rim_at), tile)
-	# Steps down into the shallow end, and a block to jump from at the deep.
-	for step in 3:
-		var tread := BoxMesh.new()
-		tread.size = Vector3(1.6, 0.16, 0.6)
-		_add(tool, tread, Transform3D(Basis(), Vector3(-POOL_HALF_X + 0.8, -0.1 - float(step) * 0.28, POOL_HALF_Z - 0.6 - float(step) * 0.6)), tile)
+	# No steps: three tiled treads once led down into the shallow end, drawn on
+	# the idea of a flight of stairs. The floor is a slope a child walks, not a
+	# stair, so two of them were buried in it and the top one hung over the
+	# water. The whole shelf is the way in and the way out, on every side.
+	# A block to jump from at the deep end.
 	var block := BoxMesh.new()
 	block.size = Vector3(0.7, 0.5, 0.7)
 	_add(tool, block, Transform3D(Basis(), Vector3(0.0, 0.25, -POOL_HALF_Z - 0.55)), paint)
@@ -2688,17 +2699,17 @@ func _build_pool(at: Vector3) -> void:
 	# The fence: posts every two metres with two rails, a gap on the side
 	# facing the pitch for the turnstile. Solid, or the fence is a suggestion.
 	var rail_shape_x := BoxShape3D.new()
-	rail_shape_x.size = Vector3(POOL_FENCE_X * 2.0, 1.3, 0.14)
+	rail_shape_x.size = Vector3(POOL_FENCE_X * 2.0, POOL_FENCE_SOLID, 0.14)
 	for sz in PackedFloat32Array([-1.0, 1.0]):
-		_collide(solid, rail_shape_x, Transform3D(Basis(), Vector3(0.0, 0.65, sz * POOL_FENCE_Z)))
+		_collide(solid, rail_shape_x, Transform3D(Basis(), Vector3(0.0, POOL_FENCE_SOLID * 0.5, sz * POOL_FENCE_Z)))
 	var west := BoxShape3D.new()
-	west.size = Vector3(0.14, 1.3, POOL_FENCE_Z * 2.0)
-	_collide(solid, west, Transform3D(Basis(), Vector3(-POOL_FENCE_X, 0.65, 0.0)))
+	west.size = Vector3(0.14, POOL_FENCE_SOLID, POOL_FENCE_Z * 2.0)
+	_collide(solid, west, Transform3D(Basis(), Vector3(-POOL_FENCE_X, POOL_FENCE_SOLID * 0.5, 0.0)))
 	var east_half := POOL_FENCE_Z - POOL_GATE_HALF
 	var east := BoxShape3D.new()
-	east.size = Vector3(0.14, 1.3, east_half)
+	east.size = Vector3(0.14, POOL_FENCE_SOLID, east_half)
 	for sz in PackedFloat32Array([-1.0, 1.0]):
-		_collide(solid, east, Transform3D(Basis(), Vector3(POOL_FENCE_X, 0.65, sz * (POOL_GATE_HALF + east_half * 0.5))))
+		_collide(solid, east, Transform3D(Basis(), Vector3(POOL_FENCE_X, POOL_FENCE_SOLID * 0.5, sz * (POOL_GATE_HALF + east_half * 0.5))))
 	var perimeter := 2.0 * (POOL_FENCE_X + POOL_FENCE_Z) * 2.0
 	var posts := int(perimeter / 2.0)
 	for k in posts:
@@ -2778,9 +2789,9 @@ func _build_pool(at: Vector3) -> void:
 	_turnstile.collision_layer = TerrainSpec.LAYER_PROPS
 	var bar := CollisionShape3D.new()
 	var bar_shape := BoxShape3D.new()
-	bar_shape.size = Vector3(0.5, 1.3, POOL_GATE_HALF * 2.0)
+	bar_shape.size = Vector3(0.5, POOL_FENCE_SOLID, POOL_GATE_HALF * 2.0)
 	bar.shape = bar_shape
-	bar.position = Vector3(0.0, 0.65, 0.0)
+	bar.position = Vector3(0.0, POOL_FENCE_SOLID * 0.5, 0.0)
 	_turnstile.add_child(bar)
 	_turnstile.position = at + Vector3(POOL_FENCE_X, 0.0, 0.0)
 	add_child(_turnstile)
@@ -2794,9 +2805,13 @@ func _build_pool(at: Vector3) -> void:
 	surface.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	surface.roughness = 0.16
 	surface.metallic = 0.25
+	# Both faces, as the tarns' panes are: a swimmer's eye under it looked up
+	# at nothing, because a plane is drawn only from above.
+	surface.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var water := MeshInstance3D.new()
 	water.mesh = pane
 	water.material_override = surface
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	water.transform = Transform3D(Basis(), at + Vector3(0.0, -0.04, 0.0))
 	add_child(water)
 
@@ -2869,10 +2884,10 @@ func _build_ticket_booth(tool: SurfaceTool, local: Vector3, solid: StaticBody3D)
 	_collide(solid, shape, Transform3D(Basis(), local + Vector3(0.0, 1.2, 0.0)))
 
 ## Is a child at the turnstile, close enough to buy a ticket or to be let out?
-func at_turnstile(at: Vector3) -> bool:
+func at_turnstile(at: Vector3, reach := TURNSTILE_REACH) -> bool:
 	if _turnstile == null:
 		return false
-	return Vector2(at.x - _turnstile.position.x, at.z - _turnstile.position.z).length() < TURNSTILE_REACH
+	return Vector2(at.x - _turnstile.position.x, at.z - _turnstile.position.z).length() < reach
 
 ## Is a child inside the pool's fence?
 func inside_pool_fence(at: Vector3) -> bool:
@@ -2881,14 +2896,39 @@ func inside_pool_fence(at: Vector3) -> bool:
 	var spot: Vector3 = _spots[POOL]
 	return absf(at.x - spot.x) < POOL_FENCE_X - 0.3 and absf(at.z - spot.z) < POOL_FENCE_Z - 0.3
 
-## Let the turnstile turn for a while: paid for, or a child leaving.
-func open_turnstile() -> void:
+## Let the turnstile turn for a while: paid for, or a child leaving. `entering`
+## says which way the pass is good for, because a pass that served either way
+## let a child waiting outside walk in on the one who was leaving, and on the
+## ticket of the one who had just come in.
+func open_turnstile(entering := true) -> void:
 	_turnstile_open = TURNSTILE_OPEN
+	_turnstile_entering = entering
 	if _turnstile != null:
 		_turnstile.collision_layer = 0
 
 func turnstile_open() -> bool:
 	return _turnstile_open > 0.0
+
+## How far past the turnstile a child has to be before it shuts behind them:
+## the bar's half width and the child's own radius, with a hand to spare, so it
+## never closes on somebody still in the gateway.
+const TURNSTILE_CLEAR := 1.1
+
+## Whether the pass that is open was for coming in rather than going out.
+var _turnstile_entering := true
+
+## A ticket is one go through. Told where a child is, the turnstile shuts as
+## soon as they are clear of it on the far side, whichever way the pass was for;
+## left to its timer it stayed open for seven seconds after the one it was paid
+## for had gone in, and took anyone who followed for nothing.
+func the_child_is_at(at: Vector3) -> void:
+	if _turnstile_open <= 0.0 or _turnstile == null:
+		return
+	var past := at.x - _turnstile.position.x
+	var through := past < -TURNSTILE_CLEAR if _turnstile_entering else past > TURNSTILE_CLEAR
+	if through and absf(at.z - _turnstile.position.z) < TURNSTILE_REACH:
+		_turnstile_open = 0.0
+		_turnstile.collision_layer = TerrainSpec.LAYER_PROPS
 
 func _tick_turnstile(delta: float) -> void:
 	if _turnstile_open <= 0.0:

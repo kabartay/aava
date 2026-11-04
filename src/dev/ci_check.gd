@@ -122,6 +122,7 @@ func _initialize() -> void:
 	_check_the_cafe_fittings_stand_on_the_bar()
 	_check_the_other_child_sees_what_is_on_the_table()
 	_check_the_pool_takes_a_ticket()
+	await _check_the_pool_holds_its_fence_and_lets_a_swimmer_out()
 	_check_getting_off_a_mount_is_safe()
 	_check_a_horse_swims()
 	_check_the_horses_are_spread_and_grazing()
@@ -28816,4 +28817,266 @@ func _check_the_riders_feet_are_on_the_bicycles_pedals_and_it_is_drawn_warm() ->
 	_expect(frame.r > frame.b + 0.3 and frame.g >= frame.b, "the bicycle's red reads red under the sky light")
 	var tan := Color(0.62, 0.38, 0.20)
 	_expect(tan.r > tan.b and tan.g >= tan.b, "and its saddle reads warm")
+
+## The pool, with real ground and a real child.
+##
+## The fence was solid to 1.3 m and a running jump takes a child's feet 1.4 m
+## up, so from any side the fence, and the turnstile in its gateway, were
+## cleared without a ticket. The floor climbed back to the brim at 61 degrees
+## on the short sides, past the 52 a child can walk, and a swimmer pushing at
+## the -x side stayed in the water. The turnstile stayed open seven seconds
+## whoever it had been opened for. None of it showed in the checks above,
+## which look at the numbers and never put a child at the fence.
+func _check_the_pool_holds_its_fence_and_lets_a_swimmer_out() -> void:
+	print("the pool holds its fence and lets a swimmer out")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+
+	# The shelf is walkable all round: the steepest the floor rises anywhere in
+	# the pool, found on a quarter-metre grid, is under what a child climbs.
+	var steepest := 0.0
+	var origin := PlaceSpec.centre_of(&"pool", camp)
+	var gx := -Places.POOL_HALF_X
+	while gx <= Places.POOL_HALF_X:
+		var gz := -Places.POOL_HALF_Z
+		while gz <= Places.POOL_HALF_Z:
+			var here := PlaceSpec.excavation(origin.x + gx, origin.z + gz, camp)
+			var east := PlaceSpec.excavation(origin.x + gx + 0.25, origin.z + gz, camp)
+			var south := PlaceSpec.excavation(origin.x + gx, origin.z + gz + 0.25, camp)
+			steepest = maxf(steepest, maxf(absf(east - here), absf(south - here)) / 0.25)
+			gz += 0.25
+		gx += 0.25
+	_expect(
+		rad_to_deg(atan(steepest)) < 45.0,
+		"the floor of the pool rises at most %.0f degrees, which a child walks (they manage %.0f)" % [
+			rad_to_deg(atan(steepest)), rad_to_deg(Player.CLIMBS_TO)
+		]
+	)
+
+	# The sound of the water is not asked again at the edge: wading begins at
+	# the one depth and ends at a shallower one.
+	var main_script: GDScript = load("res://src/main.gd")
+	var wading := false
+	var flips := 0
+	for step in 40:
+		# A shelf whose depth wavers a centimetre or two across the threshold.
+		var depth := 0.15 + sin(float(step) * 1.7) * 0.02
+		var now: bool = main_script.is_wading(wading, depth)
+		if now != wading:
+			flips += 1
+		wading = now
+	_expect(flips <= 1, "walking the water's edge splashes once, not on every wobble (%d changes)" % flips)
+	_expect(main_script.is_wading(false, 0.3) and not main_script.is_wading(true, 0.05), "and still splashes going in and coming out")
+	var eye := false
+	var eye_flips := 0
+	for step in 40:
+		var under := 0.5 + sin(float(step) * 1.3) * 0.05
+		var now_under: bool = main_script.eye_is_under(eye, under)
+		if now_under != eye:
+			eye_flips += 1
+		eye = now_under
+	_expect(eye_flips <= 1, "and the eye crossing the surface is heard once (%d changes)" % eye_flips)
+
+	# No machine is ridden to the poolside, whatever it is.
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var all_barred := true
+	for kind: StringName in [MountKinds.HORSE, MountKinds.BICYCLE, MountKinds.MOTORCYCLE, MountKinds.QUAD]:
+		for offset: Vector3 in [Vector3(0.0, 0.0, 0.0), Vector3(PlaceSpec.POOL_HALF_X + 1.5, 0.0, 0.0), Vector3(0.0, 0.0, PlaceSpec.POOL_HALF_Z + 1.5), Vector3(-Places.POOL_FENCE_X + 0.5, 0.0, 0.0)]:
+			if mounts.can_ride_over(kind, origin + offset):
+				all_barred = false
+				printerr("  a %s can be ridden to %s" % [kind, str(offset)])
+	_expect(all_barred, "no horse or machine can be ridden into the pool or onto its poolside")
+	mounts.queue_free()
+
+	# The real ground, so there is a floor and a fence to meet.
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+	var spot: Vector3 = places._spots[Places.POOL]
+	terrain.follow(spot)
+	var deadline := Time.get_ticks_msec() + 120000
+	while not terrain.is_idle() and Time.get_ticks_msec() < deadline:
+		terrain._process(1.0 / 60.0)
+		OS.delay_usec(500)
+	_expect(terrain.has_ground_at(spot), "the pool's ground is baked and solid")
+
+	var ticks := Engine.physics_ticks_per_second
+	for rate: int in [60, 30]:
+		Engine.physics_ticks_per_second = rate
+		# The fence, run at and jumped at from four sides, a sprint's length off,
+		# the jump taken at several distances.
+		var cleared := 0
+		var tries := 0
+		for side: String in ["west", "north", "south", "east"]:
+			for lead: float in [0.0, 0.6, 1.2, 1.8]:
+				tries += 1
+				if await _pool_runner(places, field, spot, side, lead, rate):
+					cleared += 1
+		_expect(cleared == 0, "%d of %d sprinting jumps at the fence got over it, at %d frames a second" % [cleared, tries, rate])
+
+		# The turnstile: shut, then good for one go in and no more.
+		var shut_in := await _pool_gate_run(places, field, spot, rate, false, false)
+		_expect(not shut_in, "a child cannot walk or jump through the shut turnstile, at %d frames a second" % rate)
+		var paid_in := await _pool_gate_run(places, field, spot, rate, true, false)
+		_expect(paid_in, "a child who has paid goes in, at %d frames a second" % rate)
+		_expect(
+			not places.turnstile_open() and places._turnstile.collision_layer == TerrainSpec.LAYER_PROPS,
+			"and it shuts behind them rather than waiting out its seven seconds"
+		)
+		var follower_in := await _pool_gate_run(places, field, spot, rate, false, false)
+		_expect(not follower_in, "so the next child in is stopped by it")
+		var out := await _pool_gate_run(places, field, spot, rate, true, true)
+		_expect(out, "a child inside is let out, at %d frames a second" % rate)
+		_expect(not places.turnstile_open(), "and it shuts behind them going out as well")
+		var back_in := await _pool_gate_run(places, field, spot, rate, false, false)
+		_expect(not back_in, "and being let out is not a way back in")
+
+		# Out of the water on every side, without jumping, from the middle.
+		for side: String in ["east", "west", "south", "north"]:
+			var frames := await _pool_swim_out(places, field, spot, side, rate)
+			_expect(
+				frames > 0 and frames < rate * 5,
+				"a swimmer reaches the poolside on the %s in %d frames (%.1f s), at %d frames a second" % [
+					side, frames, float(frames) / float(rate), rate
+				]
+			)
+
+		# And the floor is a floor: dropped into the deep end and dived, a child
+		# lands on it and is not let through.
+		var diver := Player.new()
+		get_root().add_child(diver)
+		var floor_y := field.height_at(spot.x, spot.z)
+		diver.global_position = Vector3(spot.x, spot.y + 3.0, spot.z)
+		var lowest := 99.0
+		for frame in rate * 6:
+			diver.water_depth = places.submersion(diver.global_position)
+			if frame == rate * 2:
+				diver.diving = true
+			await physics_frame
+			lowest = minf(lowest, diver.global_position.y)
+		_expect(lowest > floor_y - 0.05, "a diver reaches the floor and stops there: lowest %.2f m against a floor at %.2f m, at %d frames a second" % [lowest, floor_y, rate])
+		_expect(diver.global_position.y > floor_y - 0.05, "and has not gone through it")
+		diver.free()
+	Engine.physics_ticks_per_second = ticks
+	terrain.queue_free()
+	places.queue_free()
+
+## Run a child at the fence from `side`, jumping once `lead` metres nearer than
+## a metre from it, and say whether they ended up inside.
+func _pool_runner(places: Places, field: HeightField, spot: Vector3, side: String, lead: float, rate: int) -> bool:
+	var start := spot
+	var yaw := 0.0
+	var gate_x := spot.x + Places.POOL_FENCE_X
+	match side:
+		"west":
+			start = spot + Vector3(-Places.POOL_FENCE_X - 5.0, 0.0, 3.0)
+			yaw = -PI * 0.5
+		"north":
+			start = spot + Vector3(2.0, 0.0, -Places.POOL_FENCE_Z - 5.0)
+			yaw = PI
+		"south":
+			start = spot + Vector3(2.0, 0.0, Places.POOL_FENCE_Z + 5.0)
+		_:
+			start = Vector3(gate_x + 5.0, 0.0, spot.z + 6.0)
+			yaw = PI * 0.5
+	start.y = field.height_at(start.x, start.z) + 0.3
+	var child := Player.new()
+	get_root().add_child(child)
+	child.global_position = start
+	child.camera_yaw = yaw
+	for frame in 20:
+		await physics_frame
+	Input.action_press(InputActions.MOVE_FORWARD)
+	Input.action_press(InputActions.SPRINT)
+	var jumped := false
+	for frame in rate * 4:
+		var to_fence := 0.0
+		match side:
+			"west": to_fence = (spot.x - Places.POOL_FENCE_X) - child.global_position.x
+			"north": to_fence = (spot.z - Places.POOL_FENCE_Z) - child.global_position.z
+			"south": to_fence = child.global_position.z - (spot.z + Places.POOL_FENCE_Z)
+			_: to_fence = child.global_position.x - gate_x
+		if not jumped and to_fence < 1.0 + lead:
+			child.request_jump()
+			jumped = true
+		child.water_depth = places.submersion(child.global_position)
+		await physics_frame
+	Input.action_release(InputActions.MOVE_FORWARD)
+	Input.action_release(InputActions.SPRINT)
+	var inside := places.inside_pool_fence(child.global_position)
+	child.free()
+	return inside
+
+## Walk (and jump once) at the turnstile from outside, or from inside when
+## `leaving`. `paid` opens it the way a ticket does, or the way the turnstile
+## does for a child at the bar on the inside. Says whether they got through.
+## The turnstile is told where the child is every frame, as the game does.
+func _pool_gate_run(places: Places, field: HeightField, spot: Vector3, rate: int, paid: bool, leaving: bool) -> bool:
+	var gate := spot + Vector3(Places.POOL_FENCE_X, 0.0, 0.0)
+	var child := Player.new()
+	get_root().add_child(child)
+	var from_x := gate.x - 4.0 if leaving else gate.x + 4.0
+	child.global_position = Vector3(from_x, field.height_at(from_x, gate.z) + 0.3, gate.z)
+	child.camera_yaw = -PI * 0.5 if leaving else PI * 0.5
+	for frame in 20:
+		await physics_frame
+	if paid and not leaving:
+		places.open_turnstile(true)
+	Input.action_press(InputActions.MOVE_FORWARD)
+	var jumped := false
+	for frame in rate * 4:
+		var at := child.global_position
+		if leaving and places.inside_pool_fence(at) and places.at_turnstile(at, Places.TURNSTILE_EXIT_REACH) and not places.turnstile_open():
+			places.open_turnstile(false)
+		places.the_child_is_at(at)
+		if not jumped and absf(at.x - gate.x) < 1.6 and not paid:
+			child.request_jump()
+			jumped = true
+		places._tick(1.0 / float(rate))
+		child.water_depth = places.submersion(at)
+		await physics_frame
+	Input.action_release(InputActions.MOVE_FORWARD)
+	var now := child.global_position
+	var got_through := (now.x > gate.x + 1.0) if leaving else places.inside_pool_fence(now)
+	child.free()
+	return got_through
+
+## Swim from the middle of the pool towards `side` and count the frames until
+## the child is standing on the poolside, or -1 if they never are.
+func _pool_swim_out(places: Places, field: HeightField, spot: Vector3, side: String, rate: int) -> int:
+	var yaw := 0.0
+	var off := Vector3.ZERO
+	match side:
+		"east":
+			yaw = -PI * 0.5
+			off = Vector3(6.0, 0.0, 0.0)
+		"west":
+			yaw = PI * 0.5
+			off = Vector3(-6.0, 0.0, 0.0)
+		"south":
+			yaw = PI
+			off = Vector3(0.0, 0.0, 4.0)
+		_:
+			off = Vector3(0.0, 0.0, -4.0)
+	var swimmer := Player.new()
+	get_root().add_child(swimmer)
+	swimmer.global_position = Vector3(spot.x + off.x, spot.y - 0.9, spot.z + off.z)
+	swimmer.camera_yaw = yaw
+	for frame in 30:
+		swimmer.water_depth = places.submersion(swimmer.global_position)
+		await physics_frame
+	Input.action_press(InputActions.MOVE_FORWARD)
+	var result := -1
+	for frame in rate * 12:
+		swimmer.water_depth = places.submersion(swimmer.global_position)
+		await physics_frame
+		if swimmer.global_position.y > spot.y - 0.15 and swimmer.is_on_floor():
+			result = frame
+			break
+	Input.action_release(InputActions.MOVE_FORWARD)
+	swimmer.free()
+	return result
 

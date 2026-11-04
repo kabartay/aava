@@ -1298,7 +1298,7 @@ func _process(delta: float) -> void:
 	# The surface is crossed with a sound, both ways. A dive was silent: the
 	# picture went green and the ear was told nothing, so going under felt like
 	# a camera trick rather than something done to water.
-	var eye_under := world.atmosphere.under_water() > 0.5
+	var eye_under := eye_is_under(_eye_was_under, world.atmosphere.under_water())
 	if eye_under != _eye_was_under:
 		_eye_was_under = eye_under
 		sounds.play(Sounds.Sound.SPLASH, 0.85 if eye_under else 1.15)
@@ -2510,7 +2510,7 @@ func _metres_to_dam(site: float) -> float:
 ## Sounds.step_sound — and each foot is a little different from the last, so
 ## the twentieth step is not the first over again.
 func _footsteps(delta: float) -> void:
-	var wading := player.water_depth > WADING
+	var wading := is_wading(_was_wading, player.water_depth)
 	if wading != _was_wading:
 		_was_wading = wading
 		if player.riding == &"" and not player.is_carried:
@@ -3228,6 +3228,22 @@ var _left_foot := false
 const STRIDE := 1.5
 const STROKE := 2.4
 const WADING := 0.15
+## How much shallower than WADING the water has to get before a child counts as
+## out of it. One threshold made the splash fire on every step along a shelf
+## whose depth wavers either side of it, and again at each bob of a swimmer's
+## head at the surface.
+const WADING_HYSTERESIS := 0.07
+const EYE_UNDER_ENTERS := 0.6
+const EYE_UNDER_LEAVES := 0.4
+
+## Whether feet in water this deep are wading, given whether they were a moment
+## ago. Static so the checks can walk a depth up and down it.
+static func is_wading(was: bool, depth: float) -> bool:
+	return depth > (WADING - WADING_HYSTERESIS if was else WADING)
+
+## The same for the eye crossing the surface, on the eased amount.
+static func eye_is_under(was: bool, under: float) -> bool:
+	return under > (EYE_UNDER_LEAVES if was else EYE_UNDER_ENTERS)
 var _bad_ground := 0.0
 var _held_last := Player.NOT_HELD
 var _held_rate := 0.0
@@ -3703,8 +3719,9 @@ func _watch_the_turnstile() -> void:
 	var at := player.global_position
 	var near := world.places.at_turnstile(at)
 	var inside := world.places.inside_pool_fence(at)
-	if near and inside and not world.places.turnstile_open():
-		world.places.open_turnstile()
+	if inside and world.places.at_turnstile(at, Places.TURNSTILE_EXIT_REACH) and not world.places.turnstile_open():
+		world.places.open_turnstile(false)
+	world.places.the_child_is_at(at)
 	# The fairground's kiosk offers the same button. One control for "pay to
 	# get on something", wherever a child is standing.
 	var at_booth := world.park.at_the_booth(at)
@@ -3783,6 +3800,11 @@ func _on_ticket() -> void:
 		hud.ask(Text.format("ask_buy_ride", [Park.RIDE_PRICE]))
 		return
 	if world.places.turnstile_open():
+		return
+	# Only from the outside, at the turnstile: the button is on the screen only
+	# there, but a press that was in flight as the child stepped through still
+	# arrives, and a ticket bought from inside the fence is a ticket thrown away.
+	if not world.places.at_turnstile(player.global_position) or world.places.inside_pool_fence(player.global_position):
 		return
 	if wallet.coins < Places.POOL_TICKET:
 		sounds.play(Sounds.Sound.REFUSE)

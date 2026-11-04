@@ -239,6 +239,14 @@ const POOL_DEPTH := 1.9
 const POOL_HALF_X := 14.0
 const POOL_HALF_Z := 9.0
 const POOL_HALF := POOL_HALF_Z
+## How wide the shelf is that the floor climbs back up the sides on, measured
+## on the short half like `inside` in `excavation`. At 1.6 m the steepest part
+## of the climb was 61 degrees across the short sides, past the 52 a child can
+## walk, and a swimmer reaching the -x side stayed in the water pushing at a
+## slope the capsule could not mount. At 3.4 m the steepest part is 40 degrees
+## on the short sides and 27 on the long, with margin for the triangles the
+## ground is cut into.
+const POOL_SHELF := 3.4
 
 ## The buildings that stand at these places, as width, depth and how far the
 ## middle of the building sits from the middle of its place. Here rather than
@@ -325,4 +333,4 @@ static func excavation(x: float, z: float, camp: Vector3) -> float:
 		return 0.0
 	# Shelving at the edge, so a child steps in rather than falling in. Matches
 	# the depth Places reports for swimming.
-	return POOL_DEPTH * (1.0 - smoothstep(POOL_HALF_Z - 1.6, POOL_HALF_Z, inside))
+	return POOL_DEPTH * (1.0 - smoothstep(POOL_HALF_Z - POOL_SHELF, POOL_HALF_Z, inside))
