@@ -195,7 +195,7 @@ var _group: StringName = &"things"
 var _storey_row: HBoxContainer
 ## The line telling a child who has not built a house yet what to put up next.
 var _hint: Label
-var _menu: VBoxContainer
+var _menu: MenuGround
 var _danger: PanelContainer
 var _menu_button: Button
 var _map_button: Button
@@ -921,9 +921,32 @@ func _storey_button(arrow: StringName, step: int) -> Button:
 ## open this panel to change language, and a button that deletes both brothers'
 ## work should not sit a thumb's width from one they press often. It lives
 ## behind its own door instead.
-func _build_menu() -> VBoxContainer:
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 8)
+## The settings' column with a ground of its own: a dark rounded panel drawn a
+## little outside the column, so the rows read over a bright world and nothing
+## beneath them (the small map, which opens in the same corner) shows through.
+class MenuGround extends VBoxContainer:
+	const PAD := 12.0
+	var _ground := StyleBoxFlat.new()
+
+	func _init() -> void:
+		_ground.bg_color = Color(0.22, 0.26, 0.32, 1.0)
+		_ground.set_corner_radius_all(18)
+		_ground.border_color = Color(1.0, 1.0, 1.0, 0.18)
+		_ground.set_border_width_all(1)
+
+	## The rectangle the ground covers, in the parent's coordinates.
+	func ground_rect() -> Rect2:
+		return Rect2(position - Vector2(PAD, PAD), size + Vector2(PAD, PAD) * 2.0)
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_DRAW:
+			draw_style_box(_ground, Rect2(Vector2(-PAD, -PAD), size + Vector2(PAD, PAD) * 2.0))
+		elif what == NOTIFICATION_RESIZED:
+			queue_redraw()
+
+func _build_menu() -> MenuGround:
+	var column := MenuGround.new()
+	column.add_theme_constant_override("separation", 10)
 	column.visible = false
 
 	# Who they are: a big picture of them, which opens the panel of faces, skin,
@@ -1106,7 +1129,7 @@ func _build_menu() -> VBoxContainer:
 
 	# A quiet way through to the dangerous room, worded so an adult knows it is
 	# for them and a child has no reason to want it.
-	var door := _button(Text.of("ui_danger"), Color(1.0, 1.0, 1.0, 0.42))
+	var door := _button(Text.of("ui_danger"), Color(1.0, 1.0, 1.0, 0.62))
 	door.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.62)
 	door.add_theme_font_size_override("font_size", 17)
 	door.pressed.connect(func() -> void:
@@ -1172,6 +1195,7 @@ func _build_volume_row(face: Control, lead: Button) -> HSlider:
 	# (and saved, with a chime) once it is let go.
 	slider.value_changed.connect(func(_value: float) -> void: _volume_moved())
 	slider.drag_ended.connect(func(_changed: bool) -> void: _volume_let_go())
+	slider.gui_input.connect(_volume_touched.bind(slider))
 	inside.add_child(slider)
 	return slider
 
@@ -1199,6 +1223,35 @@ func _style_volume_slider(slider: HSlider) -> void:
 	var knob := VolumeLook.knob(VOLUME_KNOB)
 	slider.add_theme_icon_override("grabber", knob)
 	slider.add_theme_icon_override("grabber_highlight", knob)
+
+## The finger that holds a volume slider, or -1.
+var _volume_finger := -1
+
+## A finger on a volume slider. `emulate_mouse_from_touch` is off, so the
+## slider (which only reads the mouse) never moved under a real finger: a
+## press on the track, or a drag along it, is followed by hand, and the
+## change is kept when the finger lifts, as a mouse release would keep it.
+func _volume_touched(event: InputEvent, slider: HSlider) -> void:
+	var at := -1.0
+	if event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		if touch.pressed:
+			_volume_finger = touch.index
+			at = touch.position.x
+		elif touch.index == _volume_finger:
+			_volume_finger = -1
+			slider.accept_event()
+			_volume_let_go()
+			return
+	elif event is InputEventScreenDrag and (event as InputEventScreenDrag).index == _volume_finger:
+		at = (event as InputEventScreenDrag).position.x
+	if at < 0.0:
+		return
+	# Local x, inside the knob's half-width at either end where it stops.
+	var inset := float(VOLUME_KNOB) * 0.5
+	var along := clampf((at - inset) / maxf(slider.size.x - inset * 2.0, 1.0), 0.0, 1.0)
+	slider.value = slider.min_value + along * (slider.max_value - slider.min_value)
+	slider.accept_event()
 
 ## A slider is moving: the mixer follows it at once, nobody is told yet.
 func _volume_moved() -> void:
@@ -1243,7 +1296,7 @@ func sound_state() -> Array:
 func _build_danger() -> PanelContainer:
 	var panel := PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.16, 0.07, 0.07, 0.94)
+	style.bg_color = Color(0.16, 0.07, 0.07, 1.0)
 	style.set_corner_radius_all(14)
 	style.content_margin_left = 18.0
 	style.content_margin_right = 18.0
@@ -2932,7 +2985,7 @@ func _layout() -> void:
 	var panel_height := maxf(
 		_menu.get_combined_minimum_size().y, _danger.get_combined_minimum_size().y
 	)
-	var bottom_limit := safe.position.y + safe.size.y - 8.0
+	var bottom_limit := safe.position.y + safe.size.y - 8.0 - MenuGround.PAD
 	if _menu.position.y + panel_height > bottom_limit:
 		_menu.position = Vector2(
 			_menu_button.position.x + BUTTON + TOP_GAP,

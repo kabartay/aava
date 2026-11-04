@@ -201,6 +201,8 @@ func _initialize() -> void:
 	_check_a_visit_survives_a_mount_and_a_handover()
 	await _check_the_together_pages_fit_the_screen()
 	await _check_every_panel_fits_a_cutout_and_back_closes_it()
+	await _check_no_control_draws_over_an_open_panel()
+	await _check_a_volume_slider_follows_a_finger()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
 	_check_the_microphone_closes_when_the_last_visitor_goes()
@@ -23307,6 +23309,132 @@ func _check_every_panel_fits_a_cutout_and_back_closes_it() -> void:
 	_expect(project.contains("config/quit_on_go_back=false"), "the engine does not quit on back by itself")
 	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
 	_expect(game.contains("hud.close_top_panel()"), "main.gd asks the interface before leaving on back")
+
+## An open panel is never covered, and the settings have a ground of their own.
+##
+## The small map opens in the same corner as the settings and the grown-ups'
+## room. The settings had no background, so the map showed through them and
+## lay across the child's face, the name and the flags. No control that takes
+## touches may be drawn after (above) an open panel and over it, whatever the
+## shape of the phone or the language; and the settings' ground is opaque and
+## covers the small map completely.
+func _check_no_control_draws_over_an_open_panel() -> void:
+	print("no control draws over an open panel, and the settings' ground hides the map")
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	var hud := Hud.new()
+	window.add_child(hud)
+	var map := Minimap.new(HeightField.new(20260903))
+	hud.attach_minimap(map)
+	await process_frame
+	for size: Vector2i in [Vector2i(1280, 720), Vector2i(1600, 720), Vector2i(1280, 960)]:
+		window.size = size
+		window.content_scale_size = size
+		for code: StringName in [Text.EN, Text.RU, Text.FR]:
+			Text.set_language(code)
+			for panel: String in ["menu", "danger", "shop", "cafe", "together", "offer"]:
+				hud.close_look_offer()
+				hud.together.close()
+				hud.set_shop_open(false, 50, {})
+				hud.set_cafe_menu_open(false, true, 5)
+				hud._menu.visible = false
+				hud._danger.visible = false
+				var shown: Control = null
+				match panel:
+					"menu":
+						hud._toggle_menu()
+						shown = hud._menu
+					"danger":
+						hud._danger.visible = true
+						hud._danger.move_to_front()
+						shown = hud._danger
+					"shop":
+						hud.set_shop_open(true, 50, {})
+						shown = hud._shop
+					"cafe":
+						hud.set_cafe_menu_open(true, true, 5)
+						shown = hud._cafe_menu
+					"together":
+						hud.together.open()
+						shown = hud.together
+					"offer":
+						hud.offer_look()
+						shown = hud._offer
+				hud._layout()
+				await process_frame
+				var drawn := Rect2(shown.position, shown.size)
+				if shown == hud._menu:
+					drawn = hud._menu.ground_rect()
+				for child: Node in hud.get_children():
+					var above := child as Control
+					if above == null or above == shown or not above.visible:
+						continue
+					if above.get_index() < shown.get_index() or above.mouse_filter == Control.MOUSE_FILTER_IGNORE:
+						continue
+					_expect(
+						not Rect2(above.position, above.size).intersects(drawn),
+						"nothing is drawn over the %s panel (%s covers it, %s, %s, %s)" % [panel, above.name, size, code, Rect2(above.position, above.size)]
+					)
+				if shown == hud._menu or shown == hud._danger:
+					var small := Rect2(map.position, map.size)
+					_expect(
+						not map.visible or not small.intersects(drawn) or drawn.encloses(small),
+						"the %s panel hides the small map or leaves it clear (%s, %s, %s)" % [panel, size, code, small]
+					)
+	hud._menu.visible = true
+	_expect(hud._menu.ground_rect().size.x > hud._menu.size.x, "the settings ground reaches past the column")
+	hud.queue_free()
+	Text.set_language(Text.EN)
+	window.size = was_size
+	window.content_scale_size = was_content
+
+## A volume slider answers a finger, not only a mouse.
+##
+## `emulate_mouse_from_touch` is off in project.godot, and a slider reads only
+## the mouse: on a phone neither the knob nor the track did anything. A touch
+## on the track moves it there, a drag follows, and lifting the finger keeps
+## the value and tells the game once.
+func _check_a_volume_slider_follows_a_finger() -> void:
+	print("a volume slider follows a finger on the track and in a drag")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var heard: Array = []
+	hud.sound_changed.connect(func(a: int, e: int, m: bool) -> void: heard.append([a, e, m]))
+	hud._toggle_menu()
+	await process_frame
+	await process_frame
+	hud.set_sound(Mix.FULL, Mix.FULL, false)
+	var slider: HSlider = hud._effects_slider
+	var start := slider.get_global_transform_with_canvas() * Vector2(slider.size.x * 0.25, slider.size.y * 0.5)
+	var press := InputEventScreenTouch.new()
+	press.index = 0
+	press.pressed = true
+	press.position = start
+	get_root().push_input(press, true)
+	_expect(slider.value > 10.0 and slider.value < 40.0, "a touch a quarter along the track moves it there (%.0f)" % slider.value)
+	_expect(heard.is_empty(), "nothing is kept while the finger is down")
+	var drag := InputEventScreenDrag.new()
+	drag.index = 0
+	drag.position = start + Vector2(slider.size.x * 0.5, 30.0)
+	drag.relative = Vector2(slider.size.x * 0.5, 30.0)
+	get_root().push_input(drag, true)
+	_expect(slider.value > 60.0 and slider.value < 90.0, "dragging on, a little off the track, follows (%.0f)" % slider.value)
+	var lift := InputEventScreenTouch.new()
+	lift.index = 0
+	lift.pressed = false
+	lift.position = drag.position
+	get_root().push_input(lift, true)
+	_expect(heard.size() == 1 and heard[0][1] == int(slider.value), "lifting the finger keeps it, once (%s)" % str(heard))
+	var before := slider.value
+	var other := InputEventScreenDrag.new()
+	other.index = 1
+	other.position = start
+	get_root().push_input(other, true)
+	_expect(slider.value == before, "a finger that never pressed the slider does not move it")
+	Mix.set_volume(Mix.FULL, Mix.FULL)
+	hud.queue_free()
 
 ## The play-together pages must fit the 720-pixel-high screen in every language.
 ##
