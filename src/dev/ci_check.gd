@@ -97,6 +97,11 @@ func _initialize() -> void:
 	_check_caring_pays()
 	_check_animals_dont_drown()
 	_check_animals_stay_on_the_ground()
+	await _check_a_walled_in_animal_stands_quietly_and_walks_out_when_a_wall_comes_down()
+	_check_no_animal_walks_onto_the_pitch_the_pool_or_the_track()
+	_check_an_animal_left_behind_keeps_its_cooldown()
+	_check_friends_are_restored_and_odd_ones_dropped()
+	await _check_an_animal_held_at_a_wall_on_its_way_to_the_child_waits()
 	_check_trees_are_solid()
 	_check_a_thrown_ball_comes_down_on_the_ring()
 	_check_a_lost_basketball_comes_home()
@@ -27636,4 +27641,171 @@ func _check_the_family_list_survives_a_crash() -> void:
 	_expect(int(SaveGame.read(clear.save_path_for("Hana", land)).get("coins", -1)) == 6, "and the real save is read as before")
 	_expect(DirAccess.get_files_at(ProjectSettings.globalize_path(aside.folder)).size() == 6, "nothing in the folder was deleted")
 	_crash_clear(aside.folder)
+
+## Four walls round a spot, on the props layer like a child's fence: the pen.
+func _pen_walls(at: Vector3, half: float) -> Node3D:
+	var pen := Node3D.new()
+	get_root().add_child(pen)
+	for side: Vector2 in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+		var body := StaticBody3D.new()
+		body.collision_layer = TerrainSpec.LAYER_PROPS
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		var along_x := absf(side.x) > 0.0
+		box.size = Vector3(0.3, 1.5, half * 2.0 + 0.3) if along_x else Vector3(half * 2.0 + 0.3, 1.5, 0.3)
+		shape.shape = box
+		body.add_child(shape)
+		pen.add_child(body)
+		body.position = at + Vector3(side.x * half, 0.75, side.y * half)
+	return pen
+
+## An animal walled in on every side by what a child built used to try the
+## fence again every couple of seconds for ever, swinging against it. It now
+## stands quietly, asks for no water, and walks out when a piece comes down.
+func _check_a_walled_in_animal_stands_quietly_and_walks_out_when_a_wall_comes_down() -> void:
+	print("a walled-in animal stands quietly and walks out when a wall comes down")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+	var pen := _pen_walls(spot, 1.5)
+	await physics_frame
+	await physics_frame
+	var cat := animals.put_one_at(AnimalKinds.CAT, spot)
+	(cat["node"] as Node3D).global_position = spot
+	for _round in Animals.PENNED_AFTER + 1:
+		cat["rest"] = 0.0
+		animals._pick_wander(cat)
+	_expect(bool(cat.get("boxed", false)), "a cat with a wall on every side is boxed in")
+	_expect(
+		(cat["target"] as Vector3).distance_to((cat["node"] as Node3D).position) < 0.01,
+		"and is not sent to walk into the fence"
+	)
+	_expect(float(cat["rest"]) >= Animals.PENNED_RECHECK - 0.01, "it rests until the next look")
+	_expect(not animals.is_thirsty(cat), "it is not thirsty, since it could not reach the river")
+	var asked := Inventory.new()
+	animals.watch(spot + Vector3(0.0, 0.0, 5.0), asked)
+	_expect(
+		(cat["target"] as Vector3).distance_to((cat["node"] as Node3D).position) < 0.01,
+		"a child coming does not send it at the fence either"
+	)
+	_expect(not animals.nearest_caring(spot + Vector3(0.0, 0.0, 2.0), asked).is_empty(), "it can still be stroked over the fence")
+	# Take the western wall down.
+	pen.get_child(1).queue_free()
+	await physics_frame
+	await physics_frame
+	animals._pick_wander(cat)
+	_expect(not bool(cat.get("boxed", false)), "with a piece taken down it is no longer boxed")
+	var out: Vector3 = cat["target"] - (cat["node"] as Node3D).position
+	_expect(out.length() > 1.0 and out.x < -0.5, "and is sent out through the gap")
+	pen.queue_free()
+	animals.queue_free()
+
+## No animal, not even a cat or a dog, goes onto the pitch, the pool or the
+## coaster's track; a wander that would cut across one is not taken.
+func _check_no_animal_walks_onto_the_pitch_the_pool_or_the_track() -> void:
+	print("no animal walks onto the pitch, the pool or the coaster's track")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	animals.pitch_in_play = true
+	var camp := field.camp_centre()
+	var pool: Vector3 = camp + PlaceSpec.OFFSETS[&"pool"]
+	var pitch_at := Vector3(Pitch.CENTRE.x, 0.0, Pitch.CENTRE.z)
+	var track := Vector3(Park.COASTER_AT.x, 0.0, Park.COASTER_AT.z - 30.0)
+	for pair: Array in [["the pitch", pitch_at], ["the pool", pool], ["the track", track]]:
+		var at: Vector3 = pair[1]
+		_expect(animals.never_for_animals(at.x, at.z), "%s is never for animals" % pair[0])
+		_expect(
+			not animals._may_stand(AnimalKinds.DOG, at) and not animals._may_stand(AnimalKinds.CAT, at),
+			"a dog and a cat are not sent to stand on %s" % pair[0]
+		)
+	var spawn := field.find_spawn_point()
+	_expect(not animals.never_for_animals(spawn.x, spawn.z), "the meadow at the spawn is for animals")
+	animals.pitch_in_play = false
+	_expect(not animals.never_for_animals(pitch_at.x, pitch_at.z), "the pitch is open to a dog when no match is on")
+	animals.pitch_in_play = true
+	# A dog living on the edge of the pitch never picks it to wander to.
+	var edge := Vector3(Pitch.CENTRE.x + Pitch.HALF_LENGTH + Pitch.APRON + 3.0, 0.0, Pitch.CENTRE.z)
+	var dog := animals.put_one_at(AnimalKinds.DOG, edge)
+	var strayed := 0
+	for _i in 200:
+		dog["target"] = edge
+		animals._pick_wander(dog)
+		dog["rest"] = 0.0
+		var goal: Vector3 = dog["target"]
+		if animals.never_for_animals(goal.x, goal.z) or animals._crosses_forbidden(edge, goal):
+			strayed += 1
+	_expect(strayed == 0, "two hundred wanders from beside the pitch never touch it (%d did)" % strayed)
+	animals.queue_free()
+
+## A tile is rebuilt from the seed with every cooldown at zero, so walking out
+## of range and back paid a child again at once for a cow just milked.
+func _check_an_animal_left_behind_keeps_its_cooldown() -> void:
+	print("an animal left behind keeps its cooldown")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spawn := field.find_spawn_point()
+	var home := Vector2i(floori(spawn.x / Animals.TILE_SIZE), floori(spawn.z / Animals.TILE_SIZE))
+	var coord := home
+	for step in 40:
+		coord = home + Vector2i(step % 7 - 3, step / 7 - 3)
+		animals._build_tile(coord)
+		if not animals._living.is_empty():
+			break
+	_expect(not animals._living.is_empty(), "a tile with an animal on it was found")
+	if animals._living.is_empty():
+		animals.queue_free()
+		return
+	var born: Vector3 = animals._living[0]["born"]
+	animals._living[0]["cooldown"] = 60.0
+	animals._drop_tile(coord)
+	_expect(animals._living.is_empty(), "the tile was dropped")
+	animals._build_tile(coord)
+	var again := {}
+	for animal in animals._living:
+		if Animals.key_of(animal["born"]) == Animals.key_of(born):
+			again = animal
+	_expect(not again.is_empty(), "the same animal is born again")
+	_expect(not again.is_empty() and float(again["cooldown"]) > 50.0, "still resting, not ready to be paid again")
+	animals.queue_free()
+
+## Befriended kinds are saved as a list of names; a name this version does not
+## know, or a number, is dropped rather than kept as an invisible friend.
+func _check_friends_are_restored_and_odd_ones_dropped() -> void:
+	print("friends are restored and odd ones dropped")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	animals.friends[AnimalKinds.DOG] = true
+	animals.friends[AnimalKinds.COW] = true
+	var saved := animals.to_data()
+	var restored := Animals.new(field, 20260903)
+	restored.from_data(saved)
+	_expect(restored.friends.has(AnimalKinds.DOG) and restored.friends.has(AnimalKinds.COW), "friends round-trip")
+	restored.from_data(["dog", "unicorn", 5, null])
+	_expect(restored.friends.size() == 1 and restored.friends.has(AnimalKinds.DOG), "an unknown or odd entry is dropped")
+	animals.free()
+	restored.free()
+
+## An animal coming to a child and held against a wall waits a few seconds
+## rather than being re-aimed at the same spot every frame.
+func _check_an_animal_held_at_a_wall_on_its_way_to_the_child_waits() -> void:
+	print("an animal held at a wall on its way to the child waits")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	spot.y = field.height_at(spot.x, spot.z)
+	var cat := animals.put_one_at(AnimalKinds.CAT, spot)
+	(cat["node"] as Node3D).position = spot
+	cat["stuck"] = 1.0
+	animals.watch(spot + Vector3(0.0, 0.0, 5.0), Inventory.new())
+	var node_at: Vector3 = (cat["node"] as Node3D).position
+	_expect((cat["target"] as Vector3).distance_to(node_at) < 0.01, "it stands where it is")
+	cat["stuck"] = 0.0
+	animals.watch(spot + Vector3(0.0, 0.0, 5.0), Inventory.new())
+	_expect((cat["target"] as Vector3).distance_to(node_at) < 0.01, "and is not re-aimed on the next frame")
+	animals.queue_free()
 

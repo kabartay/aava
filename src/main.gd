@@ -2106,6 +2106,7 @@ var _since_animals_told := 0.0
 ## says; the host tells each guest about those near anybody in the valley.
 func _share_the_animals(delta: float) -> void:
 	world.animals.following = session.is_following()
+	world.animals.pitch_in_play = world.football.my_side() >= 0
 	world.animals.companions.clear()
 	if not session.is_host() or not session.has_company():
 		return

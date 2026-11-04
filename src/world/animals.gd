@@ -145,6 +145,43 @@ func kept_for_people(x: float, z: float) -> bool:
 	# could be put down on the café's terrace or the shooting line.
 	return PlaceSpec.reserved_by(x, z, camp) != &""
 
+## Is a match being played? Set by the game each frame, as for `following`:
+## true when two children are playing on their sides. A dog may trot onto the
+## pitch to a child standing on it, which is where a dog would be, but not into
+## a match; alone, the child is kicking about and a dog is company.
+var pitch_in_play := false
+
+## Ground that no animal is put on or sent to, not even a cat or a dog: the
+## football pitch and its apron while a match is on, the pool and the fence
+## round it, and the coaster's track. A cat or a dog may share the park and
+## the playground with the children, but the pool is water with a charge at
+## the gate, and the coaster's circuit is where a train does thirty metres a
+## second.
+func never_for_animals(x: float, z: float) -> bool:
+	if pitch_in_play and Pitch.is_levelled(x, z):
+		return true
+	if PlaceSpec.inside_the_pool_fence(x, z, field.camp_centre()):
+		return true
+	return (
+		absf(x - Park.COASTER_AT.x) <= RollerCoaster.HALF_WIDTH + TRACK_VERGE
+		and absf(z - Park.COASTER_AT.z) <= RollerCoaster.HALF_LENGTH + TRACK_VERGE
+	)
+
+## How far outside the rails the coaster's ground is kept clear, in metres.
+const TRACK_VERGE := 2.0
+
+## Does the straight walk from one spot to another cross ground that is never
+## for animals? Looked along in steps, for a wander that would otherwise clip
+## the corner of the pool's fence or the pitch on its way to somewhere dry.
+func _crosses_forbidden(from: Vector3, to: Vector3) -> bool:
+	var length := Vector2(to.x - from.x, to.z - from.z).length()
+	var steps := maxi(ceili(length / 2.0), 1)
+	for i in range(1, steps + 1):
+		var at := from.lerp(to, float(i) / float(steps))
+		if never_for_animals(at.x, at.z):
+			return true
+	return false
+
 ## May this kind be here at all?
 static func belongs_at(kind: StringName, kept: bool) -> bool:
 	if not kept:
@@ -239,6 +276,10 @@ func _rebuild_queue() -> void:
 		return (a - _centre).length_squared() < (b - _centre).length_squared())
 	_queue = pending
 
+## When each animal that was left behind mid-cooldown is next ready, as engine
+## milliseconds, by `key_of` its birthplace: see `_drop_tile`.
+var _resting: Dictionary = {}
+
 func _drop_tile(coord: Vector2i) -> void:
 	var node = _tiles.get(coord)
 	if node != null:
@@ -246,6 +287,14 @@ func _drop_tile(coord: Vector2i) -> void:
 	_tiles.erase(coord)
 	for i in range(_living.size() - 1, -1, -1):
 		if _living[i]["tile"] == coord:
+			# Remember a cooldown that is still running. A tile is rebuilt
+			# from the seed with every cooldown at zero, so a child could be
+			# paid again for the same cow by walking out of range and back.
+			var owed := float(_living[i]["cooldown"])
+			if owed > 0.0:
+				_resting[key_of(_living[i]["born"])] = (
+					Time.get_ticks_msec() + int(owed * 1000.0)
+				)
 			_living.remove_at(i)
 
 func _process(delta: float) -> void:
@@ -334,6 +383,11 @@ func _build_tile(coord: Vector2i) -> void:
 		node.rotation.y = heading
 		holder.add_child(node)
 
+		var ready_at: int = int(_resting.get(key_of(home), 0))
+		var still_resting := 0.0
+		if ready_at > 0:
+			still_resting = maxf(0.0, float(ready_at - Time.get_ticks_msec()) / 1000.0)
+			_resting.erase(key_of(home))
 		_living.append({
 			"kind": kind,
 			"node": node,
@@ -342,7 +396,7 @@ func _build_tile(coord: Vector2i) -> void:
 			"target": home,
 			"tile": coord,
 			"rest": rest,
-			"cooldown": 0.0,
+			"cooldown": still_resting,
 			"bob": bob,
 			"heading": heading,
 			"velocity": 0.0,
@@ -445,6 +499,8 @@ func _kind_at(x: float, z: float, rng: RandomNumberGenerator) -> StringName:
 	# the pool and under the swings is a valley nobody has charge of.
 	var kept := kept_for_people(x, z)
 	if kept and rng.randf() < 0.55:
+		return &""
+	if never_for_animals(x, z):
 		return &""
 	if field.is_pond(x, z) or height < field.water_level_at(x, z) + 0.2:
 		return &""
@@ -1206,7 +1262,10 @@ func _space() -> PhysicsDirectSpaceState3D:
 ## spot inside the slide or the hedge is not somewhere to wander to, so a few
 ## are tried; if none is clear, the animal stays where it is a little longer.
 func _pick_wander(animal: Dictionary) -> void:
+	if _settle_if_walled_in(animal):
+		return
 	var home: Vector3 = animal["home"]
+	var here: Vector3 = (animal["node"] as Node3D).position
 	for _try in WANDER_TRIES:
 		var angle := randf() * TAU
 		var distance := randf() * ROAM
@@ -1216,7 +1275,7 @@ func _pick_wander(animal: Dictionary) -> void:
 		if _solid_at(Vector3(spot.x, _footing(spot.x, spot.z), spot.z)):
 			continue
 		# And not onto ground kept for people, unless it is a cat or a dog.
-		if not Animals.belongs_at(animal["kind"], kept_for_people(spot.x, spot.z)):
+		if not _may_stand(animal["kind"], spot) or _crosses_forbidden(here, spot):
 			continue
 		# Not into a pond. An animal wades a river, which is shallow and has
 		# two banks; a pond is deep still water, and a cat that walked into one
@@ -1250,12 +1309,79 @@ func _head_for_the_bank(animal: Dictionary) -> void:
 			animal["speed"] = FLEE_SPEED
 			return
 
+## Fenced in on every side? Looked for with the same feeler the walk uses, in
+## eight directions. Returns the first direction with a way out, or zero.
+func _way_out(animal: Dictionary) -> Vector3:
+	var node: Node3D = animal["node"]
+	for i in 8:
+		var bearing := TAU * float(i) / 8.0
+		var way := Vector3(-sin(bearing), 0.0, -cos(bearing))
+		if not _solid_ahead(animal, node.position, way, PENNED_LOOK):
+			return way
+	return Vector3.ZERO
+
+## Called when an animal chooses somewhere new to go. One that has chosen three
+## times without getting anywhere is looked at: if a wall stands on every side
+## it is "boxed", and it stops trying.
+##
+## A pen a child built to keep animals in is a feature, and a sheep in a sealed
+## room is a pity, and the two cannot be told apart from where the walls are;
+## so the animal is neither let out by magic nor left to fight the fence. It
+## stands quietly, is not thirsty (it cannot reach the river), still takes food
+## and a stroke from a child at the fence, and looks again every few seconds:
+## the moment a piece is taken down it walks out through the gap.
+func _settle_if_walled_in(animal: Dictionary) -> bool:
+	if float(animal.get("told_for", 0.0)) > 0.0:
+		return false
+	var node: Node3D = animal["node"]
+	var last: Vector3 = animal.get("picked_at", Vector3.INF)
+	animal["picked_at"] = node.position
+	var boxed := bool(animal.get("boxed", false))
+	if not boxed:
+		if last == Vector3.INF or Vector2(
+			node.position.x - last.x, node.position.z - last.z
+		).length() > PENNED_PROGRESS:
+			animal["unmoved"] = 0
+			return false
+		animal["unmoved"] = int(animal.get("unmoved", 0)) + 1
+		if int(animal["unmoved"]) < PENNED_AFTER:
+			return false
+		animal["unmoved"] = 0
+	var out := _way_out(animal)
+	if out == Vector3.ZERO:
+		animal["boxed"] = true
+		animal["target"] = node.position
+		animal["rest"] = PENNED_RECHECK
+		return true
+	if boxed:
+		# A piece has come down: leave by it.
+		animal["boxed"] = false
+		var spot := node.position + out * PENNED_EXIT
+		spot.y = _footing(spot.x, spot.z)
+		animal["target"] = spot
+		animal["rest"] = 1.0
+		animal["speed"] = Animals.pace_of(animal["kind"])
+		return true
+	return false
+
+## Picks that get nowhere before a look is taken, how far counts as getting
+## somewhere, how far the feeler looks, how often a boxed animal looks again and
+## how far it heads out through a gap.
+const PENNED_AFTER := 3
+const PENNED_PROGRESS := 0.8
+const PENNED_LOOK := 1.0
+const PENNED_RECHECK := 2.5
+const PENNED_EXIT := 3.0
+
 ## May this kind be sent to stand here? The wander already asks; so must
 ## everything else that names a spot for an animal to go to, or a whistle, a
 ## friendly child or a motorcycle walks sheep onto the pitch and cows into the
 ## fairground, which nothing is meant to wander onto.
 func _may_stand(kind: StringName, at: Vector3) -> bool:
-	return Animals.belongs_at(kind, kept_for_people(at.x, at.z))
+	return (
+		Animals.belongs_at(kind, kept_for_people(at.x, at.z))
+		and not never_for_animals(at.x, at.z)
+	)
 
 ## Called every frame with where the player is and what they are carrying.
 ##
@@ -1268,6 +1394,10 @@ const WHISTLE_TIME := 6.0
 const WHISTLE_RANGE := 46.0
 
 var _whistle := 0.0
+
+## How long an animal that is coming to the child, and is held against a wall,
+## stands still before it tries for the child again.
+const WAIT_AT_A_WALL := 3.0
 
 ## Blow the whistle. Every animal within earshot comes, shy ones included —
 ## which is the whole point: the squirrel is otherwise nearly uncatchable.
@@ -1291,6 +1421,10 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 	for animal in _living:
 		var node: Node3D = animal["node"]
 		if not is_instance_valid(node):
+			continue
+		# One that is walled in stays put: sent towards a child, a whistle or
+		# away from an engine it can only press against the fence.
+		if bool(animal.get("boxed", false)):
 			continue
 		var kind: StringName = animal["kind"]
 		var offset := player_position - node.position
@@ -1325,6 +1459,17 @@ func watch(player_position: Vector3, inventory: Inventory) -> void:
 			# ground kept for people, though: a child standing on the football
 			# pitch is not a reason for a cow to walk onto it.
 			var meeting := player_position - offset.normalized() * REACH * 0.7
+			# Held against a wall or a doorpost on the way to the child for
+			# a moment already: stand and wait a few seconds rather than
+			# re-aiming at the same spot every frame, which kept it pressing
+			# on the wall until the child moved.
+			if float(animal.get("stuck", 0.0)) > STUCK_PATIENCE * 0.5:
+				animal["target"] = node.position
+				animal["rest"] = WAIT_AT_A_WALL
+				animal["waiting_until"] = Time.get_ticks_msec() + int(WAIT_AT_A_WALL * 1000.0)
+				continue
+			if int(animal.get("waiting_until", 0)) > Time.get_ticks_msec():
+				continue
 			if distance > REACH * 0.8 and _may_stand(kind, meeting):
 				animal["target"] = meeting
 				animal["target"].y = _footing(animal["target"].x, animal["target"].z)
@@ -1404,6 +1549,10 @@ func is_thirsty(animal: Dictionary) -> bool:
 	var kind: StringName = animal["kind"]
 	if kind == AnimalKinds.BEAVER:
 		return false
+	# Nor one that is fenced in: it cannot walk to the river, so a thirst it
+	# cannot do anything about would only be a nag. It can still be fed.
+	if bool(animal.get("boxed", false)):
+		return false
 	# Nor livestock, which already has its own errand. A meadow cow far from the
 	# river was "thirsty", so a child with a bottle who came to milk her or
 	# shear a sheep poured water over her instead — no coins, no milk, no wool,
@@ -1470,4 +1619,7 @@ func to_data() -> Array:
 func from_data(kinds: Array) -> void:
 	friends.clear()
 	for kind in kinds:
-		friends[StringName(kind)] = true
+		# Only kinds this game knows: a save from a version that had another
+		# animal, or a damaged one, must not leave a friend nobody can see.
+		if (kind is String or kind is StringName) and AnimalKinds.INFO.has(StringName(kind)):
+			friends[StringName(kind)] = true
