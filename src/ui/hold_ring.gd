@@ -27,6 +27,10 @@ const SECONDS := 1.0
 ## How far round the ring is, 0 to 1. Public for the screenshots and the checks.
 var progress := 0.0
 
+## How long this ring takes to fill. The same second for everything but the
+## reset in the settings, which asks for longer on purpose.
+var seconds := SECONDS
+
 var _held := -1.0
 var _spent := false
 var _button: Button
@@ -45,6 +49,10 @@ static func attach(button: Button, action: Callable) -> HoldRing:
 	button.add_child(ring)
 	button.button_down.connect(ring._start)
 	button.button_up.connect(ring._stop)
+	# A finger that slides off the button is still "holding" it as far as
+	# button_up is concerned, which only arrives when the finger finally lifts,
+	# wherever that is. The ring watches the motion itself.
+	button.gui_input.connect(ring._watch)
 	return ring
 
 func _init() -> void:
@@ -65,11 +73,59 @@ func _start() -> void:
 	set_process(true)
 	queue_redraw()
 
+## Stop a hold in progress and say nothing: for the HUD, which is about to be
+## thrown away or hidden under a finger.
+func cancel() -> void:
+	_cancel()
+
 func _stop() -> void:
 	var early := _held >= 0.0 and not _spent
 	_cancel()
 	if early:
 		too_short.emit()
+
+## The finger moved, or the system took the touch away. Either ends the hold
+## as surely as lifting does, and the later button_up then finds nothing to end.
+func _watch(event: InputEvent) -> void:
+	if _held < 0.0:
+		return
+	var outside := false
+	if event is InputEventMouseMotion:
+		outside = not _inside((event as InputEventMouseMotion).position)
+	elif event is InputEventScreenDrag:
+		outside = not _inside((event as InputEventScreenDrag).position)
+	elif event is InputEventScreenTouch and (event as InputEventScreenTouch).canceled:
+		_cancel()
+		return
+	if outside:
+		_stop()
+
+func _inside(local: Vector2) -> bool:
+	return Rect2(Vector2.ZERO, _button.size).has_point(local)
+
+func _notification(what: int) -> void:
+	match what:
+		# The system can take the touch without a release ever arriving: the
+		# phone call, the swipe down for the notification shade, the home
+		# button. A hold that went on counting through that would complete for
+		# whoever picked the phone up next.
+		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_APPLICATION_FOCUS_OUT, \
+		NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+			_cancel()
+		NOTIFICATION_VISIBILITY_CHANGED:
+			if _held >= 0.0 and not _button.is_visible_in_tree():
+				_cancel()
+
+## True when the button, or anything above it, is waiting to be freed. The HUD
+## is queue_freed on a change of language and stays in the tree until the end
+## of the frame, still processing.
+func _going() -> bool:
+	var node: Node = _button
+	while node != null:
+		if node.is_queued_for_deletion():
+			return true
+		node = node.get_parent()
+	return false
 
 func _cancel() -> void:
 	_held = -1.0
@@ -79,17 +135,20 @@ func _cancel() -> void:
 	queue_redraw()
 
 func _process(delta: float) -> void:
+	# Nothing is held: a stray frame must not start the count from nothing.
+	if _held < 0.0:
+		return
 	# A button hidden or greyed under a finger sends no button_up, and the ring
 	# would otherwise go on filling for something nobody is touching.
-	if _button.disabled or not _button.is_visible_in_tree():
+	if _button.disabled or not _button.is_visible_in_tree() or _going():
 		_cancel()
 		return
 	if _spent:
 		return
 	_held += delta
-	progress = clampf(_held / SECONDS, 0.0, 1.0)
+	progress = clampf(_held / seconds, 0.0, 1.0)
 	queue_redraw()
-	if _held >= SECONDS:
+	if _held >= seconds:
 		_spent = true
 		completed.emit()
 

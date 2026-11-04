@@ -283,6 +283,16 @@ static func _tint(
 			return ground
 
 	var steep := slope
+	# The fairground's levelling feather is a cut the height field makes, not
+	# a cliff the mountain grew. Where the hillside north-east of it stands
+	# thirteen metres above the platform, easing it down over fourteen metres
+	# is a slope of 0.7 and more, which the rock rule below read as bare crag:
+	# a dark, soft-edged band across a meadow. Over the feather the slope is
+	# counted for less the nearer the platform it is, so the cut is painted as
+	# the grass it is and the colour rejoins the natural rule at its outer edge.
+	# The square root, because the cut is already steep a third of the way out
+	# of its feather, where a straight fade would still have left it dark.
+	steep *= 1.0 - sqrt(ParkSpec.influence(x, z))
 	var color := TerrainSpec.COLOR_GRASS
 
 	# Meadow tint breaks up the green so the valley floor is not one flat colour.

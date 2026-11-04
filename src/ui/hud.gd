@@ -203,7 +203,7 @@ const RESET_HOLD := 5.0
 
 var _reset_button: Button
 var _visit_ring: HoldRing
-var _reset_held := 0.0
+var _reset_ring: HoldRing
 var _status: Label
 var _message: Label
 var _message_timer := 0.0
@@ -1041,10 +1041,13 @@ func _build_danger() -> PanelContainer:
 	_reset_button = _button(Text.of("ui_reset_hold"), Color(0.98, 0.66, 0.56))
 	_reset_button.custom_minimum_size = Vector2(BUTTON * 3.4, BUTTON * 0.7)
 	_reset_button.add_theme_font_size_override("font_size", 18)
-	_reset_button.button_down.connect(func() -> void: _reset_held = 0.001)
-	_reset_button.button_up.connect(func() -> void:
-		_reset_held = 0.0
-		_reset_button.text = Text.of("ui_reset_hold"))
+	# The same ring as every other hold, so a finger that slides off, a call
+	# that pauses the game or a menu that closes stops the count; the count
+	# used to run on until a button_up that might never come.
+	_reset_ring = _hold(_reset_button, func() -> void:
+		_reset_button.text = Text.of("ui_reset_hold")
+		reset_requested.emit())
+	_reset_ring.seconds = RESET_HOLD
 	column.add_child(_reset_button)
 
 	var back := _button(Text.of("ui_back"), Color(0.90, 0.93, 0.97))
@@ -1052,7 +1055,7 @@ func _build_danger() -> PanelContainer:
 	back.add_theme_font_size_override("font_size", 18)
 	back.pressed.connect(func() -> void:
 		_danger.visible = false
-		_reset_held = 0.0
+		_reset_ring.cancel()
 		_reset_button.text = Text.of("ui_reset_hold")
 		_layout())
 	column.add_child(back)
@@ -1773,7 +1776,7 @@ func _toggle_menu() -> void:
 		_menu.move_to_front()
 	# Opening or closing the menu always shuts the dangerous room behind it.
 	_danger.visible = false
-	_reset_held = 0.0
+	_reset_ring.cancel()
 	_reset_button.text = Text.of("ui_reset_hold")
 	_layout()
 
@@ -2364,19 +2367,15 @@ func _process(delta: float) -> void:
 		_mic_seconds -= delta
 		if _mic_seconds <= 0.0:
 			hide_mic_refused()
-	if _reset_held > 0.0:
-		_reset_held += delta
-		if _reset_held >= RESET_HOLD:
-			_reset_held = 0.0
-			_reset_button.text = Text.of("ui_reset_hold")
-			reset_requested.emit()
-		else:
-			# Counting down out loud, so a parent holding it knows it is
-			# working and a child watching gets bored before it finishes.
-			_reset_button.text = "%s %d" % [
-				Text.of("ui_reset_holding"),
-				int(ceil(RESET_HOLD - _reset_held))
-			]
+	if _reset_ring.is_holding() and _reset_ring.progress < 1.0:
+		# Counting down out loud, so a parent holding it knows it is
+		# working and a child watching gets bored before it finishes.
+		_reset_button.text = "%s %d" % [
+			Text.of("ui_reset_holding"),
+			int(ceil(RESET_HOLD * (1.0 - _reset_ring.progress)))
+		]
+	elif _reset_button.text != Text.of("ui_reset_hold"):
+		_reset_button.text = Text.of("ui_reset_hold")
 
 	if _message_timer <= 0.0:
 		return

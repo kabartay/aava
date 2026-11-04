@@ -108,6 +108,7 @@ func _initialize() -> void:
 	_check_the_cafe_serves()
 	_check_the_cafe_menu_charges_and_gives_what_it_shows()
 	await _check_a_stray_tap_orders_nothing_and_a_hold_orders_one_dish()
+	await _check_every_hold_lets_go_when_the_touch_does()
 	_check_the_food_on_the_table_is_the_dish_ordered()
 	_check_the_cafe_fittings_stand_on_the_bar()
 	_check_the_other_child_sees_what_is_on_the_table()
@@ -372,6 +373,8 @@ func _initialize() -> void:
 	_check_a_duck_turning_from_the_bank_keeps_its_clock()
 	_check_the_far_country_paints_a_raised_pond_bed_as_silt()
 	_check_no_grass_comes_up_through_the_bridge_deck()
+	_check_no_grass_stands_on_a_doormat_or_porch()
+	_check_the_fairground_feather_is_not_painted_as_crag()
 	_check_the_flags_fly_the_valley_wind()
 	_check_the_belt_treads_are_evenly_spaced_and_the_trestles_splay_across()
 	_check_the_ship_sails_belly_with_the_wind()
@@ -27045,4 +27048,245 @@ func _check_a_stray_tap_does_not_burn_wood_or_give_sticks_or_fell_for_coins() ->
 	hud._chop_button.pressed.emit()
 	_expect(int(emitted["chop"]) == 1, "a wild tree costs nothing with no coins, so a tap still fells it")
 	hud.queue_free()
+
+## Every hold lets go when the touch does, however the touch ends: a finger
+## that lifts early, slides off, is taken by the system, or loses the button
+## under it; a second finger leaves it alone; and a hold that has fired does
+## not fire again.
+func _check_every_hold_lets_go_when_the_touch_does() -> void:
+	print("every hold lets go when the touch does")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var fired: Array = []
+	hud.place_used.connect(func() -> void: fired.append(&"visit"))
+	hud.snack_pressed.connect(func() -> void: fired.append(&"snack"))
+	hud.set_place_offer(Places.CAFE)
+	var visit: Button = hud._visit_button
+	var snack: Button = hud._snack_button
+	var ring: HoldRing = hud._visit_ring
+	var snack_ring: HoldRing = null
+	for child in snack.get_children():
+		if child is HoldRing:
+			snack_ring = child
+	_expect(snack_ring != null, "the snack button has a ring")
+	if snack_ring == null:
+		hud.queue_free()
+		return
+	var inside := InputEventMouseMotion.new()
+	inside.position = visit.size * 0.5
+	var outside := InputEventMouseMotion.new()
+	outside.position = visit.size + Vector2(200.0, 200.0)
+
+	# Sliding off the button while holding it.
+	visit.button_down.emit()
+	ring._process(0.5)
+	visit.gui_input.emit(inside)
+	_expect(ring.is_holding(), "moving about on the button keeps the hold")
+	visit.gui_input.emit(outside)
+	_expect(not ring.is_holding() and ring.progress == 0.0, "sliding off empties the ring")
+	ring._process(2.0)
+	visit.button_up.emit()
+	_expect(fired.is_empty(), "and nothing fires, however long the finger stays down")
+	var drag := InputEventScreenDrag.new()
+	drag.position = outside.position
+	visit.button_down.emit()
+	visit.gui_input.emit(drag)
+	_expect(not ring.is_holding(), "a touch drag off the button does the same")
+	visit.button_up.emit()
+
+	# The system takes the touch away.
+	for what: int in [
+		Node.NOTIFICATION_APPLICATION_PAUSED,
+		Node.NOTIFICATION_APPLICATION_FOCUS_OUT,
+		Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT,
+	]:
+		visit.button_down.emit()
+		ring._process(0.5)
+		ring.propagate_notification(what)
+		_expect(not ring.is_holding() and ring.progress == 0.0, "notification %d empties the ring" % what)
+		ring._process(2.0)
+		visit.button_up.emit()
+	visit.button_down.emit()
+	var cancelled := InputEventScreenTouch.new()
+	cancelled.canceled = true
+	visit.gui_input.emit(cancelled)
+	_expect(not ring.is_holding(), "a cancelled touch empties the ring")
+	visit.button_up.emit()
+	_expect(fired.is_empty(), "nothing has fired from any of them")
+
+	# Hidden, greyed or freed while held.
+	visit.button_down.emit()
+	ring._process(0.5)
+	visit.visible = false
+	_expect(not ring.is_holding(), "hiding the button empties the ring at once")
+	visit.visible = true
+	ring._process(2.0)
+	visit.button_up.emit()
+	visit.button_down.emit()
+	visit.disabled = true
+	ring._process(0.1)
+	_expect(not ring.is_holding(), "greying the button empties the ring")
+	visit.disabled = false
+	visit.button_up.emit()
+	visit.button_down.emit()
+	ring._process(0.5)
+	var parent := visit.get_parent()
+	parent.visible = false
+	_expect(not ring.is_holding(), "hiding what the button is in empties the ring")
+	parent.visible = true
+	visit.button_up.emit()
+	_expect(fired.is_empty(), "and none of that fired anything")
+
+	# A second finger elsewhere is another button's business.
+	visit.button_down.emit()
+	ring._process(0.5)
+	snack.button_down.emit()
+	snack.button_up.emit()
+	_expect(ring.is_holding() and absf(ring.progress - 0.5) < 0.01, "a second finger on another button leaves this hold at %.2f" % ring.progress)
+	snack_ring.cancel()
+	ring.propagate_notification(CanvasItem.NOTIFICATION_VISIBILITY_CHANGED)
+	_expect(ring.is_holding(), "and another ring being cancelled leaves it alone")
+	ring._process(0.6)
+	_expect(fired == [&"visit"], "it completes by itself, once")
+	visit.button_up.emit()
+
+	# Once fired, holding on does nothing more; a full release rearms it.
+	fired.clear()
+	visit.button_down.emit()
+	for _step in 8:
+		ring._process(0.5)
+	_expect(fired == [&"visit"], "holding for four seconds fires once, not %d times" % fired.size())
+	visit.button_up.emit()
+	visit.button_down.emit()
+	ring._process(1.1)
+	visit.button_up.emit()
+	_expect(fired.size() == 2, "a fresh hold after a full release fires again")
+
+	# One long touch cannot finish two buttons. The engine keeps a drag with
+	# the button it began on, so the second never sees a button_down; and the
+	# first has already been emptied by sliding off.
+	fired.clear()
+	visit.button_down.emit()
+	ring._process(0.9)
+	visit.gui_input.emit(outside)
+	snack_ring._process(0.5)
+	ring._process(0.5)
+	snack_ring._process(0.6)
+	visit.button_up.emit()
+	snack.button_up.emit()
+	_expect(fired.is_empty(), "sliding from one held button across another completes neither")
+
+	# The interface is rebuilt under a finger, as a change of language does.
+	var old_ring := ring
+	visit.button_down.emit()
+	ring._process(0.9)
+	hud.queue_free()
+	old_ring._process(0.5)
+	_expect(not old_ring.is_holding() and fired.is_empty(), "a HUD waiting to be freed completes nothing")
+	await process_frame
+
+	# The reset in the settings is a ring like the others, five seconds long.
+	var settings := Hud.new()
+	get_root().add_child(settings)
+	await process_frame
+	var resets: Array = []
+	settings.reset_requested.connect(func() -> void: resets.append(1))
+	var reset: Button = settings._reset_button
+	var reset_ring: HoldRing = settings._reset_ring
+	_expect(reset_ring != null and is_equal_approx(reset_ring.seconds, Hud.RESET_HOLD), "the reset holds on a ring for RESET_HOLD seconds")
+	if reset_ring != null:
+		settings._danger.visible = true
+		reset.button_down.emit()
+		reset_ring._process(2.0)
+		settings._process(0.0)
+		_expect(reset.text != Text.of("ui_reset_hold"), "the count shows while it is held")
+		reset.gui_input.emit(_motion_away(reset))
+		reset_ring._process(10.0)
+		settings._process(0.0)
+		reset.button_up.emit()
+		_expect(resets.is_empty() and reset.text == Text.of("ui_reset_hold"), "sliding off stops the reset and clears its count")
+		reset.button_down.emit()
+		reset_ring._process(2.0)
+		reset_ring.propagate_notification(Node.NOTIFICATION_APPLICATION_PAUSED)
+		reset_ring._process(10.0)
+		reset.button_up.emit()
+		_expect(resets.is_empty(), "a paused game stops the reset")
+		reset.button_down.emit()
+		reset_ring._process(2.0)
+		settings._danger.visible = false
+		_expect(not reset_ring.is_holding(), "closing the room stops the reset")
+		reset.button_up.emit()
+		settings._danger.visible = true
+		reset.button_down.emit()
+		for _step in 20:
+			reset_ring._process(0.5)
+		_expect(resets.size() == 1, "five seconds held asks for the reset once, not %d times" % resets.size())
+		reset.button_up.emit()
+		_expect(resets.size() == 1, "and letting go asks for nothing more")
+	settings.queue_free()
+
+func _motion_away(button: Control) -> InputEventMouseMotion:
+	var event := InputEventMouseMotion.new()
+	event.position = button.size + Vector2(300.0, 300.0)
+	return event
+
+## The café's doormat lies outside its walls, so the rule that kept grass off
+## a floor (indoors) stopped at the wall and tufts came up on the mat and
+## between the porch boards. Every tuft round the café and the shop is tested
+## against the floor rule, and the mat and deck are tested directly.
+func _check_no_grass_stands_on_a_doormat_or_porch() -> void:
+	print("no grass stands on a doormat or porch")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var cafe := PlaceSpec.centre_of(&"cafe", camp)
+	var front_of_cafe := cafe.z + Places.CAFE_FRONT_Z
+	_expect(
+		PlaceSpec.on_floor(cafe.x, front_of_cafe - 0.5, camp)
+		and PlaceSpec.on_floor(cafe.x + 0.85, front_of_cafe - 0.9, camp),
+		"the café's doormat, all of it, counts as floor"
+	)
+	var shop := PlaceSpec.centre_of(&"shop", camp)
+	var front_of_shop := shop.z + PlaceSpec.BUILDINGS[&"shop"][2] - Places.SHOP_DEPTH * 0.5
+	_expect(
+		PlaceSpec.on_floor(shop.x + Places.SHOP_WIDTH * 0.5 + 0.2, front_of_shop - 2.5, camp),
+		"and so is the shop's porch deck, to its far corner"
+	)
+	_expect(
+		not PlaceSpec.on_floor(cafe.x, front_of_cafe - 3.0, camp),
+		"but the ground a few strides out from the door is not"
+	)
+	var counted := 0
+	var on_floor := 0
+	for place: StringName in [&"cafe", &"shop"]:
+		var centre := PlaceSpec.centre_of(place, camp)
+		var tile_x := int(floorf(centre.x / 32.0))
+		var tile_z := int(floorf(centre.z / 32.0))
+		for dx in range(-1, 2):
+			for dz in range(-1, 2):
+				var baked := VegetationTile.bake(field, Vector2i(tile_x + dx, tile_z + dz), 32, 20260903, null, true)
+				for tuft: Transform3D in baked["grass"]:
+					counted += 1
+					var at := tuft.origin + Vector3((tile_x + dx) * 32, 0.0, (tile_z + dz) * 32)
+					if PlaceSpec.on_floor(at.x, at.z, camp):
+						on_floor += 1
+	_expect(counted > 100, "there are %d tufts round the café and the shop to look at" % counted)
+	_expect(on_floor == 0, "%d tufts stand on a floor, doormat or porch" % on_floor)
+
+## The fairground is levelled into a hillside that stands thirteen metres
+## above it on its north-east side, so the levelling's feather is a steep cut
+## that the rock rule painted as bare crag: a dark band across the meadow.
+func _check_the_fairground_feather_is_not_painted_as_crag() -> void:
+	print("the fairground feather is not painted as crag")
+	var field := HeightField.new(20260903)
+	var at := Vector2(ParkSpec.EAST + 6.0, ParkSpec.NORTH + 20.0)
+	var height := field.height_at(at.x, at.y)
+	var slope := field.steepness_at(at.x, at.y)
+	_expect(slope > 0.6, "the cut at the feather is steep (%.2f)" % slope)
+	var tint := TerrainChunk._tint(field, at.x, at.y, height, slope, false, false, false)
+	_expect(
+		Vector3(tint.r, tint.g, tint.b).distance_to(Vector3(TerrainSpec.COLOR_CRAG.r, TerrainSpec.COLOR_CRAG.g, TerrainSpec.COLOR_CRAG.b))
+		> Vector3(tint.r, tint.g, tint.b).distance_to(Vector3(TerrainSpec.COLOR_GRASS.r, TerrainSpec.COLOR_GRASS.g, TerrainSpec.COLOR_GRASS.b)),
+		"and is painted nearer grass than crag (%s)" % tint
+	)
 

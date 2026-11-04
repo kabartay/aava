@@ -160,8 +160,9 @@ static func bake(
 			if Lakes.wet(world_x, world_z):
 				continue
 			# Nor on a floor. A building is a place with a floor in it, and
-			# grass came up through the café's and the shop's.
-			if PlaceSpec.indoors(world_x, world_z, field.camp_centre()):
+			# grass came up through the café's and the shop's — and on the
+			# doormat and porch deck, which are floor outside the walls.
+			if PlaceSpec.on_floor(world_x, world_z, field.camp_centre()):
 				continue
 			# Trodden ground grows a tuft here and there, not a lawn. Decided by
 			# a hash of the spot rather than a draw from the generator, so the

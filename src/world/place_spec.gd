@@ -262,6 +262,32 @@ static func indoors(x: float, z: float, camp: Vector3) -> bool:
 			return true
 	return false
 
+## The paved or boarded ground in front of each building's door, outside its
+## walls: half the width, then how far it reaches out from the front wall. The
+## café's is its doormat, 1.8 m wide and 0.9 m deep, with a hand's breadth of
+## margin; the shop's is its porch deck, which runs the width of the building
+## and a little over. `indoors` stops at the wall, so a tuft came up on the mat
+## and between the porch boards while none grew inside.
+const DOORSTEPS := {
+	&"cafe": [1.2, 1.4],
+	&"shop": [8.8, 2.9],
+}
+
+## Is this point on a floor of a place: inside a building, or on the mat or
+## deck at its door? What the scatter of grass asks, so that every kind of
+## floor a place has is kept bare by one rule rather than one coordinate.
+static func on_floor(x: float, z: float, camp: Vector3) -> bool:
+	if indoors(x, z, camp):
+		return true
+	for place in DOORSTEPS:
+		var centre: Vector3 = camp + OFFSETS[place]
+		var shape: Array = BUILDINGS[place]
+		var step: Array = DOORSTEPS[place]
+		var front := centre.z + float(shape[2]) - float(shape[1]) * 0.5
+		if absf(x - centre.x) < float(step[0]) and z < front and z > front - float(step[1]):
+			return true
+	return false
+
 ## How far out the pool's fence stands from the water, so that one place can
 ## answer "is this inside the pool's enclosure" without depending on Places —
 ## the height field and the mounts both ask, and neither may.

@@ -356,7 +356,7 @@ func _positive_control() -> void:
 		return
 	var wood := inventory.count(ItemKinds.WOOD)
 	var held := _holds_completed
-	await _press(fire.get_global_rect().get_center(), "button _fire_button (held)", PARENT_HOLD_SECONDS, false)
+	await _press(fire.get_global_rect().get_center(), "button _fire_button (held)", PARENT_HOLD_SECONDS, true)
 	if _holds_completed != held + 1 or inventory.count(ItemKinds.WOOD) != wood - 1:
 		failures.append("control: holding the fire button did not burn a log (wood %d -> %d)" % [
 			wood, inventory.count(ItemKinds.WOOD)
@@ -409,7 +409,7 @@ func _collect_buttons(node: Node, into: Array[BaseButton]) -> void:
 		_collect_buttons(child, into)
 
 ## Press, wait, lift: as a finger does. Returns the frames it took.
-func _press(at: Vector2, what: String, seconds: float, drags: bool) -> int:
+func _press(at: Vector2, what: String, seconds: float, steady: bool) -> int:
 	_last_tap = what
 	_recent.append(what)
 	if _recent.size() > 6:
@@ -427,7 +427,10 @@ func _press(at: Vector2, what: String, seconds: float, drags: bool) -> int:
 		if ring.is_holding():
 			rings.append(ring)
 	for i in frames:
-		if what == "the stick" or (_rng.randf() < 0.1):
+		# A finger that wanders is part of a toddler's tap, and a ring now lets go
+		# of a finger that slides off its button. A hold made on purpose keeps
+		# still, as a parent's thumb does, or the control could never go through.
+		if what == "the stick" or (not steady and _rng.randf() < 0.1):
 			var drag := InputEventScreenDrag.new()
 			drag.index = 0
 			drag.position = at + Vector2(_rng.randf_range(-60.0, 60.0), _rng.randf_range(-60.0, 60.0))
