@@ -465,7 +465,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.animals.cared_for.connect(func(_kind: StringName, _coins: int, _at: Vector3) -> void: pass)
 	world.animals.befriended.connect(func(kind: StringName) -> void:
 		hud.announce(Text.format("say_friend", [AnimalKinds.label(kind)]), 4.0))
-	wallet.changed.connect(func(total: int) -> void: hud.set_coins(total))
+	wallet.changed.connect(func(total: int) -> void: hud.set_coins(total, true))
 	wallet.changed.connect(func(_total: int) -> void: hud.set_owned(wallet.owned))
 
 	# The reward line is an announcement; the instruction is a standing label.
@@ -684,7 +684,7 @@ func _offer_a_ride(which: StringName) -> bool:
 		_asked_ride = which
 		hud.ask(Text.format("ask_buy_ride", [Park.RIDE_PRICE]))
 		return true
-	_refuse(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.4)
+	_refuse_no_coins(Park.RIDE_PRICE, 2.4)
 	return false
 var _coaster_told := false
 ## Whether the train was standing at the platform on the last tick.
@@ -1845,6 +1845,7 @@ func _rebuild_hud() -> void:
 ## whistle for a child who owned one and no bottle on the gauge. The screenshot
 ## tool filled these in by hand, which is why no picture ever showed it.
 func _show_the_state() -> void:
+	hud.child_on_screen = _child_on_screen
 	hud.set_coins(wallet.coins)
 	hud.set_owned(wallet.owned)
 	hud.set_task(_task_line())
@@ -2904,7 +2905,7 @@ func _on_today_done(_kind: StringName, reward: int) -> void:
 	wallet.earn(reward)
 	journal.record(Journal.COINS, reward)
 	sounds.play(Sounds.Sound.CHIME, 1.3)
-	hud.announce(Text.format("say_today", [reward]), 4.0)
+	hud.announce_with(Text.format("say_today", [reward]), NoteIcon.Kind.COIN_PLUS, 4.0)
 	hud.set_task(_task_line())
 
 func _on_place_used() -> void:
@@ -2957,7 +2958,7 @@ func _eat() -> void:
 	# is one dish. The menu's tiles choose and never buy.
 	var dish := hud.chosen_dish()
 	if wallet.coins < Dishes.price(dish):
-		_refuse(Text.format("say_no_coins", [Dishes.price(dish)]), 2.2)
+		_refuse_no_coins(Dishes.price(dish), 2.2)
 		return
 	wallet.spend(Dishes.price(dish))
 	vitals.energy = Dishes.energy_after(vitals.energy, dish)
@@ -2979,7 +2980,7 @@ func _eat_at_home() -> void:
 		Venues.FULL:
 			_refuse(Text.of("say_not_hungry"), 2.0)
 		Venues.POOR:
-			_refuse(Text.format("say_no_coins", [Venues.price_of(dish)]), 2.2)
+			_refuse_no_coins(Venues.price_of(dish), 2.2)
 		Venues.WAIT:
 			# Said kindly, with the way round it: a coin buys a meal now.
 			_refuse(
@@ -3059,7 +3060,7 @@ func _sell_at_home() -> void:
 		return
 	journal.record(Journal.COINS, sale.y)
 	sounds.play(Sounds.Sound.CHIME, 1.2)
-	hud.announce(Text.format("say_sold", [sale.x, sale.y]), 2.4)
+	hud.announce_with(Text.format("say_sold", [sale.x, sale.y]), NoteIcon.Kind.COIN_PLUS, 2.4)
 
 ## The cafe and the shop this child has built, so that each is announced once,
 ## when it first counts, and again only if it was taken down and built anew.
@@ -3202,8 +3203,9 @@ func _on_arrow_hit(index: int, ring: int, points: int) -> void:
 	journal.record(Journal.COINS, paid)
 	today.record(Today.SHOOT)
 	sounds.play(Sounds.Sound.GOAL if ring == 0 else Sounds.Sound.CLEARED)
-	hud.announce(
-		Text.format("say_gold" if ring == 0 else "say_hit", [points]), 2.0
+	hud.announce_with(
+		Text.format("say_gold" if ring == 0 else "say_hit", [points]),
+		NoteIcon.Kind.ACTION, 2.0, Color.WHITE, &"", ActionIcon.Kind.SHOOT
 	)
 
 ## Which side of a horse at `horse_at` the child stands on, as it faces the way
@@ -3414,10 +3416,23 @@ const BEAVER_ERRAND := 25.0
 ## The child reaches out to an animal they are caring for and the animal
 ## answers: the one place that does both, whatever the care was (food, water,
 ## wool, milk or a stroke), so the two never disagree about whether it happened.
+## Where the child is on the screen, for the coins and chips that start from
+## them. Asked by the HUD only when something flies.
+func _child_on_screen() -> Vector2:
+	return _screen_of(player.global_position + Vector3.UP * 1.3)
+
+func _screen_of(at: Vector3) -> Vector2:
+	var cam := camera_rig.camera
+	if cam.is_position_behind(at):
+		return Vector2.INF
+	return cam.unproject_position(at)
+
 func _tend(animal: Dictionary) -> void:
 	var node = animal.get("node")
 	if node == null or not is_instance_valid(node):
 		return
+	# What the animal gives starts its coins' flight from the animal itself.
+	hud.note_origin(_screen_of((node as Node3D).global_position + Vector3.UP * 0.8))
 	var kind: StringName = animal["kind"]
 	# Stroked, and not held out to, when nothing is handed over: a pat, the
 	# shears, the milking.
@@ -3499,7 +3514,11 @@ func _on_care() -> void:
 			var who: Dictionary = held["animal"]
 			# Through the one door every refusal uses: heard each time, and not
 			# rewritten on every press while it is still on the screen.
-			_refuse(Text.of("wish_resting") if why == &"rest" else _blocked_words(who["kind"], why), 1.8)
+			var lacks := NoteIcon.Kind.ITEM_CROSS if why == &"item" else NoteIcon.Kind.CROSS
+			_refuse(
+				Text.of("wish_resting") if why == &"rest" else _blocked_words(who["kind"], why),
+				1.8, 1.0, lacks, AnimalKinds.want(who["kind"]) if why == &"item" else &""
+			)
 		return
 	# A thirsty animal takes water rather than food. This is the bottle's second
 	# use and the reason it is the cheapest thing in the shop.
@@ -3512,7 +3531,7 @@ func _on_care() -> void:
 			journal.record(Journal.COINS, reward)
 			today.record(Today.CARE)
 			sounds.play(Sounds.Sound.SPLASH)
-			hud.announce(Text.format("say_watered", [AnimalKinds.label(animal["kind"])]), 2.0)
+			hud.announce_with(Text.format("say_watered", [AnimalKinds.label(animal["kind"])]), NoteIcon.Kind.COIN_PLUS, 2.0)
 			_refresh_vitals()
 			return
 
@@ -3559,7 +3578,7 @@ func _on_care() -> void:
 	today.record(Today.CARE)
 	journal.record(Journal.COINS, coins)
 	sounds.play(Sounds.Sound.CHIME, 1.15)
-	hud.announce(Text.format("say_fed", [coins]), 1.4)
+	hud.announce_with(Text.format("say_fed", [coins]), NoteIcon.Kind.COIN_PLUS, 1.4)
 
 func _on_shop() -> void:
 	hud.set_shop_open(not hud.is_shop_open(), wallet.coins, wallet.owned)
@@ -3810,14 +3829,14 @@ func _on_buy(item: StringName) -> void:
 		wallet.earn(paid)
 		journal.record(Journal.COINS, paid)
 		sounds.play(Sounds.Sound.CHIME, 1.2)
-		hud.announce(Text.format("say_sold", [carried, paid]), 2.4)
+		hud.announce_with(Text.format("say_sold", [carried, paid]), NoteIcon.Kind.COIN_PLUS, 2.4)
 		hud.set_shop_open(true, wallet.coins, wallet.owned)
 		return
 	# A bar of chocolate is used up rather than owned, so it goes through the
 	# purse rather than the ledger: buy as many as you like, one at a time.
 	if ShopStock.is_consumable(item):
 		if not wallet.spend(ShopStock.price(item)):
-			_refuse(Text.format("say_no_coins", [ShopStock.price(item)]), 2.2)
+			_refuse_no_coins(ShopStock.price(item), 2.2)
 			return
 		inventory.add(item, 1)
 		sounds.play(Sounds.Sound.PICKUP, 1.2)
@@ -4191,7 +4210,7 @@ func _on_answered(yes: bool) -> void:
 			if not paid and wallet.buy_ticket(Park.RIDE_PRICE):
 				paid = wallet.use_ticket()
 			if not paid:
-				_refuse(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
+				_refuse_no_coins(Park.RIDE_PRICE, 2.2)
 				return
 			sounds.play(Sounds.Sound.CHIME, 1.1)
 			_riding_without_a_ticket = false
@@ -4248,7 +4267,7 @@ func _watch_the_turnstile() -> void:
 	if offer and not _ticket_told:
 		_ticket_told = true
 		if at_booth or at_ride:
-			hud.announce(Text.format("say_park_ticket", [Park.RIDE_PRICE]), 2.6)
+			hud.announce_with(Text.format("say_park_ticket", [Park.RIDE_PRICE]), NoteIcon.Kind.ACTION, 2.6, Color.WHITE, &"", ActionIcon.Kind.TICKET)
 		else:
 			hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
 	elif not near and not at_booth and not at_ride:
@@ -4303,7 +4322,7 @@ func _on_ticket() -> void:
 	# At the fairground's kiosk this buys a ticket rather than a swim.
 	if world.park.at_the_booth(player.global_position):
 		if not wallet.can_afford(Park.RIDE_PRICE):
-			_refuse(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
+			_refuse_no_coins(Park.RIDE_PRICE, 2.2)
 			return
 		# Asked, not taken. Coins are the record of everything a child has
 		# done, and nothing in this valley spends them without being told to.
@@ -4318,13 +4337,13 @@ func _on_ticket() -> void:
 	if not world.places.at_turnstile(player.global_position) or world.places.inside_pool_fence(player.global_position):
 		return
 	if wallet.coins < Places.POOL_TICKET:
-		_refuse(Text.format("say_no_coins", [Places.POOL_TICKET]), 2.2)
+		_refuse_no_coins(Places.POOL_TICKET, 2.2)
 		return
 	wallet.spend(Places.POOL_TICKET)
 	world.places.open_turnstile()
 	session.report_turnstile()
 	sounds.play(Sounds.Sound.PICKUP, 1.1)
-	hud.announce(Text.of("say_welcome_pool"), 2.4)
+	hud.announce_with(Text.of("say_welcome_pool"), NoteIcon.Kind.ACTION, 2.4, Color.WHITE, &"", ActionIcon.Kind.TICKET)
 
 ## The arc an arrow would fly on, drawn as dots while the string is held.
 ## The same arithmetic the shot itself uses, so the dots do not lie.
@@ -4361,16 +4380,17 @@ func _on_goal(index: int, _blue: int, _red: int) -> void:
 	var away := _metres_to_play()
 	sounds.play_at(Sounds.Sound.GOAL, away)
 	sounds.play_at(Sounds.Sound.CHEER, away, 1.0, -3.0)
-	hud.announce(Text.of("say_goal"), 2.0, Goal.SIDE_COLOURS[1 - index])
+	hud.announce_with(Text.of("say_goal"), NoteIcon.Kind.ACTION, 2.0, Goal.SIDE_COLOURS[1 - index], &"", ActionIcon.Kind.KICK)
 
 ## A side has won the match: said in its own colour over the board's.
 func _on_match_won(side: int, _blue: int, _red: int) -> void:
 	# From the pitch, like the goal that won it, not in the ear of a child at the
 	# far end of the valley.
 	sounds.play_at(Sounds.Sound.CHIME, _metres_to_play(), 1.3)
-	hud.announce(
-		Text.of("say_won_blue" if side == 0 else "say_won_red"),
-		FootballGround.WIN_PAUSE - 1.0, Goal.SIDE_COLOURS[side].lightened(0.2)
+	hud.announce_with(
+		Text.of("say_won_blue" if side == 0 else "say_won_red"), NoteIcon.Kind.ACTION,
+		FootballGround.WIN_PAUSE - 1.0, Goal.SIDE_COLOURS[side].lightened(0.2),
+		&"", ActionIcon.Kind.KICK
 	)
 
 ## A guest asked for a new game and the host's board has begun again: the same
@@ -4407,7 +4427,10 @@ var _refusal_sounded := -REFUSAL_SOUND_EVERY
 ## who cannot read can tell it from a success, and the words (for a parent, and
 ## for a child who can) once per REFUSAL_REPEAT seconds. Every refusal in this
 ## file goes through here, so a new one cannot be silent or look like a success.
-func _refuse(words: String, seconds := 3.2, pitch := 1.0) -> void:
+func _refuse(
+	words: String, seconds := 3.2, pitch := 1.0,
+	picture := NoteIcon.Kind.CROSS, item: StringName = &""
+) -> void:
 	var now := _play_seconds()
 	if now - _refusal_sounded >= REFUSAL_SOUND_EVERY:
 		_refusal_sounded = now
@@ -4417,7 +4440,13 @@ func _refuse(words: String, seconds := 3.2, pitch := 1.0) -> void:
 	if now - float(_refused_at.get(words, -REFUSAL_REPEAT)) < REFUSAL_REPEAT and hud.current_message() == words:
 		return
 	_refused_at[words] = now
-	hud.announce(words, seconds)
+	# Every refusal carries a cross (or the missing thing with one), so that a
+	# child who cannot read it still sees that the answer was no.
+	hud.announce_with(words, picture, seconds, Color.WHITE, item)
+
+## "Not enough coins", with a coin and a cross for the child who cannot read it.
+func _refuse_no_coins(price: int, seconds := 2.2) -> void:
+	_refuse(Text.format("say_no_coins", [price]), seconds, 1.0, NoteIcon.Kind.COIN_CROSS)
 
 func _on_place() -> void:
 	# Captured before placing, because place() moves the preview on.
@@ -4477,11 +4506,12 @@ func _on_matured(kind: StringName, at: Vector3) -> void:
 		# on their phone, and taking it down here repays nothing either.
 		hud.announce(Text.of("say_grown"))
 		return
+	hud.note_origin(_screen_of(at + Vector3.UP * 1.0))
 	wallet.earn(reward)
 	journal.record(Journal.COINS, reward)
-	hud.announce(
+	hud.announce_with(
 		Text.format("say_grown_fir" if kind == BuildKinds.PINE else "say_grown_tree", [reward]),
-		3.0
+		NoteIcon.Kind.COIN_PLUS, 3.0
 	)
 
 ## The grass round a floor laid or lifted is baked again, once for every place

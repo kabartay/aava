@@ -74,6 +74,8 @@ extends Node3D
 ##                  nearest the --look point, and --mealframes=N frames on
 ##   --sit=1        with --player=1 and --meal, sit the player in the seat that
 ##                  meal was served at, posed as at a table in the game
+##   --pic=fly|nocoins|refuse|noitem|reward|hold|goal|hit  stage a HUD picture: coins and
+##                  wool flying (frozen mid-air), or an announcement with its picture
 ##   --group=plans|walls|floor|roof|furniture|things  with --build=1, open the
 ##                  palette on that group
 
@@ -105,6 +107,7 @@ var _aim_preview := false
 var _score := Vector2i(-1, -1)
 var _side := -1
 var _winner := -1
+var _pic := ""
 var _flash := -1
 var _zoom := 0.0
 var _shop := false
@@ -261,6 +264,8 @@ func _ready() -> void:
 	if _winner >= 0 or _flash >= 0:
 		for _i in 25:
 			await get_tree().process_frame
+	if _pic != "" and _hud != null:
+		await _stage_a_picture()
 	if _meal != &"":
 		# A dish on the table nearest the look-at point, a moment after it was
 		# set down, so that a shot shows the food and a bite of it gone.
@@ -840,6 +845,8 @@ func _parse_arguments() -> void:
 				_side = value.to_int()
 			"winner":
 				_winner = value.to_int()
+			"pic":
+				_pic = value
 			"flash":
 				_flash = value.to_int()
 			"power":
@@ -1046,3 +1053,39 @@ func _show_mounts() -> void:
 		var spot := origin + forward * 5.0 + across * (float(i) - 0.5) * 3.4
 		_world.mounts.place(kind, spot)
 		print("  %s at (%.1f, %.1f)" % [kind, spot.x, spot.z])
+
+## --pic=NAME: the HUD's pictures. "fly" sends coins to the purse and wool to the
+## bag and freezes them part-way; the others put an announcement up with its
+## picture, held for a minute.
+func _stage_a_picture() -> void:
+	var plain := _pic.begins_with("plain-")
+	match _pic.trim_prefix("plain-"):
+		"fly":
+			var view := get_viewport().get_visible_rect().size
+			_hud.set_item_count(ItemKinds.WOOL, 0)
+			_hud.note_origin(view * Vector2(0.45, 0.62))
+			_hud.fly_coins(20, false)
+			_hud.note_origin(view * Vector2(0.5, 0.7))
+			_hud.fly_item(ItemKinds.WOOL)
+			await get_tree().create_timer(0.55).timeout
+			_hud.fly_layer().freeze()
+		"nocoins":
+			_hud.announce_with(Text.format("say_no_coins", [12]), NoteIcon.Kind.COIN_CROSS, 60.0)
+		"refuse":
+			_hud.announce_with(Text.of("say_not_hungry"), NoteIcon.Kind.CROSS, 60.0)
+		"noitem":
+			_hud.announce_with(Text.format("need_give", [ItemKinds.label_object(&"stick")]), NoteIcon.Kind.ITEM_CROSS, 60.0, Color.WHITE, ItemKinds.STICK)
+		"reward":
+			_hud.announce_with(Text.format("say_fed", [3]), NoteIcon.Kind.COIN_PLUS, 60.0)
+		"hold":
+			_hud.announce_with(Text.of("ui_hold_hint"), NoteIcon.Kind.HOLD, 60.0)
+		"goal":
+			_hud.announce_with(Text.of("say_goal"), NoteIcon.Kind.ACTION, 60.0, Color.WHITE, &"", ActionIcon.Kind.KICK)
+		"hit":
+			_hud.announce_with(Text.format("say_gold", [5]), NoteIcon.Kind.ACTION, 60.0, Color.WHITE, &"", ActionIcon.Kind.SHOOT)
+	if plain:
+		# The same line without its picture: how it was before.
+		_hud._message_icon.show_kind(NoteIcon.Kind.NONE)
+		_hud._layout()
+	for _i in 6:
+		await get_tree().process_frame

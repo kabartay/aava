@@ -223,6 +223,11 @@ func _initialize() -> void:
 	await _check_the_together_pages_fit_the_screen()
 	await _check_every_panel_fits_a_cutout_and_back_closes_it()
 	await _check_no_control_draws_over_an_open_panel()
+	await _check_a_coin_fly_ends_at_the_purse_and_frees_itself()
+	await _check_a_burst_of_earnings_makes_a_bounded_number_of_nodes()
+	await _check_an_announcement_shows_its_picture_or_none()
+	await _check_nothing_flies_while_a_panel_is_open()
+	await _check_no_fly_node_is_left_after_ten_seconds()
 	await _check_a_volume_slider_follows_a_finger()
 	_check_it_will_run_on_a_tablet()
 	_check_voice_is_safe()
@@ -24458,6 +24463,164 @@ func _check_no_control_draws_over_an_open_panel() -> void:
 ## the mouse: on a phone neither the knob nor the track did anything. A touch
 ## on the track moves it there, a drag follows, and lifting the finger keeps
 ## the value and tells the game once.
+## A fresh interface in the window, with the coin purse seeded at nought so the
+## next change is a change and not a first showing. For the fly checks.
+func _fly_hud() -> Hud:
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.set_coins(0)
+	hud.set_item_count(ItemKinds.WOOL, 0)
+	return hud
+
+func _check_a_coin_fly_ends_at_the_purse_and_frees_itself() -> void:
+	print("a coin fly ends at the purse, bumps it, and frees itself")
+	var hud := _fly_hud()
+	await process_frame
+	var landed: Array[Vector2] = []
+	hud.fly_layer().landed.connect(func(_item: StringName, at: Vector2) -> void: landed.append(at))
+	# Taken before the first coin lands: a bump scales the purse about its middle.
+	var purse := hud._purse.global_position + hud._purse.size * 0.5
+	hud.note_origin(Vector2(400.0, 400.0))
+	hud.set_coins(20, true)
+	var layer := hud.fly_layer()
+	_expect(layer.live_count() == HudFly.pieces_for(20), "a big reward flies as %d coins" % HudFly.pieces_for(20))
+	_expect(layer.get_child_count() == layer.live_count(), "one Control per piece, nothing else")
+	_expect(
+		layer.mouse_filter == Control.MOUSE_FILTER_IGNORE
+		and (layer.get_child(0) as Control).mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"a flying coin takes no touch"
+	)
+	var frames := 0
+	while layer.live_count() > 0 and frames < 300:
+		await process_frame
+		frames += 1
+	_expect(layer.live_count() == 0 and layer.get_child_count() == 0, "every coin has freed itself on landing")
+	_expect(landed.size() == HudFly.pieces_for(20), "every coin landed")
+	for at: Vector2 in landed:
+		_expect(at.distance_to(purse) < 1.0, "a coin lands on the purse (%s, %s)" % [at, purse])
+	_expect(hud._purse.scale.x > 1.0, "the purse bumps as the coins land")
+	for _i in 30:
+		await process_frame
+	_expect(hud._purse.scale.is_equal_approx(Vector2.ONE), "and settles back")
+	# Spending flies the other way: out of the purse.
+	var out: Array[Vector2] = []
+	layer.landed.connect(func(_item: StringName, at: Vector2) -> void: out.append(at))
+	hud.note_origin(Vector2(300.0, 300.0))
+	hud.set_coins(15, true)
+	frames = 0
+	while layer.live_count() > 0 and frames < 300:
+		await process_frame
+		frames += 1
+	_expect(out.size() > 0 and out[0].distance_to(Vector2(300.0, 300.0)) < 1.0, "a spend ends where it was paid")
+	hud.queue_free()
+	await process_frame
+
+func _check_a_burst_of_earnings_makes_a_bounded_number_of_nodes() -> void:
+	print("a burst of fifty earnings makes a bounded number of nodes")
+	var hud := _fly_hud()
+	await process_frame
+	var layer := hud.fly_layer()
+	var tree_before := get_root().get_child_count()
+	var total := 0
+	for i in 50:
+		total += 3
+		hud.set_coins(total, true)
+		hud.set_item_count(ItemKinds.WOOL, i + 1)
+		hud.set_item_count(ItemKinds.STICK, i + 1)
+	_expect(layer.live_count() <= HudFly.MAX_LIVE, "no more than %d pieces in the air, got %d" % [HudFly.MAX_LIVE, layer.live_count()])
+	_expect(layer.get_child_count() <= HudFly.MAX_LIVE, "and as many nodes, got %d" % layer.get_child_count())
+	_expect(layer.live_count() >= 1, "yet the burst is still shown")
+	_expect(get_root().get_child_count() == tree_before, "nothing else was added to the tree")
+	hud.queue_free()
+	await process_frame
+
+func _check_an_announcement_shows_its_picture_or_none() -> void:
+	print("an announcement shows its picture, and one without shows none")
+	var hud := _fly_hud()
+	await process_frame
+	var icon: NoteIcon = hud._message_icon
+	hud.announce("plain")
+	await process_frame
+	_expect(not icon.visible and icon.get_child_count() == 0, "an announcement without a picture shows none")
+	for picture: NoteIcon.Kind in [
+		NoteIcon.Kind.CROSS, NoteIcon.Kind.COIN_CROSS, NoteIcon.Kind.COIN_PLUS,
+		NoteIcon.Kind.ITEM_CROSS, NoteIcon.Kind.HOLD, NoteIcon.Kind.ACTION,
+	]:
+		hud.announce_with("a line of words", picture, 3.0, Color.WHITE, ItemKinds.STICK, ActionIcon.Kind.KICK)
+		await process_frame
+		var view := hud.get_viewport().get_visible_rect()
+		_expect(icon.get_child_count() > 0, "picture %d is drawn" % picture)
+		_expect(icon.visible, "picture %d is visible" % picture)
+		_expect(view.encloses(Rect2(icon.position, icon.size)), "picture %d is on the screen" % picture)
+		_expect(icon.mouse_filter == Control.MOUSE_FILTER_IGNORE, "picture %d takes no touch" % picture)
+		var line := hud._message
+		_expect(icon.position.x + icon.size.x <= line.position.x + line.size.x, "picture %d stands left of the text's end" % picture)
+	hud.announce("plain again")
+	await process_frame
+	_expect(not icon.visible, "the next plain announcement takes the picture down")
+	hud.announce_with("held", NoteIcon.Kind.HOLD, 3.0)
+	hud.retract("held")
+	_expect(is_zero_approx(icon.modulate.a), "taking an announcement back takes its picture with it")
+	hud.queue_free()
+	await process_frame
+
+func _check_nothing_flies_while_a_panel_is_open() -> void:
+	print("nothing flies while a panel is open")
+	var hud := _fly_hud()
+	await process_frame
+	var layer := hud.fly_layer()
+	var total := 0
+	for panel: String in ["menu", "shop", "cafe", "together", "danger"]:
+		match panel:
+			"menu":
+				hud._toggle_menu()
+			"shop":
+				hud.set_shop_open(true, 50, {})
+			"cafe":
+				hud.set_cafe_menu_open(true, true, 5)
+			"together":
+				hud.together.open()
+			"danger":
+				hud._danger.visible = true
+		await process_frame
+		total += 4
+		hud.set_coins(total, true)
+		hud.set_item_count(ItemKinds.WOOL, total)
+		hud.fly_coins(5, false)
+		hud.fly_item(ItemKinds.WOOL)
+		_expect(hud.a_panel_is_open(), "the %s panel counts as open" % panel)
+		_expect(layer.live_count() == 0 and layer.get_child_count() == 0, "nothing flies over the %s panel" % panel)
+		hud.set_shop_open(false, 50, {})
+		hud.set_cafe_menu_open(false, true, 5)
+		hud.together.close()
+		hud._danger.visible = false
+		hud._menu.visible = false
+	_expect(not hud.a_panel_is_open(), "with every panel shut")
+	hud.set_coins(total + 4, true)
+	_expect(layer.live_count() > 0, "a coin flies again")
+	hud.queue_free()
+	await process_frame
+
+func _check_no_fly_node_is_left_after_ten_seconds() -> void:
+	print("no fly node is left after ten seconds")
+	var hud := _fly_hud()
+	await process_frame
+	var layer := hud.fly_layer()
+	var total := 0
+	for i in 20:
+		total += 7
+		hud.set_coins(total, true)
+		hud.set_item_count(ItemKinds.WOOL, i + 1)
+		hud.set_coins(total - 2, true)
+		await process_frame
+	_expect(layer.live_count() > 0, "there is something in the air to begin with")
+	for _i in 600:
+		await process_frame
+	_expect(layer.live_count() == 0 and layer.get_child_count() == 0, "ten seconds later every piece has gone")
+	_expect(hud._purse.scale.is_equal_approx(Vector2.ONE), "and the purse is its own size")
+	hud.queue_free()
+	await process_frame
+
 func _check_a_volume_slider_follows_a_finger() -> void:
 	print("a volume slider follows a finger on the track and in a drag")
 	var hud := Hud.new()

@@ -234,6 +234,20 @@ var _reset_ring: HoldRing
 var _status: Label
 var _message: Label
 var _message_timer := 0.0
+## The picture beside the announcement, when it has one (see announce_with).
+var _message_icon: NoteIcon
+## Where things fly: coins to the purse, chips to the bag.
+var _fly: HudFly
+## The last coin total and item counts seen, so a change can be told from a
+## first showing. -1: nothing seen yet.
+var _coins_seen := -1
+var _counts_seen := {}
+## Asked, only when something flies, for the child's place on the screen.
+var child_on_screen: Callable = Callable()
+## Where the next fly starts, if the game said (an animal, a target), and when.
+var _noted_from := Vector2.INF
+var _noted_at := -10.0
+var _bump: Tween
 var _building := false
 var _kick_button: Button
 ## The finger that is holding the kick button, so a second finger turning the
@@ -389,6 +403,8 @@ func _init() -> void:
 	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_message.modulate.a = 0.0
 	add_child(_message)
+	_message_icon = NoteIcon.new()
+	add_child(_message_icon)
 
 	# The kick button only appears when there is a ball to kick, so it never
 	# sits on screen as a control that does nothing.
@@ -785,6 +801,11 @@ func _init() -> void:
 		set_voice_allowed(not _voice_allowed)
 		voice_allowed_changed.emit(_voice_allowed))
 	add_child(_voice_button)
+
+	# Last, so it draws over the buttons and under nothing but the map.
+	_fly = HudFly.new()
+	_fly.landed.connect(_on_fly_landed)
+	add_child(_fly)
 
 func _ready() -> void:
 	# Everything above is built in _init, so a caller can use this HUD's
@@ -2058,11 +2079,18 @@ func set_animal_in_reach(wish: String, icon := -1, blocked := false, rested := -
 ## The purse is a fixed width sized for four digits, so four digits is what it
 ## is allowed to print. Wallet caps what a child can hold at the same number;
 ## this is the panel keeping its own promise rather than trusting the caller.
-func set_coins(total: int) -> void:
+func set_coins(total: int, animate := false) -> void:
+	var before := _coins_seen
+	_coins_seen = total
 	_coins_label.text = str(clampi(total, 0, Wallet.MAX_COINS))
 	_coin_count = total
 	_chop_needs_a_hold()
 	_layout()
+	if animate and before >= 0 and total != before:
+		if total > before:
+			fly_coins(total - before, false)
+		else:
+			fly_coins(before - total, true)
 
 func _toggle_map() -> void:
 	if _minimap == null:
@@ -2390,6 +2418,79 @@ func set_building(enabled: bool) -> void:
 ## The count of one item changed.
 func set_item_count(kind: StringName, total: int) -> void:
 	_backpack.set_count(kind, total)
+	var before: int = _counts_seen.get(kind, -1)
+	_counts_seen[kind] = total
+	# The first showing of a count is the bag being filled in, not a pickup.
+	if before >= 0 and total > before:
+		fly_item(kind)
+
+## Tell the HUD where the next coin or item started, in screen pixels: the
+## animal that was fed, the target that was hit. Good for half a second, and
+## used once; with none, things start from the child.
+func note_origin(screen_at: Vector2) -> void:
+	_noted_from = screen_at
+	_noted_at = Time.get_ticks_msec() * 0.001
+
+func _origin() -> Vector2:
+	var now := Time.get_ticks_msec() * 0.001
+	if _noted_from.is_finite() and now - _noted_at < 0.5:
+		var at := _noted_from
+		_noted_from = Vector2.INF
+		return at
+	var view := get_viewport().get_visible_rect().size
+	if child_on_screen.is_valid():
+		var there: Vector2 = child_on_screen.call()
+		if there.is_finite():
+			return there.clamp(Vector2.ZERO, view)
+	return view * Vector2(0.5, 0.55)
+
+## Whether anything is open that a flying coin would cross. Nothing flies over
+## a panel: the picture would land on the thing a child is reading.
+func a_panel_is_open() -> bool:
+	return (
+		_shop.visible or _menu.visible or _danger.visible or together.visible
+		or (_cafe_menu != null and _cafe_menu.visible) or _offer != null
+		or (_mic_notice != null and _mic_notice.visible)
+		or (_minimap != null and _minimap.is_big())
+	)
+
+func _can_fly() -> bool:
+	return is_inside_tree() and visible and not a_panel_is_open()
+
+func _centre_of(box: Control) -> Vector2:
+	return box.global_position + box.size * 0.5
+
+## A coin, or a few for a big reward, from where it was earned to the purse; or
+## from the purse out to the till when `spent`. At most a handful of Controls
+## and Tweens, merged when events come fast.
+func fly_coins(amount: int, spent: bool) -> void:
+	if not _can_fly():
+		return
+	var start := _origin()
+	var purse := _centre_of(_purse)
+	_fly.coins(amount, purse if spent else start, start if spent else purse)
+
+## A chip of the item, from the child to the bag.
+func fly_item(kind: StringName) -> void:
+	if not _can_fly():
+		return
+	_fly.chip(kind, _origin(), _centre_of(_backpack) - Vector2(0.0, _backpack.size.y * 0.5 - 20.0))
+
+## The layer the flies are in, for the checks and the screenshots.
+func fly_layer() -> HudFly:
+	return _fly
+
+func _on_fly_landed(item: StringName, _at: Vector2) -> void:
+	if item != HudFly.COIN:
+		return
+	# The purse bumps: bigger for an instant, then back. One tween, replaced
+	# rather than stacked.
+	if _bump != null and _bump.is_valid():
+		_bump.kill()
+	_purse.pivot_offset = _purse.size * 0.5
+	_purse.scale = Vector2(1.14, 1.14)
+	_bump = create_tween()
+	_bump.tween_property(_purse, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 ## Which piece is selected, whether it can go where it is aimed, and why not.
 func set_build_state(kind: StringName, valid: bool, reason: String) -> void:
@@ -2879,6 +2980,16 @@ func is_asking() -> bool:
 	return _asking.visible
 
 func announce(text: String, seconds := 3.2, colour := Color(1.0, 1.0, 1.0)) -> void:
+	announce_with(text, NoteIcon.Kind.NONE, seconds, colour)
+
+## An announcement with a small picture beside it, for the child who cannot read
+## the line. `item` names the thing for NoteIcon.Kind.ITEM_CROSS and `action`
+## the glyph for NoteIcon.Kind.ACTION. announce() is this with no picture.
+func announce_with(
+	text: String, picture: NoteIcon.Kind, seconds := 3.2,
+	colour := Color(1.0, 1.0, 1.0), item: StringName = &"", action: int = 0
+) -> void:
+	_message_icon.show_kind(picture, item, action)
 	_message.text = text
 	# Set every time, so a win in blue does not leave the next message blue.
 	_message.add_theme_color_override("font_color", colour)
@@ -2895,6 +3006,7 @@ func retract(text: String) -> void:
 	if _message_timer > 0.0 and _message.text == text:
 		_message_timer = 0.0
 		_message.modulate.a = 0.0
+		_message_icon.modulate.a = 0.0
 
 ## How long the "hold it" hint is not written again once it has been.
 const HOLD_HINT_REPEAT := 3.0
@@ -2909,7 +3021,7 @@ func _give_the_hold_hint() -> void:
 	if _hold_hint_clock - _hold_hint_at < HOLD_HINT_REPEAT and current_message() == Text.of("ui_hold_hint"):
 		return
 	_hold_hint_at = _hold_hint_clock
-	announce(Text.of("ui_hold_hint"), 1.8)
+	announce_with(Text.of("ui_hold_hint"), NoteIcon.Kind.HOLD, 1.8)
 
 ## The colour the current announcement is written in, for the checks.
 func message_colour() -> Color:
@@ -2953,6 +3065,7 @@ func _process(delta: float) -> void:
 	# Fade out over the last second rather than vanishing, so a child who looked
 	# away still catches that something happened.
 	_message.modulate.a = clampf(_message_timer, 0.0, 1.0)
+	_message_icon.modulate.a = _message.modulate.a
 
 ## Everything is positioned in code against the safe area, so a notch or a
 ## rounded corner never swallows a control.
@@ -3402,8 +3515,22 @@ func _layout() -> void:
 	# second row instead of off both edges of a narrow phone. The height is
 	# let go first: a label keeps the tall size it was given for a long
 	# announcement, and would go on being tall for a short one.
-	_message.size = Vector2(safe.size.x, 0.0)
-	_message.position = Vector2(safe.position.x, safe.position.y + safe.size.y * 0.26)
+	# With a picture the line gives up pic_room on its left for it, and the two
+	# stand together in the middle.
+	var pic_room := (NoteIcon.SIDE + 12.0) if _message_icon.visible else 0.0
+	_message.size = Vector2(safe.size.x - pic_room, 0.0)
+	_message.position = Vector2(safe.position.x + pic_room, safe.position.y + safe.size.y * 0.26)
+	if _message_icon.visible:
+		var font := _message.get_theme_font("font")
+		var font_size := _message.get_theme_font_size("font_size")
+		var wide := minf(
+			font.get_string_size(_message.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x,
+			_message.size.x
+		)
+		_message_icon.position = Vector2(
+			_message.position.x + (_message.size.x - wide) * 0.5 - pic_room,
+			_message.position.y + (_message.size.y - NoteIcon.SIDE) * 0.5
+		)
 
 	# While building, the care and bow buttons stand level with the storey
 	# buttons instead of under the task line, where they were put to keep them
