@@ -1626,7 +1626,7 @@ func _process(delta: float) -> void:
 		# Not winding up, but a ball is at the child's feet: show where a tap would
 		# send it, so they can turn to aim before they press. Not while building,
 		# nor for a ball left in the net for the cheer, which a kick would not move.
-		if ball != null and not build_mode.active and not (world.football.has_ball(ball) and world.football.in_the_net(ball)) and _resting_preview_on(player.velocity):
+		if ball != null and not build_mode.active and not (world.football.has_ball(ball) and world.football.in_the_net(ball)) and _resting_preview_on(player.velocity, ball):
 			_show_where_it_goes(ball)
 		else:
 			kick_preview.hide_path()
@@ -1795,6 +1795,12 @@ func _rebuild_hud() -> void:
 	Wiring.connect_hud(hud, build_mode, camera_rig, inventory, world.field, player, structures, _handlers())
 	_connect_the_rest_of_the_hud()
 	_show_the_state()
+	# A button freed while it is held never sends its release, as the talk button
+	# above: a kick or a bow wound up when the language changed went on winding,
+	# its aim dots up, with nothing held on the new interface to let it go.
+	if player.is_charging():
+		player.release_charge()
+		hud.set_kick_preview(false, 0.0, 0.0)
 	if was_building:
 		# On the tab the piece in hand is on, or the new interface opens on the
 		# things and swaps the wall a child was laying for a sapling.
@@ -4013,9 +4019,11 @@ func _kick_launch(ball: Ball, strength: float) -> Vector3:
 
 var _preview_resting := true
 
-func _resting_preview_on(velocity: Vector3) -> bool:
+func _resting_preview_on(velocity: Vector3, ball: Ball) -> bool:
 	_preview_resting = KickPreview.shown_at_pace(Vector2(velocity.x, velocity.z).length(), _preview_resting)
-	return _preview_resting
+	# Not for a ball that has just been struck and is still within reach on its
+	# way out: the dots would draw a second kick over the flight of the first.
+	return _preview_resting and ball.speed() <= Ball.TRAP_SPEED
 
 ## Standing still with a ball at the feet, the child turns to face where the
 ## camera looks, so the dotted line, which starts from the way they face, points
@@ -4534,7 +4542,7 @@ func _save_data() -> Dictionary:
 		"camera_yaw": camera_rig.yaw,
 		"inventory": inventory.to_data(),
 		"tasks": tasks.to_data(),
-		"wallet": wallet.to_data(),
+		"wallet": _wallet_to_save(),
 		"vitals": vitals.to_data(),
 		"free_meal_in": Venues.wait_left(_free_meal_after, _play_seconds()),
 		"built_house": _built_a_house,
@@ -4542,6 +4550,24 @@ func _save_data() -> Dictionary:
 		"journal": journal.to_data(),
 		"today": today.to_data(),
 	}
+
+## The purse as it is written down. A ticket paid for a ride that has not taken
+## the child yet (a train or a gondola booked, a tower or a ship waiting to go, a
+## carousel about to seat them) is only lent to the ride and is handed back when
+## the child walks away from it. A phone put down at the fairground is saved and
+## may be killed before that happens, and the ticket — ten coins — was gone for
+## a ride nobody had; it is written down as still held, and a game that carries
+## on simply writes the true count at the next save.
+func _wallet_to_save() -> Dictionary:
+	var data := wallet.to_data()
+	var lent := 0
+	for paid: bool in [
+		_coaster_paid, _wheel_rider_paid, _carousel_paid, _ride_waiting_paid != &""
+	]:
+		if paid:
+			lent += 1
+	data["tickets"] = int(data["tickets"]) + lent
+	return data
 
 ## What the valley itself holds: what has been built, felled, dammed and taken.
 ## Shared by everyone in this copy of the map, which is what makes an invitation

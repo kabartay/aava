@@ -426,6 +426,11 @@ func _initialize() -> void:
 	_check_the_host_hears_a_guests_kick()
 	await _check_a_kick_while_running_carries_the_run()
 	await _check_a_gentle_kick_from_the_spot_reaches_the_goal()
+	await _check_a_shot_into_the_top_corner_scores_and_the_dots_say_so()
+	_check_a_child_standing_at_the_ball_aims_at_the_goal_they_look_at()
+	await _check_walking_or_running_at_a_resting_ball_takes_it_along()
+	await _check_a_ball_is_dribbled_twenty_metres_straight_and_round_a_bend()
+	_check_no_aim_is_left_over_after_the_kick()
 	_check_a_guests_kick_gets_the_same_grace_on_the_host()
 	_check_the_dots_wait_for_a_child_who_is_not_running()
 	await _check_a_guest_has_a_body_that_pushes_the_ball()
@@ -621,6 +626,9 @@ func _initialize() -> void:
 	_check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine()
 	_check_the_riders_feet_are_on_the_bicycles_pedals_and_it_is_drawn_warm()
 	await _check_the_shop_audit_fixes()
+	_check_a_first_run_does_not_list_a_folder_that_is_not_there()
+	_check_back_puts_a_big_map_away_and_leaves_a_small_one()
+	await _check_a_ticket_lent_to_a_ride_is_saved_and_a_rebuild_lets_go_of_a_kick()
 	_check_the_sky_keeps_the_valley_readable_and_the_render_cost_in_budget()
 	await _check_a_standing_ride_makes_no_calls_it_has_already_made()
 	await _check_a_long_session_does_not_grow_the_scene()
@@ -19975,6 +19983,285 @@ func _football_pair(field: HeightField) -> Array:
 	guest_ground._process(0.0)
 	return [host, guest, host_ground, guest_ground]
 
+## A child must be able to score in the top corner, from the penalty spot and
+## from ten metres, and the dots say so truthfully. The strings of the net slope
+## from the crossbar to the ground behind, and the wall behind them used to stand
+## right under the strings: a ball crossing the line above about 1.5 m met it
+## before the whole ball was over, was killed there and dropped back out, so no
+## shot into the upper part of the goal ever scored while the dots were green.
+## Kicked here as the game kicks, with the finger's turn and loft; the line where
+## it crosses is compared with the dots', and it is counted once.
+func _check_a_shot_into_the_top_corner_scores_and_the_dots_say_so() -> void:
+	print("a shot into the top corner scores and the dots say so")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var mouth := Pitch.goal_centre(1)
+	mouth.y = field.height_at(mouth.x, mouth.z)
+	var ball: Ball = ground._balls[1]
+	for other in ground._balls:
+		if other != ball:
+			other.reset_to(Vector3(mouth.x - 20.0, mouth.y, mouth.z + 8.0))
+	var at_the_grass := func(x: float, z: float) -> float:
+		return field.height_at(x, z)
+	# metres from the line, strength, loft, turn in degrees, whether it scores,
+	# and where it crosses: how far from the middle and how high.
+	var cases: Array[Array] = [
+		["penalty spot, far top corner", 4.0, 0.8, 0.47, 35.0, true],
+		["penalty spot, other top corner", 4.0, 0.8, 0.47, -35.0, true],
+		["penalty spot, under the bar", 4.0, 0.8, 0.50, 0.0, true],
+		["ten metres, far top corner", 10.0, 1.0, 0.30, 16.0, true],
+		["ten metres, other top corner", 10.0, 1.0, 0.30, -16.0, true],
+		["penalty spot, over the bar", 4.0, 0.8, 0.95, 0.0, false],
+		["ten metres, over the bar", 10.0, 1.0, 0.45, 0.0, false],
+	]
+	for c: Array in cases:
+		var dist := float(c[1])
+		var spot := Vector3(mouth.x - dist, mouth.y + Ball.RADIUS, mouth.z)
+		var feet := spot - Vector3(0.8, Ball.RADIUS, 0.0)
+		ground.blue = 0
+		ground.red = 0
+		ground._cooldown = 0.0
+		ground._in_the_net.clear()
+		ground._struck.clear()
+		ball.reset_to(spot - Vector3(0.0, Ball.RADIUS, 0.0))
+		await physics_frame
+		var turn := deg_to_rad(float(c[4]))
+		var launch := Ball.launch_velocity(spot, feet, Vector3.RIGHT, false, float(c[2]), float(c[3]), Vector3.ZERO, turn)
+		var flight := PackedVector3Array([spot])
+		flight.append_array(Ball.aim_path(spot, launch, ball.effective_linear_damp(), ball.gravity_strength(), at_the_grass))
+		var green := Pitch.goal_ahead(flight, Ball.RADIUS, at_the_grass) == 1
+		_expect(green == bool(c[5]), "%s: the dots are %s" % [c[0], "green" if bool(c[5]) else "not green"])
+		var predicted := Vector3.INF
+		for i in range(1, flight.size()):
+			if flight[i - 1].x < mouth.x and flight[i].x >= mouth.x:
+				predicted = flight[i - 1].lerp(flight[i], (mouth.x - flight[i - 1].x) / (flight[i].x - flight[i - 1].x))
+				break
+		ground.kick(ball, feet, Vector3.RIGHT, false, float(c[2]), float(c[3]), Vector3.ZERO, turn)
+		var crossed := Vector3.INF
+		for i in 120:
+			await physics_frame
+			if crossed == Vector3.INF and ball.position.x >= mouth.x:
+				crossed = ball.position
+		if bool(c[5]):
+			_expect(ground.blue == 1, "%s: a goal (crossed %.2f m high, %.2f m off the middle)" % [c[0], crossed.y - mouth.y, crossed.z - mouth.z])
+		else:
+			_expect(ground.blue == 0, "%s: no goal" % c[0])
+		if crossed != Vector3.INF and predicted != Vector3.INF:
+			var gap := Vector2(crossed.z - predicted.z, crossed.y - predicted.y).length()
+			_expect(gap < 0.5, "%s: the dots cross the line within %.2f m of the ball" % [c[0], gap])
+		# Counted exactly once, however long the ball lies in the net.
+		for i in 20:
+			await physics_frame
+		_expect(ground.blue <= 1 and ground.red == 0, "%s: counted once (%d : %d)" % [c[0], ground.blue, ground.red])
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## A child standing behind the ball turns to face where the camera looks, so the
+## dots start from the way they face and point at the goal they are looking at
+## (the "random left or right" of the arrow was the facing being wherever the
+## child last walked). Measured from every way they could have been facing, at
+## the spot and from ten metres, with the real body's own turning; and the
+## finger's slide reaches the corners at any screen shape.
+func _check_a_child_standing_at_the_ball_aims_at_the_goal_they_look_at() -> void:
+	print("a child standing at the ball aims at the goal they look at")
+	var child := Player.new()
+	get_root().add_child(child)
+	var mouth := Pitch.goal_centre(1)
+	var tick := 1.0 / float(Engine.physics_ticks_per_second)
+	var worst := 0.0
+	for dist: float in [4.0, 10.0]:
+		var spot := Vector3(mouth.x - dist, 0.0, mouth.z)
+		for behind: float in [0.7, 1.0]:
+			for start: float in [0.0, 70.0, 150.0, 220.0, 300.0]:
+				var feet := spot - Vector3(behind, 0.0, 0.0)
+				child.global_position = feet
+				child.velocity = Vector3.ZERO
+				var was := deg_to_rad(start)
+				child.face(Vector3(-sin(was), 0.0, -cos(was)), 1.0)
+				var to_goal := mouth - feet
+				to_goal.y = 0.0
+				var look := to_goal.normalized()
+				for i in 40:
+					child.face(look, tick)
+				var launch := Ball.launch_velocity(spot, feet, child.facing(), false, Ball.TAP_STRENGTH, 0.0, Vector3.ZERO, 0.0, Vector3.ZERO)
+				var error := rad_to_deg(Vector2(launch.x, launch.z).angle_to(Vector2(mouth.x - spot.x, mouth.z - spot.z)))
+				worst = maxf(worst, absf(error))
+	_expect(worst < 1.0, "the dots point at the goal from behind the ball, from any stance (worst %.2f degrees)" % worst)
+	child.queue_free()
+	# The finger reaches the far post from the spot, and the top corner's height,
+	# with room to spare on a screen of any shape: the slide is a fraction of the
+	# screen's height, whatever the width.
+	var post := rad_to_deg(atan2(Pitch.GOAL_WIDTH * 0.5, Pitch.PENALTY_SPOT))
+	var wanted := post / rad_to_deg(Hud.KICK_TURN_MAX) * Hud.KICK_TURN_REACH
+	_expect(wanted < 0.8 * Hud.KICK_TURN_REACH, "the far post from the spot is %.0f degrees, %.2f of the screen's height" % [post, wanted])
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	for size: Vector2 in [Vector2(1280.0, 720.0), Vector2(2400.0, 1080.0), Vector2(1600.0, 1200.0), Vector2(2796.0, 1290.0)]:
+		hud._kick_aim = Vector2.ZERO
+		hud.slide_kick_aim(Vector2(wanted * size.y, -0.4 * Hud.KICK_LOFT_REACH * size.y), size.y)
+		_expect(absf(rad_to_deg(hud.kick_aim().x) - post) < 0.01 and is_equal_approx(hud.kick_aim().y, 0.4), "a slide of %.0f px reaches the post on a %dx%d screen" % [wanted * size.y, int(size.x), int(size.y)])
+	hud.queue_free()
+
+## A child who walks or runs up to a ball lying still does not shoot it away: it
+## is taken along at their own pace, the way they are going, at a walk and a run,
+## from the front and off to one side. Measured with the real body, stepped
+## physics and the ground's own touch.
+func _check_walking_or_running_at_a_resting_ball_takes_it_along() -> void:
+	print("walking or running at a resting ball takes it along")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var centre := Pitch.centre()
+	var surface := field.height_at(centre.x, centre.z)
+	var ball: Ball = ground._balls[1]
+	ground._balls[0].reset_to(Vector3(centre.x + 14.0, surface, centre.z - 10.0))
+	ground._balls[2].reset_to(Vector3(centre.x - 14.0, surface, centre.z + 10.0))
+	var child := Player.new()
+	get_root().add_child(child)
+	ground.let_pass(child)
+	var tick := 1.0 / float(Engine.physics_ticks_per_second)
+	# pace of the stick, heading in degrees about up from +x, ball off the line (m)
+	var cases: Array[Array] = [
+		[0.5, 0.0, 0.0], [0.5, 180.0, 0.3], [0.5, 45.0, -0.3],
+		[1.0, 0.0, 0.0], [1.0, 180.0, 0.4], [1.0, 45.0, -0.4],
+	]
+	for c: Array in cases:
+		var heading := Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(float(c[1])))
+		var side := heading.cross(Vector3.UP)
+		var ahead := 2.5 if float(c[0]) < 0.9 else 3.5
+		ground._cooldown = 0.0
+		ground._struck.clear()
+		# Out on the wing, clear of the balls that earlier checks leave lying about.
+		var spot := Vector3(centre.x, surface, centre.z + 11.0)
+		ball.reset_to(spot)
+		child.velocity = Vector3.ZERO
+		child.global_position = spot - heading * ahead + Vector3(0.0, 0.1, 0.0)
+		child.camera_yaw = atan2(-heading.x, -heading.z)
+		for i in 15:
+			await physics_frame
+		ball.reset_to(spot + side * float(c[2]))
+		await physics_frame
+		Input.action_press(InputActions.MOVE_FORWARD, float(c[0]))
+		var fastest := 0.0
+		var pace := 0.0
+		var before := Vector3.ZERO
+		var ticks := 150 if float(c[0]) < 0.9 else 90
+		for i in ticks:
+			await physics_frame
+			ground.dribble(child.global_position, child.velocity, tick)
+			fastest = maxf(fastest, Vector2(ball.linear_velocity.x, ball.linear_velocity.z).length())
+			pace = maxf(pace, Vector2(child.velocity.x, child.velocity.z).length())
+			if i == ticks - 31:
+				before = ball.position
+		Input.action_release(InputActions.MOVE_FORWARD)
+		var moved := ball.position - before
+		moved.y = 0.0
+		var off := rad_to_deg(Vector2(moved.x, moved.z).angle_to(Vector2(heading.x, heading.z)))
+		var gap := ball.position - child.global_position
+		gap.y = 0.0
+		var label := "%s at %.0f degrees, ball %.1f m off the line" % ["walking" if float(c[0]) < 0.9 else "running", float(c[1]), float(c[2])]
+		_expect(pace > 1.0 and fastest < pace + 1.0, "%s: the ball goes no faster than the child (%.1f of %.1f m/s)" % [label, fastest, pace])
+		_expect(absf(off) < 5.0, "%s: it goes the way the child goes (%.1f degrees out)" % [label, off])
+		_expect(gap.length() < Ball.KICK_REACH + Ball.RADIUS, "%s: and stays within the foot's reach (%.2f m)" % [label, gap.length()])
+	child.queue_free()
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## Taking the ball along for twenty metres, in a line and round a bend, at a walk
+## and at a run: it never gets out of the foot's reach, so a child can always
+## strike it where it is.
+func _check_a_ball_is_dribbled_twenty_metres_straight_and_round_a_bend() -> void:
+	print("a ball is dribbled twenty metres straight and round a bend")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var centre := Pitch.centre()
+	var surface := field.height_at(centre.x, centre.z)
+	var ball: Ball = ground._balls[1]
+	ground._balls[0].reset_to(Vector3(centre.x + 15.0, surface, centre.z - 10.0))
+	ground._balls[2].reset_to(Vector3(centre.x - 15.0, surface, centre.z + 10.0))
+	var child := Player.new()
+	get_root().add_child(child)
+	ground.let_pass(child)
+	var tick := 1.0 / float(Engine.physics_ticks_per_second)
+	# stick, turning rate of the camera in radians a second, metres to go
+	var cases: Array[Array] = [[1.0, 0.0, 20.0], [1.0, 1.1, 20.0], [0.5, 0.0, 8.0], [0.5, 0.5, 8.0]]
+	for c: Array in cases:
+		ground._cooldown = 0.0
+		ground._struck.clear()
+		var start := Vector3(centre.x - 8.0, surface + 0.1, centre.z - 2.0)
+		child.velocity = Vector3.ZERO
+		child.global_position = start
+		var yaw := atan2(-1.0, 0.0)
+		child.camera_yaw = yaw
+		for i in 10:
+			await physics_frame
+		ball.reset_to(Vector3(start.x + 1.0, surface, start.z))
+		await physics_frame
+		Input.action_press(InputActions.MOVE_FORWARD, float(c[0]))
+		var worst := 0.0
+		var gone := 0.0
+		var last := child.global_position
+		var ticks := 0
+		while gone < float(c[2]) and ticks < 900:
+			ticks += 1
+			yaw += float(c[1]) * tick if ticks > 40 else 0.0
+			child.camera_yaw = yaw
+			await physics_frame
+			ground.dribble(child.global_position, child.velocity, tick)
+			var off := ball.position - child.global_position
+			off.y = 0.0
+			if ticks > 30:
+				worst = maxf(worst, off.length())
+			var step := child.global_position - last
+			step.y = 0.0
+			gone += step.length()
+			last = child.global_position
+		Input.action_release(InputActions.MOVE_FORWARD)
+		var what := "%s, %s" % ["running" if float(c[0]) > 0.9 else "walking", "round a bend" if float(c[1]) > 0.0 else "straight"]
+		_expect(gone >= float(c[2]) - 0.5, "%s: the child went %.1f m" % [what, gone])
+		_expect(worst < Ball.KICK_REACH + Ball.RADIUS, "%s: the ball stayed within reach, %.2f m at the furthest" % [what, worst])
+	child.queue_free()
+	ground.queue_free()
+	(made[0] as Node).queue_free()
+
+## The aim leaves with the kick. The dots for the next tap were drawn over a ball
+## that had just been struck and was still within a stride on its way out; and
+## the wind-up's bar and words go with the finger, or the walk away from the ball.
+func _check_no_aim_is_left_over_after_the_kick() -> void:
+	print("no aim is left over after the kick")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var resting := game.substr(game.find("func _resting_preview_on"))
+	resting = resting.substr(0, resting.find("\nfunc ", 1))
+	_expect(
+		resting.contains("ball.speed() <= Ball.TRAP_SPEED") and game.contains("_resting_preview_on(player.velocity, ball)"),
+		"the dots for a tap are not drawn over a ball that is already on its way"
+	)
+	var release := game.substr(game.find("func _on_kick_release"))
+	release = release.substr(0, release.find("\nfunc ", 1))
+	_expect(release.contains("hud.set_kick_preview(false, 0.0, 0.0)"), "letting go takes the bar and the words away")
+	var frame := game.substr(game.find("elif player.is_charging():"))
+	frame = frame.substr(0, 260)
+	_expect(
+		frame.contains("if ball == null:") and frame.contains("player.release_charge()") and frame.contains("kick_preview.hide_path()"),
+		"walking away from the ball drops the wind-up and the dots"
+	)
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.set_kick_preview(true, 0.5, 0.5)
+	hud.set_kick_preview(false, 0.0, 0.0)
+	_expect(not hud._power_bar.visible and not hud._aim_label.visible, "the bar and the words hide when the wind-up ends")
+	hud.queue_free()
+	var preview := KickPreview.new()
+	preview.show_path(PackedVector3Array([Vector3.ZERO, Vector3.ONE]), true)
+	preview.hide_path()
+	_expect(preview.dots_shown() == 0 and not preview.is_on_target(), "and so do the dots")
+	preview.free()
+
 func _free_football_pair(pair: Array) -> void:
 	(pair[2] as Node).free()
 	(pair[3] as Node).free()
@@ -22874,6 +23161,106 @@ func _check_the_restraints_keep_clear_of_the_face() -> void:
 				drawn_count += 1
 		_expect(drawn_count > 20, "%s: the solid that holds a child has the closed restraint's drawing in it (%d points)" % [ride_name, drawn_count])
 		ride.queue_free()
+
+## A first run has no folder of players yet, and the game must not go looking in it.
+##
+## Opening the game for the first time printed a red engine error into the log
+## ("Couldn't open directory user://players") from the one call that lists the
+## saves, made before any save or folder could exist. Harmless to play, and a log
+## that always starts with an error teaches everybody to read past errors.
+func _check_a_first_run_does_not_list_a_folder_that_is_not_there() -> void:
+	print("a first run does not list a folder that is not there")
+	var family := Profiles.new()
+	family.folder = "user://c14_never_made_%d" % Time.get_ticks_usec()
+	_expect(not DirAccess.dir_exists_absolute(family.folder), "the folder of players is not there")
+	family.load_index()
+	_expect(family.players.is_empty() and family.worlds.is_empty(), "a first run starts with nobody and no valley")
+	_expect(family.reconcile(true) == false, "and with nothing to find there is nothing to change")
+	var source := _code_only(FileAccess.get_file_as_string("res://src/game/profiles.gd"))
+	_expect(
+		source.contains("DirAccess.get_files_at(folder) if DirAccess.dir_exists_absolute(folder)"),
+		"the folder is asked after before its files are"
+	)
+
+## Back puts a big map away instead of leaving the game with it open.
+##
+## The large and whole-valley maps cover the middle of the screen, and back with
+## one of them open was "nothing open": the game saved and quit. A child who
+## pressed back to get rid of the map lost the game they were in. The small map
+## in the corner is not in the way, so back leaves with it showing.
+func _check_back_puts_a_big_map_away_and_leaves_a_small_one() -> void:
+	print("back puts a big map away and leaves a small one")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	var map := Minimap.new(HeightField.new(20260903))
+	hud.attach_minimap(map)
+	hud.close_look_offer()
+	map.show_map()
+	_expect(map.is_showing() and not map.is_big(), "the map opens small")
+	_expect(not hud.close_top_panel(), "back with only the small map showing is the game's to take")
+	map._cycle_size()
+	_expect(map.is_big(), "tapped, the map grows")
+	_expect(hud.close_top_panel() and map.is_showing() and not map.is_big(), "back brings a large map down to the small one")
+	map._cycle_size()
+	map._cycle_size()
+	_expect(map.is_big(), "tapped again, it covers the whole valley")
+	_expect(hud.close_top_panel() and not map.is_big(), "back brings that one down too")
+	_expect(not hud.close_top_panel(), "and then back is free again")
+	hud._menu_button.pressed.emit()
+	map._cycle_size()
+	_expect(hud.close_top_panel() and map.is_big() and not hud._menu.visible, "a panel opened over the map goes first, the map after it")
+	hud.queue_free()
+
+## A phone put down at the fairground keeps the ticket, and a kick is not wound up
+## for ever behind a new interface.
+##
+## A ticket paid for a ride that has not taken the child yet is only lent to it and
+## is handed back when the child walks away, but a save written in the meantime
+## (the phone is paused, and Android may kill the game) wrote the purse as it was
+## with the ticket gone, and the ten coins with it. And a kick or a bow wound up
+## when the language changed lost its button with the old interface and so its
+## release: it went on charging, aim dots and all, with nothing held to let it go.
+func _check_a_ticket_lent_to_a_ride_is_saved_and_a_rebuild_lets_go_of_a_kick() -> void:
+	print("a ticket lent to a ride is saved, and a rebuild lets go of a kick")
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260903)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var world: World = game.get("world")
+	var player: Player = game.get("player")
+	var wallet: Wallet = game.get("wallet")
+	await _settle_the_ground(world)
+	wallet.tickets = 1
+	var saved: Dictionary = (game.call("_save_data") as Dictionary)["wallet"]
+	_expect(int(saved["tickets"]) == 1, "with nothing lent the ticket count is the purse's")
+	game.set("_coaster_paid", true)
+	saved = (game.call("_save_data") as Dictionary)["wallet"]
+	_expect(int(saved["tickets"]) == 2 and wallet.tickets == 1, "a train booked is written as a ticket still held, and the purse itself is untouched")
+	game.set("_coaster_paid", false)
+	game.set("_wheel_rider_paid", true)
+	game.set("_ride_waiting_paid", &"drop_tower")
+	game.set("_carousel_paid", true)
+	saved = (game.call("_save_data") as Dictionary)["wallet"]
+	_expect(int(saved["tickets"]) == 4, "so are a gondola, a waiting tower and a carousel (%d)" % int(saved["tickets"]))
+	game.set("_wheel_rider_paid", false)
+	game.set("_ride_waiting_paid", &"")
+	game.set("_carousel_paid", false)
+	saved = (game.call("_save_data") as Dictionary)["wallet"]
+	_expect(int(saved["tickets"]) == 1, "and once they are over the count is the purse's again")
+	var loaded := Wallet.new()
+	loaded.from_data(saved)
+	_expect(loaded.tickets == 1, "and it loads back as the purse it was")
+	player.start_charging()
+	_expect(player.is_charging(), "a kick is being wound up")
+	game.call("_rebuild_hud")
+	_expect(not player.is_charging() and is_zero_approx(player.kick_charge), "a new interface lets go of it, the old button's release having gone with the button")
+	game.queue_free()
+	await process_frame
+	main_script.set("forced_seed", 0)
 
 func _check_no_arm_is_stretched_and_no_foot_floats() -> void:
 	for pose: StringName in SeatPose.POSES:

@@ -2085,6 +2085,11 @@ func close_top_panel() -> bool:
 	if _shop.visible:
 		shop_toggled.emit()
 		return true
+	# The big maps cover the middle of the screen: back puts one away, down to the
+	# small one in the corner, rather than leaving the game with it open.
+	if _minimap != null and _minimap.is_big():
+		_minimap.shrink()
+		return true
 	return false
 
 func _toggle_menu() -> void:

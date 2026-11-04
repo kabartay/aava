@@ -343,6 +343,12 @@ func keep_small(kept: bool) -> void:
 		_size = Size.SMALL
 		_apply_size()
 
+## Bring a big map back down to the small one, for the back button.
+func shrink() -> void:
+	if is_big():
+		_size = Size.SMALL
+		_apply_size()
+
 func hide_map() -> void:
 	_size = Size.HIDDEN
 	_apply_size()

@@ -343,7 +343,9 @@ func reconcile(rebuild := false) -> bool:
 	var newest := -1
 	var newest_player := ""
 	var newest_world := ""
-	var names := DirAccess.get_files_at(folder)
+	# On a first run the folder does not exist yet; asking for its files then
+	# printed an engine error into the log of every fresh install.
+	var names := DirAccess.get_files_at(folder) if DirAccess.dir_exists_absolute(folder) else PackedStringArray()
 	names.sort()
 	for file_name in names:
 		var stem := ""

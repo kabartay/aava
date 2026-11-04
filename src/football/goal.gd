@@ -45,6 +45,16 @@ const POST_BOUNCE := 0.8
 ## asking that machinery to be perfect for no gain at all.
 const NET_THICKNESS := 0.12
 
+## How far back the invisible wall behind the strings is set from the strings
+## themselves, in metres. The strings slope from the crossbar down to the ground
+## behind, and a wall exactly under them is met by any ball that enters the upper
+## part of the mouth before the whole ball is over the goal line, which is what a
+## goal needs: such a ball was stopped dead at the line and dropped back out, and
+## no shot into the top half of the goal ever scored (measured: a ball crossing
+## the line above 1.5 m never got its 0.24 m of beyond). Set back, the top corner
+## is reached and the ball sinks into the net as it would into a bulging one.
+const NET_SET_BACK := 0.4
+
 var index: int
 
 var _frame_material: StandardMaterial3D
@@ -95,9 +105,17 @@ func _init(goal_index: int, at: Vector3) -> void:
 	var slope := ground_back - top_back
 	var slope_length := slope.length()
 	_solid_turned(
-		(top_back + ground_back) * 0.5,
+		(top_back + ground_back) * 0.5 + Vector3(NET_SET_BACK, 0.0, 0.0),
 		Vector3(NET_THICKNESS, slope_length, Pitch.GOAL_WIDTH),
 		_lying_along(slope),
+		NET_BOUNCE
+	)
+	# A dead shelf from the bar to where the set-back wall begins, so that a ball
+	# falling on the bar and rolling in does not drop into the gap between them
+	# and bounce there off the bar's springy wood for ever.
+	_solid(
+		Vector3((NET_SET_BACK + 0.2) * 0.5, height, 0.0),
+		Vector3(NET_SET_BACK + 0.2, NET_THICKNESS, Pitch.GOAL_WIDTH),
 		NET_BOUNCE
 	)
 	for side in PackedFloat32Array([-1.0, 1.0]):
