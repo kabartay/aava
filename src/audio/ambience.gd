@@ -178,6 +178,13 @@ func bake_now() -> void:
 func is_baked() -> bool:
 	return _bake_task < 0
 
+## A node that is freed while a worker is running a method of it is refused
+## ("Object is locked and can't be freed"), and the PREDELETE wait below comes
+## too late to help, because the engine asks before it notifies. Leaving the tree
+## (a parent going, a queue_free) is the last moment this can still wait.
+func _exit_tree() -> void:
+	bake_now()
+
 ## Never go away while the bake is still running: the worker reads this
 ## object, and freeing it first leaves the pool running a task against memory
 ## that is no longer there (see AnimalVoices, which learned it the hard way).

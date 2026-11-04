@@ -619,6 +619,8 @@ func _initialize() -> void:
 	await _check_a_standing_ride_makes_no_calls_it_has_already_made()
 	await _check_a_long_session_does_not_grow_the_scene()
 	await _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main_thread()
+	await _check_rebuilding_the_interface_leaves_nothing_behind_and_the_players_are_silenced_on_exit()
+	await _check_the_map_bake_hands_its_regions_back_on_the_main_thread()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -32808,6 +32810,91 @@ func _check_the_map_symbols_follow_pan_and_zoom() -> void:
 	_expect(seen >= 3, "stickers were found exactly on their places in the views: %d" % seen)
 	map.queue_free()
 
+## A long session rebuilds the interface every time the language is changed, and
+## the whole interface is thrown away and made again. Whatever it leaves behind
+## (a node taken out of the tree and never freed, a connection that keeps a
+## panel alive) shows as a count that climbs with every repetition, so the
+## counts are taken after a few warm-up rebuilds and must then hold still. And a
+## player still sounding when the game goes keeps its playback alive inside the
+## audio server, which reports it as leaked at exit; Main stops them first.
+func _check_rebuilding_the_interface_leaves_nothing_behind_and_the_players_are_silenced_on_exit() -> void:
+	print("rebuilding the interface leaves nothing behind, and the players are silenced on exit")
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260905)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var world: World = game.get("world")
+	await _settle_the_ground(world)
+	for _i in 3:
+		game.call("_rebuild_hud")
+		await process_frame
+		await process_frame
+	var nodes_before := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	var objects_before := int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	var orphans_before := int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	for _i in 8:
+		game.call("_rebuild_hud")
+		await process_frame
+		await process_frame
+	await process_frame
+	var nodes_after := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	var objects_after := int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	var orphans_after := int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	print("  rebuilds: nodes %d -> %d, objects %d -> %d, orphans %d -> %d" % [
+		nodes_before, nodes_after, objects_before, objects_after, orphans_before, orphans_after
+	])
+	_expect(nodes_after <= nodes_before + 8, "eight rebuilds of the interface do not add nodes: %d -> %d" % [nodes_before, nodes_after])
+	_expect(objects_after <= objects_before + 40, "nor objects: %d -> %d" % [objects_before, objects_after])
+	_expect(orphans_after <= orphans_before, "and no orphan nodes: %d -> %d" % [orphans_before, orphans_after])
+
+	# Everything that is sounding is stopped before the tree goes.
+	var made := AudioStreamPlayer.new()
+	made.stream = Sounds.ride_hum()
+	game.add_child(made)
+	made.play()
+	_expect(made.playing, "a hum is sounding")
+	game.call("_silence_every_player")
+	var still_sounding := 0
+	for kind: String in ["AudioStreamPlayer", "AudioStreamPlayer3D"]:
+		for found: Node in game.find_children("*", kind, true, false):
+			if found is AudioStreamPlayer and (found as AudioStreamPlayer).playing:
+				still_sounding += 1
+			elif found is AudioStreamPlayer3D and (found as AudioStreamPlayer3D).playing:
+				still_sounding += 1
+	_expect(still_sounding == 0, "and silencing the players stops them all (%d still sounding)" % still_sounding)
+	game.queue_free()
+	await process_frame
+
+## The map's picture is baked on a worker thread. What the worker finds (the
+## names of the regions) is read by the main thread every frame, so the worker
+## must not write it: it leaves its result aside, and only the main thread, after
+## waiting for the task, moves it across. Writing it from the worker is a data
+## race on an array, which is a crash that shows once in a long while.
+func _check_the_map_bake_hands_its_regions_back_on_the_main_thread() -> void:
+	print("the map bake hands its regions back on the main thread")
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260905)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var map: Minimap = (game.get("hud") as Hud).minimap()
+	map.wait_for_bake()
+	map._regions = []
+	map._bake(Vector3.ZERO, 10.0)
+	_expect(map._regions.is_empty(), "the bake itself leaves the regions the map reads untouched")
+	_expect(not map._bake_regions.is_empty(), "and puts what it found aside")
+	map._finish_bake()
+	_expect(not map._regions.is_empty() and map._bake_regions.is_empty(), "the main thread takes them across once the task is done")
+	game.queue_free()
+	await process_frame
+
 ## Colours as an 8-bit picture keeps them.
 func _close_colours(a: Color, b: Color) -> bool:
 	return absf(a.r - b.r) < 0.02 and absf(a.g - b.g) < 0.02 and absf(a.b - b.b) < 0.02
@@ -33467,8 +33554,10 @@ func _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main
 		var again_at := Time.get_ticks_usec()
 		var extra := Ambience.new(true)
 		returned_in = mini(returned_in, Time.get_ticks_usec() - again_at)
+		extra.bake_now()
 		extra.free()
 	_expect(returned_in * 4 < plain_took, "the game's ambience does not hold the first frame: %.1f ms against %.0f ms by hand (best of three)" % [float(returned_in) / 1000.0, float(plain_took) / 1000.0])
+	worker.bake_now()
 	worker.free()
 	plain.free()
 

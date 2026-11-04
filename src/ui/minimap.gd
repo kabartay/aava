@@ -151,6 +151,10 @@ var _bake_task := -1
 var _bake_size := Size.HIDDEN
 var _bake_centre := Vector3.ZERO
 var _bake_bytes := PackedByteArray()
+## The regions a bake found, held here until the main thread has waited for the
+## task and moves them into `_regions`: the worker never writes what the main
+## thread reads every frame.
+var _bake_regions: Array[Dictionary] = []
 var _bake_mutex := Mutex.new()
 ## How many metres across the bake in flight spans, and the one on screen did.
 var _bake_range := 0.0
@@ -480,11 +484,13 @@ func _bake(centre: Vector3, step: float) -> void:
 	_bake_mutex.lock()
 	var need_regions := _regions.is_empty()
 	_bake_mutex.unlock()
-	var found: Array[Dictionary] = MapPainter.scan_regions(_field) if need_regions else _regions
+	var found: Array[Dictionary] = []
+	if need_regions:
+		found = MapPainter.scan_regions(_field)
 	var painted := MapPainter.bake(_field, centre, range_metres, CELLS)
 	_bake_mutex.lock()
 	_bake_bytes = painted
-	_regions = found
+	_bake_regions = found
 	_bake_mutex.unlock()
 
 ## Pick up a finished bake, if there is one, and show it.
@@ -502,7 +508,11 @@ func _finish_bake() -> void:
 	_bake_mutex.lock()
 	var bytes := _bake_bytes
 	_bake_bytes = PackedByteArray()
+	var found := _bake_regions
+	_bake_regions = []
 	_bake_mutex.unlock()
+	if not found.is_empty():
+		_regions = found
 	if bytes.size() != PIXELS * PIXELS * 3:
 		return
 	_image.set_data(PIXELS, PIXELS, false, Image.FORMAT_RGB8, bytes)
@@ -576,9 +586,7 @@ func _orient(yaw: float, world_position: Vector3, centre: Vector3, range_metres:
 
 ## One label for every region the bake found, made once.
 func _sync_region_labels() -> void:
-	_bake_mutex.lock()
 	var found := _regions
-	_bake_mutex.unlock()
 	while _region_labels.size() < found.size():
 		var label := Label.new()
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE

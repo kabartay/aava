@@ -134,6 +134,11 @@ func _collect_baked() -> void:
 	_baked = {}
 	_bake_mutex.unlock()
 
+## See Ambience._exit_tree: a free that arrives while the worker is inside a
+## method of this node is refused, so the wait has to come before it.
+func _exit_tree() -> void:
+	bake_now()
+
 ## Never go away while the bake is still running.
 ##
 ## The voices are baked on a worker thread started in _init, and that thread

@@ -4445,6 +4445,19 @@ func _exit_tree() -> void:
 	if _resume_hush_frames > 0:
 		Engine.time_scale = _resume_time_scale
 		_resume_hush_frames = 0
+	_silence_every_player()
+
+## A player that is still sounding when the tree goes keeps its playback (and
+## so its stream) alive inside the audio server, which then reports them as
+## leaked at exit. Stopping them first lets them go cleanly on quit and on a
+## scene reload.
+func _silence_every_player() -> void:
+	for kind: String in ["AudioStreamPlayer", "AudioStreamPlayer3D"]:
+		for found: Node in find_children("*", kind, true, false):
+			if found is AudioStreamPlayer:
+				(found as AudioStreamPlayer).stop()
+			elif found is AudioStreamPlayer3D:
+				(found as AudioStreamPlayer3D).stop()
 
 func _write_save() -> void:
 	if player == null or world == null or not _may_save or not _world_ready:
