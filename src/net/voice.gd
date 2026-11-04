@@ -379,6 +379,10 @@ func _send_voice(packet: PackedByteArray) -> void:
 	# the rest of the game.
 	if _session == null or not _session.guests.has(from):
 		return
+	# Not faster than a talker's microphone makes them (see Session.LIMITS), or
+	# a stranger's flood is decoded sample by sample on the main thread.
+	if not _session.admit(&"voice", from):
+		return
 	_play(from, packet)
 	someone_spoke.emit(from)
 

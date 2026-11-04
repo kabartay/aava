@@ -148,6 +148,24 @@ from. A dedicated check reads the source itself (with comments stripped, so
 it cannot be fooled by a comment that merely mentions the forbidden word) to
 hold all of that structurally rather than by convention.
 
+**What the other phone is trusted with.** Nothing arrives that has not passed
+`Session._admit`: the sender must have said the raw-bytes hello as the same
+`PROTOCOL` (a stranger on the Wi-Fi that skips it is not heard, and is let go
+after `HELLO_PATIENCE`), and must be within the per-kind token bucket in
+`Session.LIMITS` (a burst big enough for a phone that froze for ten seconds
+and caught up, a refill rate several times what the game plays at, and no more
+credit for a long silence than the burst). Every handler then checks types,
+ranges, finiteness, lengths and ids itself, and the host-only messages (balls,
+animals, score, valley, rides' clocks, refusals) are taken from the host
+alone. A guest never touches the host's coins, bag or child: what a guest can
+do is what the brothers' co-op already shares (build, take down, fell, pick up
+through the host's arbitration, ride, kick). A connection is kept for up to a
+minute of silence (`PATIENCE_*`) so a phone put down to answer a call is still
+in the valley when it comes back. Checks: `ci_check.gd` fuzzes every handler
+in process, and `src/dev/net_rogue.gd` (modes `attack` and `meter`, run on a
+random free port by the suite) does the same over real sockets and measures
+the bytes each feature costs.
+
 ## The one rule
 
 **The height field is the single source of truth for where the ground is.**

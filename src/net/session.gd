@@ -185,6 +185,9 @@ var _link_id := 2
 ## so that a link can be as slow and as uneven as a family's Wi-Fi.
 var link_latency := 0.0
 var link_jitter := 0.0
+## And the share of the messages sent unreliably (a ride's slow beat) that a
+## link loses on the way, as a bad Wi-Fi does. Reliable ones are only ever late.
+var link_loss := 0.0
 var _link_clock := 0.0
 var _link_last_due := 0.0
 var _link_pending: Array = []
@@ -309,6 +312,7 @@ func close() -> void:
 	_part_stumps.clear()
 	peer_protocol.clear()
 	_hello_wait.clear()
+	_buckets.clear()
 	_link_pending.clear()
 	if _peer != null:
 		_peer.close()
@@ -410,7 +414,9 @@ static func _is_private_172(address: String) -> bool:
 func _process(delta: float) -> void:
 	_since_move += delta
 	for id: int in _hello_wait.keys():
-		_hello_wait[id] = float(_hello_wait[id]) + delta
+		# A frame that lasted a minute because the phone was put away is not a
+		# minute of silence from the other one.
+		_hello_wait[id] = float(_hello_wait[id]) + minf(delta, 0.25)
 		if float(_hello_wait[id]) > HELLO_PATIENCE:
 			_refuse_version(id)
 
@@ -699,7 +705,7 @@ func report_ride_state(ride: int, state: PackedFloat32Array, reliable: bool) -> 
 		return
 	if _link != null:
 		var other := _link
-		_to_link(func() -> void: other._take_ride_state(HOST_ID, ride, state))
+		_to_link(func() -> void: other._take_ride_state(HOST_ID, ride, state), not reliable)
 		return
 	for id in agreed_guests():
 		if reliable:
@@ -806,7 +812,9 @@ static func _a_ride(ride: int) -> bool:
 
 ## Hand `sent` to the other end of a link, after the delay and jitter a check
 ## asked for: never out of order, as a real connection does not.
-func _to_link(sent: Callable) -> void:
+func _to_link(sent: Callable, lossy := false) -> void:
+	if lossy and link_loss > 0.0 and _link_rng.randf() < link_loss:
+		return
 	if link_latency <= 0.0 and link_jitter <= 0.0:
 		sent.call()
 		return
@@ -852,11 +860,89 @@ static func believable(at: Vector3) -> bool:
 		and absf(at.z) < BELIEVABLE_REACH
 	)
 
+## Flood protection: what each kind of message may come to, per sender, as
+## [burst, per second]. A bucket holds `burst` messages and fills at the rate;
+## a message with nothing to spend is dropped, quietly. Every figure is several
+## times what a game plays at (positions go at 12 a second, the rides' beats at
+## one each), and the bursts are what a phone that stood still for ten seconds
+## and then caught up can legitimately say in one breath.
+const LIMITS := {
+	&"position": [40.0, 40.0],
+	&"balls": [40.0, 30.0],
+	&"animals": [12.0, 6.0],
+	&"scores": [12.0, 3.0],
+	&"kick": [20.0, 10.0],
+	&"new_game": [3.0, 0.5],
+	&"built": [400.0, 60.0],
+	&"removed": [400.0, 60.0],
+	&"felled": [100.0, 20.0],
+	&"meal": [8.0, 1.0],
+	&"dam_stick": [8.0, 0.5],
+	&"time": [4.0, 0.5],
+	&"name": [10.0, 2.0],
+	&"valley": [1200.0, 400.0],
+	&"shared": [8.0, 1.0],
+	&"picked": [80.0, 12.0],
+	&"pick_refused": [80.0, 12.0],
+	&"parked": [30.0, 8.0],
+	&"ride_state": [120.0, 70.0],
+	&"ride_seat": [20.0, 10.0],
+	&"ride_flags": [40.0, 20.0],
+	&"ride_ask": [20.0, 5.0],
+	&"turnstile": [6.0, 0.5],
+	&"voice": [80.0, 30.0],
+}
+
+## For the checks: a clock to spend by, in seconds, in place of the real one.
+var rate_clock := -1.0
+var _buckets: Dictionary = {}
+## How many messages of each kind were let through and dropped, for the checks
+## and for finding out why a phone was ignored.
+var spent: Dictionary = {}
+var dropped: Dictionary = {}
+
+func _rate_now() -> float:
+	return rate_clock if rate_clock >= 0.0 else float(Time.get_ticks_msec()) * 0.001
+
+## May `from` say one more of `kind`? Spends it if so.
+func admit(kind: StringName, from: int) -> bool:
+	var limit: Array = LIMITS.get(kind, [])
+	if limit.is_empty():
+		return true
+	var now := _rate_now()
+	var key := "%d/%s" % [from, kind]
+	var bucket: Array = _buckets.get(key, [float(limit[0]), now])
+	var tokens := minf(float(limit[0]), float(bucket[0]) + maxf(now - float(bucket[1]), 0.0) * float(limit[1]))
+	if tokens < 1.0:
+		_buckets[key] = [tokens, now]
+		dropped[kind] = int(dropped.get(kind, 0)) + 1
+		return false
+	_buckets[key] = [tokens - 1.0, now]
+	spent[kind] = int(spent.get(kind, 0)) + 1
+	return true
+
+## Whether this message, arriving by rpc, is to be looked at at all: from
+## somebody who has said hello as the same version (nothing else is believed:
+## a stranger on the Wi-Fi that skips the hello gets no further), and not
+## faster than the kind allows. Gives the sender, 0 for a check calling a
+## handler directly, or -1 to ignore it.
+func _admit(kind: StringName) -> int:
+	var from := _sender()
+	if from == 0:
+		return 0
+	if _link == null and not peer_protocol.has(from):
+		dropped[&"unwelcome"] = int(dropped.get(&"unwelcome", 0)) + 1
+		return -1
+	return from if admit(kind, from) else -1
+
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_position(at: Vector3, facing: float, mount := "", motion := 0) -> void:
 	if not believable(at) or not is_finite(facing):
 		return
-	_take_position(multiplayer.get_remote_sender_id(), at, facing, mount, motion)
+	var from := _admit(&"position")
+	if from < 0:
+		return
+	_take_position(_sender(), at, facing, mount, motion)
 
 func _take_position(from: int, at: Vector3, facing: float, mount: String, motion: int) -> void:
 	guest_positions[from] = at
@@ -881,6 +967,11 @@ static func gives_way_on_a_mount(following: bool, rider: int) -> bool:
 ## The highest number in a mount's id: a herd of twenty is the most the valley
 ## has, and a machine bought is numbered from nought (see Mounts.free_id).
 const MAX_MOUNT_NUMBER := 63
+
+## The longest name of a kind of thing built that is believed: far past any of
+## this game's own, so that nothing a stranger sends is made into a StringName
+## and passed about at length.
+const MAX_KIND_LENGTH := 48
 
 ## What somebody says they are riding, or nothing. An id is "horse:3" or
 ## "bicycle:0": a kind this game has, and at most a number after it. Anything
@@ -930,9 +1021,15 @@ func others_than(from: int) -> Array[int]:
 			out.append(id)
 	return out
 
+## For the checks: the peer a handler is to believe it is hearing from, when
+## it is called directly and there is no rpc to ask.
+var check_sender := 0
+
 ## Who sent the message being handled; nobody when a check calls a handler
 ## directly, outside the tree and so without a multiplayer to ask.
 func _sender() -> int:
+	if check_sender != 0:
+		return check_sender
 	return multiplayer.get_remote_sender_id() if is_inside_tree() and multiplayer != null else 0
 
 ## Is this from the host? 0 is no sender at all, which is how a check calls a
@@ -943,7 +1040,9 @@ func _from_the_host(from: int) -> bool:
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_balls(states: PackedFloat32Array) -> void:
-	_take_balls(multiplayer.get_remote_sender_id(), states)
+	if _admit(&"balls") < 0:
+		return
+	_take_balls(_sender(), states)
 
 func _take_balls(from: int, states: PackedFloat32Array) -> void:
 	if not _from_the_host(from):
@@ -960,7 +1059,9 @@ func _take_balls(from: int, states: PackedFloat32Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_football_scores(blue: int, red: int, goal: int) -> void:
-	_take_football_scores(multiplayer.get_remote_sender_id(), blue, red, goal)
+	if _admit(&"scores") < 0:
+		return
+	_take_football_scores(_sender(), blue, red, goal)
 
 func _take_football_scores(from: int, blue: int, red: int, goal: int) -> void:
 	if not _from_the_host(from):
@@ -971,7 +1072,9 @@ func _take_football_scores(from: int, blue: int, red: int, goal: int) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_kick(ball: int, velocity: Vector3) -> void:
-	_take_kick(multiplayer.get_remote_sender_id(), ball, velocity)
+	if _admit(&"kick") < 0:
+		return
+	_take_kick(_sender(), ball, velocity)
 
 func _take_kick(from: int, ball: int, velocity: Vector3) -> void:
 	# Only a host is asked to kick, and only by somebody who is in the valley.
@@ -983,7 +1086,9 @@ func _take_kick(from: int, ball: int, velocity: Vector3) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_new_game() -> void:
-	_take_new_game(multiplayer.get_remote_sender_id())
+	if _admit(&"new_game") < 0:
+		return
+	_take_new_game(_sender())
 
 func _take_new_game(from: int) -> void:
 	if role != Role.HOSTING or not guests.has(from):
@@ -994,7 +1099,9 @@ func _take_new_game(from: int) -> void:
 func _send_built(
 	kind: String, at: Vector3, spin: float, extent := Vector2i.ONE, material := ""
 ) -> void:
-	if not believable(at) or not is_finite(spin):
+	if not believable(at) or not is_finite(spin) or kind.length() > MAX_KIND_LENGTH:
+		return
+	if _admit(&"built") < 0:
 		return
 	# A room no bigger than one tap of the roof could ever cover here.
 	if (
@@ -1009,7 +1116,7 @@ func _send_built(
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_removed(at: Vector3, kind := "") -> void:
-	if not believable(at):
+	if not believable(at) or kind.length() > MAX_KIND_LENGTH or _admit(&"removed") < 0:
 		return
 	remote_removed.emit(at, StringName(kind))
 	for id in others_than(_sender()):
@@ -1017,7 +1124,7 @@ func _send_removed(at: Vector3, kind := "") -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_meal(dish: int, at: Vector3) -> void:
-	if not believable(at) or Dishes.from_index(dish) == &"":
+	if not believable(at) or Dishes.from_index(dish) == &"" or _admit(&"meal") < 0:
 		return
 	remote_meal.emit(dish, at)
 	for id in others_than(_sender()):
@@ -1025,7 +1132,7 @@ func _send_meal(dish: int, at: Vector3) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_felled(at: Vector3) -> void:
-	if not believable(at):
+	if not believable(at) or _admit(&"felled") < 0:
 		return
 	remote_felled.emit(at)
 	for id in others_than(_sender()):
@@ -1048,7 +1155,9 @@ const MAX_STUMPS_IN_ALL := 800000
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_valley(pieces: Array, stumps: Array, more := false) -> void:
-	_take_valley(multiplayer.get_remote_sender_id(), pieces, stumps, more)
+	if _admit(&"valley") < 0:
+		return
+	_take_valley(_sender(), pieces, stumps, more)
 
 func _take_valley(from: int, pieces: Array, stumps: Array, more := false) -> void:
 	if not _from_the_host(from):
@@ -1122,7 +1231,9 @@ const ANIMAL_FLOATS := Animals.STATE_FLOATS
 func _send_shared(
 	taken: PackedStringArray, built: Array, progress: Array, mounts: Dictionary
 ) -> void:
-	_take_shared(multiplayer.get_remote_sender_id(), taken, built, progress, mounts)
+	if _admit(&"shared") < 0:
+		return
+	_take_shared(_sender(), taken, built, progress, mounts)
 
 func _take_shared(
 	from: int, taken: PackedStringArray, built: Array, progress: Array, mounts: Dictionary
@@ -1188,6 +1299,8 @@ static func is_pickup_id(id: String) -> bool:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_picked(id: String) -> void:
+	if not is_pickup_id(id) or _admit(&"picked") < 0:
+		return
 	_take_picked(_sender(), id)
 
 func _take_picked(from: int, id: String) -> void:
@@ -1227,6 +1340,8 @@ func _peers_but(from: int) -> Array[int]:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_pick_refused(id: String) -> void:
+	if _admit(&"pick_refused") < 0:
+		return
 	_take_pick_refused(_sender(), id)
 
 func _take_pick_refused(from: int, id: String) -> void:
@@ -1237,6 +1352,8 @@ func _take_pick_refused(from: int, id: String) -> void:
 func _send_parked(id: String, at: Vector3, facing: float) -> void:
 	if mount_named(id) == &"" or not believable(at) or not is_finite(facing):
 		return
+	if _admit(&"parked") < 0:
+		return
 	var from := _sender()
 	if role == Role.VISITING and from != 0 and from != HOST_ID:
 		return
@@ -1246,7 +1363,9 @@ func _send_parked(id: String, at: Vector3, facing: float) -> void:
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_animals(states: PackedFloat32Array) -> void:
-	_take_animals(multiplayer.get_remote_sender_id(), states)
+	if _admit(&"animals") < 0:
+		return
+	_take_animals(_sender(), states)
 
 func _take_animals(from: int, states: PackedFloat32Array) -> void:
 	if not _from_the_host(from):
@@ -1261,11 +1380,15 @@ func _take_animals(from: int, states: PackedFloat32Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_ride_state(ride: int, state: PackedFloat32Array) -> void:
-	_take_ride_state(multiplayer.get_remote_sender_id(), ride, state)
+	if _admit(&"ride_state") < 0:
+		return
+	_take_ride_state(_sender(), ride, state)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _send_ride_beat(ride: int, state: PackedFloat32Array) -> void:
-	_take_ride_state(multiplayer.get_remote_sender_id(), ride, state)
+	if _admit(&"ride_state") < 0:
+		return
+	_take_ride_state(_sender(), ride, state)
 
 func _take_ride_state(from: int, ride: int, state: PackedFloat32Array) -> void:
 	if not _from_the_host(from) or not _a_ride(ride):
@@ -1279,6 +1402,8 @@ func _take_ride_state(from: int, ride: int, state: PackedFloat32Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_ride_seat(ride: int, seat: Vector3) -> void:
+	if _admit(&"ride_seat") < 0:
+		return
 	_take_ride_seat(_sender(), ride, seat)
 
 func _take_ride_seat(from: int, ride: int, seat: Vector3) -> void:
@@ -1295,6 +1420,8 @@ func _take_ride_seat(from: int, ride: int, seat: Vector3) -> void:
 	remote_ride_seat.emit(from, ride, seat)
 	if role != Role.HOSTING or from == 0 or from == HOST_ID or _link != null:
 		return
+	if not is_connected_to_anyone():
+		return
 	# A guest tells the host alone; telling the other guests is the host's job.
 	for id in agreed_guests():
 		if id != from:
@@ -1302,6 +1429,8 @@ func _take_ride_seat(from: int, ride: int, seat: Vector3) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_ride_flags(ride: int, flags: int) -> void:
+	if _admit(&"ride_flags") < 0:
+		return
 	_take_ride_flags(_sender(), ride, flags)
 
 func _take_ride_flags(from: int, ride: int, flags: int) -> void:
@@ -1313,6 +1442,8 @@ func _take_ride_flags(from: int, ride: int, flags: int) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_ride_ask(ride: int, what: int, arg: int) -> void:
+	if _admit(&"ride_ask") < 0:
+		return
 	_take_ride_ask(_sender(), ride, what, arg)
 
 func _take_ride_ask(from: int, ride: int, what: int, arg: int) -> void:
@@ -1324,6 +1455,8 @@ func _take_ride_ask(from: int, ride: int, what: int, arg: int) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_turnstile() -> void:
+	if _admit(&"turnstile") < 0:
+		return
 	_take_turnstile(_sender())
 
 func _take_turnstile(from: int) -> void:
@@ -1334,13 +1467,15 @@ func _take_turnstile(from: int) -> void:
 	remote_turnstile.emit(from)
 	if role != Role.HOSTING or from == 0 or from == HOST_ID or _link != null:
 		return
+	if not is_connected_to_anyone():
+		return
 	for id in agreed_guests():
 		if id != from:
 			_send_turnstile.rpc_id(id)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_dam_stick(site: float) -> void:
-	if not is_finite(site) or absf(site) > BELIEVABLE_REACH:
+	if not is_finite(site) or absf(site) > BELIEVABLE_REACH or _admit(&"dam_stick") < 0:
 		return
 	remote_dam_stick.emit(site)
 	for id in others_than(_sender()):
@@ -1348,7 +1483,7 @@ func _send_dam_stick(site: float) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_time_of_day(fraction: float) -> void:
-	if not is_finite(fraction):
+	if not is_finite(fraction) or _admit(&"time") < 0:
 		return
 	remote_time_of_day.emit(fposmod(fraction, 1.0))
 	for id in others_than(_sender()):
@@ -1357,7 +1492,9 @@ func _send_time_of_day(fraction: float) -> void:
 ## Names are exchanged once on arrival rather than sent with every message.
 @rpc("any_peer", "call_remote", "reliable")
 func _send_name(display_name: String, chose: int, looking := []) -> void:
-	_take_name(multiplayer.get_remote_sender_id(), display_name, chose, looking)
+	if display_name.length() > 200 or _admit(&"name") < 0:
+		return
+	_take_name(_sender(), display_name, chose, looking)
 
 ## What a name message says, whoever it came from. Apart from the rpc so that
 ## it can be tried without a second machine. `looking` is optional because a
@@ -1384,6 +1521,33 @@ func _take_name(from: int, display_name: String, chose: int, looking: Variant = 
 		guest_renamed.emit(from, safe, wearing)
 	else:
 		guest_arrived.emit(from, safe, wearing)
+
+## How long a connection is kept when the other end says nothing, in
+## milliseconds: [timeout limit, at least, at most]. The engine's own answer is
+## five to thirty seconds, and a phone put down to answer a call, or a screen
+## that locked, is silent for as long as it takes (an Android game is not
+## running in the background), so the other child found themselves alone in an
+## empty valley and the first one came back to "the other game closed".
+## A minute covers that; a Wi-Fi that really has gone is still noticed.
+const PATIENCE_LIMIT := 32
+const PATIENCE_LEAST := 15000
+const PATIENCE_MOST := 60000
+
+## Make the connection to one peer patient. Does nothing off a real connection.
+func _be_patient_with(id: int) -> void:
+	if _peer == null:
+		return
+	var other := _peer.get_peer(id)
+	if other != null:
+		other.set_timeout(PATIENCE_LIMIT, PATIENCE_LEAST, PATIENCE_MOST)
+
+## A peer's buckets go when it does, so that a child who comes back is not
+## refused for what the last connection spent, and so that the table of
+## buckets cannot grow with every peer that ever connected.
+func _forget_rates_of(id: int) -> void:
+	for key: String in _buckets.keys():
+		if key.begins_with("%d/" % id):
+			_buckets.erase(key)
 
 func _on_peer_connected(id: int) -> void:
 	# Nothing but a hello until the other phone has said which version it is:
@@ -1442,6 +1606,10 @@ func take_hello(id: int, protocol: int) -> void:
 		_refuse_version(id)
 		return
 	peer_protocol[id] = protocol
+	# Only a host holds a connection of its own to each guest, and a guest to
+	# the host: the other guests are reached through the host.
+	if role == Role.HOSTING or id == HOST_ID:
+		_be_patient_with(id)
 	_greet(id)
 	peer_agreed.emit(id)
 
@@ -1453,10 +1621,18 @@ func _refuse_version(id: int) -> void:
 		if _peer != null:
 			_peer.disconnect_peer(id)
 	elif role == Role.VISITING:
+		# Only the host's word is the visit's. Another guest who is silent, or
+		# another version, is a stranger on the Wi-Fi and not the end of this
+		# child's game: it is simply never listened to (see `_admit`). A guest
+		# that went home at the silence of one the host had already turned away
+		# was how one phone could knock another out of a valley.
+		if id != HOST_ID and _link == null:
+			return
 		close()
 		failed.emit("the other game is another version")
 
 func _on_peer_disconnected(id: int) -> void:
+	_forget_rates_of(id)
 	peer_protocol.erase(id)
 	_hello_wait.erase(id)
 	peer_gone.emit(id)

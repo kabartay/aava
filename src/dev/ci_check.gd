@@ -55,6 +55,12 @@ func _initialize() -> void:
 	_check_a_guest_boarding_sits_on_both_phones()
 	_check_a_guest_who_leaves_mid_ride_is_put_down_safely()
 	_check_the_rides_say_hello_and_are_cheap_to_tell()
+	_check_no_packet_from_the_other_phone_can_hurt_the_game()
+	_check_a_guest_cannot_do_the_hosts_things_and_a_stranger_cannot_do_anything()
+	_check_a_flood_is_dropped_and_a_burst_after_a_freeze_is_not()
+	_check_the_hello_survives_garbage_and_cannot_be_used_to_knock_a_guest_out()
+	_check_a_bad_network_loses_nothing_and_strands_nobody()
+	_check_real_phones_refuse_a_rogue_and_stay_cheap()
 	_check_kick_can_be_aimed()
 	_check_two_sides_keep_score_on_the_board()
 	_check_new_game_and_old_saves()
@@ -34278,4 +34284,656 @@ func _check_the_release_version_is_the_same_everywhere() -> void:
 	for version in found.values():
 		versions[version] = true
 	_expect(versions.size() <= 1, "all four agree (%s)" % str(found))
+
+# --- the other phone is not to be believed ---------------------------------------
+
+## Something hostile of a kind: a number that is not one, or is far too big.
+func _hostile_float(rng: RandomNumberGenerator) -> float:
+	var picks: Array[float] = [NAN, INF, -INF, 1e30, -1e30, 0.0, 1.0, -1.0, 19999.0, 20000.0, 1e-30, 3.4e38, 0.5]
+	if rng.randf() < 0.6:
+		return picks[rng.randi() % picks.size()]
+	return rng.randf_range(-30000.0, 30000.0)
+
+func _hostile_int(rng: RandomNumberGenerator) -> int:
+	var picks: Array[int] = [
+		0, -1, 1, 2, 3, 5, 7, 8, 15, 16, 63, 64, 255, 256, 0xFFFF, 0x10000, 99999, 100000,
+		2147483647, -2147483648, 9223372036854775807, -9223372036854775808,
+	]
+	if rng.randf() < 0.7:
+		return picks[rng.randi() % picks.size()]
+	return rng.randi()
+
+func _hostile_text(rng: RandomNumberGenerator) -> String:
+	var picks: Array[String] = [
+		"", "wall", "horse:3", "horse:+3", "horse:99999", "bicycle:-1", "a:b:c", "1:2:3", "1:2:3:4",
+		"x".repeat(5000), "\n\t", "../../x", "%s%d", "ё".repeat(300), "stick", " ", "1:2:", ":::",
+		"cafe", "roof_room", "plaster", "brick",
+	]
+	return picks[rng.randi() % picks.size()]
+
+func _hostile_vector(rng: RandomNumberGenerator) -> Vector3:
+	return Vector3(_hostile_float(rng), _hostile_float(rng), _hostile_float(rng))
+
+func _hostile_floats(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	var sizes: Array[int] = [0, 1, 3, 4, 5, 8, 9, 10, 20, 40, 80, 90, 100, 1600, 1604]
+	for _i in sizes[rng.randi() % sizes.size()]:
+		out.append(_hostile_float(rng))
+	return out
+
+func _hostile_variant(rng: RandomNumberGenerator, depth := 0) -> Variant:
+	match rng.randi() % (6 if depth > 1 else 9):
+		0:
+			return _hostile_int(rng)
+		1:
+			return _hostile_float(rng)
+		2:
+			return _hostile_text(rng)
+		3:
+			return _hostile_vector(rng)
+		4:
+			return null
+		5:
+			return StringName(_hostile_text(rng))
+		6:
+			var list: Array = []
+			for _i in rng.randi_range(0, 5):
+				list.append(_hostile_variant(rng, depth + 1))
+			return list
+		7:
+			var table: Dictionary = {}
+			for key: String in ["kind", "x", "y", "z", "spin", "age", "across", "along", "material"]:
+				if rng.randf() < 0.6:
+					table[key] = _hostile_variant(rng, depth + 1)
+			return table
+	return {}
+
+## Every number in what a handler passed on, looked at: none that is not a
+## number, none that is not a place.
+func _unbelievable(value: Variant) -> bool:
+	match typeof(value):
+		TYPE_FLOAT:
+			return not is_finite(value)
+		TYPE_VECTOR3:
+			return not Session.believable(value)
+		TYPE_PACKED_FLOAT32_ARRAY:
+			for number: float in value:
+				if not is_finite(number):
+					return true
+		TYPE_ARRAY:
+			for entry: Variant in value:
+				if _unbelievable(entry):
+					return true
+		TYPE_DICTIONARY:
+			for key: Variant in value:
+				if _unbelievable(value[key]):
+					return true
+	return false
+
+const SESSION_SIGNALS: Array[StringName] = [
+	&"remote_built", &"remote_removed", &"remote_felled", &"remote_meal", &"remote_dam_stick",
+	&"remote_time_of_day", &"remote_valley", &"remote_shared", &"remote_picked", &"pick_refused",
+	&"remote_parked", &"remote_animals", &"remote_balls", &"remote_football_scores",
+	&"remote_kick", &"remote_new_game", &"remote_ride_state", &"remote_ride_seat",
+	&"remote_ride_flags", &"remote_ride_ask", &"remote_turnstile", &"guest_moved",
+]
+
+## A session that is somebody's host (or somebody's guest) with the peers
+## named already agreed, counting what it passes on to the game.
+func _fuzz_session(role: Session.Role, agreed: Array[int], named: Dictionary) -> Dictionary:
+	var session := Session.new()
+	get_root().add_child(session)
+	session.role = role
+	session.rate_clock = 1000.0
+	for id in agreed:
+		session.peer_protocol[id] = Session.PROTOCOL
+	for id: int in named:
+		session.guests[id] = named[id]
+	var seen := {"count": 0, "bad": 0}
+	for signal_name in SESSION_SIGNALS:
+		session.connect(signal_name, func(...args: Array) -> void:
+			seen["count"] += 1
+			if _unbelievable(args):
+				seen["bad"] += 1)
+	return {"session": session, "seen": seen}
+
+func _check_no_packet_from_the_other_phone_can_hurt_the_game() -> void:
+	print("no packet from the other phone can crash, corrupt or cheat the game")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261104
+	var host_pack := _fuzz_session(Session.Role.HOSTING, [7, 8], {7: "Amir", 8: "Bo"})
+	var guest_pack := _fuzz_session(Session.Role.VISITING, [1, 9], {1: "Host", 9: "Cy"})
+	var host: Session = host_pack["session"]
+	var guest: Session = guest_pack["session"]
+	var hs: Dictionary = host_pack["seen"]
+	var gs: Dictionary = guest_pack["seen"]
+	var senders: Array[int] = [7, 8, 1, 9, 0, 55, -3, 2147483647]
+	for round in 4000:
+		host.rate_clock += 10.0
+		guest.rate_clock += 10.0
+		host.check_sender = senders[rng.randi() % senders.size()]
+		guest.check_sender = senders[rng.randi() % senders.size()]
+		for s: Session in [host, guest]:
+			match rng.randi() % 27:
+				0:
+					s._send_position(_hostile_vector(rng), _hostile_float(rng), _hostile_text(rng), _hostile_int(rng))
+				1:
+					s._send_balls(_hostile_floats(rng))
+				2:
+					s._send_football_scores(_hostile_int(rng), _hostile_int(rng), _hostile_int(rng))
+				3:
+					s._send_kick(_hostile_int(rng), _hostile_vector(rng))
+				4:
+					s._send_new_game()
+				5:
+					s._send_built(_hostile_text(rng), _hostile_vector(rng), _hostile_float(rng), Vector2i(_hostile_int(rng), _hostile_int(rng)), _hostile_text(rng))
+				6:
+					s._send_removed(_hostile_vector(rng), _hostile_text(rng))
+				7:
+					s._send_meal(_hostile_int(rng), _hostile_vector(rng))
+				8:
+					s._send_felled(_hostile_vector(rng))
+				9:
+					var pieces: Array = []
+					for _i in rng.randi_range(0, 20):
+						pieces.append(_hostile_variant(rng))
+					var stumps: Array = []
+					for _i in rng.randi_range(0, 20):
+						stumps.append(_hostile_variant(rng))
+					s._send_valley(pieces, stumps, rng.randf() < 0.5)
+					s._part_pieces.clear()
+					s._part_stumps.clear()
+				10:
+					var taken := PackedStringArray()
+					for _i in rng.randi_range(0, 20):
+						taken.append(_hostile_text(rng))
+					var progress: Array = []
+					for _i in rng.randi_range(0, 8):
+						progress.append(_hostile_variant(rng))
+					var built: Array = []
+					for _i in rng.randi_range(0, 8):
+						built.append(_hostile_variant(rng))
+					var mounts: Dictionary = {}
+					for _i in rng.randi_range(0, 8):
+						mounts[_hostile_text(rng)] = _hostile_variant(rng)
+					s._send_shared(taken, built, progress, mounts)
+				11:
+					s._send_picked(_hostile_text(rng))
+				12:
+					s._send_pick_refused(_hostile_text(rng))
+				13:
+					s._send_parked(_hostile_text(rng), _hostile_vector(rng), _hostile_float(rng))
+				14:
+					s._send_animals(_hostile_floats(rng))
+				15:
+					s._send_ride_state(_hostile_int(rng), _hostile_floats(rng))
+				16:
+					s._send_ride_beat(_hostile_int(rng), _hostile_floats(rng))
+				17:
+					s._send_ride_seat(_hostile_int(rng), _hostile_vector(rng))
+				18:
+					s._send_ride_flags(_hostile_int(rng), _hostile_int(rng))
+				19:
+					s._send_ride_ask(_hostile_int(rng), _hostile_int(rng), _hostile_int(rng))
+				20:
+					s._send_turnstile()
+				21:
+					s._send_dam_stick(_hostile_float(rng))
+				22:
+					s._send_time_of_day(_hostile_float(rng))
+				23:
+					var look: Array = []
+					for _i in rng.randi_range(0, 5):
+						look.append(_hostile_variant(rng))
+					s._send_name(_hostile_text(rng), _hostile_int(rng), look)
+				24:
+					s._on_peer_packet(senders[rng.randi() % senders.size()], PackedByteArray([rng.randi() % 256, rng.randi() % 256, 65, 65, 86, 65, rng.randi() % 256]))
+				25:
+					s.take_hello(senders[rng.randi() % senders.size()], _hostile_int(rng))
+				26:
+					s._send_position(Vector3(1.0, 2.0, 3.0), 0.5)
+	host.check_sender = 0
+	guest.check_sender = 0
+	_expect(int(hs["count"]) + int(gs["count"]) > 100, "the fuzz reached the handlers (%d messages passed)" % (int(hs["count"]) + int(gs["count"])))
+	_expect(int(hs["bad"]) == 0 and int(gs["bad"]) == 0, "and nothing that is not a number, or not a place, was ever passed on")
+	_expect(host.guests.size() <= 3 + 4000, "the host's table of guests is bounded by the peers that spoke (%d)" % host.guests.size())
+	host.free()
+	guest.free()
+
+## What only the host may say, said by somebody who is not; what a guest may
+## say, said by somebody who is not a guest yet; and the order and the number
+## of things that are sent.
+func _check_a_guest_cannot_do_the_hosts_things_and_a_stranger_cannot_do_anything() -> void:
+	print("a guest cannot do the host's things, nor a stranger anything")
+	var host_pack := _fuzz_session(Session.Role.HOSTING, [7], {7: "Amir"})
+	var guest_pack := _fuzz_session(Session.Role.VISITING, [1, 9], {1: "Host", 9: "Cy"})
+	var host: Session = host_pack["session"]
+	var guest: Session = guest_pack["session"]
+	var hs: Dictionary = host_pack["seen"]
+	var gs: Dictionary = guest_pack["seen"]
+	var balls := PackedFloat32Array()
+	for _i in 2:
+		balls.append_array(PackedFloat32Array([1.0, 0.1, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
+	var animals := PackedFloat32Array([1.0, 2.0, 3.0, 4.0])
+	var ride := PackedFloat32Array([1.0, 2.0, 0.0, 0.0, 0.0])
+	var valley_piece: Array = [{"kind": "wall", "x": 1.0, "y": 0.0, "z": 2.0}]
+
+	# The host's things, from a guest to the host.
+	host.check_sender = 7
+	host._send_balls(balls)
+	host._send_animals(animals)
+	host._send_football_scores(1, 2, 0)
+	host._send_valley(valley_piece, [[1.0, 2.0]], false)
+	host._send_shared(PackedStringArray(["1:2:3"]), [], [], {})
+	host._send_ride_state(1, ride)
+	host._send_ride_beat(1, ride)
+	host._send_pick_refused("1:2:3")
+	_expect(int(hs["count"]) == 0, "the balls, the animals, the score, the valley, the rides' clocks and a refusal are the host's to say, never a guest's")
+	# A guest who is not the host's is not believed by a guest either.
+	guest.check_sender = 9
+	guest._send_balls(balls)
+	guest._send_animals(animals)
+	guest._send_football_scores(1, 2, 0)
+	guest._send_valley(valley_piece, [[1.0, 2.0]], false)
+	guest._send_shared(PackedStringArray(["1:2:3"]), [], [], {})
+	guest._send_ride_state(1, ride)
+	guest._send_pick_refused("1:2:3")
+	guest._send_kick(0, Vector3(5.0, 1.0, 0.0))
+	guest._send_new_game()
+	guest._send_ride_flags(1, 1)
+	guest._send_ride_ask(1, 1, 1)
+	_expect(int(gs["count"]) == 0, "nor can another guest say them to a guest, or ask a guest to kick, restart or ride")
+	# And the host's word is taken.
+	guest.check_sender = 1
+	guest._send_balls(balls)
+	guest._send_animals(animals)
+	guest._send_football_scores(1, 2, 0)
+	guest._send_ride_state(1, ride)
+	guest._send_valley(valley_piece, [[1.0, 2.0]], false)
+	_expect(int(gs["count"]) == 5, "while the host's is (%d of 5)" % int(gs["count"]))
+
+	# A host's child, its coins, its bag and its buildings have no message at all
+	# that reaches them without the game choosing to: what arrives is a signal.
+	var source := FileAccess.get_file_as_string("res://src/net/session.gd")
+	for word: String in ["coins", "inventory", "spend", "wallet"]:
+		_expect(not source.contains(word + "."), "the session never touches '%s'" % word)
+
+	# A stranger, who has not said hello, is not heard however politely.
+	gs["count"] = 0
+	hs["count"] = 0
+	for who: int in [55, 3, 2147483647]:
+		host.check_sender = who
+		host._send_built("wall", Vector3(1.0, 0.0, 1.0), 0.0)
+		host._send_felled(Vector3(1.0, 0.0, 1.0))
+		host._send_kick(0, Vector3(5.0, 1.0, 0.0))
+		host._send_new_game()
+		host._send_name("Eve", 0, [])
+		host._send_position(Vector3(1.0, 0.0, 1.0), 0.0)
+		host._send_ride_flags(1, 1)
+		host._send_turnstile()
+		host._send_picked("1:2:3")
+		host._send_parked("horse:1", Vector3(1.0, 0.0, 1.0), 0.0)
+	_expect(int(hs["count"]) == 0 and not host.guests.has(55), "a peer that never said hello builds, fells, kicks, names itself and moves nothing")
+	_expect(int(host.dropped.get(&"unwelcome", 0)) == 30, "and every one of its messages was counted as refused (%d)" % int(host.dropped.get(&"unwelcome", 0)))
+	# A guest who has said hello but is not in the valley by name is not a guest
+	# for what needs one.
+	host.peer_protocol[11] = Session.PROTOCOL
+	host.check_sender = 11
+	host._send_kick(0, Vector3(5.0, 1.0, 0.0))
+	host._send_new_game()
+	host._send_ride_flags(1, 1)
+	host._send_ride_ask(1, 1, 1)
+	_expect(int(hs["count"]) == 0, "somebody who has said hello but not who they are cannot kick, restart or ride")
+	# A guest that leaves is not heard from again, and its buckets go with it.
+	host.check_sender = 7
+	host._send_felled(Vector3(1.0, 0.0, 1.0))
+	_expect(host._buckets.size() > 0, "a guest's rates are kept while it is here")
+	host._on_peer_disconnected(7)
+	host.check_sender = 7
+	host._send_felled(Vector3(1.0, 0.0, 1.0))
+	var after: int = int(hs["count"])
+	var kept := 0
+	for key: String in host._buckets:
+		if key.begins_with("7/"):
+			kept += 1
+	_expect(after == 1 and kept == 0, "and a guest who has gone is not heard again, nor its rates kept (%d heard, %d buckets)" % [after, kept])
+	host.free()
+	guest.free()
+
+## How fast a phone may talk, and what a long silence is worth.
+func _check_a_flood_is_dropped_and_a_burst_after_a_freeze_is_not() -> void:
+	print("a flood is dropped; a burst after a freeze is not")
+	var pack := _fuzz_session(Session.Role.HOSTING, [7, 8], {7: "Amir", 8: "Bo"})
+	var host: Session = pack["session"]
+	var seen: Dictionary = pack["seen"]
+	host.rate_clock = 50.0
+	host.check_sender = 7
+	var burst := int((Session.LIMITS[&"felled"] as Array)[0])
+	var rate := float((Session.LIMITS[&"felled"] as Array)[1])
+	for i in burst + 500:
+		host._send_felled(Vector3(float(i), 0.0, 0.0))
+	_expect(int(seen["count"]) == burst, "a flood of fellings in one instant lets a burst of %d through (%d)" % [burst, int(seen["count"])])
+	_expect(int(host.dropped[&"felled"]) == 500, "and drops the other 500")
+	# Another child is not slowed by it.
+	host.check_sender = 8
+	host._send_felled(Vector3.ZERO)
+	_expect(int(seen["count"]) == burst + 1, "another guest is not held up by one's flood")
+	# A second later the bucket has filled by one second's worth.
+	host.check_sender = 7
+	host.rate_clock += 1.0
+	var before: int = int(seen["count"])
+	for i in 500:
+		host._send_felled(Vector3(float(i), 0.0, 0.0))
+	_expect(int(seen["count"]) - before == int(rate), "a second later exactly %d more are let in" % int(rate))
+	# A ten-second freeze and then everything at once: a child's real afternoon
+	# of building arrives together and is not turned away...
+	host.rate_clock += 10.0
+	before = int(host.spent.get(&"built", 0))
+	for i in 150:
+		host._send_built("wall", Vector3(float(i), 0.0, 0.0), 0.0)
+	_expect(int(host.spent[&"built"]) - before == 150, "150 pieces built in a frozen ten seconds all arrive when it thaws")
+	# ... and neither is an hour's silence worth an hour's credit.
+	host.rate_clock += 3600.0
+	before = int(host.spent.get(&"built", 0))
+	for i in 5000:
+		host._send_built("wall", Vector3(float(i), 0.0, 0.0), 0.0)
+	var most := int((Session.LIMITS[&"built"] as Array)[0])
+	_expect(int(host.spent[&"built"]) - before == most, "but a long silence saves up no more than the burst (%d)" % (int(host.spent[&"built"]) - before))
+	# Sticks for the dam: a few, not thirty in a breath.
+	host.rate_clock += 100.0
+	seen["count"] = 0
+	for _i in 30:
+		host._send_dam_stick(0.0)
+	_expect(int(seen["count"]) == int((Session.LIMITS[&"dam_stick"] as Array)[0]), "a dam is not finished by thirty sticks sent at once (%d)" % int(seen["count"]))
+	# Every rpc is limited, and every limit is a kind that exists.
+	var source := FileAccess.get_file_as_string("res://src/net/session.gd")
+	var at := 0
+	var unguarded: Array[String] = []
+	while true:
+		at = source.find("\n@rpc(", at + 1)
+		if at < 0:
+			break
+		var end := source.find("\nfunc ", at + 5)
+		end = source.find("\nfunc ", end + 5)
+		var body := source.substr(at, end - at)
+		var name_at := source.find("func ", at)
+		var name := source.substr(name_at + 5, source.find("(", name_at) - name_at - 5)
+		if not body.contains("_admit(&\""):
+			unguarded.append(name)
+	_expect(unguarded.is_empty(), "every rpc the session receives is admitted and counted (%s)" % ", ".join(unguarded))
+	var kinds := {}
+	var scan := 0
+	while true:
+		scan = source.find("_admit(&\"", scan)
+		if scan < 0:
+			break
+		var from := scan + 9
+		kinds[source.substr(from, source.find("\"", from) - from)] = true
+		scan = from
+	var missing: Array[String] = []
+	for kind: String in kinds:
+		if not Session.LIMITS.has(StringName(kind)):
+			missing.append(kind)
+	_expect(missing.is_empty(), "and each of those kinds has a limit (%s)" % ", ".join(missing))
+	_expect(FileAccess.get_file_as_string("res://src/net/voice.gd").contains("admit(&\"voice\""), "a voice is limited too")
+	host.free()
+
+## The hello, which is the one packet that is not an rpc.
+func _check_the_hello_survives_garbage_and_cannot_be_used_to_knock_a_guest_out() -> void:
+	print("the hello survives garbage and cannot knock a guest out")
+	var host := Session.new()
+	get_root().add_child(host)
+	host.role = Session.Role.HOSTING
+	var agreed: Array[int] = []
+	host.peer_agreed.connect(func(id: int) -> void: agreed.append(id))
+	host._hello_wait[5] = 0.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99
+	for _i in 500:
+		var packet := PackedByteArray()
+		for _j in rng.randi_range(0, 40):
+			packet.append(rng.randi() % 256)
+		host._on_peer_packet(5, packet)
+	_expect(agreed.is_empty(), "garbage of every length is never a hello")
+	var good := Session.HELLO_MAGIC.to_ascii_buffer()
+	good.append(Session.PROTOCOL)
+	host._on_peer_packet(5, good)
+	host._on_peer_packet(5, good)
+	_expect(agreed == [5], "a hello is welcomed once, and a second one says nothing more")
+	host._on_peer_packet(6, good)
+	_expect(agreed == [5], "and one from nobody who was waiting is nothing")
+	# Too long in the hello wait: another guest's silence is not this guest's end.
+	var guest := Session.new()
+	get_root().add_child(guest)
+	guest.role = Session.Role.VISITING
+	var said: Array = []
+	guest.failed.connect(func(reason: String) -> void: said.append(reason))
+	guest.peer_protocol[1] = Session.PROTOCOL
+	guest._hello_wait[1 + 40] = 0.0
+	for _i in 44:
+		guest._process(0.25)
+	_expect(guest.role == Session.Role.VISITING and said.is_empty(), "a guest whose fellow guest never says hello stays in the valley")
+	_expect(guest._hello_wait.is_empty(), "and stops waiting for it")
+	# A host that says nothing, though, is the end of the visit.
+	guest._hello_wait[1] = 0.0
+	for _i in 40:
+		guest._process(0.25)
+	_expect(said == ["the other game is another version"] and guest.role == Session.Role.ALONE, "but the host's silence is")
+	# A frame that took a minute (the phone was put away) is not eight seconds of silence.
+	guest.role = Session.Role.VISITING
+	said.clear()
+	guest._hello_wait[1] = 0.0
+	guest._process(60.0)
+	_expect(said.is_empty() and guest.role == Session.Role.VISITING, "a minute-long frame after a phone was put away is not the host being silent")
+	host.free()
+	guest.free()
+
+## A tick of both phones with the network frozen: they run, and nothing crosses.
+func _ride_tick_frozen(pair: Dictionary, dt: float) -> void:
+	for ride: Node in _rides_of(pair["host_park"]):
+		ride.call(&"_physics_process", dt)
+	for ride: Node in _rides_of(pair["guest_park"]):
+		ride.call(&"_physics_process", dt)
+	(pair["host_sync"] as RideSync).step(dt)
+	(pair["guest_sync"] as RideSync).step(dt)
+
+func _ride_gaps(pair: Dictionary) -> Dictionary:
+	var hp: Park = pair["host_park"]
+	var gp: Park = pair["guest_park"]
+	return {
+		"tower": absf(_cycle_gap(gp.drop_tower.sync_clock(), hp.drop_tower.sync_clock(), DropTower.SYNC_LOOP)),
+		"ship": absf(_cycle_gap(gp.pirate_ship.sync_clock(), hp.pirate_ship.sync_clock(), PirateShip.SYNC_LOOP)),
+		"wheel": absf(wrapf(gp.wheel.turned() - hp.wheel.turned(), -PI, PI)),
+	}
+
+## 300 ms each way, a lot of jitter, one message in twenty lost, then a ten
+## second freeze and everything at once; a host leaving in the middle of a
+## valley being sent, a guest leaving and another coming; nothing lost, nobody
+## stuck.
+func _check_a_bad_network_loses_nothing_and_strands_nobody() -> void:
+	print("a bad network loses nothing and strands nobody")
+	var dt := 1.0 / 30.0
+	var pair := _ride_pair(0.3, 0.15)
+	var host: Session = pair["host"]
+	var guest: Session = pair["guest"]
+	host.link_loss = 0.05
+	guest.link_loss = 0.05
+	host._link_rng.seed = 5
+	guest._link_rng.seed = 6
+	var gp: Park = pair["guest_park"]
+	for _i in int(23.0 * 30.0):
+		for ride: Node in _rides_of(gp):
+			ride.call(&"_physics_process", dt)
+	for _i in int(40.0 * 30.0):
+		_ride_tick(pair, dt)
+	var worst := {"tower": 0.0, "ship": 0.0, "wheel": 0.0}
+	for _i in int(10.0 * 30.0):
+		_ride_tick(pair, dt)
+		var gaps := _ride_gaps(pair)
+		for key: String in worst:
+			worst[key] = maxf(worst[key], gaps[key])
+	_expect(worst["tower"] < 1.0 and worst["ship"] < 1.0 and worst["wheel"] < 0.25,
+		"at 300 ms, 150 ms of jitter and 5%% loss the rides keep one clock (tower %.2f s, ship %.2f s, wheel %.3f rad)" % [worst["tower"], worst["ship"], worst["wheel"]])
+	# Frozen for ten seconds, with the guest asking for things throughout.
+	var asked: Array[int] = []
+	host.remote_ride_ask.connect(func(_from: int, _ride: int, _what: int, arg: int) -> void: asked.append(arg))
+	for i in 15:
+		guest.report_ride_ask(1, 0, i)
+		for _j in 20:
+			_ride_tick_frozen(pair, dt)
+	_expect(asked.is_empty(), "nothing arrives during the freeze")
+	for _i in int(20.0 * 30.0):
+		_ride_tick(pair, dt)
+	var in_order := true
+	for i in asked.size():
+		if asked[i] != i:
+			in_order = false
+	_expect(asked.size() == 15 and in_order, "and all 15 requests arrive when it thaws, once each, in order (%d)" % asked.size())
+	worst = {"tower": 0.0, "ship": 0.0, "wheel": 0.0}
+	for _i in int(8.0 * 30.0):
+		_ride_tick(pair, dt)
+		var gaps := _ride_gaps(pair)
+		for key: String in worst:
+			worst[key] = maxf(worst[key], gaps[key])
+	_expect(worst["tower"] < 1.0 and worst["ship"] < 1.0 and worst["wheel"] < 0.25,
+		"and twenty seconds after, the clocks agree again (tower %.2f s, ship %.2f s, wheel %.3f rad)" % [worst["tower"], worst["ship"], worst["wheel"]])
+	_free_ride_pair(pair)
+
+	# The host leaves in the middle of sending a valley, and comes back.
+	var guest2 := Session.new()
+	get_root().add_child(guest2)
+	guest2.role = Session.Role.VISITING
+	guest2.peer_protocol[Session.HOST_ID] = Session.PROTOCOL
+	var whole: Array = []
+	var closed: Array[int] = [0]
+	var failed: Array[String] = []
+	guest2.remote_valley.connect(func(pieces: Array, _stumps: Array) -> void: whole.append(pieces.size()))
+	guest2.closed.connect(func() -> void: closed[0] += 1)
+	guest2.failed.connect(func(reason: String) -> void: failed.append(reason))
+	var part: Array = []
+	for i in 40:
+		part.append({"kind": "wall", "x": float(i), "y": 0.0, "z": 0.0})
+	guest2._take_valley(Session.HOST_ID, part, [], true)
+	guest2._take_valley(Session.HOST_ID, part, [], true)
+	guest2._on_host_left()
+	_expect(closed[0] == 1 and failed == ["the other game closed"] and Session.words_for(failed[0]) == &"fail_host_closed",
+		"a host who leaves mid-valley is told once, in the words the game already has")
+	_expect(guest2.role == Session.Role.ALONE and guest2._part_pieces.is_empty(), "and the half a valley that came is thrown away")
+	guest2._take_valley(Session.HOST_ID, part, [], false)
+	_expect(whole.is_empty(), "what the gone host's last parts say is not taken")
+	guest2.role = Session.Role.VISITING
+	guest2._take_valley(Session.HOST_ID, part.slice(0, 7), [], false)
+	_expect(whole == [7], "a new visit starts from nothing, not from the old half (%s)" % str(whole))
+	guest2._on_host_left()
+	guest2._on_host_left()
+	_expect(closed[0] == 2, "a second word that the host has gone does nothing more")
+	# Gone, nothing the child does tells a connection that is not there.
+	guest2.report_built(&"wall", Vector3.ZERO, 0.0)
+	guest2.report_removed(Vector3.ZERO)
+	guest2.report_felled(Vector3.ZERO)
+	guest2.report_meal(0, Vector3.ZERO)
+	guest2.report_dam_stick(0.0)
+	guest2.report_kick(0, Vector3.RIGHT)
+	guest2.report_new_game()
+	guest2.report_position(Vector3(5.0, 0.0, 5.0), 0.0)
+	guest2.report_name("Amir", 0)
+	guest2.report_time_of_day(0.5)
+	guest2.report_picked("1:2:3")
+	guest2.report_parked(&"horse:1", Vector3.ZERO, 0.0)
+	guest2.report_ride_seat(1, Vector3.ZERO)
+	guest2.report_ride_flags(1, 1)
+	guest2.report_ride_ask(1, 0, 0)
+	guest2.report_turnstile()
+	_expect(not guest2.is_connected_to_anyone(), "everything a child can do goes nowhere, quietly, once the host has gone")
+	guest2.free()
+
+	# A guest leaves, and another comes: one farewell, one welcome, nothing left over.
+	var host2 := Session.new()
+	get_root().add_child(host2)
+	host2.role = Session.Role.HOSTING
+	var log: Array[String] = []
+	host2.guest_arrived.connect(func(id: int, who: String, _shirt: int) -> void: log.append("+%d %s" % [id, who]))
+	host2.guest_left.connect(func(id: int, who: String) -> void: log.append("-%d %s" % [id, who]))
+	host2.peer_protocol[7] = Session.PROTOCOL
+	host2._take_name(7, "Amir", 0, [])
+	host2._take_position(7, Vector3(3.0, 0.0, 3.0), 0.0, "horse:1", 0)
+	_expect(host2.guest_positions.has(7) and host2.guest_mounts.has(7), "a guest is here, on a horse")
+	host2._on_peer_disconnected(7)
+	host2._on_peer_disconnected(7)
+	_expect(log == ["+7 Amir", "-7 Amir"], "they leave once, however many times the line says so (%s)" % str(log))
+	_expect(not host2.guest_positions.has(7) and not host2.guest_mounts.has(7) and host2.guests.is_empty(), "and leave nothing of theirs behind")
+	host2.peer_protocol[12] = Session.PROTOCOL
+	host2._take_name(12, "Amir", 0, [])
+	host2._take_position(12, Vector3(4.0, 0.0, 4.0), 0.0, "", 0)
+	_expect(log == ["+7 Amir", "-7 Amir", "+12 Amir"] and host2.guests.has(12) and host2.guests.size() == 1, "and the same child coming back is welcomed as a new arrival")
+	host2.check_sender = 7
+	host2._send_new_game()
+	host2.check_sender = 0
+	host2.free()
+
+	# A match in progress, and each phone goes.
+	var field := HeightField.new(20260903)
+	var match_pair := _football_pair(field)
+	var hg: FootballGround = match_pair[2]
+	var gg: FootballGround = match_pair[3]
+	var h: Session = match_pair[0]
+	var g: Session = match_pair[1]
+	var id: int = g._link_id
+	var ball: Ball = hg._balls[0]
+	var near := ball.position + Vector3(-1.0, 0.0, 0.0)
+	h.guest_positions[id] = near
+	_expect(gg.is_following(), "the guest is following the host's match")
+	g._link = null
+	g.close()
+	gg._process(0.0)
+	_expect(not gg.is_following(), "the host leaving mid-match hands the guest's balls back to the guest")
+	var shown: Array[int] = [0]
+	g.remote_balls.connect(func(_states: PackedFloat32Array) -> void: shown[0] += 1)
+	var states := PackedFloat32Array()
+	states.resize(Session.BALL_FLOATS)
+	g._take_balls(Session.HOST_ID, states)
+	_expect(shown[0] == 0, "and a late ball update from the host that has gone is not taken")
+	h._on_peer_disconnected(id)
+	var before := ball.linear_velocity
+	hg._on_remote_kick(id, 0, Vector3(8.0, 1.0, 0.0))
+	_expect(ball.linear_velocity == before, "a guest leaving mid-match cannot kick afterwards")
+	hg.new_game()
+	_expect(not hg.is_following(), "and the host goes on playing alone")
+	_free_football_pair(match_pair)
+
+## Real sockets and real processes, on a port nobody else is using: a phone that
+## skips the hello and one that floods; and what each of the game's chatty
+## things costs on the wire.
+func _check_real_phones_refuse_a_rogue_and_stay_cheap() -> void:
+	print("real phones refuse a rogue one, and stay cheap")
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	for mode: String in ["attack", "meter"]:
+		var port := 0
+		for _try in 60:
+			var candidate := rng.randi_range(20000, 60000)
+			var probe := PacketPeerUDP.new()
+			if probe.bind(candidate, "127.0.0.1") == OK:
+				probe.close()
+				port = candidate
+				break
+		_expect(port > 0, "a free port was found for the %s run" % mode)
+		if port == 0:
+			continue
+		var output: Array = []
+		var code := OS.execute(OS.get_executable_path(), [
+			"--headless", "--path", ProjectSettings.globalize_path("res://"),
+			"--script", "res://src/dev/net_rogue.gd", "--", "--role=host", "--mode=%s" % mode, "--port=%d" % port,
+		], output, true)
+		var text := "\n".join(PackedStringArray(output))
+		var lines: Array[String] = []
+		for line in text.split("\n"):
+			if line.contains("NETMETER") or line.contains("FAIL") or line.contains("SCRIPT ERROR"):
+				lines.append(line)
+		for line in lines:
+			print("    " + line)
+		if code != 0:
+			print(text.right(3000))
+		_expect(code == 0 and text.contains("NETROGUE host-%s ok" % mode) and not text.contains("FAIL") and not text.contains("SCRIPT ERROR"),
+			"the %s run ends well (exit %d)" % [mode, code])
 
