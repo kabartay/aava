@@ -168,7 +168,11 @@ func _build(sound: Sound) -> AudioStreamWAV:
 			# cycles, pure, and played lower still at a call or two — down to
 			# 120 — which a phone's speaker does not reproduce: the most used
 			# answer in the game was, on the device it is played on, silence.
-			return _tone([SCALE[1], SCALE[0]], 0.16, 0.4, true)
+			#
+			# As loud as the confirmations beside it: at 0.4 it was the
+			# quietest sound in the game by some distance, and a "no" that is
+			# lost under the valley reads as nothing having happened.
+			return _tone([SCALE[1], SCALE[0]], 0.16, 0.55, true)
 		Sound.KICK:
 			return _thump(0.09)
 		Sound.GOAL:

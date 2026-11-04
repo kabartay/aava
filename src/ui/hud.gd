@@ -137,6 +137,8 @@ signal voice_allowed_changed(allowed: bool)
 
 signal confirmed()
 signal refused()
+## A hold button was let go too soon: the hint is shown, and this is the sound.
+signal hold_hint_given()
 signal dam_stick()
 signal fire_fed()
 signal slept()
@@ -2193,7 +2195,7 @@ func _show_house(house: bool) -> void:
 ## back; the everyday buttons stay a tap.
 func _hold(button: Button, action: Callable) -> HoldRing:
 	var ring := HoldRing.attach(button, action)
-	ring.too_short.connect(func() -> void: announce(Text.of("ui_hold_hint"), 1.8))
+	ring.too_short.connect(_give_the_hold_hint)
 	return ring
 
 func _button(text: String, color: Color) -> Button:
@@ -2856,6 +2858,32 @@ func announce(text: String, seconds := 3.2, colour := Color(1.0, 1.0, 1.0)) -> v
 	_message_timer = seconds
 	_layout()
 
+## What the screen is saying now, or "" when it is saying nothing.
+func current_message() -> String:
+	return _message.text if _message_timer > 0.0 else ""
+
+## Take down an announcement that was about a place the child has since left,
+## if it is still the one showing. Something newer is left alone.
+func retract(text: String) -> void:
+	if _message_timer > 0.0 and _message.text == text:
+		_message_timer = 0.0
+		_message.modulate.a = 0.0
+
+## How long the "hold it" hint is not written again once it has been.
+const HOLD_HINT_REPEAT := 3.0
+var _hold_hint_clock := 0.0
+var _hold_hint_at := -HOLD_HINT_REPEAT
+
+## A tap on a button that has to be held. Always answered with the soft sound
+## (a toddler's tap that says nothing reads as a broken button), and the words
+## once in a while: tapping it again and again used to rewrite them each time.
+func _give_the_hold_hint() -> void:
+	hold_hint_given.emit()
+	if _hold_hint_clock - _hold_hint_at < HOLD_HINT_REPEAT and current_message() == Text.of("ui_hold_hint"):
+		return
+	_hold_hint_at = _hold_hint_clock
+	announce(Text.of("ui_hold_hint"), 1.8)
+
 ## The colour the current announcement is written in, for the checks.
 func message_colour() -> Color:
 	return _message.get_theme_color("font_color")
@@ -2872,6 +2900,7 @@ func _pulse_the_kick_button(delta: float) -> void:
 	_kick_button.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.95, 0.55), swell)
 
 func _process(delta: float) -> void:
+	_hold_hint_clock += delta
 	_pulse_the_kick_button(delta)
 	if _offer != null:
 		_offer_idle += delta

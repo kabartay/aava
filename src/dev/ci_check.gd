@@ -108,6 +108,11 @@ func _initialize() -> void:
 	await _check_a_tap_in_the_name_moves_its_caret()
 	_check_the_opening_leads_somewhere()
 	_check_sounds_exist()
+	_check_every_refusal_is_heard_and_not_repeated()
+	_check_the_hold_hint_is_heard_and_not_repeated()
+	_check_an_announcement_is_taken_back_when_the_child_leaves()
+	_check_the_refusal_is_not_the_quietest_cue()
+	_check_feedback_reaches_the_guest_and_does_not_cover_itself()
 	await _check_the_valley_is_not_silent()
 	_check_an_animal_greets_you_once()
 	_check_a_rider_sits_in_the_saddle()
@@ -6838,6 +6843,126 @@ func _check_sounds_exist() -> void:
 	else:
 		_fail("silent sounds: %s" % ", ".join(silent))
 	sounds.queue_free()
+
+## The text of one function in main.gd, comments out, up to the next one.
+func _main_function(game: String, header: String) -> String:
+	var at := game.find(header)
+	if at < 0:
+		return ""
+	var body := game.substr(at)
+	return body.substr(0, body.find("\nfunc ", 1))
+
+## A child who cannot read is told "no" by a sound and nothing else, so every
+## refusal in the game goes through one door that always plays it, and the
+## words behind it are said once and not again and again.
+func _check_every_refusal_is_heard_and_not_repeated() -> void:
+	print("every refusal is heard, and its words are not repeated")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var door := _main_function(game, "func _refuse(")
+	_expect(door.contains("Sounds.Sound.REFUSE"), "the one door for a refusal plays the refusal sound")
+	_expect(door.contains("hud.current_message()") and door.contains("REFUSAL_REPEAT"), "and says the same words again only after a pause, or once they are gone")
+	var repeat: Variant = game_const("REFUSAL_REPEAT")
+	_expect(repeat != null and float(repeat) >= 2.0, "the pause is at least two seconds")
+	var every: Variant = game_const("REFUSAL_SOUND_EVERY")
+	_expect(every != null and float(every) > 0.0 and float(every) <= 0.5, "and a held button is answered by the sound at a gentle rate")
+	var words: Array[String] = [
+		"say_no_coins", "say_not_hungry", "say_purse_full", "say_not_here", "say_too_dear",
+		"say_enough_of_those", "say_nothing_here", "say_nothing_to_undo", "say_nothing_to_sell",
+		"say_sell_at_home", "say_buy_at_home", "say_machine_in_use", "say_not_tired",
+		"say_free_wait", "say_not_ridden_here", "say_name_no", "say_no_network", "say_reset_visiting",
+	]
+	var bare := PackedStringArray()
+	for key: String in words:
+		var from := 0
+		var found := false
+		while true:
+			var at := game.find("\"%s\"" % key, from)
+			if at < 0:
+				break
+			found = true
+			from = at + 1
+			var before := game.substr(maxi(0, at - 60), mini(60, at))
+			if before.rfind("_refuse(") < 0 or before.rfind("_refuse(") < before.rfind("hud.announce("):
+				bare.append(key)
+		if not found:
+			bare.append(key + " (unused)")
+	_expect(bare.is_empty(), "no refusal is spoken without its sound (%s)" % ", ".join(bare))
+	_expect(game.count("_refuse(") >= 26, "and there are %d of them through the one door" % (game.count("_refuse(") - 1))
+
+## The hint for a button that has to be held was words alone, rewritten at every
+## tap: a toddler tapping it heard nothing and the text never left the screen.
+func _check_the_hold_hint_is_heard_and_not_repeated() -> void:
+	print("the hold hint is heard at every tap and written once")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	var heard := [0]
+	hud.hold_hint_given.connect(func() -> void: heard[0] += 1)
+	hud._give_the_hold_hint()
+	_expect(heard[0] == 1 and hud.current_message() == Text.of("ui_hold_hint"), "the first short tap is heard and written")
+	hud._message_timer = 0.5
+	hud._process(0.1)
+	hud._give_the_hold_hint()
+	_expect(heard[0] == 2, "a second tap is heard too")
+	_expect(hud._message_timer <= 0.5, "but the words are not written again over the same ones")
+	hud._process(Hud.HOLD_HINT_REPEAT)
+	hud._give_the_hold_hint()
+	_expect(heard[0] == 3 and hud._message_timer > 1.0, "and are written again once a pause has passed")
+	hud.queue_free()
+
+## A line about the turnstile, or the kiosk, said to a child standing at it and
+## still on the screen when they have walked off, is wrong for a second or two.
+func _check_an_announcement_is_taken_back_when_the_child_leaves() -> void:
+	print("an announcement about a place goes when the child leaves it")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.announce("pool: 2 coins", 2.6)
+	hud.retract("something else")
+	_expect(hud.current_message() == "pool: 2 coins", "taking back other words leaves what is showing")
+	hud.retract("pool: 2 coins")
+	_expect(hud.current_message() == "", "taking back the words showing clears them")
+	hud.announce("a newer thing", 2.0)
+	hud.retract("pool: 2 coins")
+	_expect(hud.current_message() == "a newer thing", "and never a newer announcement")
+	hud.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var turnstile := _main_function(game, "func _watch_the_turnstile(")
+	_expect(turnstile.contains("hud.retract("), "the turnstile and the kiosk take their price back when the child walks away")
+
+## Where the refusal sits among the sounds that confirm: at 0.4 it was the
+## quietest cue in the game by seven decibels, and under the valley's own sound
+## a "no" that is not heard looks like nothing happened.
+func _check_the_refusal_is_not_the_quietest_cue() -> void:
+	print("the refusal is as audible as the confirmations")
+	var sounds := Sounds.new()
+	get_root().add_child(sounds)
+	var peaks := {}
+	for sound: Sounds.Sound in [Sounds.Sound.REFUSE, Sounds.Sound.PICKUP, Sounds.Sound.PLACE, Sounds.Sound.CHIME]:
+		var data: PackedByteArray = sounds._build(sound).data
+		var peak := 0.0
+		for i in data.size() / 2:
+			peak = maxf(peak, absf(float(data.decode_s16(i * 2))) / 32768.0)
+		peaks[sound] = peak
+	var loudest := maxf(float(peaks[Sounds.Sound.PICKUP]), maxf(float(peaks[Sounds.Sound.PLACE]), float(peaks[Sounds.Sound.CHIME])))
+	_expect(
+		float(peaks[Sounds.Sound.REFUSE]) >= loudest * 0.55,
+		"the refusal peaks at %.2f against %.2f for the loudest confirmation" % [float(peaks[Sounds.Sound.REFUSE]), loudest]
+	)
+	sounds.queue_free()
+
+## What the host hears and sees, the guest's phone must too: a brother's axe, a
+## pickup the host had first, and two lines announced in one frame.
+func _check_feedback_reaches_the_guest_and_does_not_cover_itself() -> void:
+	print("feedback reaches the second phone and does not cover itself")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(_main_function(game, "func _on_remote_felled(").contains("_hear_building("), "a brother's axe is heard where the tree falls")
+	_expect(_main_function(game, "func _on_pick_refused(").contains("Sounds.Sound.REFUSE"), "a pickup the other phone had first is answered, quietly")
+	var drink := _main_function(game, "func _on_drink(")
+	_expect(not drink.contains("Sound.PICKUP") and drink.contains("Sound.SPLASH"), "drinking sounds like water, not like a pickup")
+	_expect(game.contains("if _metres_to_dam(site) < Sounds.HEARD_FULL * 2.0:"), "a stick the other child brings to a far dam is not written over this child's screen")
+	var bought := game.find("hud.announce(Text.format(\"say_bought\", [ShopStock.label(item)]), 3.0)")
+	var outside := game.find("hud.announce(bought_outside, 4.0)")
+	_expect(bought >= 0 and outside > bought, "where a bought machine stands is announced after the purchase, not under it")
+	_expect(_main_function(game, "func _on_whistle(").count("Sounds.Sound.CHIME") == 2, "the whistle is two notes, apart from the lantern's one")
 
 ## The care loop is the whole economy: an animal wants something, you have it,
 ## you give it, you are paid. Every link is checked here because a break in any

@@ -415,7 +415,10 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 
 	world.dams.stick_delivered.connect(func(site: float, carried: int, needed: int) -> void:
 		sounds.play_at(Sounds.Sound.PLACE, _metres_to_dam(site), 0.8)
-		hud.announce(Text.format("say_dam_stick", [needed - carried]), 2.0))
+		# Said only to a child within earshot of it: the other child's stick,
+		# half a valley away, is not news that covers what this one is reading.
+		if _metres_to_dam(site) < Sounds.HEARD_FULL * 2.0:
+			hud.announce(Text.format("say_dam_stick", [needed - carried]), 2.0))
 	world.dams.dam_finished.connect(func(site: float) -> void:
 		sounds.play_at(Sounds.Sound.GOAL, _metres_to_dam(site))
 		hud.announce(Text.of("say_dam_done"), 5.0))
@@ -681,8 +684,7 @@ func _offer_a_ride(which: StringName) -> bool:
 		_asked_ride = which
 		hud.ask(Text.format("ask_buy_ride", [Park.RIDE_PRICE]))
 		return true
-	sounds.play(Sounds.Sound.REFUSE)
-	hud.announce(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.4)
+	_refuse(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.4)
 	return false
 var _coaster_told := false
 ## What the game has just asked about: a ticket at the kiosk, or a ride.
@@ -1008,8 +1010,7 @@ func _physics_process(delta: float) -> void:
 		player.strapped_in = false
 		player.velocity = Vector3.ZERO
 		player.global_position = coaster.platform_spot()
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_park_put_off"), 2.4)
+		_refuse(Text.of("say_park_put_off"), 2.4)
 		return
 
 	if strapped or on_horse or fastened:
@@ -1666,15 +1667,13 @@ func _on_reset() -> void:
 	# visiting a brother lost their own things to a button meant for their own
 	# valley, and nothing of the brother's changed at all.
 	if _visiting:
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_reset_visiting"), 3.0)
+		_refuse(Text.of("say_reset_visiting"), 3.0)
 		return
 	# Nor while the way into one is still open: between joining and the host's
 	# valley arriving this child is a guest already, and a reset then would
 	# empty their own valley just before the host's was set over it.
 	if session.is_following():
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_reset_visiting"), 3.0)
+		_refuse(Text.of("say_reset_visiting"), 3.0)
 		return
 	# What is about to go is first copied aside, valley and bag both, so a
 	# reset pressed by mistake can be put right by hand.
@@ -1747,6 +1746,8 @@ func _connect_the_rest_of_the_hud() -> void:
 	hud.view_toggled.connect(_on_view_toggled)
 	hud.confirmed.connect(_on_answered.bind(true))
 	hud.refused.connect(_on_answered.bind(false))
+	hud.hold_hint_given.connect(func() -> void:
+		sounds.play(Sounds.Sound.REFUSE, 1.5, -8.0))
 	hud.fire_fed.connect(_on_feed_fire)
 	hud.slept.connect(_on_sleep)
 	hud.talk_started.connect(voice.start_talking)
@@ -2180,8 +2181,7 @@ func _on_name_chosen(typed: String) -> void:
 	if name == profiles.current_player:
 		return
 	if not Profiles.is_valid_name(name):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_name_no"), 3.5)
+		_refuse(Text.of("say_name_no"), 3.5)
 		hud.set_player_name(profiles.current_player)
 		return
 
@@ -2201,8 +2201,7 @@ func _on_name_chosen(typed: String) -> void:
 
 	# A new name is a new name for this child, who keeps everything.
 	if not profiles.rename_player(profiles.current_player, name):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_name_no"), 3.5)
+		_refuse(Text.of("say_name_no"), 3.5)
 		hud.set_player_name(profiles.current_player)
 		return
 	_write_save()
@@ -2264,8 +2263,7 @@ func _on_host_requested() -> void:
 func _on_join_requested(code: int) -> void:
 	var address := Session.address_for_code(code)
 	if address.is_empty():
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_no_network"), 3.0)
+		_refuse(Text.of("say_no_network"), 3.0)
 		return
 	if session.join(address, _display_name(), _shirt, _look):
 		_arriving = true
@@ -2680,6 +2678,9 @@ func _on_remote_felled(at: Vector3) -> void:
 		return
 	world.felled.fell(at)
 	world.vegetation.rebuild_around(at)
+	# Heard where it falls, like their building: before this a brother's axe
+	# was silent on this phone however near the tree stood.
+	_hear_building(Sounds.Sound.REMOVE, at)
 
 ## What the other child ordered, on the table they sat at: the same plate, eaten
 ## in the same bites on this phone as on theirs.
@@ -2710,6 +2711,9 @@ func _on_pick_refused(id: String) -> void:
 	var kind := world.pickups.take_back(id)
 	if kind != &"":
 		inventory.take_back(kind)
+		# Quiet, but not silent: the pickup chimed a moment ago and the bag is one
+		# short again, and a child who cannot read has no other way to know.
+		sounds.play(Sounds.Sound.REFUSE, 1.3, -9.0)
 
 ## How close to a wall, a table or a grown tree a restocked pickup may not lie.
 const RESTOCK_BUILT_CLEARANCE := 0.8
@@ -2827,8 +2831,7 @@ const SLEEPY_DARKNESS := 0.35
 ## something, and the morning is a small reward for having done so.
 func _on_sleep() -> void:
 	if world.atmosphere.darkness() < SLEEPY_DARKNESS:
-		sounds.play(Sounds.Sound.REFUSE, 1.2)
-		hud.announce(Text.of("say_not_tired"), 2.6)
+		_refuse(Text.of("say_not_tired"), 2.6, 1.2)
 		return
 
 	# Dawn, not noon: waking to a whole day is the point.
@@ -2921,15 +2924,13 @@ func _eat() -> void:
 	# Nor a meal for a child who is already full: a bar that cannot rise is
 	# three coins for nothing, and the child has no way to tell.
 	if vitals.energy >= Vitals.MAX_ENERGY - 0.01:
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_not_hungry"), 2.0)
+		_refuse(Text.of("say_not_hungry"), 2.0)
 		return
 	# What is on the menu screen's chosen picture, and only that: one held press
 	# is one dish. The menu's tiles choose and never buy.
 	var dish := hud.chosen_dish()
 	if wallet.coins < Dishes.price(dish):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.format("say_no_coins", [Dishes.price(dish)]), 2.2)
+		_refuse(Text.format("say_no_coins", [Dishes.price(dish)]), 2.2)
 		return
 	wallet.spend(Dishes.price(dish))
 	vitals.energy = Dishes.energy_after(vitals.energy, dish)
@@ -2949,15 +2950,12 @@ func _eat_at_home() -> void:
 	var dish := hud.chosen_dish()
 	match Venues.eat(vitals, wallet, paying, now >= _free_meal_after, dish):
 		Venues.FULL:
-			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(Text.of("say_not_hungry"), 2.0)
+			_refuse(Text.of("say_not_hungry"), 2.0)
 		Venues.POOR:
-			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(Text.format("say_no_coins", [Venues.price_of(dish)]), 2.2)
+			_refuse(Text.format("say_no_coins", [Venues.price_of(dish)]), 2.2)
 		Venues.WAIT:
 			# Said kindly, with the way round it: a coin buys a meal now.
-			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(
+			_refuse(
 				Text.format("say_free_wait", [ceili((_free_meal_after - now) / 60.0)]), 3.0
 			)
 		_:
@@ -3025,13 +3023,12 @@ func _play_seconds() -> float:
 func _sell_at_home() -> void:
 	var sale := Venues.sell(inventory, wallet)
 	if sale.x <= 0:
-		sounds.play(Sounds.Sound.REFUSE)
 		# A bag with wool in it and a purse with no room is not "nothing to
 		# sell": the valley's shop says the purse is full, and so does this one.
 		var carrying := false
 		for item: StringName in ShopStock.BUYS:
 			carrying = carrying or inventory.count(item) > 0
-		hud.announce(Text.of("say_purse_full" if carrying else "say_nothing_to_sell"), 2.4)
+		_refuse(Text.of("say_purse_full" if carrying else "say_nothing_to_sell"), 2.4)
 		return
 	journal.record(Journal.COINS, sale.y)
 	sounds.play(Sounds.Sound.CHIME, 1.2)
@@ -3230,8 +3227,7 @@ func _on_ride() -> void:
 		not world.mounts.can_ride_over(kind, player.global_position)
 		and not world.mounts.can_ride_over(kind, mount_at)
 	):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(
+		_refuse(
 			Text.format("say_not_ridden_here", [MountKinds.label(kind)]), 2.6
 		)
 		return
@@ -3357,12 +3353,17 @@ func _on_whistle() -> void:
 	if not wallet.has(ShopStock.WHISTLE):
 		return
 	world.animals.call_animals()
-	sounds.play(Sounds.Sound.CHIME, 1.6)
+	# Two notes, high: the lantern's chime is a single one at nearly this pitch.
+	sounds.play(Sounds.Sound.CHIME, 1.9)
+	get_tree().create_timer(0.18).timeout.connect(func() -> void:
+		sounds.play(Sounds.Sound.CHIME, 2.4, -3.0))
 	hud.announce(Text.of("say_whistled"), 1.8)
 
 func _on_drink() -> void:
 	if vitals.drink():
-		sounds.play(Sounds.Sound.PICKUP)
+		# A swallow of water, not a thing put in the bag: the same sound as
+		# picking up a stick said nothing about what had been done.
+		sounds.play(Sounds.Sound.SPLASH, 1.5, -4.0)
 	_refresh_vitals()
 
 ## The head of the animal nearest a place, within a child's reach of it, or
@@ -3467,12 +3468,11 @@ func _on_care() -> void:
 		# Pressed on a dimmed button: refused out loud rather than nothing.
 		var held := world.animals.nearest_blocked(player.global_position, inventory)
 		if not held.is_empty():
-			sounds.play(Sounds.Sound.REFUSE)
 			var why: StringName = held["why"]
 			var who: Dictionary = held["animal"]
-			hud.announce(
-				Text.of("wish_resting") if why == &"rest" else _blocked_words(who["kind"], why), 1.8
-			)
+			# Through the one door every refusal uses: heard each time, and not
+			# rewritten on every press while it is still on the screen.
+			_refuse(Text.of("wish_resting") if why == &"rest" else _blocked_words(who["kind"], why), 1.8)
 		return
 	# A thirsty animal takes water rather than food. This is the bottle's second
 	# use and the reason it is the cheapest thing in the shop.
@@ -3700,15 +3700,13 @@ func _on_sell_back(item: StringName) -> void:
 	# which is not written while visiting, so it came back at home, sold and
 	# kept. It is sold at home, where it stands.
 	if _visiting and _is_a_machine(item):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_sell_at_home"), 3.0)
+		_refuse(Text.of("say_sell_at_home"), 3.0)
 		return
 	# A full purse refuses before anything is touched. The child used to be put
 	# down off their machine first and only then told the purse was too full,
 	# so a refused sale still cost them their ride.
 	if ShopStock.sells_back(item) > wallet.room():
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_purse_full"), 2.6)
+		_refuse(Text.of("say_purse_full"), 2.6)
 		return
 	# Selling the last of a machine while sitting on it gets the child off
 	# first. Mounts will never sell the one being ridden, and without this the
@@ -3729,13 +3727,11 @@ func _on_sell_back(item: StringName) -> void:
 	# away, so it is not paid for either. One that is nowhere in the valley is
 	# sold regardless: it is the purse that is wrong then, and selling mends it.
 	if _is_a_machine(item) and not _machine_can_go(item):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_machine_in_use"), 3.0)
+		_refuse(Text.of("say_machine_in_use"), 3.0)
 		return
 	var paid := wallet.sell_back(item, ShopStock.sells_back(item))
 	if paid <= 0:
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_purse_full"), 2.6)
+		_refuse(Text.of("say_purse_full"), 2.6)
 		return
 	if item == ShopStock.LANTERN and not wallet.has(ShopStock.LANTERN):
 		lantern.owned = false
@@ -3773,14 +3769,13 @@ func _on_buy(item: StringName) -> void:
 	if ShopStock.pays_for(item) > 0:
 		var carried := inventory.count(item)
 		if carried <= 0:
-			sounds.play(Sounds.Sound.REFUSE)
+			_refuse(Text.of("say_nothing_to_sell"), 2.4)
 			return
 		# Only what the purse has room to be paid for: coins stop at the
 		# ceiling, and wool sold past it was handed over for nothing.
 		carried = mini(carried, wallet.room() / ShopStock.pays_for(item))
 		if carried <= 0:
-			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(Text.of("say_purse_full"), 2.6)
+			_refuse(Text.of("say_purse_full"), 2.6)
 			return
 		if not inventory.spend({item: carried}):
 			return
@@ -3795,8 +3790,7 @@ func _on_buy(item: StringName) -> void:
 	# purse rather than the ledger: buy as many as you like, one at a time.
 	if ShopStock.is_consumable(item):
 		if not wallet.spend(ShopStock.price(item)):
-			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(Text.format("say_no_coins", [ShopStock.price(item)]), 2.2)
+			_refuse(Text.format("say_no_coins", [ShopStock.price(item)]), 2.2)
 			return
 		inventory.add(item, 1)
 		sounds.play(Sounds.Sound.PICKUP, 1.2)
@@ -3812,8 +3806,7 @@ func _on_buy(item: StringName) -> void:
 	# and no bicycle stood anywhere — and the shop would count it against the
 	# limit. The mirror of the refusal to sell one there.
 	if _visiting and _is_a_machine(item):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_buy_at_home"), 3.0)
+		_refuse(Text.of("say_buy_at_home"), 3.0)
 		hud.set_shop_open(true, wallet.coins, wallet.owned)
 		return
 	# Not without end. Things are objects here and a second one is a fair
@@ -3822,8 +3815,7 @@ func _on_buy(item: StringName) -> void:
 	# counts. Otherwise a child buys a new bicycle rather than walking back
 	# for the one they left, and the valley fills with bicycles.
 	if wallet.count_of(item) >= ShopStock.limit(item):
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(
+		_refuse(
 			Text.format("say_enough_of_those", [ShopStock.limit(item)]), 3.0
 		)
 		hud.set_shop_open(true, wallet.coins, wallet.owned)
@@ -3839,6 +3831,7 @@ func _on_buy(item: StringName) -> void:
 		# stands beside the first:
 		# each is its own thing in the world, named the way the boats and the
 		# horses are, so two bicycles are two bicycles rather than one flag.
+		var bought_outside := ""
 		for machine: Array in [
 			[ShopStock.MOTORCYCLE, MountKinds.MOTORCYCLE, Places.MOTORCYCLE_STANDS_AT],
 			[ShopStock.BICYCLE, MountKinds.BICYCLE, Places.BICYCLE_STANDS_AT],
@@ -3855,15 +3848,17 @@ func _on_buy(item: StringName) -> void:
 					machine[2], _free_row(machine[2])
 				))
 			)
-			hud.announce(
-				Text.format("say_waiting_outside", [MountKinds.label(machine[1])]), 4.0
-			)
+			bought_outside = Text.format("say_waiting_outside", [MountKinds.label(machine[1])])
 		hud.set_owned(wallet.owned)
 		sounds.play(Sounds.Sound.GOAL)
 		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 3.0)
+		# After "bought", not before: both were announced in this one frame, so
+		# the line that says where the machine is standing was written over
+		# before it was ever drawn.
+		if bought_outside != "":
+			hud.announce(bought_outside, 4.0)
 	else:
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_too_dear"), 2.0)
+		_refuse(Text.of("say_too_dear"), 2.0)
 	hud.set_shop_open(true, wallet.coins, wallet.owned)
 
 func _on_jump() -> void:
@@ -3883,7 +3878,7 @@ func _on_dive() -> void:
 func _on_remove() -> void:
 	var record := structures.nearest(player.global_position, REMOVE_REACH)
 	if record.is_empty():
-		hud.announce(Text.of("say_nothing_here"))
+		_refuse(Text.of("say_nothing_here"))
 		return
 	_take_down(record)
 
@@ -3896,7 +3891,7 @@ func _on_undo() -> void:
 	# One tap of a plan is one tap of undo: every piece that went up with it.
 	var group := build_mode.take_last_group()
 	if group.is_empty():
-		hud.announce(Text.of("say_nothing_to_undo"))
+		_refuse(Text.of("say_nothing_to_undo"))
 		return
 	# Last piece first, so a roof comes down before the walls under it and a
 	# bed before its floor — what stood on a piece is never left in the air.
@@ -4126,8 +4121,7 @@ func _on_answered(yes: bool) -> void:
 			if not paid and wallet.buy_ticket(Park.RIDE_PRICE):
 				paid = wallet.use_ticket()
 			if not paid:
-				sounds.play(Sounds.Sound.REFUSE)
-				hud.announce(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
+				_refuse(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
 				return
 			sounds.play(Sounds.Sound.CHIME, 1.1)
 			_riding_without_a_ticket = false
@@ -4184,6 +4178,10 @@ func _watch_the_turnstile() -> void:
 		else:
 			hud.announce(Text.format("say_ticket", [Places.POOL_TICKET]), 2.6)
 	elif not near and not at_booth and not at_ride:
+		# Gone from the turnstile: its price is no longer anybody's business.
+		if _ticket_told:
+			hud.retract(Text.format("say_park_ticket", [Park.RIDE_PRICE]))
+			hud.retract(Text.format("say_ticket", [Places.POOL_TICKET]))
 		_ticket_told = false
 
 ## Turn the lantern on or off. It lights itself at dusk; this is how a child
@@ -4205,8 +4203,7 @@ func _on_snack() -> void:
 	# Not for a child who is already full, as at the cafe: the bar cannot rise,
 	# and a coin's worth of chocolate would be gone for nothing.
 	if vitals.energy >= Vitals.MAX_ENERGY - 0.01:
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_not_hungry"), 2.0)
+		_refuse(Text.of("say_not_hungry"), 2.0)
 		return
 	if not inventory.spend({ItemKinds.CHOCOLATE: 1}):
 		return
@@ -4232,8 +4229,7 @@ func _on_ticket() -> void:
 	# At the fairground's kiosk this buys a ticket rather than a swim.
 	if world.park.at_the_booth(player.global_position):
 		if not wallet.can_afford(Park.RIDE_PRICE):
-			sounds.play(Sounds.Sound.REFUSE)
-			hud.announce(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
+			_refuse(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.2)
 			return
 		# Asked, not taken. Coins are the record of everything a child has
 		# done, and nothing in this valley spends them without being told to.
@@ -4248,8 +4244,7 @@ func _on_ticket() -> void:
 	if not world.places.at_turnstile(player.global_position) or world.places.inside_pool_fence(player.global_position):
 		return
 	if wallet.coins < Places.POOL_TICKET:
-		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.format("say_no_coins", [Places.POOL_TICKET]), 2.2)
+		_refuse(Text.format("say_no_coins", [Places.POOL_TICKET]), 2.2)
 		return
 	wallet.spend(Places.POOL_TICKET)
 	world.places.open_turnstile()
@@ -4322,6 +4317,34 @@ func _on_scores_changed(blue: int, red: int) -> void:
 	if hud != null:
 		hud.set_score(blue, red)
 
+## How long the same refusal is left unspoken once it has been said. A child
+## who holds a button, or taps it again and again, hears the refusal each time
+## (and each time it is a press that was answered) but is not shown the same
+## sentence over and over: it would restart its fade and never leave the screen.
+const REFUSAL_REPEAT := 2.5
+
+## The least time between two refusal sounds, however fast the taps come.
+const REFUSAL_SOUND_EVERY := 0.25
+
+var _refused_at: Dictionary = {}
+var _refusal_sounded := -REFUSAL_SOUND_EVERY
+
+## A "no", the way every refusal gives it: the refusal sound, always, so a child
+## who cannot read can tell it from a success, and the words (for a parent, and
+## for a child who can) once per REFUSAL_REPEAT seconds. Every refusal in this
+## file goes through here, so a new one cannot be silent or look like a success.
+func _refuse(words: String, seconds := 3.2, pitch := 1.0) -> void:
+	var now := _play_seconds()
+	if now - _refusal_sounded >= REFUSAL_SOUND_EVERY:
+		_refusal_sounded = now
+		sounds.play(Sounds.Sound.REFUSE, pitch)
+	# Only while it is still the thing on the screen: a refusal that something
+	# else has since written over is said again.
+	if now - float(_refused_at.get(words, -REFUSAL_REPEAT)) < REFUSAL_REPEAT and hud.current_message() == words:
+		return
+	_refused_at[words] = now
+	hud.announce(words, seconds)
+
 func _on_place() -> void:
 	# Captured before placing, because place() moves the preview on.
 	var placing := build_mode.selected
@@ -4353,10 +4376,9 @@ func _on_place() -> void:
 	# did. Tapping twice is also how a six-year-old presses a button.
 	if Time.get_ticks_msec() - _placed_at < JUST_PLACED:
 		return
-	sounds.play(Sounds.Sound.REFUSE)
 	# A refused build is the moment a child most needs to be told why, and the
 	# ghost's colour alone does not say it.
-	hud.announce(Text.of("say_not_here"))
+	_refuse(Text.of("say_not_here"))
 
 ## How long after putting something down a refusal is kept quiet.
 ## How far from a grown tree its old stumps are cleared away.
