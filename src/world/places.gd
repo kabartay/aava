@@ -3012,9 +3012,6 @@ var _turnstile_turn := 0.0
 func turn_for_another() -> void:
 	_turnstile_turn = TURNSTILE_TURN
 
-func turning_for_another() -> bool:
-	return _turnstile_turn > 0.0
-
 func _tick_turnstile(delta: float) -> void:
 	if _turnstile_turn > 0.0:
 		_turnstile_turn -= delta

@@ -13,7 +13,7 @@ extends Node
 ## the last line, "NETDAY <role> ok" or "NETDAY <role> FAILED: ...".
 
 const SEED := 20260903
-## Wall-clock ceiling for any single wait, and for the whole run. Game time at
+## Wall-clock ceiling for any single wait. Game time at
 ## --fixed-fps runs as fast as the machine allows, so it is no measure of how
 ## long a peer has had to start.
 const WAIT_LIMIT_MSEC := 240000
@@ -34,12 +34,10 @@ var visitors: Visitors
 
 var diverged: Array[String] = []
 var phases_done := 0
-var _started := 0
 var _frames := 0
 var _stamp := 0
 var _last_tick := 0
 const FRAME_USEC := 16667
-var _log_file: FileAccess
 
 func _init(the_tree: SceneTree, the_role: String, the_port: int, the_stamp: int) -> void:
 	tree = the_tree
@@ -85,9 +83,6 @@ func until(done: Callable, limit: int) -> bool:
 		await tick()
 	return bool(done.call())
 
-func _wall_over() -> bool:
-	return Time.get_ticks_msec() - _started > WAIT_LIMIT_MSEC * 4
-
 # --- the barrier ---------------------------------------------------------------
 
 func _path_of(who: String, tag: String) -> String:
@@ -115,7 +110,6 @@ func barrier(tag: String, mine: Dictionary) -> Dictionary:
 # --- boot ----------------------------------------------------------------------
 
 func boot() -> bool:
-	_started = Time.get_ticks_msec()
 	var main_script: GDScript = load("res://src/main.gd")
 	main_script.set("forced_seed", SEED)
 	var fresh: Node = (load("res://main.tscn") as PackedScene).instantiate()
@@ -342,7 +336,6 @@ func checkpoint(tag: String, tolerance := 2.0) -> Dictionary:
 
 ## How much game time the whole session is to cover, at least, in minutes.
 var minutes := 10.0
-var _meals_heard := 0
 var _heard: Dictionary = {}
 
 func note(kind: String) -> void:
@@ -378,9 +371,6 @@ func run() -> void:
 	await phase_chatter()
 	await phase_host_quits_on_a_ride()
 	finish("")
-
-func far_from(spot: Vector3, near_by: float) -> Vector3:
-	return spot + Vector3(near_by, 0.0, 0.0)
 
 func phase_walk() -> void:
 	say("== walk")

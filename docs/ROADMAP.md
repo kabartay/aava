@@ -74,8 +74,9 @@ decision, not on work.
 - **The build "−" removes the wrong piece** (*owner*): it takes away the piece
   nearest the child, not the one under the ghost. Which should win is undecided.
 - **No redo.** Undo takes back the last piece; nothing puts it back again.
-- **Pickups never respawn.** What a child has gathered stays gathered, so a
-  long-lived valley runs out of sticks near where they play.
+- **Pickups come back slowly.** A taken one is laid again after fifteen minutes
+  of play, never in sight, so a long-lived valley thins out near where a child
+  plays only as fast as it is refilled.
 - **The two children's arrows are not synced.** An arrow loosed on the range is
   drawn on the shooter's phone only; the other child sees no arrow in flight.
 - **Chopping has no hold or fall animation.** A held press fells the tree at

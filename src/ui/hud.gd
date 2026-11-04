@@ -941,13 +941,6 @@ func _storey_button(arrow: StringName, step: int) -> Button:
 	button.pressed.connect(func() -> void: storey_step.emit(step))
 	return button
 
-## The group tabs: a picture of each group, its name small underneath.
-## The settings panel: a language for each child who reads a different one.
-##
-## Erasing the world is NOT here. It used to be, and that was wrong: children
-## open this panel to change language, and a button that deletes both brothers'
-## work should not sit a thumb's width from one they press often. It lives
-## behind its own door instead.
 ## The settings' column with a ground of its own: a dark rounded panel drawn a
 ## little outside the column, so the rows read over a bright world and nothing
 ## beneath them (the small map, which opens in the same corner) shows through.
@@ -971,6 +964,12 @@ class MenuGround extends VBoxContainer:
 		elif what == NOTIFICATION_RESIZED:
 			queue_redraw()
 
+## The settings panel: a language for each child who reads a different one.
+##
+## Erasing the world is NOT here. It used to be, and that was wrong: children
+## open this panel to change language, and a button that deletes both brothers'
+## work should not sit a thumb's width from one they press often. It lives
+## behind its own door instead.
 func _build_menu() -> MenuGround:
 	var column := MenuGround.new()
 	column.add_theme_constant_override("separation", 10)

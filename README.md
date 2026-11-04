@@ -229,7 +229,8 @@ src/
     vegetation.gd      planting, streamed in tiles around the player
     vegetation_tile.gd one tile of planting: a MultiMesh per plant kind
     world.gd           assembles the above; the one place a world comes from
-    pickups.gd         sticks, stones, reeds, seeds and cones, gathered by walking
+    pickups.gd         sticks, stones, reeds, seeds and cones, gathered by walking,
+                       and laid again out of sight after a while
     birds.gd           the world answering: birds over feeders and groves
     pitch.gd           where the football pitch is, and how it levels the ground
     lakes.gd           two lakes, each holding its own water at its own height
@@ -313,6 +314,8 @@ src/
     map_compass.gd     the chosen place and its pointer, the route, the key,
                        the round buttons and the peak that says north
     hold_ring.gd, volume_look.gd   a press that must be held; the volume sliders' look
+    hud_fly.gd, note_icon.gd   a coin or a chip flying to the purse or the bag;
+                       the picture beside an announcement, for a child who cannot read
     look_picker.gd, character_icon.gd, flag_icon.gd, dish_icon.gd, coin_icon.gd
                        choosing who you are and the other drawn pictures
     action_icon.gd, item_chip.gd   every button's picture, and every item's,
@@ -325,6 +328,8 @@ src/
   dev/
     capture.gd         screenshot tool
     toddler_fuzz.gd, net_pair.gd   a random-tapping child; two processes as a pair
+    net_day.gd, net_rogue.gd   a scripted twelve-minute day of two phones, and a
+                       misbehaving peer that the limits must hold off
     ci_check.gd        the numeric check suite CI runs on every push
     perf_log.gd        which step of the frame was slowest, named in the log
 ```
@@ -352,7 +357,7 @@ copy:
   author    = {Organokov, Mukharbek},
   title     = {{Aava: an open world that comes alive as you build in it}},
   year      = {2026},
-  version   = {0.7.0},
+  version   = {0.8.0},
   doi       = {10.5281/zenodo.22965441},
   url       = {https://github.com/kabartay/aava},
   publisher = {Zenodo},

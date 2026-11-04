@@ -3,7 +3,7 @@
 What exists in the game today, and how finished each part is. Written so that
 someone returning after a month knows what they can play and what they cannot.
 
-Last updated: 2026-11-04 (code as of the commit after v0.7.0).
+Last updated: 2026-11-04 (code as of v0.8.0).
 
 ## Legend
 
@@ -52,7 +52,7 @@ Last updated: 2026-11-04 (code as of the commit after v0.7.0).
 | Kick power and aim | Done | Held button charges strength; sliding the thumb on it turns the shot up to 60 degrees and lifts it to a chip. A tap is flat and straight the way the child faces. The same slide aims a basketball throw. The bow takes the same slide: hold to draw, slide to turn and lift. |
 | Goals | Done | Judged by the pitch geometry, with a sound. Posts ring, the net holds the ball for the cheer, and lines and corner flags are drawn as meshes rather than painted into the ground. |
 | Dribbling | Done | A touch takes the ball along at any pace up to a full run, holds it 0.75 m ahead, follows turns and traps it when the child stops; a kick or a lofted ball is left alone for 0.3 s. The kick carries the child's run along the aim, and a guest's body carries its real pace so the host's ball is pushed the same way. |
-| Collecting | Done | Sticks, stones, reeds, seeds and cones, streamed and gathered by walking over them. |
+| Collecting | Done | Sticks, stones, reeds, seeds and cones, streamed and gathered by walking over them. A taken one is laid again out of sight after fifteen minutes of play; the host decides and tells the guest. |
 | Rock jumping | Done | Points for clearing a boulder. |
 
 ## Building
@@ -122,6 +122,7 @@ Last updated: 2026-11-04 (code as of the commit after v0.7.0).
 | Street signs | Done | Where the four roads meet: a post with a plate for each — Boulevard Berzeg, Avenue Kabard, Impasse de Kassag, Rue des Parents — each turned by asking Paths where its road actually goes, under an enamel plaque naming the square itself. |
 | Levelled ground | Done | Playground, pool and café are flat by construction, like the football pitch. |
 | Spread out | Done | The playground and the café sit several hundred metres from the camp, so getting to one means crossing the valley rather than a courtyard; the pitch and the pool are a short walk from the spawn, as the first afternoon's things. |
+| Ride hints | Done | A paid ride that cannot go yet says why every few seconds: sit on a seat, the carousel is busy, a friend has not said yes; a finished carousel asks again. |
 | Tickets | Done | Rides are paid for at the kiosk and nothing is ever taken without being asked: the question comes up with a red cross and a green tick under it, which need no reading. Tickets are remembered between days. |
 | Whole-valley map | Done | The third size of the map; see *Minimap*. |
 
@@ -156,6 +157,7 @@ Last updated: 2026-11-04 (code as of the commit after v0.7.0).
 | Arrival greeting | Done | One line naming the most notable thing from last visit, weighted so one house outranks forty rocks. |
 | Offline growth | Done | Saplings age by the time the game was closed, capped so a fortnight away does not skip the change. |
 | One thing a day | Done | A single task, a pure function of the calendar day, so everyone on a map gets the same one. No backlog, no penalty for missing it. |
+| The day turns while open | Done | A game left open across midnight reads the clock every twenty seconds and offers the new day's task; a day already paid is never paid twice, and a clock wound back or a date far in the future does not reopen or lock it. |
 | Sleep resets the day | Done | Sleeping through the night, not just the clock, is now the natural way a session ends. |
 
 ## Interface
@@ -173,7 +175,11 @@ Last updated: 2026-11-04 (code as of the commit after v0.7.0).
 | World reset | Done | Behind a five-second hold, separate from the language control. |
 | Context buttons | Done | Visit, dam, fire and sleep no longer share one screen position — a bed and a campfire are both ordinary house pieces and can be in reach at once, which the old shared-position code could not show. |
 | Android Back | Done | Closes the top panel (settings, shop, the grown-ups' room, play together, a refused-microphone notice) and leaves the game only with none open. |
-| Volume | Done | In the settings: a held mute and two rows of held bars, one for the valley's sound and one for the game's own; saved. Master ends in a 60 Hz high-pass and a limiter. |
+| Volume | Done | In the settings: a held mute and two slim 0-100 sliders, one for the valley's sound and one for the game's own, on a ground of their own; the mixer follows a finger while it moves and the level is saved when it lets go. Master ends in a 60 Hz high-pass and a limiter. |
+| Coins and chips fly | Done | Earning or spending coins flies one to three coins between the place and the purse, and a pickup's chip flies to the bag; at most nine pieces in the air, nothing while a panel is open. |
+| Announcements carry a picture | Done | A cross for a refusal, a coin with a cross for too few coins, the hold ring for a hold, a coin with a plus for a reward. Every refusal is heard once. |
+| Care button | Done | Shows what the animal wants, or why it cannot be helped. |
+| Released on pause | Done | A phone call or a lost focus drops a held kick, bow or slider without firing it. |
 | Toddler-sized first run | Done | The face, colour and tick buttons are 9 mm; the first-run chooser closes by itself after 45 s idle; a sweep proves no tap spends, sells, deletes, resets or leaves. |
 | Who you are | Done | Four cartoon children and the round friend, chosen by pictures; they walk, run, jump, kick, swim, cheer and sit in every seat. |
 | Language flags | Done | Drawn flags a quarter of the area of the first ones, on a thumb-sized top bar. |

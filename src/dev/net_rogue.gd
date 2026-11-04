@@ -53,7 +53,6 @@ var _joined_ids: Array[int] = []
 var _gone_ids: Array[int] = []
 var _flooded := false
 var _last_join := 0.0
-var _last_phase := ""
 var _marks: Dictionary = {}
 
 func _initialize() -> void:
@@ -331,7 +330,6 @@ func _meter() -> bool:
 	return false
 
 var _tick := 0.0
-var _beats := 0
 
 func _drive(phase: String) -> void:
 	_tick += 1.0

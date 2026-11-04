@@ -253,7 +253,7 @@ func _initialize() -> void:
 	_check_the_machines_steer()
 	_check_a_machine_lies_on_the_hill_it_is_crossing()
 	_check_a_stranded_mount_walks_off_the_cliff()
-	_check_the_view_can_be_swapped()
+	await _check_the_view_can_be_swapped()
 	_check_what_moves_every_frame_is_not_interpolated()
 	_check_the_wheels_turn()
 	_check_a_boat_lies_level_and_wheels_touch_down()
@@ -557,7 +557,7 @@ func _initialize() -> void:
 	_check_the_wheel_stands_on_an_a_frame()
 	_check_the_coasters_button_is_on_its_platform()
 	_check_a_rider_stays_in_through_a_loop()
-	_check_a_rider_can_see_out()
+	await _check_a_rider_can_see_out()
 	_check_nobody_rides_the_coaster_unstrapped()
 	_check_the_rides_are_paid_for()
 	_check_stepping_off_a_swing_puts_the_child_down_where_they_are()
@@ -9987,13 +9987,6 @@ func _check_the_map_shows_the_valley() -> void:
 	_expect(seen_sizes.size() == 3, "and passes through all %d sizes on the way" % seen_sizes.size())
 
 	map.queue_free()
-
-## A tap, for driving the interface from a check.
-func _a_tap() -> InputEventMouseButton:
-	var click := InputEventMouseButton.new()
-	click.button_index = MOUSE_BUTTON_LEFT
-	click.pressed = true
-	return click
 
 ## The valley has to make a noise when nothing is happening.
 ##

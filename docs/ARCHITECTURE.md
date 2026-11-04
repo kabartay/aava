@@ -86,6 +86,25 @@ dulled under water) and Effects (the game's own sounds). The settings have a
 slim 0-100 slider per bus (drawn by `volume_look.gd`), which the mixer follows
 while it moves and which is saved when let go; the mute is held, not tapped.
 
+**The settings and the screen's own feedback.** The settings column stands on
+a ground of its own (`Hud.MenuGround`), so the small map that opens in the same
+corner never shows through it. The sliders follow a finger by hand, because
+`emulate_mouse_from_touch` is off; pausing or losing focus lets go of every
+held finger (the kick, the bow, a slider) without firing it. For a child who
+cannot read, `hud_fly.gd` flies a coin to the purse (or a chip to the bag) and
+bumps it, and `note_icon.gd` puts a small picture beside an announcement: a
+cross for a refusal, a coin with a cross for too few coins. `Main._refuse` is
+the one door for a refusal: it always sounds, and writes its words at most
+once while they are on screen. The care button draws what the animal wants,
+or why it cannot be helped, with `action_icon.gd`. A paid ride that cannot go
+yet says why (`Main._tell_why_waiting`), and the clock is read every twenty
+seconds so a game left open across midnight turns the day.
+
+**Pickups come back.** A taken pickup is laid again after `RESTOCK_AFTER`
+seconds of play, never in sight: not within the ring any child can see, and not
+on ground that is built over. The phone that holds the valley decides, and
+tells the other with one message (`restocked`, which is why `PROTOCOL` is 3).
+
 **Looks and seats.** `character.gd` draws five characters over one rig,
 `rig_motion.gd` moves it and `seat_pose.gd` sits it in every seat; `look_picker.gd`
 is the picture-only chooser. Animals are smooth lofted skins (`animal_loft.gd`,
@@ -164,7 +183,9 @@ minute of silence (`PATIENCE_*`) so a phone put down to answer a call is still
 in the valley when it comes back. Checks: `ci_check.gd` fuzzes every handler
 in process, and `src/dev/net_rogue.gd` (modes `attack` and `meter`, run on a
 random free port by the suite) does the same over real sockets and measures
-the bytes each feature costs.
+the bytes each feature costs. `src/dev/net_day.gd` (`net_pair.gd --mode=day`)
+plays a scripted day of two real games and compares both sides' snapshots at
+every checkpoint.
 
 ## The one rule
 
