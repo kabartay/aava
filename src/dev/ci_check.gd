@@ -551,6 +551,8 @@ func _initialize() -> void:
 	_check_a_remote_piece_on_the_child_sets_them_beside_it()
 	_check_an_animal_is_not_born_in_a_built_piece()
 	_check_the_chunk_under_a_fast_child_always_has_collision()
+	_check_no_ride_moves_until_its_restraints_are_down()
+	await _check_a_paid_child_is_held_in_the_seat_of_every_ride_to_the_end()
 	await _check_a_child_shut_in_a_pocket_of_the_range_is_lifted_out()
 	_check_the_fallback_to_the_camp_is_open_ground()
 	await _check_the_wheeled_machines_pull_away_stop_turn_and_lean_as_they_should()
@@ -11011,6 +11013,12 @@ func _check_the_pirate_ship_swings() -> void:
 	)
 
 	ship._physics_process(PirateShip.STILL_HOLD + 0.1)
+	# The bars come down first and the boat goes when they are down, a little
+	# over a second later, not on the frame the wait ends.
+	for _tick in 180:
+		if ship._phase == PirateShip.Phase.SWINGING:
+			break
+		ship._physics_process(1.0 / 60.0)
 	_expect(ship._phase == PirateShip.Phase.SWINGING, "waiting over, it starts to swing")
 	for _tick in 100:
 		ship._physics_process(PirateShip.SWING_TIME / 100.0)
@@ -11117,6 +11125,11 @@ func _check_the_drop_tower_climbs_and_falls() -> void:
 	# notice a climb that stalled, a top that never held, or a fall that
 	# undershot the ground it is meant to land exactly on.
 	tower._physics_process(DropTower.GROUND_HOLD + 0.1)
+	# The harnesses come down first and the ring goes when they are down.
+	for _tick in 180:
+		if tower._phase == DropTower.Phase.ASCEND:
+			break
+		tower._physics_process(1.0 / 60.0)
 	_expect(tower._phase == DropTower.Phase.ASCEND, "waiting over, it starts to climb")
 	tower._physics_process(DropTower.ASCEND_TIME + 0.1)
 	_expect(tower._phase == DropTower.Phase.TOP, "and reaches the top")
@@ -26992,6 +27005,8 @@ func _check_the_busy_frame_does_its_work_on_change() -> void:
 	_expect(coaster.car_at(0).global_transform.is_equal_approx(cars_at), "and has not moved")
 	coaster._waiting = 0.0
 	coaster._speed = 5.0
+	# Harnesses down, as they are on any train that is really moving.
+	coaster._locked = 1.0
 	for _i in 10:
 		coaster._physics_process(1.0 / 60.0)
 	_expect(coaster.placements() - placed == 10, "but a moving one is placed on every tick (%d of 10)" % (coaster.placements() - placed))
@@ -29797,4 +29812,434 @@ func _check_the_fallback_to_the_camp_is_open_ground() -> void:
 			"a child with nowhere else to go is not put in the wall of their camp (%s)" % [put]
 		)
 	structures.queue_free()
+
+## The tower, the ship, the wheel and the coaster all used to start moving on the
+## very frame their restraints began to close, so for the first second of the
+## ride a child sat under a bar that was still on its way down. Stepped here
+## in each ride alone, at 30 and at 60 frames a second: nothing may move, by any
+## amount, while any restraint is short of fully down.
+func _check_no_ride_moves_until_its_restraints_are_down() -> void:
+	print("no ride moves until its restraints are down")
+	for rate: int in [30, 60]:
+		var tick := 1.0 / float(rate)
+
+		var tower := DropTower.new(Vector3.ZERO)
+		get_root().add_child(tower)
+		var tower_moved_open := 0
+		var tower_went := false
+		for _step in int(80.0 / tick):
+			tower._physics_process(tick)
+			if not tower.at_rest():
+				tower_went = true
+			if tower._moved.length() > 0.0 and tower._harness_closed < 0.99:
+				tower_moved_open += 1
+			# And once up, the bars stay down for the whole of the climb and the fall.
+			if not tower.at_rest() and tower._harness_closed < 0.99:
+				tower_moved_open += 1
+		_expect(tower_went and tower_moved_open == 0,
+			"the tower climbs only with its harnesses down and keeps them down, at %d frames a second (%d bad frames)" % [rate, tower_moved_open])
+		tower.queue_free()
+
+		var ship := PirateShip.new(Vector3.ZERO)
+		get_root().add_child(ship)
+		var ship_moved_open := 0
+		var ship_went := false
+		for _step in int(80.0 / tick):
+			ship._physics_process(tick)
+			if not ship.at_rest():
+				ship_went = true
+				if ship._harness_closed < 0.99:
+					ship_moved_open += 1
+			if ship._moved.length() > 0.0 and ship._harness_closed < 0.99:
+				ship_moved_open += 1
+		_expect(ship_went and ship_moved_open == 0,
+			"the ship swings only with its bars down and keeps them down, at %d frames a second (%d bad frames)" % [rate, ship_moved_open])
+		ship.queue_free()
+
+		var wheel := FerrisWheel.new(Vector3.ZERO)
+		get_root().add_child(wheel)
+		wheel.book()
+		var wheel_turned_open := 0
+		var stood := false
+		var last_turn := wheel.turned()
+		for _step in int(160.0 / tick):
+			wheel._physics_process(tick)
+			stood = stood or wheel.waiting() > 0.0
+			var turning := absf(angle_difference(last_turn, wheel.turned())) > 1e-9
+			last_turn = wheel.turned()
+			var any_up := false
+			for index in FerrisWheel.GONDOLAS:
+				any_up = any_up or wheel.bar_open(index) > 0.0
+			# Only once a gondola has stood at the boards: the first turn that
+			# brings it round has every bar down already.
+			if stood and turning and any_up:
+				wheel_turned_open += 1
+		_expect(stood and wheel_turned_open == 0,
+			"the wheel turns only once every bar is down, at %d frames a second (%d bad frames)" % [rate, wheel_turned_open])
+		wheel.queue_free()
+
+		var coaster := RollerCoaster.new(Vector3.ZERO)
+		get_root().add_child(coaster)
+		coaster.rider_aboard(true)
+		coaster.book()
+		var train_moved_open := 0
+		var train_stood := false
+		var last_at := coaster.car_distance()
+		var departures := 0
+		for _step in int(260.0 / tick):
+			coaster._physics_process(tick)
+			train_stood = train_stood or coaster.boarding()
+			var at := coaster.car_distance()
+			if train_stood and at != last_at and coaster.locked() < 0.99 and not coaster.boarding():
+				train_moved_open += 1
+			if coaster.speed() > 0.0 and coaster.locked() < 0.99:
+				train_moved_open += 1
+			if coaster.boarding():
+				coaster.book()
+			elif last_at == at:
+				pass
+			if coaster.speed() > 0.1 and not coaster.boarding():
+				departures += 1
+			last_at = at
+		_expect(train_stood and departures > 0 and train_moved_open == 0,
+			"the train runs only with its harnesses down, at %d frames a second (%d bad frames)" % [rate, train_moved_open])
+		coaster.queue_free()
+
+
+## Every ride with restraints, ridden once round by the real game with a child
+## who keeps pushing the stick and jumping all the way: a child aboard is put in
+## the seat and held there — at 30 and at 60 frames a second, never above it,
+## through it or outside the ride — the restraints are down before it moves, stay
+## down until it has stopped, and then the child can walk off onto the boarding
+## platform. The "off" button does nothing mid-ride, a phone put away mid-ride
+## saves the child on the ground, and being taken off the rides lets go of them.
+func _check_a_paid_child_is_held_in_the_seat_of_every_ride_to_the_end() -> void:
+	print("a paid child is held in the seat of every ride to the end")
+	var was_rate := Engine.physics_ticks_per_second
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260903)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var world: World = game.get("world")
+	var player: Player = game.get("player")
+	var wallet: Wallet = game.get("wallet")
+	var park := world.park
+	await _settle_the_ground(world)
+	wallet.tickets = 20
+	wallet.earn(500)
+
+	var rides: Array[StringName] = [&"drop_tower", &"pirate_ship", &"wheel", &"coaster"]
+	for rate: int in [60, 30]:
+		Engine.physics_ticks_per_second = rate
+		for ride: StringName in rides:
+			await _ride_once_and_step_off(game, world, player, ride, rate)
+			Input.action_release(InputActions.MOVE_FORWARD)
+			Input.action_release(InputActions.JUMP)
+	Engine.physics_ticks_per_second = 60
+	await _carousel_rider_is_held_and_set_down(game, world, player)
+
+	# A phone put away at the top of the tower is saved on the ground.
+	Engine.physics_ticks_per_second = 60
+	var tower := park.drop_tower
+	await _board_at_rest(game, world, player, &"drop_tower")
+	var guard := 0
+	while tower.ring_height() < DropTower.GROUND_Y + 40.0 and guard < 4000:
+		await physics_frame
+		guard += 1
+	var saved: Dictionary = (game.call("_save_data") as Dictionary)["player"]
+	_expect(
+		float(saved["y"]) < tower.global_position.y + 6.0 and player.global_position.y > tower.global_position.y + 30.0,
+		"a phone put away forty metres up the tower saves the child on the ground (%.1f m), not at the top" % float(saved["y"])
+	)
+	# And being taken off the rides (a visit begins, a guest is set beside the
+	# host) lets go of the straps, so nobody is pulled back to a seat afterwards.
+	var strapped_before := player.strapped_in
+	game.call("_let_the_rides_go")
+	_expect(strapped_before and not player.strapped_in and not tower.strapped(),
+		"being taken off the rides unstraps the child from the one they were in")
+	player.global_position = Vector3(world.park.booth_at().x, world.park.booth_at().y + 0.2, world.park.booth_at().z)
+	player.velocity = Vector3.ZERO
+	for _i in 12:
+		await physics_frame
+	_expect(not player.strapped_in and not tower.strapped() and not park.wheel.strapped() and not park.pirate_ship.strapped() and not park.coaster.strapped(),
+		"and set down by the kiosk the child is held by nothing")
+	Input.action_release(InputActions.MOVE_FORWARD)
+	Input.action_release(InputActions.JUMP)
+	Engine.physics_ticks_per_second = was_rate
+	game.queue_free()
+	await process_frame
+
+func _settle_the_ground(world: World) -> void:
+	var waited := 0
+	while waited < 900 and not world.terrain.is_idle():
+		await process_frame
+		waited += 1
+	for _i in 4:
+		await process_frame
+
+## Put the child at a ride's seat, at rest, with a ticket spent on it. Returns
+## the node of the ride's seat frame for the caller to measure against.
+func _board_at_rest(game: Node, world: World, player: Player, ride: StringName) -> void:
+	var park := world.park
+	var at := Vector3.ZERO
+	match ride:
+		&"drop_tower":
+			while not (park.drop_tower.at_rest() and park.drop_tower._phase_time < 1.0):
+				await physics_frame
+			at = park.drop_tower.seats()[0].origin
+		&"pirate_ship":
+			while not (park.pirate_ship.at_rest() and park.pirate_ship._phase_time < 1.0):
+				await physics_frame
+			at = park.pirate_ship.seats()[0].origin
+	var ground := world.field.height_at(at.x, at.z)
+	player.global_position = Vector3(at.x, maxf(at.y, ground) + 0.1, at.z)
+	player.velocity = Vector3.ZERO
+	world.follow(player.global_position)
+	await _settle_the_ground(world)
+	for _i in 20:
+		await physics_frame
+	game.set("_asked", &"ride")
+	game.set("_asked_ride", ride)
+	game.call("_on_answered", true)
+
+func _ride_once_and_step_off(game: Node, world: World, player: Player, ride: StringName, rate: int) -> void:
+	var park := world.park
+	var tag := "%s at %d frames a second" % [ride, rate]
+	var seat_of := func() -> Transform3D: return Transform3D()
+	var moving := func() -> bool: return false
+	var restrained := func() -> float: return 1.0
+	var finished := func() -> bool: return false
+	var held_at := func() -> Vector3: return Vector3.ZERO
+	var exit_points := func() -> Array: return []
+	var cars := {"idx": 0}
+	match ride:
+		&"drop_tower":
+			var tower := park.drop_tower
+			await _board_at_rest(game, world, player, ride)
+			seat_of = func() -> Transform3D: return tower._ring.global_transform
+			moving = func() -> bool: return absf(tower._moved.y) > 1e-6
+			restrained = func() -> float: return tower._harness_closed
+			finished = func() -> bool: return tower.at_rest()
+			held_at = func() -> Vector3: return tower.strap_place().origin if tower.strapped() else Vector3(INF, INF, INF)
+			exit_points = func() -> Array:
+				var o := tower.seats()[0]
+				var out := -o.basis.z
+				return [o.origin + out * 2.0, o.origin + out * 4.0]
+		&"pirate_ship":
+			var ship := park.pirate_ship
+			await _board_at_rest(game, world, player, ride)
+			seat_of = func() -> Transform3D: return ship._hull.global_transform
+			moving = func() -> bool: return ship._moved.length() > 1e-6
+			restrained = func() -> float: return ship._harness_closed
+			finished = func() -> bool: return ship.at_rest()
+			held_at = func() -> Vector3: return ship.strap_place().origin if ship.strapped() else Vector3(INF, INF, INF)
+			exit_points = func() -> Array:
+				var hull := ship._hull.global_transform
+				return [
+					hull * Vector3(-1.44, 0.15, -1.1), hull * Vector3(0.0, 0.15, -1.1),
+					hull * Vector3(0.0, 0.15, 0.2), hull * Vector3(0.0, 0.15, 3.2), hull * Vector3(0.0, 0.15, 4.5),
+				]
+		&"wheel":
+			var wheel := park.wheel
+			var at := wheel.global_position + Vector3(-6.0, 3.0, 3.0)
+			player.global_position = at
+			player.velocity = Vector3.ZERO
+			world.follow(at)
+			await _settle_the_ground(world)
+			game.set("_asked", &"ride")
+			game.set("_asked_ride", &"wheel")
+			game.call("_on_answered", true)
+			var n := 0
+			while wheel.waiting() <= 0.0 and n < 20000:
+				await physics_frame
+				n += 1
+			var lowest := 0
+			for i in FerrisWheel.GONDOLAS:
+				if wheel.gondola(i).global_position.y < wheel.gondola(lowest).global_position.y:
+					lowest = i
+			cars["idx"] = lowest
+			for _i in 30:
+				await physics_frame
+			player.global_position = wheel.gondola(lowest).global_position + Vector3(0.75, 0.2, 0.0)
+			player.velocity = Vector3.ZERO
+			for _i in 5:
+				await physics_frame
+			var idx := lowest
+			seat_of = func() -> Transform3D: return wheel.gondola(idx).global_transform
+			moving = func() -> bool: return wheel._moved.size() > idx and wheel._moved[idx].length() > 1e-6
+			restrained = func() -> float: return 1.0 - wheel.bar_open(idx)
+			finished = func() -> bool: return wheel.waiting() > 0.0
+			held_at = func() -> Vector3: return wheel.strap_place().origin if wheel.strapped() else Vector3(INF, INF, INF)
+			exit_points = func() -> Array:
+				var g := wheel.gondola(idx).global_position
+				return [g + Vector3(-1.3, 0.9, 0.0), g + Vector3(-3.0, 0.9, 0.0)]
+		&"coaster":
+			var coaster := park.coaster
+			var spot := coaster.platform_spot()
+			player.global_position = spot
+			player.velocity = Vector3.ZERO
+			world.follow(spot)
+			await _settle_the_ground(world)
+			game.set("_asked", &"ride")
+			game.set("_asked_ride", &"coaster")
+			game.call("_on_answered", true)
+			var n := 0
+			while not coaster.boarding() and n < 20000:
+				await physics_frame
+				n += 1
+			for _i in 10:
+				await physics_frame
+			var idx := 0
+			for i in coaster.car_count():
+				if coaster.car_at(i).global_position.distance_to(spot) < coaster.car_at(idx).global_position.distance_to(spot):
+					idx = i
+			player.global_position = coaster.seat_of(idx).origin + Vector3(0.0, 0.1, 0.0)
+			player.velocity = Vector3.ZERO
+			for _i in 5:
+				await physics_frame
+			seat_of = func() -> Transform3D: return coaster.car_at(idx).global_transform
+			moving = func() -> bool: return coaster.speed() > 0.001
+			restrained = func() -> float: return coaster.locked()
+			finished = func() -> bool: return coaster.boarding()
+			held_at = func() -> Vector3: return coaster.strap_place().origin if coaster.strapped() else Vector3(INF, INF, INF)
+			exit_points = func() -> Array: return [coaster.platform_spot()]
+	_expect(game.get("_aboard") == ride, "%s: a child who steps on is aboard" % tag)
+
+	var open_moving := 0
+	var loose := 0
+	var unseated := 0
+	var worst_gap := 0.0
+	var went := false
+	var moving_ticks := 0
+	var released_early := 0
+	var t := 0
+	var off_pressed := false
+	while t < 14000:
+		await physics_frame
+		t += 1
+		# A restless child: the stick forward for three quarters of a second,
+		# then not; a jump every half second; and the "off" button once, a third
+		# of the way through the ride's motion.
+		if went:
+			var on := (moving_ticks / maxi(rate * 3 / 4, 1)) % 2 == 0
+			if on:
+				Input.action_press(InputActions.MOVE_FORWARD)
+			else:
+				Input.action_release(InputActions.MOVE_FORWARD)
+			if moving_ticks % maxi(rate / 2, 1) == 0:
+				Input.action_press(InputActions.JUMP)
+			else:
+				Input.action_release(InputActions.JUMP)
+		var is_moving: bool = moving.call()
+		if is_moving:
+			went = true
+			moving_ticks += 1
+			if float(restrained.call()) < 0.99:
+				open_moving += 1
+			var place: Vector3 = held_at.call()
+			var gap := place.distance_to(player.global_position)
+			worst_gap = maxf(worst_gap, gap if is_finite(gap) else 99.0)
+			if not player.strapped_in or gap > 0.05:
+				loose += 1
+			if (game.call("_seat_at", player.global_position) as Dictionary).is_empty():
+				unseated += 1
+			if not off_pressed and moving_ticks > rate * 5:
+				off_pressed = true
+				game.call("_on_ride")
+				await physics_frame
+				_expect(player.strapped_in, "%s: the off button does nothing while the ride is moving" % tag)
+		elif went and bool(finished.call()):
+			break
+	Input.action_release(InputActions.MOVE_FORWARD)
+	Input.action_release(InputActions.JUMP)
+	_expect(went, "%s: the ride went" % tag)
+	_expect(open_moving == 0, "%s: it never moved with a restraint open (%d frames)" % [tag, open_moving])
+	_expect(loose == 0, "%s: the child was held in the seat the whole way, never more than %.3f m from it (%d frames loose)" % [tag, worst_gap, loose])
+	_expect(unseated == 0, "%s: and was drawn seated every frame, for the other phone too (%d frames not)" % [tag, unseated])
+	# Stopped, then the restraint opens, then the child walks off to the boarding
+	# platform, on level ground.
+	var stopped := not bool(moving.call())
+	_expect(stopped, "%s: at the end the ride has stopped" % tag)
+	var waited := 0
+	while float(restrained.call()) > 0.05 and waited < 900:
+		await physics_frame
+		waited += 1
+	_expect(float(restrained.call()) <= 0.05, "%s: and then its restraint opens" % tag)
+	var points: Array = exit_points.call()
+	var floor_y := player.global_position.y
+	var reached := 0
+	var cam: CameraRig = game.get("camera_rig")
+	var steps := 0
+	while reached < points.size() and steps < 1200:
+		var target: Vector3 = points[reached]
+		var d := target - player.global_position
+		d.y = 0.0
+		if d.length() < 0.5:
+			reached += 1
+			continue
+		cam.yaw = atan2(-d.x, -d.z)
+		Input.action_press(InputActions.MOVE_FORWARD)
+		await physics_frame
+		steps += 1
+	Input.action_release(InputActions.MOVE_FORWARD)
+	for _i in 30:
+		await physics_frame
+	_expect(reached == points.size() and not player.strapped_in and game.get("_aboard") == &"",
+		"%s: the child can step off, held by nothing and off the ride (%d of %d marks, %d frames)" % [tag, reached, points.size(), steps])
+	_expect(player.is_on_floor() and player.global_position.y > floor_y - 2.2,
+		"%s: onto a floor, not into the air or down the structure" % tag)
+	# Back to the ground for the next ride, and what was spent is not refunded.
+	var ground := world.field.height_at(player.global_position.x, player.global_position.z)
+	player.global_position = Vector3(player.global_position.x, maxf(player.global_position.y, ground) + 0.1, player.global_position.z)
+
+func _carousel_rider_is_held_and_set_down(game: Node, world: World, player: Player) -> void:
+	var carousel := world.park.carousel
+	while carousel.phase() != Carousel.Phase.STILL:
+		await physics_frame
+	var at := carousel.global_position + Vector3(3.0, Carousel.FLOOR_HEIGHT + 0.3, 0.0)
+	player.global_position = at
+	player.velocity = Vector3.ZERO
+	world.follow(at)
+	await _settle_the_ground(world)
+	game.set("_asked", &"ride")
+	game.set("_asked_ride", &"carousel")
+	game.call("_on_answered", true)
+	for _i in 10:
+		await physics_frame
+	var worst := 0.0
+	var turning := 0
+	var t := 0
+	var went := false
+	while t < 8000:
+		await physics_frame
+		t += 1
+		if carousel.speed() > 0.001:
+			went = true
+			turning += 1
+			if turning % 40 == 0:
+				Input.action_press(InputActions.MOVE_FORWARD)
+				Input.action_press(InputActions.JUMP)
+			if turning % 40 == 20:
+				Input.action_release(InputActions.MOVE_FORWARD)
+				Input.action_release(InputActions.JUMP)
+			if turning == 300:
+				game.call("_on_ride")
+			if carousel.has_rider():
+				worst = maxf(worst, carousel.rider_seat().origin.distance_to(player.global_position))
+		elif went and carousel.phase() == Carousel.Phase.STILL:
+			break
+	Input.action_release(InputActions.MOVE_FORWARD)
+	Input.action_release(InputActions.JUMP)
+	_expect(went and worst < 0.08, "carousel: the child stays in the saddle all the way round, within %.3f m of it, whatever the stick and the off button do" % worst)
+	for _i in 30:
+		await physics_frame
+	var on_deck := player.global_position.y > carousel.global_position.y + Carousel.FLOOR_HEIGHT - 0.1
+	_expect(not player.strapped_in and on_deck and Vector2(
+		player.global_position.x - carousel.global_position.x, player.global_position.z - carousel.global_position.z
+	).length() < Carousel.RADIUS,
+		"carousel: stopped, the child is put down on its deck, free to walk off")
 

@@ -471,6 +471,54 @@ func bar_open(index: int) -> float:
 		return 0.0
 	return float(_gates_open[index])
 
+## Has every bar come all the way down? The wheel does not move off until they
+## have: the ten seconds at the boards used to end with the wheel already
+## turning while the bar over the doorway was still on its way down, so for the
+## first half second a child stood in a gondola with the way out open.
+func _bars_are_down() -> bool:
+	for open: float in _gates_open:
+		if open > 0.0:
+			return false
+	return true
+
+## The gondola the rider is held in while the wheel turns, and where in it they
+## stand (in the gondola's own frame). The wheel's gondolas have rails, but a
+## child who pushes the stick and jumps went over them at any height.
+var _strap_car := -1
+var _strap_local := Vector3.ZERO
+
+## Are the bar and the rail round this gondola holding? Bar all the way down,
+## or only just starting up from a turn that has ended with a rider strapped in.
+func restrained(index: int) -> bool:
+	if index < 0 or index >= _gates_open.size():
+		return false
+	return bar_open(index) <= 0.0 or (index == _strap_car and bar_open(index) < 0.25)
+
+## Fasten whoever is standing in a gondola to it. False if they are not in one.
+func strap(at: Vector3) -> bool:
+	var index := gondola_under(at)
+	if index < 0:
+		return false
+	_strap_car = index
+	_strap_local = _cars[index].global_transform.affine_inverse() * at
+	return true
+
+func unstrap() -> void:
+	_strap_car = -1
+
+func strapped() -> bool:
+	return _strap_car >= 0
+
+## Which gondola the strapped rider is in, or -1.
+func strapped_in() -> int:
+	return _strap_car
+
+## Where the strapped rider is, in the world, and the way they face (the way
+## `seat_of` turns a seated child).
+func strap_place() -> Transform3D:
+	var car := _cars[_strap_car].global_transform
+	return Transform3D(car.basis * Basis(Vector3.UP, PI * 0.5), car * _strap_local)
+
 ## Is a gondola standing at the boards, and for how much longer?
 func waiting() -> float:
 	return _holding
@@ -738,7 +786,7 @@ func _physics_process(delta: float) -> void:
 			_holding = maxf(_holding - delta, minf(_holding, KEPT_LEAD))
 		else:
 			_holding = maxf(0.0, _holding - delta)
-	else:
+	elif _bars_are_down():
 		# A rider is carried one whole turn and then set down. Asked for a
 		# little before the turn is up, because the wheel has to be told to
 		# stop before the gondola gets there — and a whole turn after it left

@@ -145,6 +145,13 @@ var _seats: Array[Transform3D] = []
 ## What a lowered bar holds: a solid across the front of each seat, switched
 ## on only once the bars are down.
 var _bar_shapes: Array[CollisionShape3D] = []
+## The wait is over and the bars are coming down. The boat does not leave until
+## they are down: it used to start swinging on the frame they began to close.
+var _closing := false
+## The seat the rider is held to while the boat swings, and where in it they sit
+## (in the seat's own frame).
+var _strap_seat := -1
+var _strap_local := Vector3.ZERO
 
 func _init(at: Vector3) -> void:
 	name = "PirateShip"
@@ -829,10 +836,18 @@ func _physics_process(delta: float) -> void:
 			# game carries them, so answering "no" was a free ride.
 			if _held:
 				_phase_time = minf(_phase_time, STILL_HOLD - HELD_LEAD)
+				# Somebody has stepped aboard as the bars came down: up they go,
+				# and the boat waits for the answer.
+				_closing = false
 			elif _phase_time >= STILL_HOLD:
-				_phase = Phase.SWINGING
-				_phase_time = 0.0
-				_swing_time = 0.0
+				# Bars first, then the swing: not a frame earlier.
+				_closing = true
+				_phase_time = STILL_HOLD
+				if _harness_closed >= 0.99:
+					_closing = false
+					_phase = Phase.SWINGING
+					_phase_time = 0.0
+					_swing_time = 0.0
 		Phase.SWINGING:
 			_swing_time += delta
 			var envelope := 1.0
@@ -866,12 +881,47 @@ func _physics_process(delta: float) -> void:
 
 	# The bars: down while the boat is swinging, up again at rest — the same
 	# cue the coaster and the drop tower both give.
-	var wanted := 0.0 if _phase == Phase.STILL else 1.0
+	var wanted := 0.0 if _phase == Phase.STILL and not _closing else 1.0
 	_harness_closed = move_toward(_harness_closed, wanted, delta / RollerCoaster.HARNESS_TIME)
 	for index in _harnesses.size():
 		_harnesses[index].rotation.z = _harness_ends[index] * BAR_CLOSE * _harness_closed
 	for held in _bar_shapes:
 		held.disabled = _harness_closed < 0.99
+
+## Are the bars down and holding? Down all the way, or still coming up from a
+## swing that has just ended with a rider strapped in: they are let go when the
+## bars are most of the way up, not while they are still across the lap.
+func restrained() -> bool:
+	return _harness_closed >= 0.99 or (_strap_seat >= 0 and _harness_closed >= 0.25)
+
+## Is the boat waiting only for its bars to come down? For the checks.
+func closing() -> bool:
+	return _closing
+
+## Fasten whoever is sitting on a seat to it, if they are on one; false if not.
+## From then on `strap_place` says where they are, outright, every frame. A
+## child on a swinging deck who is only nudged along with it slides about on
+## the tilt and, with the stick held or a jump, goes over the bar.
+func strap(at: Vector3) -> bool:
+	for index in _seats.size():
+		var here := _hull.global_transform * _seats[index]
+		var local := here.affine_inverse() * at
+		if absf(local.x) < 0.5 and absf(local.z) < 0.4 and local.y > -0.2 and local.y < 0.4:
+			_strap_seat = index
+			_strap_local = local
+			return true
+	return false
+
+func unstrap() -> void:
+	_strap_seat = -1
+
+func strapped() -> bool:
+	return _strap_seat >= 0
+
+## Where the strapped rider is, in the world, and the way they face.
+func strap_place() -> Transform3D:
+	var here := _hull.global_transform * _seats[_strap_seat]
+	return Transform3D(here.basis, here * _strap_local)
 
 ## How far the hull moved whoever is standing in it, this frame. Mirrors
 ## FerrisWheel.carry() and DropTower.carry() — the hull is moved by hand, not

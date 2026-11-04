@@ -680,6 +680,11 @@ func _physics_process(delta: float) -> void:
 	# ticket is taken when they get on, not while they stay on: the carousel
 	# turns for a minute and a ride is a ride.
 	var aboard := world.park.ride_under(player.global_position)
+	# A child strapped in is aboard whatever the boxes say: the ride has just
+	# moved and the child was put where its seat was a frame ago.
+	var strapped_to := _strapped_to()
+	if strapped_to != &"":
+		aboard = strapped_to
 
 	# The coaster is booked at the button on the platform, not in the car.
 	#
@@ -864,11 +869,20 @@ func _physics_process(delta: float) -> void:
 	wheel.keep_at_boards(
 		aboard == &"wheel" and not _wheel_rider_paid and wheel.waiting() > 0.0
 	)
+	# Nor does anybody who has paid but is not sitting on a seat go up or swing
+	# with nothing to hold them: the bars come down across a seat, and a child
+	# standing on the deck of the ring or in the boat's gangway has none.
 	world.park.drop_tower.hold_at_ground(
-		aboard == &"drop_tower" and _riding_without_a_ticket
+		aboard == &"drop_tower" and (
+			_riding_without_a_ticket
+			or is_nan(world.park.drop_tower.seat_near(player.global_position).origin.x)
+		)
 	)
 	world.park.pirate_ship.hold_still(
-		aboard == &"pirate_ship" and _riding_without_a_ticket
+		aboard == &"pirate_ship" and (
+			_riding_without_a_ticket
+			or is_nan(world.park.pirate_ship.seat_near(player.global_position).origin.x)
+		)
 	)
 	if wheel.waiting() > 0.0 and not _wheel_here_told:
 		_wheel_here_told = true
@@ -910,8 +924,15 @@ func _physics_process(delta: float) -> void:
 	# the boards may get in and out as they please.
 	var strapped := (
 		aboard == &"coaster" and _coaster_rider_paid and not coaster.boarding()
-		and not is_nan(seat.origin.x)
+		and (coaster.strapped() or not is_nan(seat.origin.x))
 	)
+	if strapped:
+		# The car is remembered from here on (see RollerCoaster.strap).
+		if not coaster.strapped():
+			coaster.strap(player.global_position)
+		seat = coaster.strap_place()
+	else:
+		coaster.unstrap()
 	if strapped:
 		# Off the mount first. A bar comes down over a child, not over a child
 		# and a horse: left riding, the animal was carried round the track
@@ -920,10 +941,13 @@ func _physics_process(delta: float) -> void:
 			_on_ride()
 		player.carried_to = seat.origin
 		player.carried_facing = seat.basis
-	player.strapped_in = strapped or on_horse
+	# The tower, the ship and the wheel hold their rider the same way, once their
+	# bars are down: placed in the seat, with no physics of their own.
+	var fastened := _fasten_to_the_ride(aboard)
+	player.strapped_in = strapped or on_horse or fastened
 	# And the camera stops being shoved into the seat back by the car it is
 	# riding in — or into the carousel's drum and canopy.
-	camera_rig.set_riding(strapped or on_horse)
+	camera_rig.set_riding(strapped or on_horse or fastened)
 	if strapped:
 		# Which way the car is pointed: its own forward, turned into the yaw
 		# the camera is steered by.
@@ -942,7 +966,13 @@ func _physics_process(delta: float) -> void:
 		hud.announce(Text.of("say_park_put_off"), 2.4)
 		return
 
-	if strapped or on_horse:
+	if strapped or on_horse or fastened:
+		# Put there now, not on the player's own next tick. The player is a
+		# child of this node with the default priority, so it moves before this
+		# runs: left to itself it sits where the seat was a frame ago, which is
+		# a car's length behind the coaster at thirty frames a second and a
+		# quarter of a metre off the tower's seat on its way down.
+		player.global_transform = Transform3D(player.carried_facing, player.carried_to)
 		return
 
 	var carried := world.park.carry(player.global_position, delta)
@@ -958,6 +988,80 @@ func _physics_process(delta: float) -> void:
 		not _riding_without_a_ticket or world.park.carrier() == &"carousel"
 	):
 		player.global_position += carried
+
+## How far from its seat a strapped child may be found before they are taken to
+## have been moved by something else (a visit, a rescue) and are let go of. A
+## frame at fifteen a second on the coaster's fastest stretch is two and a bit.
+const STRAP_REACH := 6.0
+
+## Which ride has a child strapped to it right now, or nothing.
+func _strapped_to() -> StringName:
+	var park := world.park
+	for held: Array in [
+		[&"coaster", park.coaster], [&"drop_tower", park.drop_tower],
+		[&"pirate_ship", park.pirate_ship], [&"wheel", park.wheel],
+	]:
+		var ride: Node = held[1]
+		if not bool(ride.call("strapped")):
+			continue
+		var place: Transform3D = ride.call("strap_place")
+		if place.origin.distance_to(player.global_position) < STRAP_REACH:
+			return held[0]
+		# Somewhere else altogether: put there by something other than the ride.
+		ride.call("unstrap")
+	return &""
+
+## Let go of every strap: the child has been taken off the rides.
+func _unstrap_every_ride() -> void:
+	var park := world.park
+	for ride: Node in [park.coaster, park.drop_tower, park.pirate_ship, park.wheel]:
+		ride.call("unstrap")
+
+## Hold a paid child to the seat of the tower, the ship or the wheel while its
+## bars are down: put where the seat is, every frame, as the coaster's rider is.
+##
+## These three used to move a rider only by how far the ride had moved, and
+## leave the rest to the engine. At the drop's thirty metres a second that left
+## a child up to a metre above or below the cushion; on the ship's tilt it let
+## them slide over the bar; and a child holding the stick forward and jumping
+## walked off a gondola at the top of the wheel, or off the ring at a hundred and
+## fifty metres. Returns whether the child is held now.
+func _fasten_to_the_ride(aboard: StringName) -> bool:
+	var park := world.park
+	var held: Node = null
+	match aboard:
+		&"drop_tower":
+			held = park.drop_tower
+		&"pirate_ship":
+			held = park.pirate_ship
+		&"wheel":
+			held = park.wheel
+	# One rider, one strap: whichever ride the child is not in lets go of them.
+	for ride: Node in [park.drop_tower, park.pirate_ship, park.wheel]:
+		if ride != held:
+			ride.call("unstrap")
+	if held == null:
+		return false
+	var restrained: bool = (
+		held.call("restrained", park.wheel.gondola_under(player.global_position))
+		if held == park.wheel else held.call("restrained")
+	)
+	# The bars up: free to step off, which is the way off at rest. A child who
+	# has not paid is never newly fastened, but one already strapped in stays so
+	# until the bars are up: the ride's end asks for the next ticket the moment
+	# it touches down, while the bars are still across the lap.
+	var already := bool(held.call("strapped"))
+	if not restrained or (_riding_without_a_ticket and not already):
+		held.call("unstrap")
+		return false
+	if not already and not bool(held.call("strap", player.global_position)):
+		return false
+	var place: Transform3D = held.call("strap_place")
+	if player.riding != &"":
+		_on_ride()
+	player.carried_to = place.origin
+	player.carried_facing = place.basis
+	return true
 
 ## Whether somebody standing here is in the seat of a ride, and which: the
 ## pose (see SeatPose) and where the seat is. The same question is asked for the
@@ -2264,6 +2368,8 @@ func _let_the_rides_go() -> void:
 	_slid = 0.0
 	_dining = 0.0
 	player.is_carried = false
+	if world != null and world.park != null:
+		_unstrap_every_ride()
 	# Whatever speed the ride was giving them stays behind with it.
 	player.velocity = Vector3.ZERO
 	player.strapped_in = false

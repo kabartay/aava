@@ -1365,6 +1365,35 @@ func must_get_off(at: Vector3, strapped: bool) -> bool:
 		return false
 	return not is_nan(seat_under(at).origin.x)
 
+## The car the rider is strapped into while the train runs.
+##
+## It is remembered, not looked up from where the child is each frame. The child
+## is put in the seat on one frame and asked "which car are you in?" at the start
+## of the next, by which time the car has moved on: at thirty frames a second and
+## over twenty-two metres a second the seat is more than the width of the car
+## behind it, nobody is in any car, and a child at the bottom of a loop was let go
+## of and flung off the track.
+var _strap_car := -1
+
+## Strap in whoever is in a car. False if they are in none.
+func strap(at: Vector3) -> bool:
+	for index in _cars.size():
+		var local := _cars[index].global_transform.affine_inverse() * at
+		if absf(local.x) < 0.95 and absf(local.z) < 0.65 and local.y > -0.4 and local.y < 2.0:
+			_strap_car = index
+			return true
+	return false
+
+func unstrap() -> void:
+	_strap_car = -1
+
+func strapped() -> bool:
+	return _strap_car >= 0
+
+## Where the strapped rider sits now, and the way they face.
+func strap_place() -> Transform3D:
+	return seat_of(_strap_car)
+
 ## How far each car moved on the last frame, for whoever is riding in it.
 var _moved: Array[Vector3] = []
 ## Every shoulder harness on the train, and how far down they are: nought at
@@ -1422,6 +1451,13 @@ func _roll(delta: float) -> void:
 		return
 
 	var fraction := base_fraction_at(_at_distance)
+	# It does not pull out until the harnesses are down. They begin to come down
+	# on the frame the wait ends, over a little over a second, and the train used
+	# to start rolling on that same frame: for the first metre and a half of the
+	# lift a child sat under a bar that was still on its way.
+	if _locked < 1.0 and fraction < LIFT_FOOT:
+		_speed = 0.0
+		return
 	if fraction < LIFT_TOP:
 		# Out of the station and up the chain: a steady pull, whatever the
 		# hill does. This has to cover the station itself as well as the lift,

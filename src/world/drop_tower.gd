@@ -120,6 +120,16 @@ var _harness_closed := 0.0
 var _harness_shapes: Array[CollisionShape3D] = []
 ## Every seat, in the ring's own frame: the top of the cushion, facing out.
 var _seats: Array[Transform3D] = []
+## The wait at the ground is over and the harnesses are coming down. The ring
+## does not leave until they are down: it used to start climbing on the same
+## frame they began to close, so for the first second of the ascent a child sat
+## under a bar that was still on its way.
+var _closing := false
+## The seat the rider is held to while the ring moves, and where in that seat
+## they sit (in the seat's own frame, so a child is held where they were and
+## not snapped to a point).
+var _strap_seat := -1
+var _strap_local := Vector3.ZERO
 
 func _init(at: Vector3) -> void:
 	name = "DropTower"
@@ -485,9 +495,18 @@ func _physics_process(delta: float) -> void:
 			# seconds short of going, so a yes is not then a quarter-minute wait.
 			if _held:
 				_phase_time = minf(_phase_time, GROUND_HOLD - HELD_LEAD)
+				# Somebody has stepped on while the bars were coming down:
+				# they come up again, and the ring waits for the answer.
+				_closing = false
 			elif _phase_time >= GROUND_HOLD:
-				_phase = Phase.ASCEND
-				_phase_time = 0.0
+				# The harnesses come down first; the ring goes when they are
+				# down, and not a frame before.
+				_closing = true
+				_phase_time = GROUND_HOLD
+				if _harness_closed >= 0.99:
+					_closing = false
+					_phase = Phase.ASCEND
+					_phase_time = 0.0
 		Phase.ASCEND:
 			var t := clampf(_phase_time / ASCEND_TIME, 0.0, 1.0)
 			_ring.position.y = GROUND_Y + TRAVEL * smoothstep(0.0, 1.0, t)
@@ -525,12 +544,49 @@ func _physics_process(delta: float) -> void:
 	# Down the moment the ring leaves the ground, up again once it is back —
 	# "bars down, we are going" is the one cue a child already knows from the
 	# coaster, and a harness that is always down teaches nothing.
-	var wanted := 0.0 if _phase == Phase.GROUND else 1.0
+	var wanted := 0.0 if _phase == Phase.GROUND and not _closing else 1.0
 	_harness_closed = move_toward(_harness_closed, wanted, delta / RollerCoaster.HARNESS_TIME)
 	for hinge in _harnesses:
 		hinge.rotation.z = -HARNESS_CLOSE * _harness_closed
 	for pads in _harness_shapes:
 		pads.disabled = _harness_closed < 0.99
+
+## Are the harnesses down and holding? Down all the way, or still coming up
+## from a ride that has just ended: a rider is let go when the bars are most of
+## the way up, not on the frame the ring touches the ground while they are still
+## across the lap.
+func restrained() -> bool:
+	return _harness_closed >= 0.99 or (_strap_seat >= 0 and _harness_closed >= 0.25)
+
+## Is the ring clear to go: harnesses down, or about to be? For the checks.
+func closing() -> bool:
+	return _closing
+
+## Fasten whoever is sitting here to the seat they are in, if they are in one.
+## False if they are not on a seat. From then on `strap_place` says where they
+## are, outright, every frame: a ring that drops from the top at thirty metres
+## a second leaves a child who is only nudged by how far it moved behind it by
+## up to a metre, and a child who is pushing the stick or jumping walked off it.
+func strap(at: Vector3) -> bool:
+	for index in _seats.size():
+		var here := _ring.global_transform * _seats[index]
+		var local := here.affine_inverse() * at
+		if absf(local.x) < 0.4 and absf(local.z) < 0.4 and local.y > -0.2 and local.y < 0.4:
+			_strap_seat = index
+			_strap_local = local
+			return true
+	return false
+
+func unstrap() -> void:
+	_strap_seat = -1
+
+func strapped() -> bool:
+	return _strap_seat >= 0
+
+## Where the strapped rider is, in the world, and the way they face.
+func strap_place() -> Transform3D:
+	var here := _ring.global_transform * _seats[_strap_seat]
+	return Transform3D(here.basis, here * _strap_local)
 
 ## How far out from the axle a seat's own reach goes, and how far below the
 ## deck its lowest point hangs. The seats stand well clear of the ring itself
