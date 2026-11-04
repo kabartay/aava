@@ -34,6 +34,9 @@ func _initialize() -> void:
 	_check_spawn_is_habitable()
 	_check_forest_density_is_sane()
 	_check_pickups_are_findable()
+	_check_taken_pickups_come_back_slowly_and_out_of_sight()
+	_check_restocking_is_saved_and_restored_without_duplication()
+	_check_only_the_host_lays_pickups_again_and_the_guest_is_told()
 	await _check_the_cafe_price_is_kept()
 	await _check_the_small_activities_are_kind_and_lead_somewhere()
 	await _check_loading_reaches_what_is_already_built()
@@ -542,6 +545,7 @@ func _initialize() -> void:
 	# read past them.
 	await _check_a_jump_from_the_saddle_is_a_jump()
 	await _check_a_child_can_swim_down()
+	await _check_a_gentle_stick_still_swims_against_the_current()
 	await _check_the_river_has_a_gentle_current()
 	_check_a_dammed_pond_has_no_current()
 	_check_the_river_surface_shows_its_flow_and_its_piers()
@@ -4609,6 +4613,291 @@ func _check_pickups_are_findable() -> void:
 		_ok("%d pickups scattered near the spawn" % found)
 	pickups.queue_free()
 
+## A built Pickups with a tile that holds at least `want` things, and that
+## tile's coordinate (left built).
+func _tile_with_pickups(pickups: Pickups, want: int) -> Vector2i:
+	for step in 120:
+		var tile := Vector2i(step % 10, step / 10)
+		pickups._build_tile(tile)
+		var here := 0
+		for record: Dictionary in pickups._active:
+			if record["tile"] == tile:
+				here += 1
+		if here >= want:
+			return tile
+		pickups._drop_tile(tile)
+	return Vector2i(-999, -999)
+
+## Taken pickups come back, but slowly, never in sight, never on ground that is
+## not a pickup's now or built on, and never in a rush.
+func _check_taken_pickups_come_back_slowly_and_out_of_sight() -> void:
+	print("taken pickups come back slowly and out of sight")
+	var field := HeightField.new(20260903)
+	var pickups := Pickups.new(field, 20260903)
+	get_root().add_child(pickups)
+	var tile := _tile_with_pickups(pickups, 3)
+	_expect(tile.x > -999, "there is a tile with something to take")
+	var record: Dictionary = pickups._active[0]
+	var id: String = record["id"]
+	var kind: StringName = record["kind"]
+	pickups.check_reach(record["position"])
+	_expect(pickups.taken.has(id), "taking it marks it gone")
+	var far: Array[Vector3] = [Vector3(5000.0, 0.0, 5000.0)]
+
+	# The spot is the one the tile lays: the replay agrees with the build.
+	var fresh := Pickups.new(field, 20260903)
+	get_root().add_child(fresh)
+	fresh._build_tile(tile)
+	var agree := true
+	for other: Dictionary in fresh._active:
+		var spot := fresh.spot_of(other["id"])
+		var at: Vector3 = other["position"]
+		if spot.is_empty() or spot["kind"] != other["kind"] or absf(float(spot["x"]) - at.x) > 0.001 or absf(float(spot["z"]) - at.z) > 0.001:
+			agree = false
+	_expect(agree, "asking about a pickup's spot gives what building its tile gives")
+	_expect(fresh.spot_of("nonsense").is_empty() and fresh.spot_of("1:2:%d" % Pickups.CANDIDATES_PER_TILE).is_empty(), "a name that is not a pickup's has no spot")
+	fresh.queue_free()
+
+	# Still built, so still in sight: not laid, however long the wait.
+	pickups.clock += Pickups.RESTOCK_AFTER * 3.0
+	pickups._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(pickups.restock_step(0.0, far).is_empty() and pickups.taken.has(id), "nothing is laid on a tile that is built")
+	pickups._drop_tile(tile)
+
+	# Not before its time.
+	var young := Pickups.new(field, 20260903)
+	get_root().add_child(young)
+	young._mark_taken(id)
+	young._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(young.restock_step(0.0, far).is_empty() and young.taken.has(id), "a pickup just taken is not laid at once")
+	young.clock += Pickups.RESTOCK_AFTER - 30.0
+	young._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(young.restock_step(0.0, far).is_empty(), "nor a little before the wait is over")
+
+	# Near a child, at any age: not. The edge of the ring is the line.
+	young.clock += 60.0
+	var centre := Vector3(float(tile.x * Pickups.TILE_SIZE) + 16.0, 0.0, float(tile.y * Pickups.TILE_SIZE) + 16.0)
+	var in_the_tile: Array[Vector3] = [centre]
+	young._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(young.restock_step(0.0, in_the_tile).is_empty(), "nothing is laid under a child's feet")
+	var edge := float((tile.x + 1) * Pickups.TILE_SIZE)
+	var just_in_sight: Array[Vector3] = [Vector3(edge + Pickups.RESTOCK_CLEAR - 1.0, 0.0, centre.z)]
+	young._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(young.restock_step(0.0, just_in_sight).is_empty(), "nor within sight of the tile")
+	_expect(Pickups.RESTOCK_CLEAR > float(Pickups.RADIUS * Pickups.TILE_SIZE), "the clear distance is beyond everything that is streamed in")
+	# One child far and one near: the near one counts.
+	var one_each: Array[Vector3] = [far[0], centre]
+	young._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(young.restock_step(0.0, one_each).is_empty(), "a child far away does not hide one who is near")
+
+	# Built on: not, and tried again later.
+	young.blocked = func(_x: float, _z: float) -> bool: return true
+	young._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(young.restock_step(0.0, far).is_empty() and young.taken.has(id), "nothing is laid where something is built")
+	young.clock += Pickups.RESTOCK_AFTER + 1.0
+	young.blocked = Callable()
+
+	# Out of sight and ripe: laid, announced, and there to find when the tile is built.
+	var told: Array[PackedStringArray] = []
+	young.restocked.connect(func(ids: PackedStringArray) -> void: told.append(ids))
+	young._restock_timer = Pickups.RESTOCK_EVERY
+	var laid := young.restock_step(0.0, far)
+	_expect(laid.has(id) and not young.taken.has(id), "a ripe pickup out of sight is laid again")
+	_expect(told.size() == 1 and told[0].has(id), "and the phone is told which")
+	young._build_tile(tile)
+	var back := young._active.filter(func(r: Dictionary) -> bool: return r["id"] == id)
+	_expect(back.size() == 1 and back[0]["kind"] == kind, "and it lies where it did, the same thing")
+	# Taken a second time it is one more thing in the bag, once.
+	var bag := Inventory.new()
+	young.collected.connect(func(k: StringName, _at: Vector3) -> void: bag.add(k, 1))
+	young.check_reach(back[0]["position"])
+	young.check_reach(back[0]["position"])
+	_expect(bag.count(kind) == 1, "a laid pickup is taken once, not twice (%d)" % bag.count(kind))
+	young.queue_free()
+
+	# Ground that holds nothing now: a candidate that is empty is never laid.
+	var bare := Pickups.new(field, 20260903)
+	get_root().add_child(bare)
+	var empty_id := ""
+	for index in Pickups.CANDIDATES_PER_TILE:
+		var try_id := "%d:%d:%d" % [tile.x, tile.y, index]
+		if bare.spot_of(try_id).is_empty():
+			empty_id = try_id
+			break
+	_expect(empty_id != "", "there is a candidate with nothing on it")
+	bare._mark_taken(empty_id)
+	bare.clock += Pickups.RESTOCK_AFTER + 1.0
+	bare._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(bare.restock_step(0.0, far).is_empty() and bare.taken.has(empty_id), "an id that names no pickup now is never laid")
+
+	# Calm: never more than a pass's worth at once, however many are ripe.
+	var crowd := Pickups.new(field, 20260903)
+	get_root().add_child(crowd)
+	var made := 0
+	for step in 60:
+		var t := Vector2i(100 + step, 100)
+		for index in Pickups.CANDIDATES_PER_TILE:
+			var crowd_id := "%d:%d:%d" % [t.x, t.y, index]
+			if not crowd.spot_of(crowd_id).is_empty():
+				crowd._mark_taken(crowd_id)
+				made += 1
+	_expect(made > Pickups.RESTOCK_PER_PASS * 3, "there are plenty ripe at once (%d)" % made)
+	crowd.clock += Pickups.RESTOCK_AFTER + 1.0
+	crowd._restock_timer = Pickups.RESTOCK_EVERY
+	var pass_one := crowd.restock_step(0.0, far)
+	_expect(pass_one.size() == Pickups.RESTOCK_PER_PASS, "a pass lays no more than %d (%d)" % [Pickups.RESTOCK_PER_PASS, pass_one.size()])
+	_expect(crowd.restock_step(1.0, far).is_empty(), "and the next waits its turn")
+	crowd.queue_free()
+	bare.queue_free()
+	pickups.queue_free()
+
+## What is taken, and for how long, is saved with the world and comes back as it
+## was; an old save still loads; nothing is handed out twice by saving.
+func _check_restocking_is_saved_and_restored_without_duplication() -> void:
+	print("restocking is saved and restored without duplication")
+	var field := HeightField.new(20260903)
+	var first := Pickups.new(field, 20260903)
+	get_root().add_child(first)
+	var tile := _tile_with_pickups(first, 3)
+	var ids: Array[String] = []
+	var bag := Inventory.new()
+	first.collected.connect(func(k: StringName, _at: Vector3) -> void: bag.add(k, 1))
+	for record: Dictionary in first._active.duplicate():
+		if record["tile"] == tile and ids.size() < 3:
+			ids.append(record["id"])
+			first.check_reach(record["position"])
+	_expect(ids.size() == 3 and bag.count(&"stick") + bag.count(&"stone") + bag.count(&"reed") + bag.count(&"seed") + bag.count(&"cone") == 3, "three taken, three in the bag")
+	first._drop_tile(tile)
+	first.clock += 700.0
+	# Through the file's own format, which turns every number into a float.
+	var written := JSON.stringify({"pickups_taken": first.to_data(), "pickups_age": first.ages_to_data()})
+	var save: Dictionary = JSON.parse_string(written)
+	var second := Pickups.new(field, 20260903)
+	get_root().add_child(second)
+	second.from_data(save["pickups_taken"], save.get("pickups_age", {}))
+	_expect(second.taken.size() == 3 and ids.all(func(i: String) -> bool: return second.taken.has(i)), "what was taken is still taken after a load")
+	var far: Array[Vector3] = [Vector3(5000.0, 0.0, 5000.0)]
+	second._restock_timer = Pickups.RESTOCK_EVERY
+	_expect(second.restock_step(0.0, far).is_empty(), "the time already waited is kept, not started again, and not enough yet (700 s)")
+	second.clock += Pickups.RESTOCK_AFTER - 700.0 + 1.0
+	second._restock_timer = Pickups.RESTOCK_EVERY
+	var laid := second.restock_step(0.0, far)
+	_expect(laid.size() == 3, "and the rest of the wait is all that is left (%d laid)" % laid.size())
+	# Saved after they are laid: a load finds them lying there, to be taken once more.
+	var after: Array = second.to_data()
+	_expect(after.is_empty(), "what was laid is no longer in the saved list")
+	var third := Pickups.new(field, 20260903)
+	get_root().add_child(third)
+	third.from_data(after, second.ages_to_data())
+	third._build_tile(tile)
+	var lying := 0
+	for record: Dictionary in third._active:
+		if ids.has(record["id"]):
+			lying += 1
+	_expect(lying == 3, "a world saved after they came back shows them lying there (%d)" % lying)
+	# Saved before they were laid (the world file is older than the laying): still gone, still one bag's worth.
+	var fourth := Pickups.new(field, 20260903)
+	get_root().add_child(fourth)
+	fourth.from_data(save["pickups_taken"], save["pickups_age"])
+	fourth._build_tile(tile)
+	var still_lying := 0
+	for record: Dictionary in fourth._active:
+		if ids.has(record["id"]):
+			still_lying += 1
+	_expect(still_lying == 0, "a world saved before they came back does not show them (%d)" % still_lying)
+	# An old save has no ages: it loads, and starts every wait afresh.
+	var old := Pickups.new(field, 20260903)
+	get_root().add_child(old)
+	old.from_data(["1:2:3", "4:5:6"])
+	_expect(old.taken.size() == 2 and old.ages_to_data()["1:2:3"] == 0, "a save from before restocking loads, every wait starting at nothing")
+	old.from_data(["1:2:3"], "not a table")
+	_expect(old.taken.size() == 1, "damaged ages are ignored, not fatal")
+	old.from_data(["1:2:3"], {"1:2:3": "soon", "x": NAN})
+	_expect(old.ages_to_data()["1:2:3"] == 0, "an age that is not a number is nothing")
+	old.queue_free()
+	fourth.queue_free()
+	third.queue_free()
+	second.queue_free()
+	first.queue_free()
+
+## Two phones: the host lays pickups and tells the guest; the guest never lays
+## one itself, and believes only the host.
+func _check_only_the_host_lays_pickups_again_and_the_guest_is_told() -> void:
+	print("only the host lays pickups again and the guest is told")
+	var field := HeightField.new(20260903)
+	var host := Session.new()
+	var guest := Session.new()
+	host.role = Session.Role.HOSTING
+	guest.role = Session.Role.VISITING
+	host._link = guest
+	guest._link = host
+	var hosts := Pickups.new(field, 20260903)
+	var guests := Pickups.new(field, 20260903)
+	get_root().add_child(hosts)
+	get_root().add_child(guests)
+	hosts.restocked.connect(host.report_restocked)
+	guest.remote_restocked.connect(guests.restocked_elsewhere)
+	var seen: Array[PackedStringArray] = []
+	guest.remote_restocked.connect(func(ids: PackedStringArray) -> void: seen.append(ids))
+	var tile := Vector2i(3, 4)
+	var made: Array[String] = []
+	for index in Pickups.CANDIDATES_PER_TILE:
+		var id := "%d:%d:%d" % [tile.x, tile.y, index]
+		if not hosts.spot_of(id).is_empty():
+			made.append(id)
+	_expect(made.size() >= 2, "the tile has things to take")
+	for id in made:
+		hosts._mark_taken(id)
+		guests.taken_elsewhere(id)
+	hosts.clock += Pickups.RESTOCK_AFTER + 1.0
+	hosts._restock_timer = Pickups.RESTOCK_EVERY
+	var far: Array[Vector3] = [Vector3(5000.0, 0.0, 5000.0)]
+	var laid := hosts.restock_step(0.0, far)
+	_expect(laid.size() == made.size() and hosts.taken.is_empty(), "the host lays them")
+	_expect(seen.size() == 1 and guests.taken.is_empty(), "and the guest's valley agrees, the same ones")
+	# The guest's own phone lays nothing by itself: main.gd does not run a pass there.
+	var main_source := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var step := main_source.substr(main_source.find("func _restock_pickups"))
+	step = step.substr(0, step.find("\nfunc ", 5))
+	_expect(
+		step.contains("session.is_following()") and step.find("session.is_following()") < step.find("restock_step("),
+		"a phone that is a guest returns before it would lay anything"
+	)
+	_expect(step.contains("visitors.count()"), "the host waits for every guest's position before laying")
+	# Believed only from the host, only for names a pickup has, only so many.
+	var heard: Array[PackedStringArray] = []
+	var stranger := Session.new()
+	stranger.role = Session.Role.VISITING
+	stranger.remote_restocked.connect(func(ids: PackedStringArray) -> void: heard.append(ids))
+	stranger._take_restocked(7, PackedStringArray(["1:2:3"]))
+	_expect(heard.is_empty(), "a guest's word that something was laid is not believed (not from the host)")
+	stranger._take_restocked(Session.HOST_ID, PackedStringArray(["1:2:3", "../x", "4:5"]))
+	_expect(heard.size() == 1 and heard[0].size() == 1 and heard[0][0] == "1:2:3", "from the host, only names a pickup has")
+	var many := PackedStringArray()
+	for i in Session.MAX_RESTOCKED + 1:
+		many.append("1:2:%d" % i)
+	stranger._take_restocked(Session.HOST_ID, many)
+	_expect(heard.size() == 1, "more than one pass lays is nonsense and ignored")
+	var hosting := Session.new()
+	hosting.role = Session.Role.HOSTING
+	hosting.remote_restocked.connect(func(ids: PackedStringArray) -> void: heard.append(ids))
+	hosting._take_restocked(Session.HOST_ID, PackedStringArray(["1:2:3"]))
+	_expect(heard.size() == 1, "a host is never told what to lay")
+	_expect(Session.LIMITS.has(&"restocked"), "the message is rate limited")
+	var guest_report := Session.new()
+	guest_report.role = Session.Role.VISITING
+	var told := 0
+	guest_report.remote_restocked.connect(func(_ids: PackedStringArray) -> void: told += 1)
+	guest_report.report_restocked(PackedStringArray(["1:2:3"]))
+	_expect(told == 0, "a guest's phone has nothing to say about it")
+	guest_report.free()
+	hosting.free()
+	stranger.free()
+	hosts.queue_free()
+	guests.queue_free()
+	host.queue_free()
+	guest.queue_free()
+
 func _check_inventory_arithmetic() -> void:
 	print("inventory arithmetic")
 	var inventory := Inventory.new()
@@ -5450,6 +5739,39 @@ func _check_a_child_can_swim_down() -> void:
 		"bright at noon (%.2f) and dim but not black at midnight (%.2f)" % [noon, midnight]
 	)
 	sheet.free()
+
+## A swimmer's pace follows the stick in a straight line, as a walker's does.
+##
+## The stick's push was spent twice in the water, once in the top speed and once
+## in the target, so a swimmer went at the square of it: a three-year-old at a
+## third of the stick swam at a tenth of the speed, slower than the river's
+## current, and could swim for ever without reaching a bank.
+func _check_a_gentle_stick_still_swims_against_the_current() -> void:
+	print("a gentle stick still swims against the current")
+	var swimmer := Player.new()
+	get_root().add_child(swimmer)
+	swimmer.global_position = Vector3(400.0, 0.0, 400.0)
+	swimmer.camera_yaw = 0.0
+	for push: float in [0.3, 0.6, 1.0]:
+		swimmer.global_position = Vector3(400.0, 0.0, 400.0)
+		swimmer.velocity = Vector3.ZERO
+		Input.action_press(InputActions.MOVE_FORWARD, push)
+		for frame in 150:
+			swimmer.water_depth = 3.0
+			await physics_frame
+		Input.action_release(InputActions.MOVE_FORWARD)
+		var pace := Vector2(swimmer.velocity.x, swimmer.velocity.z).length()
+		_expect(swimmer.is_swimming, "a child at %.1f of the stick is swimming" % push)
+		_expect(
+			pace > Player.SWIM_SPEED * push * 0.8 and pace < Player.SWIM_SPEED * push * 1.1 + 0.05,
+			"and swims at %.2f m/s, in proportion to the stick (%.2f)" % [pace, Player.SWIM_SPEED * push]
+		)
+		if push < 0.5:
+			_expect(
+				pace > HeightField.RIVER_CURRENT * 1.3,
+				"a gentle push beats the river's current (%.2f against %.2f m/s)" % [pace, HeightField.RIVER_CURRENT]
+			)
+	swimmer.queue_free()
 
 ## The one rule the whole game of football rests on.
 func _check_goals_are_judged() -> void:

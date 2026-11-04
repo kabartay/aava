@@ -29,6 +29,22 @@ const REED_HEIGHT := 2.7
 const STICK_SHARE := 0.44
 const TILES_PER_FRAME := 1
 
+## Restocking: a pickup that was taken is laid again, but slowly and out of
+## sight, so that a valley is never emptied for good and never visibly refilled.
+##
+## A stick comes back after a quarter of an hour of play, and only where no
+## child is near enough to watch it: the whole ring of streamed tiles is out of
+## bounds, plus one more tile (so a child who turns round and walks back sees
+## what was always going to be there, not a thing appearing). A pass runs every
+## twenty seconds and lays at most a couple of dozen, so nothing ever arrives
+## in a rush. Near the camp the valley holds some five hundred pickups, which
+## at this rate are laid again at about one a minute at most: enough for a dog
+## to be fed all afternoon, and far too few to farm.
+const RESTOCK_AFTER := 900.0
+const RESTOCK_EVERY := 20.0
+const RESTOCK_PER_PASS := 24
+const RESTOCK_CLEAR := float((RADIUS + 1) * TILE_SIZE) + 24.0
+
 ## Bob and glint, so that a stick in tall grass is still findable. A shared
 ## shader keyed on world position means every pickup moves out of phase with
 ## its neighbours at no cost.
@@ -61,6 +77,9 @@ signal collected(kind: StringName, world_position: Vector3)
 ## The same, by the id the valley gives it — the same one on every phone, since
 ## the valley is the same — for telling somebody else it is gone.
 signal taken_here(id: String)
+## Some taken pickups have been laid again, by id (see `restock_step`). Only the
+## phone that holds the valley says so; the others are told.
+signal restocked(ids: PackedStringArray)
 
 var field: HeightField
 var world_seed: int
@@ -69,6 +88,19 @@ var world_seed: int
 ## that a tile which streams out and back does not hand the same stick over
 ## twice.
 var taken: Dictionary = {}
+
+## When each taken pickup was taken, on `clock`. Kept beside `taken` rather than
+## in it so that everything that asks "is it gone?" is unchanged.
+var _taken_at: Dictionary = {}
+
+## Seconds of play the valley has seen, advanced by `restock_step`.
+var clock := 0.0
+var _restock_timer := 0.0
+
+## Asked whether a spot has been built on (set by the game, which knows about
+## structures; the world does not): `func(x: float, z: float) -> bool`. A spot
+## that is built on is not laid again.
+var blocked := Callable()
 
 var _meshes: Dictionary = {}
 var _materials: Dictionary = {}
@@ -191,7 +223,7 @@ func check_reach(world_position: Vector3) -> void:
 		if away > reach_squared:
 			nearest = minf(nearest, away)
 			continue
-		taken[record["id"]] = true
+		_mark_taken(record["id"])
 		_remember_the_claim(record["id"], record["kind"])
 		var node: Node3D = record["node"]
 		if is_instance_valid(node):
@@ -258,7 +290,7 @@ func take_back(id: String) -> StringName:
 ## Somebody else picked this up. It is gone here too, without a reward: it went
 ## into their bag. A tile not built yet will leave it out when it is.
 func taken_elsewhere(id: String) -> void:
-	taken[id] = true
+	_mark_taken(id)
 	for i in range(_active.size() - 1, -1, -1):
 		if _active[i]["id"] != id:
 			continue
@@ -267,6 +299,105 @@ func taken_elsewhere(id: String) -> void:
 			node.queue_free()
 		_active.remove_at(i)
 		_revision += 1
+
+## Record that a pickup is gone, `age` seconds ago.
+func _mark_taken(id: String, age := 0.0) -> void:
+	taken[id] = true
+	_taken_at[id] = clock - clampf(age, 0.0, 86400.0 * 30.0)
+
+## What the ground would hold at candidate `index` of a tile, drawn the way
+## `_build_tile` draws it (the same random numbers in the same order), so a
+## pickup can be asked about without building its tile. Empty if the id is not
+## one of this valley's, or there is nothing there now.
+func spot_of(id: String) -> Dictionary:
+	var parts := id.split(":")
+	if parts.size() != 3 or not (parts[0].is_valid_int() and parts[1].is_valid_int() and parts[2].is_valid_int()):
+		return {}
+	var coord := Vector2i(int(parts[0]), int(parts[1]))
+	var index := int(parts[2])
+	if index < 0 or index >= CANDIDATES_PER_TILE:
+		return {}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector3i(world_seed + 91, coord.x, coord.y))
+	var x := 0.0
+	var z := 0.0
+	var roll := 0.0
+	for _step in index + 1:
+		x = float(coord.x * TILE_SIZE) + rng.randf() * TILE_SIZE
+		z = float(coord.y * TILE_SIZE) + rng.randf() * TILE_SIZE
+		rng.randf()
+		roll = rng.randf()
+	var kind := _kind_at(x, z, roll)
+	if kind == &"":
+		return {}
+	return {"kind": kind, "x": x, "z": z, "tile": coord}
+
+## Lay taken pickups again. Called every frame by whoever holds the valley (a
+## guest's phone does not: the host decides, and tells it, see
+## `restocked_elsewhere`), with where every child is. Returns, and announces,
+## the ids laid this pass — usually none.
+##
+## Never in sight: a pickup is only laid in a tile that is not built (so not
+## within the ring a child can see) and farther than RESTOCK_CLEAR from every
+## child. Never on ground that is not a pickup's now (water, a pitch, indoors),
+## nor where something has been built.
+func restock_step(delta: float, children: Array[Vector3]) -> PackedStringArray:
+	clock += delta
+	_restock_timer += delta
+	var laid := PackedStringArray()
+	if _restock_timer < RESTOCK_EVERY:
+		return laid
+	_restock_timer = 0.0
+	for id: String in taken.keys():
+		if laid.size() >= RESTOCK_PER_PASS:
+			break
+		if clock - float(_taken_at.get(id, clock)) < RESTOCK_AFTER:
+			continue
+		var tile := _tile_of(id)
+		if tile == NO_TILE or _tiles.has(tile) or _queue.has(tile) or _seen_from(tile, children):
+			continue
+		var spot := spot_of(id)
+		if spot.is_empty():
+			# Not a pickup this ground has now: look again in a while.
+			_taken_at[id] = clock
+			continue
+		if blocked.is_valid() and bool(blocked.call(spot["x"], spot["z"])):
+			_taken_at[id] = clock
+			continue
+		taken.erase(id)
+		_taken_at.erase(id)
+		laid.append(id)
+	if not laid.is_empty():
+		restocked.emit(laid)
+	return laid
+
+## The tile a pickup's id names, or NO_TILE if it names none.
+func _tile_of(id: String) -> Vector2i:
+	var parts := id.split(":")
+	if parts.size() != 3 or not (parts[0].is_valid_int() and parts[1].is_valid_int()):
+		return NO_TILE
+	return Vector2i(int(parts[0]), int(parts[1]))
+
+const NO_TILE := Vector2i(2147483647, 2147483647)
+
+## Is any child within sight of the tile — nearer than RESTOCK_CLEAR to its
+## nearest edge?
+func _seen_from(tile: Vector2i, children: Array[Vector3]) -> bool:
+	var low := Vector2(tile.x * TILE_SIZE, tile.y * TILE_SIZE)
+	var high := low + Vector2(TILE_SIZE, TILE_SIZE)
+	for at in children:
+		var nearest := Vector2(clampf(at.x, low.x, high.x), clampf(at.z, low.y, high.y))
+		if Vector2(at.x, at.z).distance_to(nearest) < RESTOCK_CLEAR:
+			return true
+	return false
+
+## The phone that holds the valley laid these again. A tile that is already built
+## is left as it is, so nothing appears in front of this phone's child; it shows
+## the next time the tile is built.
+func restocked_elsewhere(ids: PackedStringArray) -> void:
+	for id in ids:
+		taken.erase(id)
+		_taken_at.erase(id)
 
 func _build_tile(coord: Vector2i) -> void:
 	var holder := Node3D.new()
@@ -380,10 +511,21 @@ func _kind_at(x: float, z: float, roll: float) -> StringName:
 func to_data() -> Array:
 	return taken.keys()
 
-func from_data(ids: Array) -> void:
+## How long each taken pickup has been gone, in whole seconds, by id. Saved
+## beside `to_data` (which keeps its old shape, so an older build still reads a
+## newer save) so that a quarter of an hour already waited is not waited again.
+func ages_to_data() -> Dictionary:
+	var out := {}
+	for id: String in _taken_at:
+		out[id] = int(clock - float(_taken_at[id]))
+	return out
+
+func from_data(ids: Array, ages: Variant = {}) -> void:
 	taken.clear()
+	_taken_at.clear()
 	for id in ids:
-		taken[String(id)] = true
+		# An old save has no ages: everything in it starts the wait afresh.
+		_mark_taken(String(id), SaveGame.as_float(ages.get(String(id), 0.0)) if ages is Dictionary else 0.0)
 	# Force a rebuild so already-collected pickups do not reappear. Tiles that are
 	# already built are thrown away too: follow() only builds the ones that are
 	# missing, so a tile built under the old record would keep its old sticks —

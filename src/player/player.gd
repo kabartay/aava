@@ -859,7 +859,13 @@ func _physics_process(delta: float) -> void:
 	if afloat:
 		# One speed in water, and slower than walking. Swimming should feel like
 		# crossing something rather than like a faster way to travel.
-		top = SWIM_SPEED * minf(push, 1.0)
+		#
+		# The stick's push is spent here for a mount, which is not scaled by it
+		# below, and left for the target to spend on foot. Spent in both places
+		# a swimmer's pace went with the square of the push: a three-year-old
+		# at a third of the stick swam at a tenth of the speed, slower than the
+		# river's current, and was carried downstream however long they swam.
+		top = SWIM_SPEED * (minf(push, 1.0) if riding != &"" else 1.0)
 	elif riding != &"":
 		# The stick chooses the gait. Up to three quarters it goes from a walk
 		# to a trot — the mount's speed at most — and past that the mount

@@ -250,7 +250,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# parameter given the wrong kind is an engine error that ends this whole
 	# function, so one damaged field kept the child out of the valley.
 	if save.get("pickups_taken") is Array:
-		world.pickups.from_data(save["pickups_taken"])
+		world.pickups.from_data(save["pickups_taken"], save.get("pickups_age", {}))
 	if save.has("time_of_day"):
 		world.atmosphere.set_time(SaveGame.as_float(save["time_of_day"], 8.0))
 	world.pickups.collected.connect(_on_collected)
@@ -363,6 +363,16 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 			session.report_picked(id))
 	# The host is the arbiter of a stick two children reached together.
 	session.pickup_is_gone = func(id: String) -> bool: return world.pickups.taken.has(id)
+	# Taken pickups are laid again out of sight, by the host alone (see
+	# Pickups.restock_step), and a guest is told which. Not on ground a child has
+	# built on.
+	world.pickups.blocked = func(x: float, z: float) -> bool:
+		return structures != null and structures.blocks(
+			Vector3(x, world.field.height_at(x, z), z), RESTOCK_BUILT_CLEARANCE
+		)
+	world.pickups.restocked.connect(func(ids: PackedStringArray) -> void:
+		session.report_restocked(ids))
+	session.remote_restocked.connect(_on_remote_restocked)
 	session.pick_refused.connect(_on_pick_refused)
 	world.mounts.dismounted.connect(_on_dismounted)
 
@@ -1159,6 +1169,7 @@ func _process(delta: float) -> void:
 			_step_out_of_chairs()
 
 	world.pickups.check_reach(player.global_position)
+	_restock_pickups(delta)
 	# The rocks watch the player rather than the player reporting to them, so
 	# nothing in the controller has to know that jumping rocks is a game.
 	world.boulders.watch(player.global_position, not player.is_on_floor())
@@ -2694,6 +2705,29 @@ func _on_pick_refused(id: String) -> void:
 	var kind := world.pickups.take_back(id)
 	if kind != &"":
 		inventory.take_back(kind)
+
+## How close to a wall, a table or a grown tree a restocked pickup may not lie.
+const RESTOCK_BUILT_CLEARANCE := 0.8
+
+## Lay taken pickups again, out of sight of everybody. The host's phone (or a
+## phone on its own) decides; a guest's never does, it is told. If a child on
+## another phone has not yet reported where they stand, nothing is laid: their
+## position is not known, so they cannot be known to be out of sight.
+func _restock_pickups(delta: float) -> void:
+	if session.is_following() or not _world_ready:
+		return
+	var children: Array[Vector3] = [player.global_position]
+	children.append_array(visitors.positions())
+	if visitors.count() > children.size() - 1:
+		world.pickups.clock += delta
+		return
+	world.pickups.restock_step(delta, children)
+
+## The host laid pickups again.
+func _on_remote_restocked(ids: PackedStringArray) -> void:
+	if not _the_hosts_valley_is_here():
+		return
+	world.pickups.restocked_elsewhere(ids)
 
 func _on_remote_parked(id: StringName, at: Vector3, facing: float) -> void:
 	if not _the_hosts_valley_is_here():
@@ -4519,6 +4553,7 @@ func _world_data() -> Dictionary:
 		"time_of_day": world.atmosphere.time_of_day,
 		"structures": structures.to_data(),
 		"pickups_taken": world.pickups.to_data(),
+		"pickups_age": world.pickups.ages_to_data(),
 		"football": world.football.to_data(),
 		"boulders": world.boulders.to_data(),
 		"animals": world.animals.to_data(),

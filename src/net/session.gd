@@ -73,6 +73,8 @@ signal remote_picked(id: String)
 ## The host says it already had this pickup when this phone's child took it
 ## too, so it was never theirs to keep (see `report_picked`).
 signal pick_refused(id: String)
+## The host laid pickups again, out of sight (see `report_restocked`).
+signal remote_restocked(ids: PackedStringArray)
 ## A mount was left standing by somebody who got off it.
 signal remote_parked(id: StringName, position: Vector3, facing: float)
 ## Where the host's animals are, for a guest: four numbers each — where it was
@@ -119,7 +121,7 @@ const MOVE_INTERVAL := 1.0 / 12.0
 ## the version of the messages. Godot numbers a node's messages by sorting
 ## their names, so two builds with different messages would run each other's
 ## wrong ones. Raised whenever a message is added, changed or removed.
-const PROTOCOL := 2
+const PROTOCOL := 3
 const HELLO_MAGIC := "AAVA"
 ## How long a phone is given to say hello before its game is taken to be one
 ## that does not (an older version).
@@ -664,6 +666,18 @@ func report_picked(id: String) -> void:
 	else:
 		_send_picked.rpc(id)
 
+## The host laid taken pickups again, and says which. Only the host decides:
+## a guest's phone never lays one itself, so the two valleys cannot disagree
+## about what lies where, and a stick cannot be there for one child and gone for
+## the other.
+func report_restocked(ids: PackedStringArray) -> void:
+	if role != Role.HOSTING or ids.is_empty() or not is_connected_to_anyone():
+		return
+	if _link != null:
+		_link._take_restocked(HOST_ID, ids)
+	else:
+		_send_restocked.rpc(ids)
+
 ## The host's answer to "is this stick already gone here?", set by the game. A
 ## session on its own knows nothing of the valley, so it asks.
 var pickup_is_gone := Callable()
@@ -884,6 +898,7 @@ const LIMITS := {
 	&"shared": [8.0, 1.0],
 	&"picked": [80.0, 12.0],
 	&"pick_refused": [80.0, 12.0],
+	&"restocked": [6.0, 0.2],
 	&"parked": [30.0, 8.0],
 	&"ride_state": [120.0, 70.0],
 	&"ride_seat": [20.0, 10.0],
@@ -1337,6 +1352,26 @@ func _peers_but(from: int) -> Array[int]:
 		if id != from:
 			out.append(id)
 	return out
+
+## More at once than one pass of the host's restocking lays.
+const MAX_RESTOCKED := 64
+
+@rpc("any_peer", "call_remote", "reliable")
+func _send_restocked(ids: PackedStringArray) -> void:
+	if ids.size() > MAX_RESTOCKED or _admit(&"restocked") < 0:
+		return
+	_take_restocked(_sender(), ids)
+
+## Only the host is believed, and only about names a pickup has.
+func _take_restocked(from: int, ids: PackedStringArray) -> void:
+	if not _from_the_host(from) or ids.size() > MAX_RESTOCKED:
+		return
+	var clean := PackedStringArray()
+	for id in ids:
+		if is_pickup_id(id):
+			clean.append(id)
+	if not clean.is_empty():
+		remote_restocked.emit(clean)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _send_pick_refused(id: String) -> void:
