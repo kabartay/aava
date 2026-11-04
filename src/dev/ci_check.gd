@@ -629,6 +629,7 @@ func _initialize() -> void:
 	_check_the_chunk_under_a_fast_child_always_has_collision()
 	_check_no_ride_moves_until_its_restraints_are_down()
 	await _check_a_paid_child_is_held_in_the_seat_of_every_ride_to_the_end()
+	await _check_a_paid_child_is_told_why_a_ride_waits_and_a_finished_carousel_asks_again()
 	await _check_a_child_shut_in_a_pocket_of_the_range_is_lifted_out()
 	_check_the_fallback_to_the_camp_is_open_ground()
 	await _check_the_wheeled_machines_pull_away_stop_turn_and_lean_as_they_should()
@@ -33720,6 +33721,143 @@ func _pool_gate_run(places: Places, field: HeightField, spot: Vector3, rate: int
 	var got_through := (now.x > gate.x + 1.0) if leaving else places.inside_pool_fence(now)
 	child.free()
 	return got_through
+
+## The flow at a ride, end to end, for what a child is shown while nothing moves:
+## a ticket paid on the ship's deck (not on a seat) is said to need a seat, a
+## carousel going round for somebody else says so, the coaster says its train is
+## here and that the lap is done, and a carousel that has let its rider off asks
+## about another go instead of standing silent.
+func _check_a_paid_child_is_told_why_a_ride_waits_and_a_finished_carousel_asks_again() -> void:
+	print("a paid child is told why a ride waits, and a finished carousel asks again")
+	var main_script: GDScript = load("res://src/main.gd")
+	main_script.set("forced_seed", 20260903)
+	var game: Node = (load("res://main.tscn") as PackedScene).instantiate()
+	get_root().add_child(game)
+	var waited := 0
+	while game.get("hud") == null and waited < 600:
+		await process_frame
+		waited += 1
+	var world: World = game.get("world")
+	var player: Player = game.get("player")
+	var wallet: Wallet = game.get("wallet")
+	var hud: Hud = game.get("hud")
+	var park := world.park
+	await _settle_the_ground(world)
+	_quiet_the_creatures(world)
+	wallet.tickets = 0
+	wallet.earn(100)
+
+	# The ship, at rest, with the child on its deck between the seats.
+	var ship := park.pirate_ship
+	ship._phase = PirateShip.Phase.STILL
+	ship._phase_time = 0.0
+	var deck := ship._hull.global_transform * Vector3(3.2, 0.3, 0.0)
+	player.global_position = deck + Vector3(0.0, 0.2, 0.0)
+	player.velocity = Vector3.ZERO
+	world.follow(player.global_position)
+	await _settle_the_ground(world)
+	for _i in 20:
+		await physics_frame
+	_expect(game.get("_asked") == &"ride", "stepping onto the ship's deck asks about a ride")
+	_expect(is_nan(ship.seat_near(player.global_position).origin.x), "the deck is not a seat")
+	hud.stop_asking()
+	game.call("_on_answered", true)
+	for _i in 30:
+		await physics_frame
+	_expect(
+		hud.current_message() == Text.of("say_take_a_seat"),
+		"paid on the deck with no seat, the screen says to sit ('%s')" % hud.current_message()
+	)
+	_expect(wallet.tickets == 0 and game.get("_ride_waiting_paid") == &"pirate_ship", "and the ticket is the ship's, waiting")
+	# Walking away gives it back, as it always did.
+	player.global_position = park.booth_at() + Vector3(0.0, 0.3, 4.0)
+	player.velocity = Vector3.ZERO
+	for _i in 10:
+		await physics_frame
+	_expect(wallet.tickets == 1, "and stepping off the deck returns the ticket")
+	wallet.tickets = 0
+
+	# The carousel, going round for somebody else.
+	var carousel := park.carousel
+	var spot := carousel.global_position + Vector3(cos(TAU * 0.5625), 0.0, sin(TAU * 0.5625)) * 3.0
+	player.global_position = Vector3(spot.x, carousel.global_position.y + Carousel.FLOOR_HEIGHT + 0.3, spot.z)
+	player.velocity = Vector3.ZERO
+	world.follow(player.global_position)
+	await _settle_the_ground(world)
+	for _i in 20:
+		await physics_frame
+	_expect(game.get("_aboard") == &"carousel", "the child is on the carousel's deck")
+	hud.stop_asking()
+	game.set("_asked", &"")
+	carousel._phase = Carousel.Phase.RIDING
+	carousel._phase_time = 1.0
+	game.set("_asked", &"ride")
+	game.set("_asked_ride", &"carousel")
+	game.call("_on_answered", true)
+	for _i in 30:
+		await physics_frame
+	_expect(
+		hud.current_message() == Text.of("say_carousel_busy") and game.get("_carousel_paid"),
+		"paid on a carousel that is busy, the screen says to wait ('%s')" % hud.current_message()
+	)
+	# Free again: the child is seated and the ride is theirs.
+	carousel._phase = Carousel.Phase.STILL
+	carousel._phase_time = 0.0
+	for _i in 10:
+		await physics_frame
+	_expect(carousel.has_rider() and game.get("_carousel_seated"), "when it stops, the waiting child is put on it")
+	# Its minute is up: let off, and asked about another go.
+	carousel._phase = Carousel.Phase.STILL
+	carousel._phase_time = 0.0
+	hud.stop_asking()
+	game.set("_asked", &"")
+	wallet.earn(50)
+	for _i in 10:
+		await physics_frame
+	_expect(not carousel.has_rider() and not game.get("_carousel_seated"), "a stopped carousel lets its rider off")
+	_expect(
+		game.get("_asked") == &"ride" and game.get("_asked_ride") == &"carousel" and hud.is_asking(),
+		"and asks the child on the deck about another go"
+	)
+	# Broke: no question and no refusal for having finished a ride.
+	hud.stop_asking()
+	game.set("_asked", &"")
+	wallet.tickets = 0
+	wallet.coins = 0
+	carousel.board(player.global_position)
+	game.set("_carousel_seated", true)
+	carousel._phase = Carousel.Phase.STILL
+	for _i in 10:
+		await physics_frame
+	_expect(game.get("_asked") == &"", "a child with no coins is not asked again")
+
+	# The coaster: the train pulling up is said, for a paid ticket.
+	var coaster := park.coaster
+	player.global_position = coaster.platform_spot() + Vector3(0.0, 0.2, 6.0)
+	player.velocity = Vector3.ZERO
+	world.follow(player.global_position)
+	await _settle_the_ground(world)
+	game.set("_coaster_paid", true)
+	hud.announce("", 0.0)
+	coaster._waiting = 0.0
+	for _i in 5:
+		await physics_frame
+	coaster._waiting = 6.0
+	for _i in 3:
+		await physics_frame
+	_expect(
+		coaster.boarding() and hud.current_message() == Text.of("say_coaster_here"),
+		"the train pulling up for a paid ticket says it is here ('%s')" % hud.current_message()
+	)
+	var body := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	body = body.substr(body.find("func _physics_process"))
+	body = body.substr(0, body.find("\nfunc ", 1))
+	_expect(
+		body.contains("say_coaster_done") and body.contains("_coaster_rider_paid"),
+		"and a rider brought back to the platform is told the lap is done"
+	)
+	game.queue_free()
+	await process_frame
 
 ## Swim from the middle of the pool towards `side` and count the frames until
 ## the child is standing on the poolside, or -1 if they never are.

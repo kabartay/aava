@@ -835,6 +835,33 @@ const STRINGS := {
 		FR: "le train va s'arrêter pour toi",
 		RU: "поезд остановится для тебя"
 	},
+	# The train has pulled up for a paid ticket, and when its lap is done.
+	"say_coaster_here": {
+		EN: "the train is here — hop in, it waits ten seconds",
+		FR: "le train est là — monte, il attend dix secondes",
+		RU: "поезд приехал — садись, он ждёт десять секунд"
+	},
+	"say_coaster_done": {
+		EN: "that's your ride — out you get, or press the button for another",
+		FR: "voilà ton tour — descends, ou appuie sur le bouton pour un autre",
+		RU: "поездка окончена — выходи или нажми кнопку, чтобы ещё раз"
+	},
+	# A ticket is paid and the child is not in a seat, or the carousel is going
+	# round for somebody else: said again every few seconds, because a ride that
+	# does not start and does not say why is a ride that looks broken.
+	"say_take_a_seat": {
+		EN: "sit on a seat — the bars come down for you", FR: "assieds-toi sur un siège — la barre va descendre",
+		RU: "сядь на сиденье — опустится дуга"
+	},
+	"say_friend_deciding": {
+		EN: "your friend has not said yes yet — the ride waits",
+		FR: "ton ami n'a pas encore dit oui — le manège attend",
+		RU: "друг ещё не ответил — аттракцион ждёт"
+	},
+	"say_carousel_busy": {
+		EN: "the carousel is busy — wait, it will be yours", FR: "le manège tourne — attends, ce sera ton tour",
+		RU: "карусель занята — подожди, скоро твоя очередь"
+	},
 	"say_park_put_off": {
 		EN: "no ticket, no ride — off you get",
 		FR: "pas de billet, pas de tour — descends",

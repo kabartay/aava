@@ -837,6 +837,17 @@ func _is_held() -> bool:
 			return true
 	return false
 
+## Whether a child on another phone, and not this phone's own, is the one
+## keeping the boat at the ground or still, so the game can tell a paid child who
+## is waiting why.
+func held_by_a_friend() -> bool:
+	if _held:
+		return false
+	for peer: Variant in _sync_holds:
+		if bool(_sync_holds[peer]):
+			return true
+	return false
+
 ## Whether this phone's own child is the one keeping the boat still.
 func held() -> bool:
 	return _held

@@ -687,6 +687,8 @@ func _offer_a_ride(which: StringName) -> bool:
 	_refuse(Text.format("say_no_coins", [Park.RIDE_PRICE]), 2.4)
 	return false
 var _coaster_told := false
+## Whether the train was standing at the platform on the last tick.
+var _coaster_was_here := false
 ## What the game has just asked about: a ticket at the kiosk, or a ride.
 var _asked: StringName = &""
 ## Whether a parent has left talking switched on.
@@ -810,6 +812,17 @@ func _physics_process(delta: float) -> void:
 	# And the bars come down the moment somebody sits in a car, which is what
 	# being strapped in means — they are certainly down by the time it leaves.
 	coaster.rider_aboard(aboard == &"coaster")
+	# The train pulling up is said as the wheel's gondola is: for a ticket
+	# already paid, "it is here", and for a rider it has brought back, "that was
+	# your ride". Otherwise a train that stands at the platform with its bars up
+	# until somebody gets out says nothing to the child sitting in it.
+	var train_here := coaster.boarding()
+	if train_here and not _coaster_was_here:
+		if aboard == &"coaster" and _coaster_rider_paid:
+			hud.announce(Text.of("say_coaster_done"), 4.0)
+		elif aboard != &"coaster" and _coaster_paid:
+			hud.announce(Text.of("say_coaster_here"), 3.0)
+	_coaster_was_here = train_here
 	if aboard == &"coaster":
 		# Whether *this* rider paid, which lasts as long as they are in the
 		# car. Being strapped in cannot be read off the shoulder bars: they
@@ -954,6 +967,7 @@ func _physics_process(delta: float) -> void:
 		if carousel.board(player.global_position):
 			_carousel_paid = false
 			_carousel_seated = true
+	_tell_why_waiting(delta)
 	var on_horse := false
 	if _carousel_seated:
 		if carousel.ride_is_over() or not carousel.has_rider():
@@ -961,6 +975,13 @@ func _physics_process(delta: float) -> void:
 			player.velocity = Vector3.ZERO
 			_carousel_seated = false
 			sounds.play(Sounds.Sound.CHIME, 0.9)
+			# Set down on the deck with the ride stopped: asked about another go,
+			# as the tower and the ship ask. Otherwise the child stands on a
+			# still carousel with nothing on the screen, and the only way to ride
+			# again is to know to step off and on. Only if they could pay: a
+			# child with no coins is not sent a refusal for finishing a ride.
+			if wallet.tickets > 0 or wallet.can_afford(Park.RIDE_PRICE):
+				_offer_a_ride(&"carousel")
 		else:
 			on_horse = true
 			var saddle := carousel.rider_seat()
@@ -4102,6 +4123,49 @@ func _face_the_view_at_the_ball(ball: Ball, delta: float) -> void:
 		return
 	player.face(_kick_look(), delta)
 
+## Seconds until a paid child who is waiting is told, again, what they are
+## waiting for.
+var _wait_hint := 0.0
+const WAIT_HINT_EVERY := 7.0
+
+## Whether the tower or the ship has been paid for by somebody who is on its
+## deck but not in one of its seats. The ride keeps still for such a child (it
+## would otherwise carry them unfastened), so a paid ticket buys nothing until
+## they sit.
+func _seat_missing(ride: StringName) -> bool:
+	var at := player.global_position
+	match ride:
+		&"drop_tower":
+			return world.park.ride_under(at) == ride and is_nan(world.park.drop_tower.seat_near(at).origin.x)
+		&"pirate_ship":
+			return world.park.ride_under(at) == ride and is_nan(world.park.pirate_ship.seat_near(at).origin.x)
+	return false
+
+## A ticket is paid and nothing is happening: say why. A child who has paid and
+## stands on the deck of the tower or the ship (not in a seat), or on a carousel
+## that is going round for somebody else, was told "enjoy the ride" and then
+## shown nothing for as long as they cared to stand there.
+func _tell_why_waiting(delta: float) -> void:
+	var words := ""
+	if _ride_waiting_paid != &"" and _seat_missing(_ride_waiting_paid):
+		words = "say_take_a_seat"
+	elif _ride_waiting_paid == &"drop_tower" and world.park.drop_tower.held_by_a_friend():
+		words = "say_friend_deciding"
+	elif _ride_waiting_paid == &"pirate_ship" and world.park.pirate_ship.held_by_a_friend():
+		words = "say_friend_deciding"
+	elif _carousel_paid and not world.park.carousel.free_to_board():
+		words = "say_carousel_busy"
+	elif _coaster_paid and world.park.coaster.booked() and not world.park.coaster.boarding() and _aboard != &"coaster":
+		# Paid, and the train is somewhere on its lap: up to a minute.
+		words = "say_coaster_booked"
+	if words.is_empty():
+		_wait_hint = 0.0
+		return
+	_wait_hint -= delta
+	if _wait_hint <= 0.0 and not hud.is_asking():
+		_wait_hint = WAIT_HINT_EVERY
+		hud.announce(Text.of(words), WAIT_HINT_EVERY - 1.5)
+
 ## The tick or the cross under a question. Everything that spends a child's
 ## coins comes through here.
 func _on_answered(yes: bool) -> void:
@@ -4139,7 +4203,9 @@ func _on_answered(yes: bool) -> void:
 					# Seated on the nearest animal by the physics tick, which
 					# takes it from here (see _physics_process).
 					_carousel_paid = true
-					hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
+					_wait_hint = 0.0
+					if world.park.carousel.free_to_board():
+						hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
 				&"wheel":
 					_wheel_rider_paid = true
 					_wheel_boarded = false
@@ -4149,7 +4215,9 @@ func _on_answered(yes: bool) -> void:
 				_:
 					if _asked_ride == &"drop_tower" or _asked_ride == &"pirate_ship":
 						_ride_waiting_paid = _asked_ride
-					hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
+					_wait_hint = 0.0
+					if not _seat_missing(_asked_ride):
+						hud.announce(Text.format("say_park_used_ticket", [wallet.tickets]), 2.0)
 
 ## The pool's turnstile: a child outside is offered a ticket and told the
 ## price once; a child inside is simply let out.
