@@ -16,6 +16,13 @@ signal placed(kind: StringName, world_position: Vector3)
 signal removed(kind: StringName, world_position: Vector3)
 signal matured(kind: StringName, world_position: Vector3)
 signal groves_changed(centres: Array)
+## A floor or stairs on the ground went up or came down at this point, so the
+## grass round it must be baked again (ClearGround was updated first).
+signal ground_changed(world_position: Vector3)
+
+## Who claims the ground under built floors in ClearGround.
+const GROUND_OWNER := &"structures"
+var _claimed := {}
 
 var field: HeightField
 
@@ -33,6 +40,18 @@ var field: HeightField
 var sharing := false
 
 var _records: Array[Dictionary] = []
+
+## The pieces by where they stand, so that the questions asked of every frame
+## the ghost is on show (is something in the way, which level is the house, what
+## is the top of the walls here) read the handful of pieces round one point and
+## not every piece in the valley: with eight hundred pieces up, asking all of
+## them cost a wall's ghost thirteen milliseconds a frame. Kept in step with
+## `_records` by place(), remove() and from_data().
+const CELL := 4.0
+var _grid: Dictionary = {}
+## The whole roofs, which cover many squares and so are asked about from
+## anywhere near any of them: always searched, however few there are.
+var _wide: Array[Dictionary] = []
 ## The records still growing, found again whenever `revision` moves.
 var _growing: Array[Dictionary] = []
 var _growing_revision := -1
@@ -71,13 +90,21 @@ func is_clear(
 	var keys: Array[Vector2i] = []
 	if layer != &"":
 		keys = HouseParts.keys_of(kind, world_position, spin, extent)
-	for record in _records:
+	# Two pieces conflict by keys only on the same grid point, and by distance
+	# only closer than half the two footprints together (none is wider than
+	# 4 m): a whole roof is always searched, so nothing further is needed.
+	for record in _near(world_position, (radius + 4.0) * 0.5 + 0.5):
 		var other: Vector3 = record["position"]
 		var other_kind: StringName = record["kind"]
 		# Stairs are climbed, so what is laid over them must leave the head
 		# room: a floor straight above the stairs is a ceiling a child walks
 		# into a third of the way up.
 		if layer == &"floor" and _under_stairs(kind, world_position, other_kind, other, keys, record):
+			return false
+		# A tree grows through whatever is built over it: a sapling under a roof
+		# or an upstairs floor would come up through it, and a roof set over a
+		# sapling would be pierced the same way. Judged by the plan, not height.
+		if _grows_through(kind, world_position, keys, record):
 			return false
 		# Different storeys never conflict: a wall upstairs stands directly over
 		# the wall below it, and that is the whole point of building upwards.
@@ -99,6 +126,36 @@ func is_clear(
 		if Vector2(other.x - world_position.x, other.z - world_position.z).length() < minimum * 0.5:
 			return false
 	return true
+
+## Whether one of the two is a tree that grows and the other a house part
+## standing over it: a roof, boards or wall that a tree would come up through.
+## `keys` are the new piece's grid points when it is a house part, `record`
+## the piece already standing.
+func _grows_through(
+	kind: StringName, at: Vector3, keys: Array[Vector2i], record: Dictionary
+) -> bool:
+	var other_kind: StringName = record["kind"]
+	var other: Vector3 = record["position"]
+	var tree_is_new := BuildKinds.INFO.has(kind) and BuildKinds.grows(kind)
+	var tree_is_old := BuildKinds.INFO.has(other_kind) and BuildKinds.grows(other_kind)
+	if tree_is_new == tree_is_old:
+		return false
+	var low := at if tree_is_new else other
+	var high := other if tree_is_new else at
+	if not HouseParts.is_house_part(other_kind if tree_is_new else kind):
+		return false
+	# Over it, and not far over: a floor a storey and a half up is under the
+	# crown of a grown tree, one very much higher is on another hill.
+	var over := high.y - low.y
+	if over < HouseParts.STOREY * 0.4 or over > 9.0:
+		return false
+	# Over the grid point the tree stands on, or the square beside it.
+	var tree_key := HouseParts.key_of(low)
+	for key in (_keys_of(record) if tree_is_new else keys):
+		var offset := key - tree_key
+		if absi(offset.x) <= 1 and absi(offset.y) <= 1:
+			return true
+	return false
 
 ## Is something solid that a child has built within `radius` of `at`: a wall,
 ## a fence, a grown tree, a table? Each is taken as a circle round its centre
@@ -226,7 +283,7 @@ func stairs_blocked_above(kind: StringName, at: Vector3, spin: float) -> bool:
 	if HouseParts.layer(kind) != &"floor":
 		return false
 	var keys := HouseParts.keys_of(kind, at, spin)
-	for record in _records:
+	for record in _near(at, 4.0):
 		if _under_stairs(kind, at, record["kind"], record["position"], keys, record):
 			return true
 	return false
@@ -241,7 +298,7 @@ func _keys_of(record: Dictionary) -> Array[Vector2i]:
 ## ground. The build ghost outlines the ones it is about to join.
 func house_pieces_near(world_position: Vector3, reach: float) -> Array[Dictionary]:
 	var found: Array[Dictionary] = []
-	for record in _records:
+	for record in _near(world_position, reach):
 		if not HouseParts.is_house_part(record["kind"]):
 			continue
 		var at: Vector3 = record["position"]
@@ -254,7 +311,7 @@ func house_pieces_near(world_position: Vector3, reach: float) -> Array[Dictionar
 ## asks it, to know whether something stands on the spot.
 func records_near(world_position: Vector3, reach: float) -> Array[Dictionary]:
 	var found: Array[Dictionary] = []
-	for record in _records:
+	for record in _near(world_position, reach):
 		var at: Vector3 = record["position"]
 		if Vector2(at.x - world_position.x, at.z - world_position.z).length() <= reach:
 			found.append(record)
@@ -269,6 +326,21 @@ func records_near(world_position: Vector3, reach: float) -> Array[Dictionary]:
 ## `own_only` leaves out what came from the other phone (`paid` false), so that
 ## a first house is one this child put up, not one a brother did.
 func house_step(own_only := false) -> StringName:
+	# Asked every frame, and a house is hundreds of pieces: the answer stands
+	# until something is built or taken down.
+	if _step_revision != revision:
+		_step_revision = revision
+		_step_answers = {}
+	if _step_answers.has(own_only):
+		return _step_answers[own_only]
+	var answer := _find_house_step(own_only)
+	_step_answers[own_only] = answer
+	return answer
+
+var _step_revision := -1
+var _step_answers := {}
+
+func _find_house_step(own_only: bool) -> StringName:
 	var walls := false
 	var boards := false
 	var roof := false
@@ -290,6 +362,52 @@ func house_step(own_only := false) -> StringName:
 	if not bed:
 		return &"bed"
 	return &""
+
+func _cell_of(x: float, z: float) -> Vector2i:
+	return Vector2i(floori(x / CELL), floori(z / CELL))
+
+## The middle of a grid point, as a place in the world.
+func _point_of(key: Vector2i) -> Vector3:
+	return Vector3(float(key.x) * HouseParts.HALF, 0.0, float(key.y) * HouseParts.HALF)
+
+func _index(record: Dictionary) -> void:
+	if record["kind"] == HouseParts.ROOF_ROOM:
+		_wide.append(record)
+		return
+	var at: Vector3 = record["position"]
+	var cell := _cell_of(at.x, at.z)
+	if not _grid.has(cell):
+		var made: Array[Dictionary] = []
+		_grid[cell] = made
+	(_grid[cell] as Array[Dictionary]).append(record)
+
+func _unindex(record: Dictionary) -> void:
+	if record["kind"] == HouseParts.ROOF_ROOM:
+		_wide.erase(record)
+		return
+	var at: Vector3 = record["position"]
+	var cell := _cell_of(at.x, at.z)
+	if not _grid.has(cell):
+		return
+	var here: Array[Dictionary] = _grid[cell]
+	here.erase(record)
+	if here.is_empty():
+		_grid.erase(cell)
+
+## Every piece that could stand within `reach` of a point: those in the cells it
+## touches, and every whole roof. More than asked for, never fewer; the caller
+## still measures.
+func _near(at: Vector3, reach: float) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	var low := _cell_of(at.x - reach, at.z - reach)
+	var high := _cell_of(at.x + reach, at.z + reach)
+	for cx in range(low.x, high.x + 1):
+		for cz in range(low.y, high.y + 1):
+			var cell := Vector2i(cx, cz)
+			if _grid.has(cell):
+				found.append_array(_grid[cell] as Array[Dictionary])
+	found.append_array(_wide)
+	return found
 
 ## Whether this record still stands — the undo button asks before taking back
 ## a piece that a tap may already have taken down.
@@ -429,6 +547,31 @@ static func cost_of(record: Dictionary) -> Dictionary:
 		return BuildKinds.cost(kind)
 	return {}
 
+## Whether a wall, a post or boards (or stairs) stand where a piece laid a storey
+## or more up would rest: within a square of it, and with their top at its level
+## (`level`, the storey's floor height). Without this the storey buttons let a
+## wall, a floor or a bed be set down in mid-air, 2.4 m over the grass, and it
+## would stay there.
+func holds_up(at: Vector3, level: float) -> bool:
+	for record in _near(at, HouseParts.MODULE * 1.1 + CELL):
+		var kind: StringName = record["kind"]
+		var layer := HouseParts.layer(kind)
+		var top: float = (record["position"] as Vector3).y
+		if layer == &"wall" or layer == &"post":
+			top += HouseParts.height(kind)
+		elif kind == HouseParts.STAIRS:
+			top += HouseParts.STOREY + HouseParts.FLOOR_THICKNESS
+		elif layer == &"floor":
+			top += HouseParts.FLOOR_TOP
+		else:
+			continue
+		if top < level - 0.5 or top > level + 0.4:
+			continue
+		var low: Vector3 = record["position"]
+		if Vector2(low.x - at.x, low.z - at.z).length() <= HouseParts.MODULE * 1.1:
+			return true
+	return false
+
 ## The lowest storey, from `from` up, with no piece of this layer on this grid
 ## point. Storeys are counted from the house's floor level.
 ##
@@ -437,7 +580,7 @@ static func cost_of(record: Dictionary) -> Dictionary:
 ## high the child was standing meant climbing onto the walls to build on them.
 func free_storey(layer: StringName, key: Vector2i, floor_level: float, from: int) -> int:
 	var taken := {}
-	for record in _records:
+	for record in _near(_point_of(key), 3.0):
 		if HouseParts.layer(record["kind"]) != layer:
 			continue
 		if not _keys_of(record).has(key):
@@ -460,7 +603,7 @@ func free_storey(layer: StringName, key: Vector2i, floor_level: float, from: int
 ## standing at.
 func wall_top_round(cell: Vector2i) -> float:
 	var top := -INF
-	for record in _records:
+	for record in _near(_point_of(cell), 3.0):
 		var layer := HouseParts.layer(record["kind"])
 		if layer != &"wall" and layer != &"post":
 			continue
@@ -476,7 +619,7 @@ func wall_top_round(cell: Vector2i) -> float:
 ## Whether a floor already lies in this square on this storey, for a bed to
 ## stand on rather than in.
 func floor_under(cell: Vector2i, level: float) -> bool:
-	for record in _records:
+	for record in _near(_point_of(cell), 3.0):
 		if HouseParts.layer(record["kind"]) != &"floor":
 			continue
 		var at: Vector3 = record["position"]
@@ -515,7 +658,7 @@ func has_venue(kind: StringName) -> bool:
 func seat_near(at: Vector3) -> Dictionary:
 	var best := {}
 	var best_distance := VENUE_USE
-	for record in _records:
+	for record in _near(at, VENUE_USE):
 		if record["kind"] != HouseParts.CHAIR:
 			continue
 		var chair: Vector3 = record["position"]
@@ -788,13 +931,7 @@ func light_lamps(darkness: float, near: Vector3) -> void:
 ## rectangle, and the top of the highest wall round them — which is where the
 ## whole roof goes.
 func enclosed_room(start: Vector2i) -> Dictionary:
-	var walls := {}
-	for record in _records:
-		if HouseParts.layer(record["kind"]) != &"wall":
-			continue
-		var at: Vector3 = record["position"]
-		var key := HouseParts.key_of(at)
-		walls[key] = maxf(float(walls.get(key, -INF)), at.y + HouseParts.height(record["kind"]))
+	var walls := _wall_tops()
 	if walls.is_empty():
 		return {}
 
@@ -836,6 +973,26 @@ func enclosed_room(start: Vector2i) -> Dictionary:
 		"level": top - lowest < 0.05,
 	}
 
+var _wall_tops_revision := -1
+var _wall_tops_cache := {}
+
+## The top of the highest wall on every grid point that has one, found again
+## only when something has been built or taken down: a room is asked about for
+## every aim of a roof or a piece of furniture.
+func _wall_tops() -> Dictionary:
+	if _wall_tops_revision == revision:
+		return _wall_tops_cache
+	var walls := {}
+	for record in _records:
+		if HouseParts.layer(record["kind"]) != &"wall":
+			continue
+		var at: Vector3 = record["position"]
+		var key := HouseParts.key_of(at)
+		walls[key] = maxf(float(walls.get(key, -INF)), at.y + HouseParts.height(record["kind"]))
+	_wall_tops_cache = walls
+	_wall_tops_revision = revision
+	return walls
+
 ## The ground level the nearest house parts were built on, or INF if there are
 ## none close enough.
 ##
@@ -845,7 +1002,7 @@ func enclosed_room(start: Vector2i) -> Dictionary:
 func nearby_datum(world_position: Vector3, reach: float) -> float:
 	var best := INF
 	var best_distance := reach
-	for record in _records:
+	for record in _near(world_position, reach):
 		if not HouseParts.is_house_part(record["kind"]):
 			continue
 		var at: Vector3 = record["position"]
@@ -958,6 +1115,8 @@ func adopt_as_shared() -> void:
 	for record in _records:
 		record["paid"] = false
 		record["shared"] = true
+	# Whose the pieces are changes what a first house still wants (house_step).
+	revision += 1
 
 ## Somebody has come into this valley. Everything already standing is sent to
 ## them on arrival (see Session.report_valley), so it is in both valleys from
@@ -995,7 +1154,7 @@ func stop_sharing() -> void:
 func nearest_grown_tree(world_position: Vector3, reach: float) -> Dictionary:
 	var best := {}
 	var best_distance := reach
-	for record in _records:
+	for record in _near(world_position, reach):
 		var kind: StringName = record["kind"]
 		if not BuildKinds.INFO.has(kind) or not BuildKinds.grows(kind):
 			continue
@@ -1037,7 +1196,13 @@ func remove(record: Dictionary) -> StringName:
 	if is_instance_valid(node):
 		node.queue_free()
 	_records.remove_at(index)
+	_unindex(record)
 	revision += 1
+	if _lies_on_ground(record):
+		var owner := _ground_owner_of(record)
+		ClearGround.forget(owner)
+		_claimed.erase(owner)
+		ground_changed.emit(at)
 	removed.emit(kind, at)
 	_recompute_groves()
 	return kind
@@ -1068,8 +1233,12 @@ func place(
 		"material": material,
 	}
 	_records.append(record)
+	_index(record)
 	revision += 1
 	_spawn_node(record)
+	if _lies_on_ground(record):
+		_claim_square(record)
+		ground_changed.emit(world_position)
 	placed.emit(kind, world_position)
 	# Only the generated pieces grow. Asking BuildKinds about a house part is
 	# asking a dictionary for a key it has never heard of, and the error is
@@ -1093,16 +1262,64 @@ func _carries(record: Dictionary) -> bool:
 	var at: Vector3 = record["position"]
 	return at.y - field.height_at(at.x, at.z) > HouseParts.STOREY * 0.625
 
+## A floor or stairs lying on the ground (not a storey up): grass would come up
+## through it, so it is registered in ClearGround.
+func _lies_on_ground(record: Dictionary) -> bool:
+	var kind: StringName = record["kind"]
+	if kind != HouseParts.FLOOR and kind != HouseParts.STAIRS:
+		return false
+	var at: Vector3 = record["position"]
+	return at.y - field.height_at(at.x, at.z) <= HouseParts.STOREY * 0.625
+
+## Who claims the ground under this one floor or stairs. One owner for each,
+## so a piece taken down gives back its own square and no other, without every
+## other floor in the valley being walked to register them again.
+func _ground_owner_of(record: Dictionary) -> StringName:
+	var at: Vector3 = record["position"]
+	return StringName("%s@%.2f,%.2f" % [GROUND_OWNER, at.x, at.z])
+
+func _claim_square(record: Dictionary) -> void:
+	var owner := _ground_owner_of(record)
+	ClearGround.forget(owner)
+	var half := HouseParts.MODULE * 0.5
+	ClearGround.rect(owner, record["position"], half, half, float(record["spin"]))
+	_claimed[owner] = true
+
+## Register every ground-level floor and stairs again, from the records, so the
+## claims always equal what stands (nothing is claimed twice).
+func _claim_ground() -> void:
+	for owner: StringName in _claimed:
+		ClearGround.forget(owner)
+	_claimed.clear()
+	for record in _records:
+		if _lies_on_ground(record):
+			_claim_square(record)
+
+## One mesh for every piece that looks the same, built the first time it is
+## asked for: a wall is the same wall wherever it stands, and a valley of
+## hundreds of them built a hundred and more meshes of its own, each held in
+## memory and drawn from its own buffer.
+static var _meshes := {}
+
+func _mesh_of(record: Dictionary) -> Mesh:
+	var kind: StringName = record["kind"]
+	var extent: Vector2i = record.get("extent", Vector2i.ONE)
+	var material: StringName = record.get("material", HouseParts.DEFAULT_MATERIAL)
+	var stage := int(record.get("stage", 0))
+	var key := "%s|%s|%s|%s" % [kind, extent, material, stage]
+	if _meshes.has(key):
+		return _meshes[key]
+	var mesh: Mesh = (
+		HouseParts.mesh_for(kind, extent, material) if HouseParts.is_house_part(kind)
+		else BuildKinds.build_mesh(kind, stage)
+	)
+	_meshes[key] = mesh
+	return mesh
+
 func _spawn_node(record: Dictionary) -> void:
 	var node := MeshInstance3D.new()
 	var kind: StringName = record["kind"]
-	node.mesh = (
-		HouseParts.mesh_for(
-			kind, record.get("extent", Vector2i.ONE),
-			record.get("material", HouseParts.DEFAULT_MATERIAL)
-		) if HouseParts.is_house_part(kind)
-		else BuildKinds.build_mesh(kind, record["stage"])
-	)
+	node.mesh = _mesh_of(record)
 	node.material_override = _material
 	node.transform = Transform3D(Basis(Vector3.UP, record["spin"]), record["position"])
 	if HouseParts.is_house_part(kind) and (HouseParts.is_solid(kind) or _carries(record)):
@@ -1279,6 +1496,8 @@ func from_data(data: Array) -> void:
 		if is_instance_valid(node):
 			node.queue_free()
 	_records.clear()
+	_grid.clear()
+	_wide.clear()
 
 	for entry in data:
 		# A hand-edited or damaged save may hold something that is not a record;
@@ -1317,9 +1536,12 @@ func from_data(data: Array) -> void:
 			)
 		_records.append(record)
 	_move_out_of_places()
+	for record in _records:
+		_index(record)
 	revision += 1
 	for record in _records:
 		_spawn_node(record)
+	_claim_ground()
 	_recompute_groves()
 
 ## Anything standing on ground that now belongs to something else — a place,

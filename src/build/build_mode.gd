@@ -80,6 +80,10 @@ var _floor_level := 0.0
 ## Why a house piece cannot go where it is aimed, found while aiming — a whole
 ## roof with no room under it, a wall stack already as tall as a house goes.
 var _problem := ""
+## The storey the house piece being aimed stands on, counted from the ground
+## floor, or -1 for a piece that rests on others (a roof, a chimney) and for
+## everything that is not a house part.
+var _aimed_storey := -1
 
 ## What this child has put up, newest last, for the undo button: one entry for
 ## each tap, which is one piece, or every piece of a plan.
@@ -381,11 +385,13 @@ func aim(player_position: Vector3, yaw: float) -> void:
 
 	_extent = Vector2i.ONE
 	_problem = ""
+	_aimed_storey = -1
 	var tile_shape := Vector3.ONE * (_footprint_of(selected) / HouseParts.MODULE)
 	if Plans.is_plan(selected):
 		tile_shape = _aim_plan(raw, yaw)
 	elif _is_house():
 		tile_shape = _aim_house(raw, yaw, player_position)
+		_refuse_a_piece_off_the_ground()
 	else:
 		_target = Vector3(snappedf(raw.x, GRID), 0.0, snappedf(raw.z, GRID))
 		_target.y = field.height_at(_target.x, _target.z)
@@ -412,6 +418,20 @@ func aim(player_position: Vector3, yaw: float) -> void:
 
 	_show_neighbours()
 	_evaluate()
+
+## A piece of the ground floor takes the level of the house beside it, so on a
+## hillside the pieces laid on down the slope hang in the air (a floor 2.4 m up
+## over the valley was found) and those laid up it are buried. Past the leeway a
+## plan is allowed (PLAN_LEEWAY) such a piece is refused as too steep, like the
+## plan's own. A storey up is asked instead whether anything stands under it.
+func _refuse_a_piece_off_the_ground() -> void:
+	if _aimed_storey < 0 or not _problem.is_empty():
+		return
+	if _aimed_storey == 0:
+		if absf(field.height_at(_target.x, _target.z) - _floor_level) > PLAN_LEEWAY:
+			_problem = Text.of("why_steep")
+	elif not structures.holds_up(_target, _floor_level + float(_aimed_storey) * HouseParts.STOREY):
+		_problem = Text.of("why_nothing_below")
 
 ## Where a house piece goes, and how high. Returns the shape of the ground
 ## tile under it, in modules.
@@ -451,6 +471,7 @@ func _aim_house(raw: Vector3, yaw: float, player_position: Vector3) -> Vector3:
 	var key := HouseParts.key_of(_target)
 	var storey_height := HouseParts.STOREY
 	_target.y = _floor_level + float(lift) * storey_height
+	_aimed_storey = lift
 
 	var tile := Vector3.ONE
 	if HouseParts.is_wall(selected) or selected == HouseParts.POST:
@@ -460,12 +481,15 @@ func _aim_house(raw: Vector3, yaw: float, player_position: Vector3) -> Vector3:
 			_problem = Text.of("why_too_high")
 			storey = HouseParts.MAX_STOREYS - 1
 		_target.y = _floor_level + float(storey) * storey_height
+		_aimed_storey = storey
 		return Vector3(1.0, 1.0, 0.22) if selected != HouseParts.POST else Vector3.ONE * 0.2
 	match selected:
 		HouseParts.ROOF, HouseParts.ROOF_PEAK, HouseParts.ROOF_FLAT, HouseParts.CHIMNEY:
+			_aimed_storey = -1
 			var top := structures.wall_top_round(key)
 			_target.y = top if is_finite(top) else _floor_level + float(lift + 1) * storey_height
 		HouseParts.ROOF_ROOM:
+			_aimed_storey = -1
 			tile = _aim_whole_roof(key)
 		HouseParts.SIGN:
 			pass
@@ -528,6 +552,9 @@ func _aim_plan(raw: Vector3, yaw: float) -> Vector3:
 	var datum := structures.nearby_datum(_target, HouseParts.MODULE * 2.6)
 	_floor_level = ground if is_inf(datum) else datum
 	_target.y = _floor_level + float(lift) * HouseParts.STOREY
+	# A plan set a storey up needs something to stand on there, like a piece.
+	if lift > 0 and not structures.holds_up(_target, _target.y):
+		_problem = Text.of("why_nothing_below")
 
 	var around := Basis(Vector3.UP, _spin)
 	_plan_pieces.clear()
@@ -638,11 +665,11 @@ func _evaluate() -> void:
 		else:
 			_reason = Text.format("why_need", [_cost_text(cost)])
 	elif is_plan:
-		if refusal.is_empty():
+		if refusal.is_empty() and _problem.is_empty():
 			_reason = _cost_text(cost)
 		else:
 			_valid = false
-			_reason = refusal
+			_reason = refusal if not refusal.is_empty() else _problem
 	elif field.is_pond(_target.x, _target.z):
 		# A pond, whatever height its water stands at. The test below compares
 		# against the world's waterline, and a raised pond's bed is well above
@@ -924,13 +951,20 @@ func _trees_in_the_way(kind: StringName, at: Vector3, spin: float, extent: Vecto
 			blocking.append(tree)
 	return blocking
 
-## Whether a trunk stands inside what a piece takes up. A roof is above
-## anything on the ground, and a rug is flat enough to lie over a root.
+## Whether a trunk stands inside what a piece takes up. A roof square is above
+## anything on the ground, a whole roof is over every square of its room, and a
+## rug is flat enough to lie over a root.
 func _blocks(kind: StringName, at: Vector3, spin: float, extent: Vector2i, tree: Vector3) -> bool:
-	if HouseParts.is_roof(kind) or kind == HouseParts.RUG:
+	# A rug is flat enough to lie over a root, and a roof square is above
+	# anything on the ground; only a whole roof is asked, below.
+	if kind == HouseParts.RUG or (HouseParts.is_roof(kind) and kind != HouseParts.ROOF_ROOM):
 		return false
 	var half := Vector2(HouseParts.HALF, HouseParts.HALF)
-	if not HouseParts.is_house_part(kind):
+	if kind == HouseParts.ROOF_ROOM:
+		# A whole roof is over every square of its room, and a trunk standing in
+		# the room comes up through it.
+		half = Vector2(float(extent.x), float(extent.y)) * HouseParts.HALF
+	elif not HouseParts.is_house_part(kind):
 		# A path is stones laid flat, which a root does not mind; everything
 		# else takes up the ground its footprint says.
 		if kind == BuildKinds.PATH:

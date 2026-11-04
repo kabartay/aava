@@ -234,7 +234,7 @@ const STRINGS := {
 	},
 	"ui_reset_hold": {
 		EN: "hold to erase",
-		FR: "maintenir pour effacer",
+		FR: "maintiens pour effacer",
 		RU: "держи, чтобы стереть",
 	},
 	"ui_reset_holding": {EN: "keep holding…", FR: "continue…", RU: "держи…"},
@@ -264,7 +264,7 @@ const STRINGS := {
 	"task_build_done": {
 		EN: "anything you build, you can take back",
 		FR: "tout ce que tu bâtis, tu peux le reprendre",
-		RU: "всё, что построил, можно разобрать",
+		RU: "всё, что ты строишь, можно разобрать",
 	},
 	"task_pitch": {
 		EN: "there is a football pitch west of here",
@@ -416,7 +416,7 @@ const STRINGS := {
 		EN: "their number", FR: "son numéro", RU: "его номер",
 	},
 	"ui_play_alone": {
-		EN: "play alone again", FR: "rejouer tout seul", RU: "играть одному",
+		EN: "play alone again", FR: "rejouer tout seul", RU: "играть в одиночку",
 	},
 	"say_read_it_out": {
 		EN: "tell it to the other player, and they can come to your valley",
@@ -445,7 +445,7 @@ const STRINGS := {
 	},
 	"say_alone_again": {
 		EN: "playing alone again", FR: "de nouveau tout seul",
-		RU: "снова играешь один",
+		RU: "снова играешь в одиночку",
 	},
 	"say_joining": {
 		EN: "looking for that valley…", FR: "je cherche cette vallée…",
@@ -789,6 +789,8 @@ const STRINGS := {
 	"why_missing": {EN: "still need %s", FR: "il manque : %s", RU: "ещё нужно: %s"},
 	# A stack of walls already as tall as a house may be.
 	"why_too_high": {EN: "as high as it goes", FR: "on ne peut pas plus haut", RU: "выше нельзя"},
+	# A piece laid a storey up with nothing under it to stand on.
+	"why_nothing_below": {EN: "nothing under it", FR: "rien dessous", RU: "под ним пусто"},
 	# The pool's turnstile.
 	"say_ticket": {EN: "pool: %d{coin|coins} to go in", FR: "piscine : %d{pièce|pièces} pour entrer", RU: "бассейн: вход %d{монета|монеты|монет}"},
 	"ask_buy_ride": {
@@ -942,7 +944,7 @@ const STRINGS := {
 	"map_bridge": {EN: "bridge", FR: "pont", RU: "мост"},
 	"map_lake": {EN: "lake", FR: "lac", RU: "озеро"},
 	"map_boats": {EN: "boats", FR: "bateaux", RU: "лодки"},
-	"map_horse": {EN: "horse", FR: "cheval", RU: "лошадь"},
+	"map_horse": {EN: "horse", FR: "cheval", RU: "конь"},
 	"map_friend": {EN: "friend", FR: "ami", RU: "друг"},
 	"map_mountain": {EN: "big mountain", FR: "la montagne", RU: "большая гора"},
 	"map_you": {EN: "you", FR: "toi", RU: "ты"},

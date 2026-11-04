@@ -207,6 +207,7 @@ func _initialize() -> void:
 	_check_talking_can_be_switched_off()
 	_check_a_held_press_survives_the_permission_dialog_and_a_name_lights()
 	_check_a_valley_survives_a_new_phone()
+	_check_the_android_preset_is_what_a_phone_needs()
 	_check_felling_your_own_tree_costs_what_it_paid()
 	_check_nothing_is_planted_where_it_does_not_belong()
 	_check_an_old_tree_is_moved_off_ground_that_is_now_kept()
@@ -264,6 +265,7 @@ func _initialize() -> void:
 	_check_a_wheeled_machine_is_collided_as_wide_as_it_is_drawn()
 	_check_every_key_the_code_asks_for_has_words()
 	_check_text_placeholders_and_plurals_agree()
+	_check_missing_circassian_falls_back_and_russian_plurals_hold()
 	_check_the_task_line_clears_the_score_chip_and_its_side()
 	_check_one_stump_across_a_cell_edge()
 	_check_odd_saved_values_are_read_back_sanely()
@@ -424,6 +426,10 @@ func _initialize() -> void:
 	_check_no_grass_comes_up_through_the_bridge_deck()
 	_check_no_grass_stands_on_a_doormat_or_porch()
 	_check_clear_ground_keeps_grass_off_anything_registered()
+	_check_a_child_built_floor_is_kept_clear_of_grass_and_forgotten_on_removal()
+	_check_a_house_piece_is_not_left_in_the_air_or_buried_on_a_hillside()
+	_check_a_tree_and_a_roof_never_share_a_column()
+	_check_the_pieces_are_found_by_place_and_the_claims_are_kept_one_by_one()
 	_check_every_built_floor_court_and_deck_is_kept_clear_of_grass()
 	await _check_the_shop_porch_is_solid_and_walkable()
 	await _check_the_hoop_court_is_solid_flush_and_marked()
@@ -12916,6 +12922,94 @@ func _check_a_valley_survives_a_new_phone() -> void:
 		SaveGame.PATH.begins_with("user://"),
 		"and so is the save: %s" % SaveGame.PATH
 	)
+
+## The Android export preset is the contract with the phone: which CPUs it
+## runs on, which permissions a parent is shown, how it is signed and drawn.
+##
+## None of it is visible when the game runs on a laptop, so it is read off the
+## preset itself. Every permission must be one the game has a reason for, and
+## the microphone must be optional: a refused dialog leaves a working game.
+func _check_the_android_preset_is_what_a_phone_needs() -> void:
+	print("the android preset is what a phone needs")
+	var preset := FileAccess.get_file_as_string("res://export_presets.cfg")
+	_expect(preset.contains('platform="Android"'), "there is an Android preset")
+	_expect(preset.contains("architectures/arm64-v8a=true"), "it builds for 64-bit arm")
+	for abi: String in ["armeabi-v7a", "x86", "x86_64"]:
+		_expect(
+			preset.contains("architectures/%s=false" % abi),
+			"and not for %s, which no target phone uses" % abi
+		)
+	_expect(preset.contains('package/unique_name="dev.kabartay.aava"'), "the package id is fixed")
+	_expect(preset.contains("package/signed=true"), "the package is signed")
+	_expect(preset.contains("gradle_build/use_gradle_build=false"), "the stock template is used, not a build tree")
+	_expect(preset.contains("screen/immersive_mode=true"), "the bars are hidden for a full-screen game")
+	_expect(
+		preset.contains("package/retain_data_on_uninstall=false"),
+		"nothing is left behind on uninstall"
+	)
+	# Version code is a whole number that only goes up; the name is x.y.z.
+	var code := -1
+	var version_name := ""
+	var declared := PackedStringArray()
+	for line: String in preset.split("\n"):
+		if line.begins_with("version/code="):
+			code = int(line.get_slice("=", 1))
+		if line.begins_with("version/name="):
+			version_name = line.get_slice("=", 1).trim_prefix('"').trim_suffix('"')
+		if line.begins_with("permissions/custom_permissions="):
+			for token: String in line.get_slice("=", 1).split('"'):
+				if token.begins_with("android.permission."):
+					declared.append(token)
+		elif line.begins_with("permissions/"):
+			_expect(line.ends_with("=false"), "no built-in permission is switched on: %s" % line)
+	_expect(code >= 1, "the version code is a positive integer: %d" % code)
+	var parts := version_name.split(".")
+	_expect(
+		parts.size() == 3 and parts[0].is_valid_int() and parts[1].is_valid_int() and parts[2].is_valid_int(),
+		"the version name is major.minor.patch: %s" % version_name
+	)
+	# Permissions: exactly the justified set. A new one has to be argued for here.
+	var allowed := PackedStringArray([
+		"android.permission.RECORD_AUDIO",
+		"android.permission.INTERNET",
+		"android.permission.ACCESS_NETWORK_STATE",
+		"android.permission.ACCESS_WIFI_STATE",
+	])
+	for permission: String in declared:
+		_expect(allowed.has(permission), "permission is justified: %s" % permission)
+	for permission: String in allowed:
+		_expect(declared.has(permission), "and still declared: %s" % permission)
+	# The launcher icon has all four layers, and they exist.
+	for layer: String in ["main_192x192", "adaptive_foreground_432x432", "adaptive_background_432x432", "adaptive_monochrome_432x432"]:
+		var at := preset.find("launcher_icons/%s=" % layer)
+		_expect(at >= 0, "icon layer is set: %s" % layer)
+		if at >= 0:
+			var path := preset.substr(at).get_slice("\n", 0).get_slice("=", 1).trim_prefix('"').trim_suffix('"')
+			_expect(FileAccess.file_exists(path), "and its file exists: %s" % path)
+	# Landscape, locked by the project rather than left to the sensor.
+	_expect(
+		int(ProjectSettings.get_setting("display/window/handheld/orientation")) == 0,
+		"the game is landscape"
+	)
+	# Denying the microphone must leave the game running: the answer only
+	# reports, it never quits or changes the scene.
+	var voice_source := _code_only(FileAccess.get_file_as_string("res://src/net/voice.gd"))
+	var answered := voice_source.find("func _on_permission_answered")
+	var answered_end := voice_source.find("\nfunc ", answered + 10)
+	var answered_body := voice_source.substr(answered, answered_end - answered)
+	_expect(answered >= 0 and answered_body.contains("permission_refused.emit()"), "a refused microphone is reported")
+	_expect(
+		not answered_body.contains("quit") and not answered_body.contains("change_scene"),
+		"and does not end or restart the game"
+	)
+	var talker := Voice.new()
+	get_root().add_child(talker)
+	talker.stop_talking()
+	talker._on_permission_answered("android.permission.RECORD_AUDIO", false)
+	_expect(not talker.is_talking(), "a refused microphone leaves nobody talking")
+	talker._on_permission_answered("android.permission.CAMERA", false)
+	_expect(not talker.is_talking(), "and an answer about another permission is ignored")
+	talker.queue_free()
 
 ## Felling a tree you grew yourself gives back the coins the growing paid.
 ##
@@ -27893,6 +27987,58 @@ func _check_the_axe_falls_on_the_nearer_tree_and_offers_itself_for_a_lone_plante
 	_expect(chop.contains("_axe_falls_on_a_planted_tree()"), "the swing asks which tree is nearer before felling a planted one")
 
 
+## A missing Circassian string must fall back to Russian and never show a key
+## or a blank; every text must format in every language with the numbers the
+## code passes (no crash, no leftover "{" group); and the three-form plural
+## must be Russian's on the numbers that go wrong: 1, 21 and 101 take the
+## first form, 2 to 4 and 22 the second, 5, 11 to 14 and 25 the third.
+func _check_missing_circassian_falls_back_and_russian_plurals_hold() -> void:
+	print("a missing Circassian string falls back, and Russian plurals hold")
+	var before := Text.language()
+	var bad := PackedStringArray()
+	for code: StringName in Text.LANGUAGES:
+		_expect(Text.ENDONYM.has(code), "%s has a name for itself" % code)
+	for key: String in Text.STRINGS:
+		var entry: Dictionary = Text.STRINGS[key]
+		Text.set_language(Text.AD)
+		var said := Text.of(key)
+		var want: String = String(entry[Text.AD]) if entry.has(Text.AD) else String(entry[Text.RU])
+		if said != want or said.strip_edges().is_empty() or said.begins_with("?"):
+			bad.append("%s in Circassian reads '%s'" % [key, said])
+		# Format with the numbers a caller passes, in every language.
+		var slots := _text_slots(String(entry[Text.EN]))
+		for code: StringName in Text.LANGUAGES:
+			Text.set_language(code)
+			for count: int in [0, 1, 2, 5, 11, 21, 22, 25]:
+				var values: Array = []
+				for slot in slots:
+					values.append(count if slot == "d" else "x")
+				var line := Text.format(key, values)
+				if line.strip_edges().is_empty() or line.contains("{") or line.contains("}") or line.begins_with("?"):
+					bad.append("%s/%s with %d reads '%s'" % [key, code, count, line])
+					break
+	Text.set_language(before)
+	_expect(bad.is_empty(), "every text formats in every language, and Circassian falls back to Russian")
+	for line in bad:
+		_fail(line)
+	# Unknown keys are loud, not blank.
+	var unknown := "no_such_key_" + "at_all"
+	_expect(Text.of(unknown).begins_with("?"), "an unknown key is marked, not blank")
+	# The plural forms.
+	var forms3 := {1: 0, 2: 1, 3: 1, 4: 1, 5: 2, 10: 2, 11: 2, 12: 2, 13: 2, 14: 2, 15: 2, 20: 2, 21: 0, 22: 1, 24: 1, 25: 2, 100: 2, 101: 0, 102: 1, 111: 2, 112: 2, 121: 0}
+	for n: int in forms3:
+		_expect(Text._plural_form(3, n) == forms3[n], "Russian takes form %d for %d (got %d)" % [forms3[n], n, Text._plural_form(3, n)])
+	Text.set_language(Text.RU)
+	for pair: Array in [[1, "монету"], [2, "монеты"], [5, "монет"], [11, "монет"], [21, "монету"], [22, "монеты"], [25, "монет"]]:
+		var said := Text.format("ask_buy_ride", [pair[0]])
+		_expect(said == "купить поездку за %d %s?" % [pair[0], pair[1]], "Russian coins for %d read '%s'" % [pair[0], said])
+	Text.set_language(before)
+	# The Russian a child reads stays neutral about who the child is.
+	for key: String in Text.STRINGS:
+		var ru := String(Text.STRINGS[key][Text.RU])
+		for word: String in ["одному", "построил,", "играешь один"]:
+			_expect(not ru.contains(word), "%s is gender-neutral in Russian (no '%s')" % [key, word])
+
 func game_const(name: String) -> Variant:
 	return (load("res://src/main.gd") as GDScript).get_script_constant_map().get(name)
 
@@ -28593,6 +28739,233 @@ func _check_coming_back_from_the_background_holds_the_clock_and_grows_the_saplin
 		"and being put away writes the save"
 	)
 	game.free()
+
+## A floor the child lays on the ground claims its square in ClearGround (the
+## grass round it is re-baked through `ground_changed`); one a storey up does
+## not; taking it down, or a new game, gives the ground back.
+func _check_a_child_built_floor_is_kept_clear_of_grass_and_forgotten_on_removal() -> void:
+	print("a child-built floor is kept clear of grass and forgotten on removal")
+	ClearGround.forget_all()
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var heard: Array[Vector3] = []
+	structures.ground_changed.connect(func(at: Vector3) -> void: heard.append(at))
+	var x := 700.0
+	var z := 700.0
+	var ground := field.height_at(x, z)
+	var floor_record := structures.place(HouseParts.FLOOR, Vector3(x, ground, z), 0.0)
+	_expect(ClearGround.kept_at(x + 0.9, z + 0.9), "a floor on the ground keeps its square clear")
+	_expect(not ClearGround.kept_at(x + 1.0 + ClearGround.MARGIN + 0.1, z), "and not the ground beyond")
+	_expect(heard.size() == 1, "laying it asks for the grass round it to be baked again")
+	var upstairs := structures.place(
+		HouseParts.FLOOR, Vector3(x + 10.0, field.height_at(x + 10.0, z) + HouseParts.STOREY, z), 0.0
+	)
+	_expect(not ClearGround.kept_at(x + 10.0, z), "a floor a storey up claims nothing")
+	structures.remove(upstairs)
+	_expect(heard.size() == 1, "and lifting it asks for nothing")
+	structures.remove(floor_record)
+	_expect(not ClearGround.kept_at(x, z) and heard.size() == 2, "taking the floor down gives the ground back")
+	structures.place(HouseParts.FLOOR, Vector3(x, ground, z), 0.0)
+	var saved := structures.to_data()
+	ClearGround.forget_all()
+	structures.from_data(saved)
+	_expect(ClearGround.kept_at(x, z), "a floor loaded from a save claims its square again")
+	structures.from_data([])
+	_expect(not ClearGround.kept_at(x, z), "an emptied valley claims nothing")
+	structures.queue_free()
+	ClearGround.forget_all()
+
+## A house piece takes the level of the house beside it, so down a hillside the
+## pieces laid on one after another hung in the air (a floor 2.4 m over the
+## valley was measured on a slope of 0.24) and up it they were buried. Past the
+## leeway a plan is allowed, a piece on the ground floor is refused as too steep.
+## A piece a storey up needs something under it, and so does a plan set up there.
+func _check_a_house_piece_is_not_left_in_the_air_or_buried_on_a_hillside() -> void:
+	print("a house piece is not left in the air or buried on a hillside")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var inventory := Inventory.new()
+	for kind in ItemKinds.ALL:
+		inventory.add(kind, 500)
+	var build := BuildMode.new(field, structures, inventory)
+	get_root().add_child(build)
+	build.set_active(true)
+	var spawn := field.find_spawn_point()
+	var spot := Vector3.INF
+	for ring in range(0, 400, 2):
+		for step in 16:
+			var at := spawn + Vector3(cos(float(step) * TAU / 16.0), 0.0, sin(float(step) * TAU / 16.0)) * float(ring)
+			var steep := field.steepness_at(at.x, at.z)
+			if (
+				steep > 0.2 and steep < 0.3 and field.height_at(at.x, at.z) > 12.0
+				and build.would_build_at(Vector3(at.x, field.height_at(at.x, at.z), at.z))
+				and not build._kept_ground(at.x, at.z)
+			):
+				spot = at
+				break
+		if spot.is_finite():
+			break
+	_expect(spot.is_finite(), "there is a hillside of slope 0.2 to 0.3 to build on")
+	if not spot.is_finite():
+		build.queue_free()
+		structures.queue_free()
+		return
+	var normal := field.normal_at(spot.x, spot.z)
+	var down := Vector2(normal.x, normal.z).normalized()
+	var yaw := atan2(-down.x, -down.y)
+	build.select(HouseParts.FLOOR)
+	var built := 0
+	var refused_steep := 0
+	var off_ground := 0
+	for i in 8:
+		var stand := spot + Vector3(down.x, 0.0, down.y) * (2.0 * float(i) - 6.0)
+		stand.y = field.height_at(stand.x, stand.z)
+		build.aim(stand, yaw)
+		var reason := build._reason
+		var target := build.target()
+		if build.place():
+			built += 1
+			if absf(target.y - field.height_at(target.x, target.z)) > BuildMode.PLAN_LEEWAY + 0.001:
+				off_ground += 1
+		elif reason == Text.of("why_steep"):
+			refused_steep += 1
+	_expect(built >= 2, "floors still go up on the hillside (%d)" % built)
+	_expect(refused_steep >= 1, "and one the slope has left in the air is refused as too steep (%d)" % refused_steep)
+	_expect(off_ground == 0, "none that went up is further off the ground than a plan is allowed (%d)" % off_ground)
+	structures.from_data([])
+
+	# Up a storey with nothing there: refused, wall, floor, bed or plan alike.
+	var site: Vector3 = preload("res://src/dev/test_house.gd").find_site(build, field, spawn)
+	var stand_at := Vector3(site.x, field.height_at(site.x, site.z + BuildMode.REACH), site.z + BuildMode.REACH)
+	build.change_lift(1)
+	var nothing := Text.of("why_nothing_below")
+	for kind: StringName in [HouseParts.WALL, HouseParts.FLOOR, HouseParts.BED, Plans.HOUSE]:
+		build.select(kind)
+		build.aim(stand_at, 0.0)
+		_expect(not build._valid and build._reason == nothing, "%s a storey up over bare grass is refused: %s" % [kind, build._reason])
+		_expect(not build.place(), "and is not built")
+	_expect(structures.positions().is_empty(), "nothing was left hanging")
+	build.change_lift(-1)
+	build.select(HouseParts.FLOOR)
+	build.aim(stand_at, 0.0)
+	_expect(build._valid, "while on the ground the same floor goes up: %s" % build._reason)
+	build.queue_free()
+	structures.queue_free()
+
+## A tree grows through what is built over it. A sapling set down under a roof
+## or an upstairs floor, a roof set over a sapling, and a whole roof over a trunk
+## in its room, are all refused; beside them is not.
+func _check_a_tree_and_a_roof_never_share_a_column() -> void:
+	print("a tree and a roof never share a column")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var inventory := Inventory.new()
+	for kind in ItemKinds.ALL:
+		inventory.add(kind, 500)
+	var build := BuildMode.new(field, structures, inventory)
+	get_root().add_child(build)
+	var x := 700.0
+	var z := 700.0
+	var ground := field.height_at(x, z)
+	var roof := structures.place(
+		HouseParts.ROOF_ROOM, Vector3(x, ground + HouseParts.STOREY, z), 0.0, true, Vector2i(4, 4)
+	)
+	var middle := Vector3(x + 1.0, ground, z - 1.0)
+	_expect(not structures.is_clear(middle, 1.8, BuildKinds.SAPLING), "a sapling under a four-by-four roof is refused")
+	_expect(
+		structures.is_clear(Vector3(x + 9.0, ground, z), 1.8, BuildKinds.SAPLING),
+		"and one well away from it is not"
+	)
+	_expect(structures.is_clear(middle, 1.0, BuildKinds.FENCE), "while a fence under it is no trouble")
+	structures.remove(roof)
+	var sapling := structures.place(BuildKinds.SAPLING, Vector3(x, ground, z), 0.0)
+	_expect(
+		not structures.is_clear(
+			Vector3(x, ground + HouseParts.STOREY, z), HouseParts.MODULE, HouseParts.ROOF_ROOM, 0.0, Vector2i(2, 2)
+		),
+		"a whole roof over a sapling is refused"
+	)
+	_expect(
+		not structures.is_clear(Vector3(x, ground + HouseParts.STOREY * 2.0, z), HouseParts.MODULE, HouseParts.FLOOR),
+		"so is a floor a storey over it"
+	)
+	_expect(
+		structures.is_clear(Vector3(x + 6.0, ground + HouseParts.STOREY * 2.0, z), HouseParts.MODULE, HouseParts.FLOOR),
+		"and one beside it is not"
+	)
+	structures.remove(sapling)
+	# A wild trunk in the middle of the room a whole roof would cover.
+	_expect(
+		build._blocks(HouseParts.ROOF_ROOM, Vector3(x, ground, z), 0.0, Vector2i(3, 3), Vector3(x + 1.0, ground, z + 1.0)),
+		"a whole roof is blocked by a trunk in its room"
+	)
+	_expect(
+		not build._blocks(HouseParts.ROOF_ROOM, Vector3(x, ground, z), 0.0, Vector2i(3, 3), Vector3(x + 8.0, ground, z)),
+		"and not by one beyond it"
+	)
+	_expect(
+		not build._blocks(HouseParts.ROOF, Vector3(x, ground, z), 0.0, Vector2i.ONE, Vector3(x, ground, z)),
+		"a single roof square is still above anything on the ground"
+	)
+	build.queue_free()
+	structures.queue_free()
+
+## Hundreds of pieces must not slow the ghost: the pieces are found by where they
+## stand, and the grid is the same as the list however pieces come and go.
+## (Measured: 800 pieces cost a wall's ghost 13 ms a frame and a placement 17 ms
+## when every question walked the whole list; every plan piece asked it again.)
+func _check_the_pieces_are_found_by_place_and_the_claims_are_kept_one_by_one() -> void:
+	print("the pieces are found by place and the claims are kept one by one")
+	ClearGround.forget_all()
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var records: Array[Dictionary] = []
+	for i in 12:
+		for j in 12:
+			var x := 600.0 + 2.0 * float(i)
+			var z := 600.0 + 2.0 * float(j)
+			records.append(structures.place(HouseParts.FLOOR, Vector3(x, field.height_at(x, z), z), 0.0))
+			structures.place(HouseParts.WALL, Vector3(x, field.height_at(x, z), z - 1.0), 0.0)
+	var centre := Vector3(612.0, 0.0, 612.0)
+	var near := structures._near(centre, 3.0)
+	_expect(near.size() < 40, "a point is asked about %d of %d pieces, not all" % [near.size(), structures._records.size()])
+	var missing := 0
+	for reach: float in [1.0, 3.0, 7.0]:
+		var found := structures._near(centre, reach)
+		for record in structures._records:
+			var at: Vector3 = record["position"]
+			if Vector2(at.x - centre.x, at.z - centre.z).length() <= reach and not found.has(record):
+				missing += 1
+	_expect(missing == 0, "and never misses one that is within reach (%d missed)" % missing)
+	_expect(
+		structures.house_pieces_near(centre, 3.0).size() == structures.records_near(centre, 3.0).size(),
+		"the two lists of what is near agree"
+	)
+	_expect(ClearGround.count() == 144, "every floor on the ground claims its own square (%d)" % ClearGround.count())
+	structures.remove(records[0])
+	_expect(ClearGround.count() == 143, "and one taken down gives back one (%d)" % ClearGround.count())
+	structures.remove(records[0])
+	_expect(ClearGround.count() == 143, "taking down what is not standing gives back nothing")
+	var saved := structures.to_data()
+	structures.from_data(saved)
+	_expect(structures._near(centre, 1000.0).size() == structures._records.size(), "a loaded valley is found by place too")
+	_expect(ClearGround.count() == 143, "and claims the same squares (%d)" % ClearGround.count())
+	# One mesh for everything that looks alike.
+	var walls: Array[Dictionary] = []
+	for record in structures._records:
+		if record["kind"] == HouseParts.WALL:
+			walls.append(record)
+	var first: MeshInstance3D = walls[0]["node"]
+	var second: MeshInstance3D = walls[1]["node"]
+	_expect(first.mesh == second.mesh, "two walls of one material share a mesh")
+	var blue := structures.place(HouseParts.WALL, Vector3(500.0, field.height_at(500.0, 500.0), 500.0), 0.0, true, Vector2i.ONE, &"blue")
+	_expect((blue["node"] as MeshInstance3D).mesh != first.mesh, "and a wall of another material does not")
+	structures.queue_free()
+	ClearGround.forget_all()
 
 ## Nothing solid goes up on the child, an animal or a parked machine, for one
 ## piece or a whole plan; what is walked over still can.

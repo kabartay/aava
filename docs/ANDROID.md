@@ -1,10 +1,10 @@
 # Android
 
-The target device is a tablet. Everything else in this project was measured on
+The target is a OnePlus 12 phone (Android 14/15, arm64) and tablets like it. Everything else in this project was measured on
 a laptop, which tells you almost nothing about one — so this file records what
 the build actually needs and what the measurements actually say.
 
-Last updated: 2026-09-05.
+Last updated: 2026-11-04.
 
 ## Building an APK
 
@@ -14,13 +14,39 @@ missing is usually unhelpful.
 ```sh
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 export PATH="$JAVA_HOME/bin:$PATH"
+mkdir -p build   # Godot does not create the target folder
 godot --headless --path . --export-debug "Android" build/aava.apk
 ```
+
+The result is about 31 MB: `libgodot_android.so` (76 MB raw, arm64-v8a only) is
+most of it, then the Java classes and the compiled scripts. It is a debug
+build (`debuggable=true`, debug-signed); a Play release needs `--export-release`
+with a release keystore, which this project does not have yet.
+
+Inspect it with `~/Library/Android/sdk/build-tools/36.1.0/aapt2 dump badging build/aava.apk`:
+package `dev.kabartay.aava`, versionCode and versionName from the preset,
+permissions RECORD_AUDIO (press-to-talk voice, asked only on the first press),
+INTERNET, ACCESS_NETWORK_STATE and ACCESS_WIFI_STATE (two phones in one valley),
+landscape, `allowBackup=true` on purpose so a child's valley survives a new phone.
+`_check_the_android_preset_is_what_a_phone_needs` in `src/dev/ci_check.gd`
+pins these values.
+
+## Lifecycle
+
+- Home, the app switcher or a call send `APPLICATION_PAUSED`: the game saves,
+  lets go of the stick and closes the microphone. Android may kill the process
+  afterwards; the next start loads that save.
+- Resuming, even days later, holds the clock still for two frames, grows the
+  plants for the time away and turns the day over.
+- Back closes the top panel; with none open it saves and quits
+  (`quit_on_go_back=false` in `project.godot`).
+- Refusing the microphone shows a short notice and nothing else; the game works
+  without voice. The game needs no network to start.
 
 | Needs | Where | Note |
 |---|---|---|
 | JDK 17 | `/opt/homebrew/opt/openjdk@17` | Not 21 or 26. Godot 4.7 wants 17. |
-| Android SDK | `~/Library/Android/sdk` | Build-tools 34 or 36, platform 34+. |
+| Android SDK | `~/Library/Android/sdk` | Build-tools 34 or 36, platform 34+. The APK targets SDK 36, minimum 24. |
 | Export templates | `~/Library/Application Support/Godot/export_templates/4.7.2.stable` | Version must match the editor exactly. |
 | Debug keystore | `~/Library/Application Support/Godot/keystores/debug.keystore` | Password `android`, alias `androiddebugkey`. |
 
@@ -33,7 +59,7 @@ The paths themselves live in the editor settings, not in the project:
 `~/Library/Application Support/Godot/editor_settings-4.7.tres`. They are per
 machine, so a fresh checkout on another computer has to set them again.
 
-## Installing on a tablet
+## Installing on a device
 
 Developer options on, USB debugging on, then:
 

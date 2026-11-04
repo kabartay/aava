@@ -256,6 +256,8 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	structures = Structures.new(world.field)
 	structures.name = "Structures"
 	structures.matured.connect(_on_matured)
+	# Grass is baked per tile: a floor laid or lifted re-bakes the tiles round it.
+	structures.ground_changed.connect(_on_ground_changed)
 	structures.groves_changed.connect(_on_groves_changed)
 	add_child(structures)
 	# A tray set down in front of a chair the child built is turned to it, on
@@ -4271,6 +4273,22 @@ func _on_matured(kind: StringName, at: Vector3) -> void:
 		Text.format("say_grown_fir" if kind == BuildKinds.PINE else "say_grown_tree", [reward]),
 		3.0
 	)
+
+## The grass round a floor laid or lifted is baked again, once for every place
+## that changed within a frame: a plan puts up thirty pieces in one tap, and
+## each asking for its own bake threw away the one before.
+var _grass_stale := {}
+
+func _on_ground_changed(at: Vector3) -> void:
+	if _grass_stale.is_empty():
+		_rebake_grass_once.call_deferred()
+	_grass_stale[Vector2i(floori(at.x / 16.0), floori(at.z / 16.0))] = at
+
+func _rebake_grass_once() -> void:
+	if world != null and world.vegetation != null:
+		for at: Vector3 in _grass_stale.values():
+			world.vegetation.rebuild_around(at)
+	_grass_stale.clear()
 
 func _on_groves_changed(centres: Array) -> void:
 	# Fired while a save is being restored, which is before the birds exist.
