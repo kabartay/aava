@@ -281,6 +281,19 @@ var _bars := 0.0
 ## slow enough that a flicked stick is a lean rather than a swerve.
 const BARS_SPEED := 3.4
 
+## Where the bars are over to, as an angle in radians about the vertical:
+## positive turns the front wheel to the left, which is what a wheel's own
+## rotation about the up axis does, so that it can be handed straight to one.
+## Nought when nothing steered is being ridden.
+func steer_angle() -> float:
+	return -_bars * MountKinds.FULL_LOCK if riding != &"" and MountKinds.steers(riding) else 0.0
+
+## Where the cranks of the bicycle being ridden are, in radians, and the bars'
+## angle, which the game says each frame so the rider's feet and hands can keep
+## time with the machine they are on. A negative phase means no word, and the
+## rider pedals at their own pace.
+var ride_pedal := -1.0
+
 ## How hard the bars are over, and how far the machine is laid into the corner.
 var _last_steer := 0.0
 var _ride_bank := 0.0
@@ -465,6 +478,8 @@ func _animate(delta: float) -> void:
 		_motion.seat_placed = false
 		_motion.gait = Vector2(velocity.x, velocity.z).length()
 		_motion.stride = ride_stride
+		_motion.pedal_phase = ride_pedal
+		_motion.steer = steer_angle()
 		_motion.sit_time = Mounts.boarding_time(riding)
 	else:
 		_motion.sit_time = Mounts.BOARD_TIME if _boards_horse else 0.2
@@ -728,6 +743,9 @@ func _physics_process(delta: float) -> void:
 	# motorcycle and carrying one.
 	var steering := riding != &"" and MountKinds.steers(riding)
 	var reversing := false
+	# Whether the throttle is being pulled against the way the machine is going:
+	# the brake, which bites harder than the engine pulls (MountKinds.BRAKE_SHARE).
+	var braking := false
 	if steering:
 		var throttle := -input.y
 		var steer := input.x
@@ -738,6 +756,7 @@ func _physics_process(delta: float) -> void:
 		# backing up steers the other way round, exactly as a car does.
 		var heading_now := Vector3(-sin(_ride_heading), 0.0, -cos(_ride_heading))
 		var signed_pace := Vector3(velocity.x, 0.0, velocity.z).dot(heading_now)
+		braking = reversing and signed_pace > 0.5
 		# The bars take time to go over, and come back to centre when the
 		# thumb comes off. A stick read straight through to full lock is why
 		# steering felt like flicking a switch: a rider turns the bars, and
@@ -840,7 +859,12 @@ func _physics_process(delta: float) -> void:
 	# motorcycle that halts the instant a thumb lifts is a shopping trolley
 	# with an engine noise.
 	if steering:
-		rate = MACHINE_PULL if wish.length_squared() > 0.01 else MACHINE_COAST
+		# Each machine pulls at its own rate: a pedalled bicycle gathers speed
+		# more gently than an engine does (MountKinds.pull_share), and the
+		# brake is firmer than either.
+		rate = MACHINE_PULL * MountKinds.pull_share(riding) if wish.length_squared() > 0.01 else MACHINE_COAST
+		if braking:
+			rate *= MountKinds.BRAKE_SHARE
 	horizontal = horizontal.move_toward(target, rate * delta)
 	is_moving = horizontal.length_squared() > 0.35
 
@@ -898,7 +922,12 @@ func _physics_process(delta: float) -> void:
 		# with speed because that is what leaning is for.
 		var pace := Vector2(velocity.x, velocity.z).length()
 		var hard := _last_steer * clampf(pace / maxf(MountKinds.speed(riding) * 0.6, 0.01), 0.0, 1.0)
-		_ride_bank = lerpf(_ride_bank, hard * RIDE_BANK, 1.0 - exp(-6.0 * delta))
+		# By the machine's own habit: the bicycle leans well over, the quad
+		# stays flat on its four wheels (MountKinds.lean_share).
+		var bank := clampf(
+			hard * RIDE_BANK * MountKinds.lean_share(riding), -RIDE_BANK * 1.4, RIDE_BANK * 1.4
+		)
+		_ride_bank = lerpf(_ride_bank, bank, 1.0 - exp(-6.0 * delta))
 	else:
 		_ride_bank = lerpf(_ride_bank, 0.0, 1.0 - exp(-6.0 * delta))
 		_bars = move_toward(_bars, 0.0, BARS_SPEED * delta)
@@ -940,8 +969,15 @@ func _physics_process(delta: float) -> void:
 	# hanging in the air beside the horse. This is the horse's own up, handed
 	# over by whatever is carrying the rider, so the seat is where the saddle
 	# is by construction.
+	# A machine that leans swings its saddle out to the inside of the corner: it
+	# turns about the line its tyres touch the ground on, not about the rider.
+	var leaning_out := (
+		Basis(Vector3.UP, _visual.rotation.y)
+		* Vector3(-sin(_ride_bank), cos(_ride_bank) - 1.0, 0.0) * wanted_lift
+	) if riding != &"" and absf(_ride_bank) > 0.001 else Vector3.ZERO
 	_visual.position = (
 		_seat_up * (_ride_lift + saddle_lift) - Vector3(0.0, _swim_sink + _swim_bob(), 0.0) + side_out
+		+ leaning_out
 	)
 
 	# The world streams around wherever the player is, but only when they have

@@ -332,7 +332,11 @@ func _process(delta: float) -> void:
 
 	var step := ratio()
 	var wanted := frames_for(step, _phase)
-	while _capture.get_frames_available() >= wanted:
+	# can_get_buffer rather than get_frames_available: before the capture bus has
+	# run once its buffer does not exist, and asking the latter prints an engine
+	# error each frame on a phone whose audio thread starts a moment late; the
+	# former answers false quietly and the loop simply waits for the next frame.
+	while _capture.can_get_buffer(wanted):
 		var frames := _capture.get_buffer(wanted)
 		_send_gated(frames, step)
 		# The fraction of a frame this packet did not use is where the next

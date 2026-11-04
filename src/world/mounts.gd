@@ -40,7 +40,11 @@ func up_of(kind: StringName) -> Vector3:
 	var node: Node3D = _nodes[kind]
 	if not is_instance_valid(node):
 		return Vector3.UP
-	return node.transform.basis.y.normalized()
+	# The ground's up, not the machine's: the lean into a corner is about the
+	# line its tyres touch, and the rider is leaned with it by their own bank,
+	# so counting it here as well would lean them twice.
+	var bank := _bank if kind == riding else 0.0
+	return (node.transform.basis * Basis(Vector3.BACK, -bank)).y.normalized()
 
 ## Which way a mount is pointed.
 func facing_of(kind: StringName) -> float:
@@ -612,6 +616,14 @@ func mount(kind: StringName) -> bool:
 	# at, or a horse got on again breaks straight into a gallop on the spot.
 	_pace = 0.0
 	_rolling = 0.0
+	_accel = 0.0
+	_last_rolling = 0.0
+	_pedalling = false
+	_bank = 0.0
+	_bars = 0.0
+	_sprung = 0.0
+	_spring_speed = 0.0
+	_ground_known = false
 	_carried_to = _positions[kind]
 	_paced_from = _positions[kind]
 	# And the last good ground is forgotten with it. It was remembered across
@@ -639,6 +651,7 @@ func mount(kind: StringName) -> bool:
 ## rotation and fights its own gravity.
 func carry(at: Vector3, facing: float) -> void:
 	if riding == &"" or not exists(riding):
+		_bank = 0.0
 		return
 	var node: Node3D = _nodes[riding]
 	var spot := at
@@ -657,7 +670,10 @@ func carry(at: Vector3, facing: float) -> void:
 	# instead, so the basis is free to be the truth — and a quad coming down
 	# a bank stays flat no longer. That was the report: "I came down the hill
 	# on the quad and it was horizontal".
-	node.transform.basis = _lie_on_the_ground(spot, facing, riding)
+	#
+	# And leans into a corner by whatever the rider is leaning, if it is a
+	# machine that does (see `lean`).
+	node.transform.basis = _lie_on_the_ground(spot, facing, riding) * Basis(Vector3.BACK, _bank)
 	_facings[riding] = facing
 	_positions[riding] = spot
 	# How fast it is going is worked out in _process, where there is a delta
@@ -666,6 +682,17 @@ func carry(at: Vector3, facing: float) -> void:
 	# horse carried three metres a second was measured at a third of one, and
 	# the gait check passed a horse that barely moved its legs.
 	_carried_to = spot
+
+## How far the ridden machine is laid over into the corner it is taking, in
+## radians about its own nose-to-tail line, and where its bars are over to (see
+## Player.steer_angle). Told by the game each frame before `carry`, which is
+## what leans the machine; the bars are what `_turn_the_wheels` turns.
+var _bank := 0.0
+var _bars := 0.0
+
+func lean(bank: float, bars: float) -> void:
+	_bank = bank
+	_bars = bars
 
 ## The way a machine sits on the ground it is standing on: pointed along
 ## `facing`, pitched to the slope under its wheels and rolled to the slope
@@ -727,11 +754,123 @@ func _turn_the_wheels(delta: float) -> void:
 	if radius <= 0.0:
 		return
 	var spin := _rolling / radius * delta
-	for child in (_nodes[riding] as Node3D).get_children():
-		var wheel := child as Node3D
-		if wheel == null or not wheel.name.begins_with("Wheel"):
-			continue
-		wheel.rotation.x = fposmod(wheel.rotation.x - spin, TAU)
+	_wheel_phase = fposmod(_wheel_phase + spin, TAU)
+	var kind := MountKinds.kind_of(riding)
+	var node := _nodes[riding] as Node3D
+	# The cranks follow the wheel by the gearing, and only while somebody is
+	# pedalling: a child who stops pedalling to coast or brake lets the pedals
+	# rest, as a freewheel does, and the rider's feet stay on them.
+	if kind == MountKinds.BICYCLE:
+		if _pedalling:
+			_crank = fposmod(_crank + spin * MountKinds.PEDAL_RATIO, TAU)
+		var cranks := node.get_node_or_null("Cranks") as Node3D
+		if cranks != null:
+			cranks.rotation.x = _crank
+		var steer := node.get_node_or_null("Steer") as Node3D
+		if steer != null:
+			steer.transform.basis = Basis(MountKinds.bicycle_steering_axis(), _bars)
+	for child in node.get_children():
+		_spin_wheel(child, kind)
+
+## Turn one wheel by the distance rolled, and the quad's front pair by the bars.
+func _spin_wheel(child: Node, kind: StringName) -> void:
+	var wheel := child as Node3D
+	if wheel == null or not wheel.name.begins_with("Wheel"):
+		return
+	# The quad's front wheels are the first two, and steer about their own
+	# vertical axis, outside the roll: Godot composes a node's Euler angles as
+	# yaw first, then pitch, which is the order a steered wheel wants.
+	var steered := kind == MountKinds.QUAD and (wheel.name == &"Wheel0" or wheel.name == &"Wheel1")
+	if kind == MountKinds.BICYCLE and wheel.name == &"Wheel0":
+		# The bicycle's front wheel is carried round the head tube with the
+		# forks it is hung from, then rolled in its own plane.
+		var over := Basis(MountKinds.bicycle_steering_axis(), _bars)
+		var pivot := MountKinds.BICYCLE_HEAD_LOW
+		wheel.transform = Transform3D(
+			over * Basis(Vector3.RIGHT, fposmod(-_wheel_phase, TAU)),
+			pivot + over * (MountKinds.BICYCLE_WHEELS[0] - pivot)
+		)
+		return
+	wheel.rotation = Vector3(fposmod(-_wheel_phase, TAU), _bars if steered else 0.0, 0.0)
+
+## How far round the ridden machine's wheels are, and its cranks: both are kept
+## rather than read back off the nodes, because a rider's feet are put on the
+## cranks and the checks ask where the wheels are.
+var _wheel_phase := 0.0
+var _crank := 0.0
+var _pedalling := false
+var _accel := 0.0
+var _last_rolling := 0.0
+
+## Where the cranks are, in radians, for the rider's feet to be put on.
+func crank_phase() -> float:
+	return _crank
+
+## Whether the child is pedalling: rolling forwards and not slowing down by
+## coasting or braking. For the cranks, and for the sound, which ticks over the
+## freewheel when this is false.
+func pedalling() -> bool:
+	return _pedalling
+
+## Where the ridden machine's wheels are in their turn, in radians.
+func wheel_phase() -> float:
+	return _wheel_phase
+
+## How far the ridden machine's body is sprung over its wheels, in metres:
+## positive is up. Only a machine with suspension has any (MountKinds), and it
+## is what the rider's saddle is lifted by.
+var _sprung := 0.0
+var _spring_speed := 0.0
+var _ground_y := 0.0
+var _ground_rise := 0.0
+var _ground_known := false
+
+## How far each machine's body can move on its springs, in metres, up or down.
+## A quad rides on big soft shocks and is the one that bobs; a bicycle and a
+## motorcycle are drawn rigid, and what a rider feels there is tyres.
+const SPRING_TRAVEL := {&"quad": 0.05}
+## The spring's stiffness and damping: a bounce at about 1.7 Hz that dies in
+## a third of a second, which is what a soft shock does, rather than a body that
+## goes on bobbing after the bump has passed.
+const SPRING_STIFFNESS := 120.0
+const SPRING_DAMPING := 12.0
+## How much of the ground's own upward acceleration the body feels.
+const SPRING_FEEL := 0.35
+
+## Sprung over the wheels: the ground under the machine rises and falls, and
+## the body, which has weight, lags behind it. Done as a spring on the *relative*
+## height rather than a vertical position of its own, so that crossing a hill
+## does nothing and only a bump is felt; the body never leaves the wheels by
+## more than the travel allows.
+func _spring_over_the_bumps(delta: float) -> void:
+	var travel: float = float(SPRING_TRAVEL.get(MountKinds.kind_of(riding), 0.0))
+	var body := (_nodes[riding] as Node3D).get_node_or_null("Body") as Node3D
+	if travel <= 0.0 or body == null or delta <= 0.0:
+		return
+	var y := _carried_to.y
+	if not _ground_known:
+		_ground_y = y
+		_ground_rise = 0.0
+		_ground_known = true
+	var rise := (y - _ground_y) / delta
+	# The change in the ground's vertical speed is what the body feels, taken as
+	# a jolt of that size spread over this frame and capped as a jolt, not as an
+	# acceleration: capped as an acceleration, a kerb crossed at thirty frames a
+	# second gave the spring twice the push it got at sixty.
+	var accel := clampf(rise - _ground_rise, -1.5, 1.5) / delta
+	_ground_y = y
+	_ground_rise = rise
+	# Stepped in slices no longer than a sixtieth of a second, so a phone at
+	# thirty frames a second does not overshoot a spring that is stable at sixty.
+	var steps := maxi(1, ceili(delta * 60.0))
+	var slice := delta / float(steps)
+	for _i in steps:
+		var push := -SPRING_STIFFNESS * _sprung - SPRING_DAMPING * _spring_speed - accel * SPRING_FEEL
+		_spring_speed += push * slice
+		_sprung += _spring_speed * slice
+	_sprung = clampf(_sprung, -travel, travel)
+	body.position.y = _sprung
+	_saddle_lift = _sprung
 
 ## How fast the ridden mount is going, smoothed, and where in its stride it is.
 var _pace := 0.0
@@ -913,7 +1052,11 @@ func _process(delta: float) -> void:
 		var rolled := signf(along) * minf(absf(along) / delta, 20.0)
 		_rolling = lerpf(_rolling, rolled, 1.0 - exp(-8.0 * delta))
 		_paced_from = _carried_to
+		_accel = lerpf(_accel, (_rolling - _last_rolling) / delta, 1.0 - exp(-6.0 * delta))
+		_last_rolling = _rolling
+		_pedalling = _rolling > 0.3 and _accel > -0.6
 	_turn_the_wheels(delta)
+	_spring_over_the_bumps(delta)
 	if not exists(riding) or MountKinds.kind_of(riding) != MountKinds.HORSE:
 		return
 	var body := (_nodes[riding] as Node3D).get_node_or_null("Body") as Node3D
@@ -1067,11 +1210,36 @@ func dismount(at: Vector3, facing := 0.0) -> StringName:
 			_glide(kind, node.global_position)
 		node.global_position = spot
 		node.transform.basis = _lie_on_the_ground(spot, facing, kind)
+		_straighten(node)
 		_facings[kind] = facing
 		_positions[kind] = spot
+	_bank = 0.0
+	_bars = 0.0
 	_waiting_to_be_solid[kind] = true
 	dismounted.emit(kind)
 	return kind
+
+## Set a machine's springs and steering back to rest, for it to stand with its
+## bars straight and its body down on its wheels once nobody is riding it.
+func _straighten(node: Node3D) -> void:
+	var body := node.get_node_or_null("Body") as Node3D
+	if body != null:
+		body.position.y = 0.0
+	var steer := node.get_node_or_null("Steer") as Node3D
+	if steer != null:
+		steer.transform.basis = Basis()
+	var front := node.get_node_or_null("Wheel0") as Node3D
+	if front != null and steer != null:
+		# The bicycle's front wheel, brought back from round the head tube.
+		front.transform = Transform3D(
+			Basis(Vector3.RIGHT, fposmod(-_wheel_phase, TAU)), MountKinds.BICYCLE_WHEELS[0]
+		)
+	else:
+		for child in node.get_children():
+			if child.name == &"Wheel0" or child.name == &"Wheel1":
+				(child as Node3D).rotation.y = 0.0
+	_sprung = 0.0
+	_spring_speed = 0.0
 
 ## Where a mount got off is left: a stride to the rider's right, unless that
 ## is somewhere it cannot stand.

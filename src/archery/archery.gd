@@ -214,9 +214,13 @@ func _physics_process(delta: float) -> void:
 		# Pointed along its flight, which is most of what makes it read as an
 		# arrow rather than a stick sliding through the air.
 		if velocity.length_squared() > 0.01:
-			node.transform = Transform3D(
-				Basis.looking_at(velocity.normalized(), Vector3.UP), now
-			)
+			# An arrow loosed straight up, or on its way straight down at the
+			# top of its flight, is parallel to "up", and looking_at warns and
+			# picks an arbitrary roll; an arrow has none worth keeping, so a
+			# horizontal axis stands in for up there.
+			var along := velocity.normalized()
+			var up := Vector3.UP if absf(along.y) < 0.999 else Vector3.FORWARD
+			node.transform = Transform3D(Basis.looking_at(along, up), now)
 
 		var struck := _check_hit(was, now)
 		if struck >= 0:

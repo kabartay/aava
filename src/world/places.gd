@@ -312,6 +312,19 @@ const SLIDE_TOP := Vector3(7.0, 3.0, -2.65)
 const SLIDE_FOOT := Vector3(7.0, 0.22, 3.0)
 ## How close to the top of the slide a child has to be to start sliding.
 const SLIDE_GRAB := 1.1
+## Where the two struts holding the end of the slide up stand, from the foot:
+## just outside the ramp's width, at the far end of the lip.
+const SLIDE_STRUT_X := 0.47
+const SLIDE_STRUT_Z := 0.66
+## The soft ground under the equipment, and the sandpit beside the slide. The
+## mats are 0.05 m proud of the grass, a step a child's capsule rides up; the
+## sandpit's boards stand 0.10 m and its sand 0.07 m, for the same reason: a
+## ledge any higher is a wall to a three-year-old.
+const MAT_HEIGHT := 0.05
+const SANDPIT := Vector3(8.5, 0.0, 7.6)
+const SANDPIT_HALF := 1.8
+const SANDPIT_BOARD := 0.10
+const SANDPIT_SAND := 0.07
 ## Where the ladder's foot is, relative to its top: three metres up over this
 ## much ground is a slope of about forty-eight degrees, under the fifty-two the
 ## character can walk, so the ladder is climbed by walking at it.
@@ -2204,6 +2217,10 @@ func _build_playground(at: Vector3) -> void:
 	var timber := Color(0.62, 0.44, 0.28)
 	var metal := Color(0.74, 0.76, 0.80)
 	var paint := Color(0.94, 0.58, 0.26)
+	# The swing frames were the same brown as the packed earth they stand on and
+	# vanished into it from any distance: painted a warm yellow, they stand out
+	# against the ground and against the slide's orange beside them.
+	var swing_paint := Color(0.93, 0.74, 0.24)
 
 	for frame_x in SWING_FRAMES:
 		# Two A-frames and a crossbar.
@@ -2223,7 +2240,7 @@ func _build_playground(at: Vector3) -> void:
 				_add(tool, post, Transform3D(
 					Basis(Vector3.RIGHT, deg_to_rad(-lean * 13.0)),
 					Vector3(frame_x + side * SWING_WIDTH * 0.5, SWING_POST * 0.485, lean * 0.44)
-				), timber)
+				), swing_paint)
 		var bar := CylinderMesh.new()
 		bar.top_radius = 0.06
 		bar.bottom_radius = 0.06
@@ -2232,7 +2249,7 @@ func _build_playground(at: Vector3) -> void:
 		bar.rings = 1
 		_add(tool, bar, Transform3D(
 			Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(frame_x, SWING_BAR, 0.0)
-		), timber)
+		), swing_paint)
 		# Metal caps where the bar meets each A, and a foot beam holding each
 		# pair of legs together at the ground — the joinery that makes it read
 		# as built rather than as three cylinders leaning on each other.
@@ -2318,6 +2335,17 @@ func _build_playground(at: Vector3) -> void:
 	var lip := BoxMesh.new()
 	lip.size = Vector3(0.9, 0.06, 0.7)
 	_add(tool, lip, Transform3D(Basis(), foot + Vector3(0.0, 0.03, 0.35)), paint)
+	# The lip hangs 0.22 m off the ground at the ramp's end, so it floated: a
+	# strut at each outer corner stands it on the ground, set just outside the
+	# ramp's width so the child carried out over the lip passes between them.
+	for dx in PackedFloat32Array([-SLIDE_STRUT_X, SLIDE_STRUT_X]):
+		var strut := CylinderMesh.new()
+		strut.top_radius = 0.035
+		strut.bottom_radius = 0.035
+		strut.height = foot.y + 0.06
+		strut.radial_segments = 5
+		strut.rings = 1
+		_add(tool, strut, Transform3D(Basis(), Vector3(foot.x + dx, (foot.y + 0.06) * 0.5, foot.z + SLIDE_STRUT_Z)), metal)
 	# Railings along both sides of the platform: what a child holds at the top.
 	# There was an arch across the ramp's start too, and from the platform it
 	# read as a barrier you walked through, so it went.
@@ -2372,6 +2400,19 @@ func _build_playground(at: Vector3) -> void:
 	var climb_shape := BoxShape3D.new()
 	climb_shape.size = Vector3(1.0, 0.16, climb.length() + 0.3)
 	_collide(solid, climb_shape, Transform3D(climb_basis, climb_foot + climb * 0.5))
+	# The railings are drawn at both sides of the platform, so they are solid:
+	# a child could walk straight through them and drop three metres. The front
+	# (the ramp) and the back (the ladder) stay open, and the gap between the
+	# rails is wider than the child, so neither the ride nor the climb touches them.
+	var guard := BoxShape3D.new()
+	guard.size = Vector3(0.08, 0.9, 1.3)
+	for dx in PackedFloat32Array([-0.65, 0.65]):
+		_collide(solid, guard, Transform3D(Basis(), platform_at + Vector3(dx, 0.06 + 0.45, 0.0)))
+	var strut_shape := CylinderShape3D.new()
+	strut_shape.radius = 0.04
+	strut_shape.height = foot.y + 0.06
+	for dx in PackedFloat32Array([-SLIDE_STRUT_X, SLIDE_STRUT_X]):
+		_collide(solid, strut_shape, Transform3D(Basis(), Vector3(foot.x + dx, (foot.y + 0.06) * 0.5, foot.z + SLIDE_STRUT_Z)))
 
 	# Two benches facing the swings, for whoever is watching. A playground is
 	# also where the grown-ups sit.
@@ -2380,6 +2421,7 @@ func _build_playground(at: Vector3) -> void:
 	_benches = BENCHES.size()
 
 	_build_trampoline(at, solid)
+	_build_play_surfaces(at, solid)
 	_build_lamps(at, solid)
 	_build_hoop(at, solid)
 	for bin_at in BINS:
@@ -4276,6 +4318,99 @@ func _watch_balls() -> void:
 		var lost := now < wet_at or now < ball.home.y - 8.0
 		if lost or (home_distance > 28.0 and ball.at_rest()):
 			ball.reset_to(ball.home)
+
+## The ground under the equipment: green rubber matting where a child lands from a
+## swing, at the foot of the slide and round the trampoline, and a sandpit with
+## a bucket in it. Until now the swings stood on bare grass worn to nothing, and
+## the slide ended in the lawn.
+##
+## All one mesh and all solid, since a surface a child can see is one they walk
+## on: boxes and discs sunk a little below the grass so no edge shows daylight
+## under it, and low enough to step onto.
+func _build_play_surfaces(at: Vector3, solid: StaticBody3D) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Green rubber, because the pad is packed brown earth and a brown or
+	# terracotta mat would vanish into it; green is no lilac risk in sky light
+	# (green kept at or above blue). The sand is a pale warm yellow for the
+	# same reason, red above blue.
+	var rubber := Color(0.30, 0.55, 0.32)
+	var sand := Color(0.95, 0.85, 0.60)
+	var sand_dark := Color(0.85, 0.72, 0.48)
+	var timber := Color(0.62, 0.44, 0.28)
+	var mats: Array[Dictionary] = []
+	# Under each swing frame: as wide as the frame and as deep as the seats
+	# travel, which is the length of the chain swept out at the full arc.
+	var reach := SWING_ROPE * sin(SWING_ARC) + 0.4
+	for frame_x in SWING_FRAMES:
+		mats.append({"at": Vector3(frame_x, 0.0, 0.0), "size": Vector2(SWING_WIDTH + 1.0, reach * 2.0)})
+	# At the foot of the slide, where the child runs out.
+	mats.append({"at": Vector3(SLIDE_FOOT.x, 0.0, SLIDE_FOOT.z + 0.9), "size": Vector2(2.2, 2.6)})
+	for mat: Dictionary in mats:
+		var size: Vector2 = mat["size"]
+		var centre: Vector3 = mat["at"]
+		var slab := BoxMesh.new()
+		slab.size = Vector3(size.x, MAT_HEIGHT + 0.04, size.y)
+		var where := Transform3D(Basis(), centre + Vector3(0.0, (MAT_HEIGHT - 0.04) * 0.5, 0.0))
+		_add(tool, slab, where, rubber)
+		var slab_shape := BoxShape3D.new()
+		slab_shape.size = slab.size
+		_collide(solid, slab_shape, where)
+	# Round the trampoline: a disc wider than its frame.
+	var disc := CylinderMesh.new()
+	disc.top_radius = TRAMPOLINE_RADIUS + 0.8
+	disc.bottom_radius = TRAMPOLINE_RADIUS + 0.8
+	disc.height = MAT_HEIGHT + 0.04
+	disc.radial_segments = 28
+	disc.rings = 1
+	var disc_at := Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, (MAT_HEIGHT - 0.04) * 0.5, 0.0))
+	_add(tool, disc, disc_at, rubber)
+	var disc_shape := CylinderShape3D.new()
+	disc_shape.radius = disc.top_radius
+	disc_shape.height = disc.height
+	_collide(solid, disc_shape, disc_at)
+
+	# The sandpit: four boards round a bed of sand, with a bucket in it. The
+	# boards close all four sides and are low enough to step over.
+	var half := SANDPIT_HALF
+	var floor_mesh := BoxMesh.new()
+	floor_mesh.size = Vector3(half * 2.0, SANDPIT_SAND + 0.04, half * 2.0)
+	var floor_at := Transform3D(Basis(), SANDPIT + Vector3(0.0, (SANDPIT_SAND - 0.04) * 0.5, 0.0))
+	_add(tool, floor_mesh, floor_at, sand)
+	var floor_shape := BoxShape3D.new()
+	floor_shape.size = floor_mesh.size
+	_collide(solid, floor_shape, floor_at)
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		for along_x: bool in [true, false]:
+			var board := BoxMesh.new()
+			board.size = Vector3(half * 2.0 + 0.24, SANDPIT_BOARD + 0.04, 0.12) if along_x else Vector3(0.12, SANDPIT_BOARD + 0.04, half * 2.0)
+			var offset := Vector3(0.0, (SANDPIT_BOARD - 0.04) * 0.5, side * (half + 0.06)) if along_x else Vector3(side * (half + 0.06), (SANDPIT_BOARD - 0.04) * 0.5, 0.0)
+			var board_at := Transform3D(Basis(), SANDPIT + offset)
+			_add(tool, board, board_at, timber)
+			var board_shape := BoxShape3D.new()
+			board_shape.size = board.size
+			_collide(solid, board_shape, board_at)
+	# A bucket, upside-down-pail shaped, and a darker patch of damp sand.
+	var damp := CylinderMesh.new()
+	damp.top_radius = 0.55
+	damp.bottom_radius = 0.55
+	damp.height = 0.02
+	damp.radial_segments = 12
+	damp.rings = 1
+	_add(tool, damp, Transform3D(Basis(), SANDPIT + Vector3(-0.7, SANDPIT_SAND + 0.005, 0.5)), sand_dark)
+	var bucket := CylinderMesh.new()
+	bucket.top_radius = 0.13
+	bucket.bottom_radius = 0.10
+	bucket.height = 0.2
+	bucket.radial_segments = 8
+	bucket.rings = 1
+	var bucket_at := Transform3D(Basis(), SANDPIT + Vector3(-0.7, SANDPIT_SAND + 0.1, 0.5))
+	_add(tool, bucket, bucket_at, Color(0.86, 0.32, 0.28))
+	var bucket_shape := CylinderShape3D.new()
+	bucket_shape.radius = 0.12
+	bucket_shape.height = 0.2
+	_collide(solid, bucket_shape, bucket_at)
+	_finish_into(tool, at)
 
 ## A round trampoline: a frame on legs and a dark mat stretched across it. The
 ## mat is solid to stand on; the bounce is the game's business.

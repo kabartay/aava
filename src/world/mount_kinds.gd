@@ -171,6 +171,53 @@ const QUAD_SCALE := 1.15
 ## How far the bars go over at full lock.
 const FULL_LOCK := deg_to_rad(38.0)
 
+## How hard each machine pulls away, as a share of Player.MACHINE_PULL (which is
+## the motorcycle's). A child pedalling a bicycle does not leap to eight metres
+## a second in under a second the way an engine does, and a small child who
+## pushes the stick to the rim should be carried up to speed, not thrown into
+## it: the bicycle takes a little under two seconds to reach nine tenths of its
+## top speed from rest, the quad two, the motorcycle about the same.
+static func pull_share(kind: StringName) -> float:
+	match kind_of(kind):
+		BICYCLE:
+			return 0.5
+		QUAD:
+			return 0.6
+		_:
+			return 0.85
+
+## How firmly the brakes bite, as a multiple of how hard the machine pulls away.
+## Stronger than the pull, because stopping is the thing that has to be
+## trusted, and still a slide of a second and a half rather than a stop dead:
+## a child thrown forward by a halt that takes no time at all will not do it
+## twice.
+const BRAKE_SHARE := 1.3
+
+## How far each machine leans into a corner, against the lean a motorcycle takes
+## (Player.RIDE_BANK). A bicycle is nearly upright at a crawl and leans well over
+## at speed, so it takes more than the motorcycle, whose weight is low; a quad
+## sits on four wheels and does not lean into a corner at all, which is half of
+## what makes it feel like a quad.
+static func lean_share(kind: StringName) -> float:
+	match kind_of(kind):
+		BICYCLE:
+			return 1.7
+		QUAD:
+			return 0.0
+		_:
+			return 1.0
+
+## How hard the engine of whatever is being ridden is working, for the sound:
+## nought at a standstill to one at its own full pelt, and -1 for a machine with
+## no engine at all, which is how the sound is told to stay silent. Only the
+## motorcycle and the quad have one; a bicycle is heard as tyres and a freewheel
+## (Ambience.cycling), not as a motor.
+static func engine_effort(kind: StringName, pace: float) -> float:
+	var of := kind_of(kind)
+	if of != MOTORCYCLE and of != QUAD:
+		return -1.0
+	return clampf(pace / speed(of), 0.0, 1.0)
+
 ## Half the width of a mount, and nothing at all on foot. What the world uses
 ## to decide how much room the thing being ridden needs — a tree is as wide as
 ## the horse walking into it.
@@ -681,9 +728,11 @@ static func build_node(kind: StringName) -> Node3D:
 	var root := Node3D.new()
 	var body := MeshInstance3D.new()
 	body.name = "Body"
-	body.mesh = build_mesh(kind)
+	body.mesh = bicycle_part_mesh(BikePart.FRAME) if kind_of(kind) == BICYCLE else build_mesh(kind)
 	root.add_child(body)
-	if kind_of(kind) == BICYCLE or kind_of(kind) == MOTORCYCLE:
+	if kind_of(kind) == BICYCLE:
+		_hang_the_bicycle_parts(root)
+	elif kind_of(kind) == MOTORCYCLE:
 		var tyre := two_wheeler_wheel_mesh(kind)
 		var spots := wheel_spots(kind)
 		for i in spots.size():
@@ -730,6 +779,34 @@ static func build_node(kind: StringName) -> Node3D:
 			leg.position = HORSE_HIPS[i]
 			body.add_child(leg)
 	return root
+
+## The bicycle's own moving parts, hung on the ridden body: the cranks at the
+## bottom bracket, and the steering at the head tube, so that the bars and the
+## forks go over about it; the front wheel is turned with them by Mounts.
+static func _hang_the_bicycle_parts(root: Node3D) -> void:
+	var cranks := MeshInstance3D.new()
+	cranks.name = "Cranks"
+	cranks.mesh = bicycle_part_mesh(BikePart.CRANKS)
+	cranks.position = BICYCLE_BRACKET
+	root.add_child(cranks)
+	var steer := Node3D.new()
+	steer.name = "Steer"
+	steer.position = BICYCLE_HEAD_LOW
+	var bars := MeshInstance3D.new()
+	bars.name = "Bars"
+	bars.mesh = bicycle_part_mesh(BikePart.STEER)
+	steer.add_child(bars)
+	root.add_child(steer)
+	# Both wheels stay the body's own children, like every other wheel here;
+	# the front one is moved round the head tube by Mounts as the bars go over
+	# (see Mounts._turn_the_wheels), in step with the steering node.
+	var tyre := two_wheeler_wheel_mesh(BICYCLE)
+	for i in BICYCLE_WHEELS.size():
+		var wheel := MeshInstance3D.new()
+		wheel.name = "Wheel%d" % i
+		wheel.mesh = tyre
+		wheel.position = BICYCLE_WHEELS[i]
+		root.add_child(wheel)
 
 ## A motorcycle, facing -Z like everything else that is ridden.
 ##
@@ -1180,6 +1257,33 @@ static func _quad(tool: SurfaceTool) -> void:
 	pad.size = Vector3(0.22, 0.1, 0.1)
 	_add(tool, pad, Transform3D(Basis(), Vector3(0.0, 1.13, -0.36)), paint.lightened(0.2))
 
+	# A bumper across the nose and a warm stripe down the tank. The quad is
+	# purple and black, and against grass and sky that is two dark shapes at
+	# phone size; a tube of bright steel across the front gives the nose an edge,
+	# and the orange stripe (red over blue, green over blue) is what the eye
+	# finds first, on the one colour nothing else in the valley wears.
+	var bumper := Color(0.80, 0.82, 0.86)
+	var stripe := Color(0.96, 0.58, 0.16)
+	for post: float in [-1.0, 1.0]:
+		var upright := CylinderMesh.new()
+		upright.top_radius = 0.025
+		upright.bottom_radius = 0.025
+		upright.height = 0.3
+		upright.radial_segments = 6
+		_add(tool, upright, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-70.0)), Vector3(post * 0.32, 0.62, -1.28)), bumper)
+	var bumper_bar := CylinderMesh.new()
+	bumper_bar.top_radius = 0.03
+	bumper_bar.bottom_radius = 0.03
+	bumper_bar.height = 0.74
+	bumper_bar.radial_segments = 6
+	_add(tool, bumper_bar, Transform3D(Basis(Vector3.BACK, deg_to_rad(90.0)), Vector3(0.0, 0.62, -1.42)), bumper)
+	var tank_stripe := BoxMesh.new()
+	tank_stripe.size = Vector3(0.1, 0.02, 0.38)
+	_add(tool, tank_stripe, Transform3D(Basis(), Vector3(0.0, 0.945, -0.3)), stripe)
+	var seat_stripe := BoxMesh.new()
+	seat_stripe.size = Vector3(0.1, 0.02, 0.56)
+	_add(tool, seat_stripe, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-5.0)), Vector3(0.0, 0.875, 0.14)), stripe)
+
 	# Twin headlights on the nose, a rack over the tail, and an exhaust down
 	# the right-hand side: the three details that say this one works.
 	for side: float in [-1.0, 1.0]:
@@ -1276,7 +1380,7 @@ static func two_wheeler_wheel_mesh(kind: StringName) -> Mesh:
 		)
 	else:
 		_wheel(
-			tool, Vector3.ZERO, BICYCLE_WHEEL_RADIUS, 0.055, 6,
+			tool, Vector3.ZERO, BICYCLE_WHEEL_RADIUS, 0.065, 10,
 			Color(0.13, 0.13, 0.15), Color(0.80, 0.82, 0.86)
 		)
 	tool.generate_normals()
@@ -1343,11 +1447,16 @@ static func quad_wheel_mesh() -> Mesh:
 ## Tubes stay thicker than a real bicycle\'s. At the distance a child sees one
 ## across a valley, four centimetres of steel is less than a pixel and the
 ## machine disappears; five to six reads as a bicycle.
-static func _bicycle(tool: SurfaceTool) -> void:
+static func _bicycle(tool: SurfaceTool, part := BikePart.ALL) -> void:
+	var whole := part == BikePart.ALL
 	var frame: Color = colour(BICYCLE)
-	var rubber := Color(0.13, 0.13, 0.15)
 	var metal := Color(0.80, 0.82, 0.86)
 	var grip := Color(0.18, 0.18, 0.20)
+	# What a child's hand and seat touch is warmer than the steel: cream grips
+	# and a tan saddle read against both the red frame and a pale sky, where
+	# near-black ones were two dark specks at phone size.
+	var cream := Color(0.94, 0.88, 0.70)
+	var leather := Color(0.62, 0.38, 0.20)
 
 	var back := BICYCLE_WHEELS[1]
 	var front := BICYCLE_WHEELS[0]
@@ -1355,73 +1464,156 @@ static func _bicycle(tool: SurfaceTool) -> void:
 
 	# The diamond: bottom bracket low in the middle, seat tube up from it, down
 	# tube forward to the head tube, top tube between the two.
-	var bracket := Vector3(0.0, 0.34, 0.16)
+	var bracket := BICYCLE_BRACKET
 	# A child's bicycle, since a child's is the one it is: the saddle 0.55 up
 	# (it was 1.22, a metre over the pedals, where a child's leg is 0.4), the
 	# head tube and bars brought back to where a child's arm reaches, and the
 	# top tube low and sloping to the seat tube, a step-through frame, so
 	# that nothing of the diamond is above the hips: a rider's body went through
 	# the old top tube and head tube.
-	var head_low := Vector3(0.0, 0.56, -0.46)
-	var head_high := Vector3(0.0, 0.80, -0.40)
+	var head_low := BICYCLE_HEAD_LOW
+	var head_high := BICYCLE_HEAD_HIGH
 	var seat_top := Vector3(0.0, 0.43, 0.18)
-	_tube(tool, bracket, head_low, 0.055, frame)
-	_tube(tool, bracket, seat_top, 0.05, frame)
-	_tube(tool, head_low + Vector3(0.0, 0.03, 0.0), seat_top + Vector3(0.0, 0.0, -0.02), 0.045, frame)
-	_tube(tool, head_low, head_high, 0.06, frame)
-	# Chainstays and seatstays: the triangle behind, which is the half of a
-	# bicycle everyone forgets and the half that makes it read as one.
-	for side in PackedFloat32Array([-1.0, 1.0]):
-		_tube(tool, bracket, back + Vector3(side * 0.06, 0.0, 0.0), 0.032, frame)
-		_tube(tool, seat_top, back + Vector3(side * 0.06, 0.0, 0.0), 0.028, frame)
-		# Forks down to the front axle.
-		_tube(tool, head_low, front + Vector3(side * 0.06, 0.0, 0.0), 0.034, metal)
-
-	# Chainring and cranks, with a pedal on each.
-	var ring := CylinderMesh.new()
-	ring.top_radius = 0.13
-	ring.bottom_radius = 0.13
-	ring.height = 0.02
-	ring.radial_segments = 12
-	_add(tool, ring, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(90.0)), bracket), metal)
-	for side in PackedFloat32Array([-1.0, 1.0]):
-		var crank := BoxMesh.new()
-		crank.size = Vector3(0.035, 0.24, 0.05)
-		_add(tool, crank, Transform3D(
-			Basis(Vector3.RIGHT, side * deg_to_rad(40.0)),
-			bracket + Vector3(side * 0.09, 0.0, 0.0)
-		), metal)
-		var pedal := BoxMesh.new()
-		pedal.size = Vector3(0.09, 0.03, 0.17)
-		_add(tool, pedal, Transform3D(
-			Basis(), bracket + Vector3(side * 0.13, side * -0.1, side * 0.07)
-		), grip)
-
-	# Bars on a stem, with grips at the ends.
-	_tube(tool, head_high, head_high + Vector3(0.0, 0.08, -0.03), 0.04, metal)
-	var bars_at := head_high + Vector3(0.0, 0.08, -0.03)
-	_tube(tool, bars_at + Vector3(-0.28, 0.0, 0.0), bars_at + Vector3(0.28, 0.0, 0.0), 0.028, metal)
-	for side in PackedFloat32Array([-1.0, 1.0]):
+	if whole or part == BikePart.FRAME:
+		_tube(tool, bracket, head_low, 0.06, frame)
+		_tube(tool, bracket, seat_top, 0.055, frame)
+		_tube(tool, head_low + Vector3(0.0, 0.03, 0.0), seat_top + Vector3(0.0, 0.0, -0.02), 0.05, frame)
+		_tube(tool, head_low, head_high, 0.065, frame)
+		# Chainstays and seatstays: the triangle behind, which is the half of a
+		# bicycle everyone forgets and the half that makes it read as one.
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			_tube(tool, bracket, back + Vector3(side * 0.06, 0.0, 0.0), 0.034, frame)
+			_tube(tool, seat_top, back + Vector3(side * 0.06, 0.0, 0.0), 0.03, frame)
+		# The chain, a dark line from the chainring to the rear hub on the
+		# right-hand side: the one part of the drive that is still when the
+		# cranks turn, and what makes the cranks read as driving something.
 		_tube(
-			tool, bars_at + Vector3(side * 0.18, 0.0, 0.0),
-			bars_at + Vector3(side * 0.28, 0.0, 0.04), 0.036, grip
+			tool, bracket + Vector3(0.07, 0.07, 0.0),
+			back + Vector3(0.05, 0.05, 0.0), 0.014, grip
 		)
+		# A red reflector behind the saddle on a short bracket: what a child sees
+		# from behind, and the one touch of red-on-red that says "bicycle" from
+		# the back. (Mudguards were tried here and read as stray red rails
+		# floating over the wheels at phone size, so they are not drawn.)
+		_tube(tool, seat_top, Vector3(0.0, 0.46, 0.34), 0.02, metal)
+		var reflector := BoxMesh.new()
+		reflector.size = Vector3(0.08, 0.08, 0.03)
+		_add(tool, reflector, Transform3D(Basis(), Vector3(0.0, 0.46, 0.36)), Color(0.92, 0.18, 0.14))
+		# Saddle on its post: a nose and a seat, not a brick.
+		_tube(tool, seat_top, seat_top + Vector3(0.0, 0.07, 0.0), 0.034, metal)
+		var seat := BoxMesh.new()
+		seat.size = Vector3(0.19, 0.065, 0.28)
+		_add(tool, seat, Transform3D(Basis(), seat_top + Vector3(0.0, 0.09, 0.03)), leather)
+		var nose := BoxMesh.new()
+		nose.size = Vector3(0.08, 0.055, 0.17)
+		_add(tool, nose, Transform3D(Basis(), seat_top + Vector3(0.0, 0.095, -0.14)), leather)
 
-	# Saddle on its post: a nose and a seat, not a brick.
-	_tube(tool, seat_top, seat_top + Vector3(0.0, 0.07, 0.0), 0.032, metal)
-	var seat := BoxMesh.new()
-	seat.size = Vector3(0.17, 0.06, 0.26)
-	_add(tool, seat, Transform3D(Basis(), seat_top + Vector3(0.0, 0.09, 0.03)), grip)
-	var nose := BoxMesh.new()
-	nose.size = Vector3(0.07, 0.05, 0.16)
-	_add(tool, nose, Transform3D(Basis(), seat_top + Vector3(0.0, 0.095, -0.13)), grip)
-	# A bell, because every child\'s bicycle has one.
-	var bell := CylinderMesh.new()
-	bell.top_radius = 0.035
-	bell.bottom_radius = 0.035
-	bell.height = 0.04
-	bell.radial_segments = 8
-	_add(tool, bell, Transform3D(Basis(), bars_at + Vector3(-0.1, 0.05, 0.0)), Color(0.86, 0.72, 0.32))
+	if whole or part == BikePart.CRANKS:
+		# Chainring and cranks, with a pedal on each. Their own node when the
+		# bicycle is ridden, so they can go round with the wheels (see
+		# Mounts._turn_the_wheels); in the shop they are part of the one mesh.
+		if part == BikePart.CRANKS:
+			_origin = bracket
+		var ring := CylinderMesh.new()
+		ring.top_radius = 0.13
+		ring.bottom_radius = 0.13
+		ring.height = 0.02
+		ring.radial_segments = 12
+		_add(tool, ring, Transform3D(Basis(Vector3.FORWARD, deg_to_rad(90.0)), bracket + Vector3(0.07, 0.0, 0.0)), metal)
+		# Three arms of a spider, so the ring is seen to turn.
+		for spoke in 3:
+			var arm := BoxMesh.new()
+			arm.size = Vector3(0.012, 0.02, 0.26)
+			_add(
+				tool, arm,
+				Transform3D(Basis(Vector3.RIGHT, TAU * float(spoke) / 3.0), bracket + Vector3(0.07, 0.0, 0.0)),
+				grip
+			)
+		# At rest the left pedal is forward and the right one back, which is
+		# where RigMotion puts the feet at a pedal phase of nought.
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			var crank := BoxMesh.new()
+			crank.size = Vector3(0.035, 0.05, PEDAL_REACH)
+			_add(tool, crank, Transform3D(
+				Basis(), bracket + Vector3(side * 0.09, 0.0, side * PEDAL_REACH * 0.5)
+			), metal)
+			var pedal := BoxMesh.new()
+			pedal.size = Vector3(0.09, 0.03, 0.14)
+			_add(tool, pedal, Transform3D(
+				Basis(), bracket + Vector3(side * 0.14, 0.0, side * PEDAL_REACH)
+			), grip)
+		_origin = Vector3.ZERO
+
+	if whole or part == BikePart.STEER:
+		# Everything that goes over with the handlebars: the forks, the stem, bars, grips, lamp and bell. Hung on the head tube
+		# in the ridden bicycle and turned about its axis.
+		if part == BikePart.STEER:
+			_origin = head_low
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			# Forks down to the front axle.
+			_tube(tool, head_low, front + Vector3(side * 0.06, 0.0, 0.0), 0.036, metal)
+		# Bars on a stem, with grips at the ends.
+		_tube(tool, head_high, head_high + Vector3(0.0, 0.08, -0.03), 0.042, metal)
+		var bars_at := head_high + Vector3(0.0, 0.08, -0.03)
+		_tube(tool, bars_at + Vector3(-0.28, 0.0, 0.0), bars_at + Vector3(0.28, 0.0, 0.0), 0.03, metal)
+		for side in PackedFloat32Array([-1.0, 1.0]):
+			_tube(
+				tool, bars_at + Vector3(side * 0.18, 0.0, 0.0),
+				bars_at + Vector3(side * 0.29, 0.0, 0.04), 0.04, cream
+			)
+		# A lamp on the front of the head tube, which is what a bicycle looks
+		# back at you with, and a bell, because every child's bicycle has one.
+		var lamp := CylinderMesh.new()
+		lamp.top_radius = 0.045
+		lamp.bottom_radius = 0.045
+		lamp.height = 0.05
+		lamp.radial_segments = 8
+		_add(
+			tool, lamp,
+			Transform3D(Basis(Vector3.RIGHT, deg_to_rad(90.0)), head_high + Vector3(0.0, 0.0, -0.1)),
+			Color(0.98, 0.95, 0.76)
+		)
+		var bell := CylinderMesh.new()
+		bell.top_radius = 0.035
+		bell.bottom_radius = 0.045
+		bell.height = 0.045
+		bell.radial_segments = 8
+		_add(tool, bell, Transform3D(Basis(), bars_at + Vector3(-0.1, 0.05, 0.0)), Color(0.90, 0.74, 0.30))
+		_origin = Vector3.ZERO
+
+## Which part of the bicycle a mesh is for: all of it (the shop floor), what is
+## left once the cranks and the steering are taken off (the ridden body), the
+## cranks, or the steering.
+enum BikePart { ALL, FRAME, CRANKS, STEER }
+
+## Where the bottom bracket is, and the two ends of the head tube, in the
+## bicycle's own frame: what the cranks and the steering are hung from.
+const BICYCLE_BRACKET := Vector3(0.0, 0.34, 0.16)
+const BICYCLE_HEAD_LOW := Vector3(0.0, 0.56, -0.46)
+const BICYCLE_HEAD_HIGH := Vector3(0.0, 0.80, -0.40)
+
+## How long a crank is, which is also the radius of the circle a rider's feet go
+## round (SeatPose's `pedal_radius`).
+const PEDAL_REACH := 0.12
+
+## The mesh of one part of the bicycle, for build_node.
+static func bicycle_part_mesh(part: BikePart) -> Mesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_bicycle(tool, part)
+	tool.generate_normals()
+	tool.set_material(AnimalKinds.fur_material())
+	return tool.commit()
+
+## The line the handlebars turn about: up the head tube, leaning back.
+static func bicycle_steering_axis() -> Vector3:
+	return (BICYCLE_HEAD_HIGH - BICYCLE_HEAD_LOW).normalized()
+
+## How many turns of the cranks to one turn of the wheel: the gearing. A child's
+## single speed, a little under one to two, so that at a bicycle's top speed the
+## cranks go round about one and a half times a second and a child can see
+## each pedal.
+const PEDAL_RATIO := 0.44
 
 ## A length of tube between two points, which is how every frame here is
 ## described: a cylinder is defined by its middle and its axis, and writing
@@ -1448,7 +1640,12 @@ static func _tube(
 		basis = Basis(Vector3.RIGHT, PI)
 	_add(tool, tube, Transform3D(basis, (from + to) * 0.5), colour_of)
 
+## Subtracted from everything `_add` places, so that a part drawn to be hung on
+## a pivot (the bicycle's cranks and steering) is built round that pivot.
+static var _origin := Vector3.ZERO
+
 static func _add(tool: SurfaceTool, source: PrimitiveMesh, transform: Transform3D, colour: Color) -> void:
+	transform.origin -= _origin
 	var arrays := source.get_mesh_arrays()
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]

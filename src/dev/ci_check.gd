@@ -471,6 +471,9 @@ func _initialize() -> void:
 	_check_nobody_rides_the_coaster_unstrapped()
 	_check_the_rides_are_paid_for()
 	_check_stepping_off_a_swing_puts_the_child_down_where_they_are()
+	_check_the_screenshot_tool_wires_every_handler()
+	_check_an_arrow_in_vertical_flight_still_points_along_it()
+	await _check_the_camera_is_not_pointed_straight_up_or_down()
 
 	# Last, and deliberately: these two run a body through real physics frames,
 	# and the scene tree's own root is not yet in the tree while the first of
@@ -486,6 +489,7 @@ func _initialize() -> void:
 	_check_the_streaks_travel_at_the_current_not_twice_it()
 	await _check_the_things_afloat_drift_in_the_river_only()
 	await _check_a_machine_slides_off_ground_it_cannot_climb()
+	await _check_the_playground_surfaces_rails_and_struts_are_solid()
 	_check_a_rider_stays_on_a_bank()
 	_check_the_bridge_carries_what_crosses_it()
 	_check_the_bridge_sides_face_outwards()
@@ -538,6 +542,10 @@ func _initialize() -> void:
 	_check_a_remote_piece_on_the_child_sets_them_beside_it()
 	_check_an_animal_is_not_born_in_a_built_piece()
 	_check_the_chunk_under_a_fast_child_always_has_collision()
+	await _check_the_wheeled_machines_pull_away_stop_turn_and_lean_as_they_should()
+	await _check_the_parts_of_a_ridden_machine_keep_time_with_the_ground()
+	_check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine()
+	_check_the_riders_feet_are_on_the_bicycles_pedals_and_it_is_drawn_warm()
 	await _check_the_shop_audit_fixes()
 
 	if _failures > 0:
@@ -3671,7 +3679,7 @@ func _check_the_icon_is_the_valley() -> void:
 		["res://android/icons/background.svg", "res://android/icons/background_432.png", 432],
 		["res://android/icons/monochrome.svg", "res://android/icons/monochrome_432.png", 432],
 	]:
-		var shipped := Image.load_from_file(job[1])
+		var shipped := _load_png_file(job[1])
 		_expect(shipped != null, "%s is a picture" % job[1])
 		if shipped == null:
 			continue
@@ -3698,7 +3706,7 @@ func _check_the_icon_is_the_valley() -> void:
 	# layers flattened, square and full bleed. Rounding its corners here shows
 	# up as a small rounded picture sitting inside the launcher's own shape,
 	# which is how it looked on the phone.
-	var legacy := Image.load_from_file("res://android/icons/main_192.png")
+	var legacy := _load_png_file("res://android/icons/main_192.png")
 	_expect(legacy != null, "there is a plain icon for launchers that want one")
 	if legacy != null:
 		_expect(legacy.get_width() == 192, "%d px square" % legacy.get_width())
@@ -3713,7 +3721,7 @@ func _check_the_icon_is_the_valley() -> void:
 	# The themed icon has to be a picture rather than a blank or a slab: the
 	# launcher tints every pixel the same colour, so it is the gaps that carry
 	# the drawing.
-	var mono := Image.load_from_file("res://android/icons/monochrome_432.png")
+	var mono := _load_png_file("res://android/icons/monochrome_432.png")
 	var covered := 0
 	for y in range(0, mono.get_height(), 3):
 		for x in range(0, mono.get_width(), 3):
@@ -7237,7 +7245,9 @@ func _check_places_worth_walking_to() -> void:
 	# Eight posts, a deck, four legs, the ladder, two benches; a pole and a
 	# backboard; the trampoline's mat; two bins; the fountain's basin — and
 	# every block of the hedge, the four corner trunks, the three lamp posts.
-	var fixed_solids := 22
+	# Added with the soft ground: three rubber mats, the trampoline's ring, the
+	# sand, four sandpit boards and a bucket; two platform rails; two struts.
+	var fixed_solids := 22 + 3 + 1 + 1 + 4 + 1 + 2 + 2
 	var expected_solids := fixed_solids + places.hedge_segment_count() + 4 + Places.LAMPS.size()
 	_expect(places.hedge_segment_count() >= 30, "the hedge is %d solid blocks" % places.hedge_segment_count())
 	_expect(
@@ -20127,14 +20137,14 @@ func _check_the_characters_build_fit_and_travel() -> void:
 	_expect(hud.look_offer_open() and hud._offer.get_child_count() == 1, "offered, it opens once")
 	var view := hud.get_viewport().get_visible_rect().size
 	var panel := Rect2(hud._offer.position, hud._offer.size)
-	_expect(Rect2(Vector2.ZERO, view).encloses(panel), "and is on the screen (%v in %v)" % [panel, view])
+	_expect(Rect2(Vector2.ZERO, view).encloses(panel), "and is on the screen (%s in %s)" % [panel, view])
 	_expect(hud._offer_picker.look() == [1, 2, 3], "it starts from what is already chosen")
 	hud.close_look_offer()
 	_expect(not hud.look_offer_open() and closed[0] == 1, "the tick closes it and says so")
 	hud._toggle_menu()
 	await process_frame
 	var menu_box := Rect2(hud._menu.position, hud._menu.get_combined_minimum_size())
-	_expect(Rect2(Vector2.ZERO, view).encloses(menu_box), "the settings panel with its new rows still fits the screen (%v in %v)" % [menu_box, view])
+	_expect(Rect2(Vector2.ZERO, view).encloses(menu_box), "the settings panel with its new rows still fits the screen (%s in %s)" % [menu_box, view])
 	hud.queue_free()
 
 ## How far the right thigh swings over a whole stride, with the rig driven at a
@@ -28217,4 +28227,593 @@ func _check_the_host_arbitrates_a_pickup_a_machine_and_a_parking_two_phones_reac
 	)
 	# Ducks are decoration, and not sent either.
 	_expect(not net.to_lower().contains("duck"), "the ducks are not sent between phones")
+
+## The swings stood on bare earth the same brown as their posts, the slide's
+## lip hung 0.22 m in the air with nothing under it, its platform's railings
+## could be walked through (and the three metres fallen from), and there was
+## no sandpit. Now there is soft matting, struts, solid rails and a sand bed.
+##
+## Everything drawn is asked of the physics world the way a child meets it:
+## a ray down onto each surface must land at the height it is drawn, a ray
+## across the platform must meet the rail, and a real Player carried down the
+## slide must come out of the struts' gap at 30 and 60 frames a second.
+func _check_the_playground_surfaces_rails_and_struts_are_solid() -> void:
+	print("the playground's surfaces, rails and struts are solid")
+	var field := HeightField.new(20260903)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(field.camp_centre())
+	await physics_frame
+	var space := get_root().get_world_3d().direct_space_state
+	var spot: Vector3 = places._spots[Places.PLAYGROUND]
+
+	var down := func(local: Vector3) -> float:
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(
+			spot + local + Vector3(0.0, 2.0, 0.0), spot + local - Vector3(0.0, 2.0, 0.0), TerrainSpec.LAYER_PROPS
+		))
+		return float(hit["position"].y) - spot.y if not hit.is_empty() else NAN
+	for frame_x in Places.SWING_FRAMES:
+		var under: float = down.call(Vector3(frame_x + 1.9, 0.0, 1.8))
+		_expect(absf(under - Places.MAT_HEIGHT) < 0.01, "the mat under the swings at x=%.1f is stood on at %.3f m, as drawn" % [frame_x, under])
+	var run_out: float = down.call(Vector3(Places.SLIDE_FOOT.x, 0.0, Places.SLIDE_FOOT.z + 1.6))
+	_expect(absf(run_out - Places.MAT_HEIGHT) < 0.01, "so is the mat where the slide runs out (%.3f m)" % run_out)
+	var round_tramp: float = down.call(Places.TRAMPOLINE + Vector3(Places.TRAMPOLINE_RADIUS + 0.4, 0.0, 0.0))
+	_expect(absf(round_tramp - Places.MAT_HEIGHT) < 0.01, "and the ring round the trampoline (%.3f m)" % round_tramp)
+	var sand: float = down.call(Places.SANDPIT + Vector3(0.9, 0.0, -0.9))
+	_expect(absf(sand - Places.SANDPIT_SAND) < 0.01, "the sand is %.3f m deep, as drawn" % sand)
+	var board: float = down.call(Places.SANDPIT + Vector3(0.0, 0.0, Places.SANDPIT_HALF + 0.06))
+	_expect(absf(board - Places.SANDPIT_BOARD) < 0.01 and board < 0.12, "its boards are %.3f m, low enough to step over" % board)
+	var bucket: float = down.call(Places.SANDPIT + Vector3(-0.7, 0.0, 0.5))
+	_expect(bucket > Places.SANDPIT_SAND + 0.15, "the bucket is solid (%.3f m)" % bucket)
+
+	# The soft ground is clear of the other equipment, so nothing stands half
+	# inside it: the sandpit's square against each circle the pad keeps.
+	var clear := true
+	var keep: Array[Vector3] = []
+	for bench_x in Places.BENCHES:
+		keep.append(Vector3(bench_x, 1.2, Places.BENCH_Z))
+	for bin_at in Places.BINS:
+		keep.append(Vector3(bin_at.x, 0.5, bin_at.z))
+	for lamp in Places.LAMPS:
+		keep.append(Vector3(lamp.x, 0.45, lamp.z))
+	keep.append(Vector3(Places.SLIDE_FOOT.x, 1.3, Places.SLIDE_FOOT.z + 0.9))
+	keep.append(Vector3(Places.FOUNTAIN.x, 1.7, Places.FOUNTAIN.z))
+	for circle in keep:
+		var nearest := Vector2(
+			clampf(circle.x, Places.SANDPIT.x - Places.SANDPIT_HALF, Places.SANDPIT.x + Places.SANDPIT_HALF),
+			clampf(circle.z, Places.SANDPIT.z - Places.SANDPIT_HALF, Places.SANDPIT.z + Places.SANDPIT_HALF)
+		)
+		if nearest.distance_to(Vector2(circle.x, circle.z)) < circle.y + 0.3:
+			clear = false
+	_expect(clear, "the sandpit overlaps no bench, bin, lamp, fountain or the slide's run-out")
+	var seat := places.seat_positions()[0]
+	_expect(seat.y - spot.y - Places.MAT_HEIGHT > 0.6, "a swing at rest hangs %.2f m clear of the mat" % (seat.y - spot.y - Places.MAT_HEIGHT))
+
+	# The platform's rails are met crossing it, and the struts stand on the ground.
+	var platform_at := Vector3(Places.SLIDE_TOP.x, Places.SLIDE_TOP.y + 0.5, Places.SLIDE_TOP.z - 0.65)
+	var rail := space.intersect_ray(PhysicsRayQueryParameters3D.create(
+		spot + platform_at, spot + platform_at + Vector3(1.5, 0.0, 0.0), TerrainSpec.LAYER_PROPS
+	))
+	_expect(not rail.is_empty() and absf(float(rail["position"].x) - spot.x - (Places.SLIDE_TOP.x + 0.61)) < 0.03, "a child walking off the side of the platform meets a rail")
+	var strut := space.intersect_ray(PhysicsRayQueryParameters3D.create(
+		spot + Vector3(Places.SLIDE_FOOT.x + 1.0, 0.1, Places.SLIDE_FOOT.z + Places.SLIDE_STRUT_Z),
+		spot + Vector3(Places.SLIDE_FOOT.x, 0.1, Places.SLIDE_FOOT.z + Places.SLIDE_STRUT_Z), TerrainSpec.LAYER_PROPS
+	))
+	_expect(not strut.is_empty(), "the slide's lip stands on a strut, drawn and solid")
+
+	# And the ride still goes: a real child carried down the slide the way
+	# main.gd carries one, with the rails and struts in place, at both rates.
+	var ground := StaticBody3D.new()
+	ground.collision_layer = TerrainSpec.LAYER_GROUND
+	var ground_shape := CollisionShape3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(80.0, 1.0, 80.0)
+	ground_shape.shape = slab
+	ground_shape.position = spot - Vector3(0.0, 0.5, 0.0)
+	ground.add_child(ground_shape)
+	get_root().add_child(ground)
+	for rate: int in [60, 30]:
+		var dt := 1.0 / float(rate)
+		var child := Player.new()
+		get_root().add_child(child)
+		child.global_position = places.slide_top() + Vector3(0.0, 0.05, 0.0)
+		await physics_frame
+		var top := places.slide_top()
+		var foot := places.slide_foot()
+		var journey := top.distance_to(foot)
+		var along := Vector3(foot.x - top.x, 0.0, foot.z - top.z).normalized()
+		var slid := 0.0
+		var elapsed := 0.0
+		var finished := false
+		while elapsed < 12.0 and not finished:
+			elapsed += dt
+			var pace := minf(Places.SLIDE_SPEED, Places.SLIDE_ACCEL * elapsed)
+			if slid > journey:
+				pace = Places.SLIDE_SPEED * (1.0 - clampf((slid - journey) / Places.SLIDE_RUN_OUT, 0.0, 1.0))
+			slid += pace * dt
+			if slid <= journey:
+				child.carried_to = top.lerp(foot, slid / journey) + Vector3.UP * 0.06
+			else:
+				var over := foot + along * minf(slid - journey, Places.SLIDE_RUN_OUT)
+				over.y = field.height_at(over.x, over.z)
+				child.carried_to = over
+			child.is_carried = true
+			child._physics_process(dt)
+			await physics_frame
+			finished = slid > journey and pace < 0.5
+		var end := child.global_position - spot
+		_expect(finished and absf(end.x - Places.SLIDE_FOOT.x) < 0.1 and end.z > Places.SLIDE_FOOT.z + 0.8,
+			"at %d frames a second a child comes down the slide in %.1f s and out between the struts, at z=%.2f" % [rate, elapsed, end.z])
+		child.queue_free()
+	ground.queue_free()
+	places.queue_free()
+
+## The screenshot tool builds its own interface through Wiring.connect_hud, and
+## when the snack, lantern and ticket buttons were added it was not told: every
+## --player capture printed six red errors. A console that always has errors in
+## it hides the one that matters, so the tool must name every handler the real
+## wiring asks for.
+func _check_the_screenshot_tool_wires_every_handler() -> void:
+	print("the screenshot tool supplies every handler Wiring asks for")
+	var source := FileAccess.get_file_as_string("res://src/dev/capture.gd")
+	var missing := PackedStringArray()
+	for handler: StringName in Wiring.HANDLERS:
+		if not source.contains('&"%s":' % handler):
+			missing.append(String(handler))
+	_expect(missing.is_empty(), "capture.gd supplies every handler (missing: %s)" % ", ".join(missing))
+
+## look_at with a view direction parallel to up is undefined and Godot warns
+## about it. The rig is built before its spring arm has settled, so for one
+## frame the tip can sit straight above or below the aim point; the camera
+## must then keep its turn, and must still turn for an ordinary view.
+func _check_the_camera_is_not_pointed_straight_up_or_down() -> void:
+	print("the camera is not turned straight up or down")
+	var player := Player.new()
+	get_root().add_child(player)
+	var rig := CameraRig.new(player)
+	player.add_child(rig)
+	await process_frame
+	var before := rig.camera.global_transform.basis
+	rig.camera.global_position = Vector3(0.0, 10.0, 0.0)
+	rig._aim = Vector3.ZERO
+	rig._point_camera_at_aim()
+	_expect(rig.camera.global_transform.basis.is_equal_approx(before), "a view straight down leaves the camera as it was")
+	rig.camera.global_position = Vector3(0.0, 10.0, 10.0)
+	rig._point_camera_at_aim()
+	_expect(not rig.camera.global_transform.basis.is_equal_approx(before), "an ordinary view still turns the camera")
+	player.queue_free()
+
+## The shipped launcher icons are read as the raw files a phone will receive,
+## not as imported resources, so the check compares the pixels that really ship.
+## Godot prints a warning when that is asked of a res:// path, because the
+## raw file is not in an exported build; the real path on disk is not a
+## resource path and says nothing, and this only ever runs from the source tree.
+func _load_png_file(path: String) -> Image:
+	return Image.load_from_file(ProjectSettings.globalize_path(path))
+
+## An arrow in vertical flight is parallel to "up", and looking_at prints a
+## warning (718 of them in one run) and chooses a roll at random. It must be
+## pointed along its flight all the same, with a sound basis.
+func _check_an_arrow_in_vertical_flight_still_points_along_it() -> void:
+	print("an arrow in vertical flight points along it")
+	var field := HeightField.new(20260903)
+	var archery := Archery.new(field)
+	get_root().add_child(archery)
+	archery.stand_up(Vector3(0.0, 0.0, 0.0), Vector3.FORWARD)
+	var arrow: Dictionary = {
+		"at": Vector3(0.0, 50.0, 0.0), "velocity": Vector3.UP * 20.0, "age": 0.0,
+		"landed": false, "rest": 0.0, "node": archery._build_arrow(),
+	}
+	archery._arrows.append(arrow)
+	archery._physics_process(1.0 / 120.0)
+	var node: Node3D = arrow["node"]
+	var heading := -node.transform.basis.z
+	_expect(heading.dot(Vector3.UP) > 0.999, "it points straight up while it climbs")
+	_expect(node.transform.basis.orthonormalized().is_equal_approx(node.transform.basis), "with a sound, unskewed basis")
+	archery.queue_free()
+
+## How the wheeled machines are ridden: how they pick up speed, stop, turn and
+## lean, measured by driving a real Player over a flat floor with the stick held,
+## at 60 and at 30 physics ticks a second, because phones run at both and a
+## machine whose braking depended on the tick rate would feel different on every
+## one of them.
+##
+## The numbers it protects were measured before they were changed: the bicycle
+## reached nine tenths of its speed in 0.83 s and stopped in 1.05 s from full
+## speed (9 m/s squared), which for a three-year-old is a jerk rather than a
+## ride; the quad leaned into corners exactly as far as the bicycle did, which
+## on four wheels reads as a toy tipping; and the bicycle leaned only 6.5
+## degrees at full lock, too little to be seen from the saddle.
+func _check_the_wheeled_machines_pull_away_stop_turn_and_lean_as_they_should() -> void:
+	print("the wheeled machines pull away, stop, turn and lean as they should")
+	var floor_body := StaticBody3D.new()
+	var floor_shape := CollisionShape3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(4000.0, 2.0, 4000.0)
+	floor_shape.shape = slab
+	floor_body.add_child(floor_shape)
+	floor_body.position = Vector3(0.0, -1.0, 0.0)
+	get_root().add_child(floor_body)
+	await process_frame
+	var fastest := 0.0
+	var results: Dictionary = {}
+	for hz: int in [60, 30]:
+		Engine.physics_ticks_per_second = hz
+		var dt := 1.0 / float(hz)
+		for kind: StringName in [MountKinds.BICYCLE, MountKinds.QUAD, MountKinds.MOTORCYCLE]:
+			var player := Player.new()
+			get_root().add_child(player)
+			player.global_position = Vector3(0.0, 0.1, 0.0)
+			player.riding = kind
+			player.held_at_height = Player.NOT_HELD
+			var top := MountKinds.speed(kind)
+			# Pulling away with the stick at the rim.
+			Input.action_press(InputActions.MOVE_FORWARD)
+			var elapsed := 0.0
+			var reaches := -1.0
+			var peak := 0.0
+			for _tick in hz * 6:
+				player._physics_process(dt)
+				elapsed += dt
+				var pace := Vector2(player.velocity.x, player.velocity.z).length()
+				peak = maxf(peak, pace)
+				if reaches < 0.0 and pace >= 0.9 * top:
+					reaches = elapsed
+			fastest = maxf(fastest, peak)
+			# Braking: the stick pulled back at full speed.
+			Input.action_release(InputActions.MOVE_FORWARD)
+			Input.action_press(InputActions.MOVE_BACK)
+			var heading := Vector3(-sin(player._ride_heading), 0.0, -cos(player._ride_heading))
+			var last := Vector3(player.velocity.x, 0.0, player.velocity.z).dot(heading)
+			var stopped_in := -1.0
+			var stopped_over := 0.0
+			var hardest := 0.0
+			elapsed = 0.0
+			for _tick in hz * 4:
+				player._physics_process(dt)
+				elapsed += dt
+				var along := Vector3(player.velocity.x, 0.0, player.velocity.z).dot(heading)
+				if stopped_in < 0.0:
+					stopped_over += maxf(along, 0.0) * dt
+					hardest = maxf(hardest, (last - along) / dt)
+					if along <= 0.05:
+						stopped_in = elapsed
+				last = along
+			Input.action_release(InputActions.MOVE_BACK)
+			# Full lock at speed: the circle it sweeps.
+			player.velocity = Vector3.ZERO
+			Input.action_press(InputActions.MOVE_FORWARD)
+			for _tick in hz * 6:
+				player._physics_process(dt)
+			var before := player._ride_heading
+			Input.action_press(InputActions.MOVE_RIGHT)
+			for _tick in hz * 3:
+				player._physics_process(dt)
+			var rate := absf(player._ride_heading - before) / 3.0
+			var circling := Vector2(player.velocity.x, player.velocity.z).length()
+			var radius := circling / maxf(rate, 0.001)
+			var banked := absf(player.ride_bank())
+			Input.action_release(InputActions.MOVE_FORWARD)
+			Input.action_release(InputActions.MOVE_RIGHT)
+			# And standing still with the bars hard over: it must not spin.
+			player.velocity = Vector3.ZERO
+			for _tick in hz:
+				player._physics_process(dt)
+			var rest_heading := player._ride_heading
+			Input.action_press(InputActions.MOVE_RIGHT)
+			for _tick in hz:
+				player._physics_process(dt)
+			Input.action_release(InputActions.MOVE_RIGHT)
+			var spun := absf(player._ride_heading - rest_heading)
+			results["%s%d" % [kind, hz]] = {
+				"reaches": reaches, "stopped_in": stopped_in, "distance": stopped_over,
+				"hardest": hardest, "radius": radius, "bank": banked, "spun": spun,
+			}
+			_expect(
+				reaches > 1.2 and reaches < 3.0,
+				"a %s at %d ticks reaches nine tenths of its speed in %.2f s: gentle, not sluggish" % [kind, hz, reaches]
+			)
+			_expect(
+				peak <= top * 1.15 + 0.05,
+				"and no faster than before: %.2f m/s against the %.2f it was" % [peak, top * 1.15]
+			)
+			_expect(
+				stopped_in > 1.0 and stopped_in < 3.0 and hardest < 12.0,
+				"braking from full speed takes %.2f s and %.1f m, at most %.1f m/s squared: no instant stop" % [
+					stopped_in, stopped_over, hardest
+				]
+			)
+			_expect(
+				radius > 3.0 and radius < 12.0,
+				"full lock at %.1f m/s sweeps a circle %.1f m across its radius" % [circling, radius]
+			)
+			_expect(spun < 0.3, "bars hard over standing still turn it %.2f rad in a second: it does not spin" % spun)
+			player.queue_free()
+	Engine.physics_ticks_per_second = 60
+	# The quad is slower to pull away than it was, the bicycle slower again.
+	_expect(
+		results["bicycle60"]["reaches"] > 1.2 and results["motorcycle60"]["reaches"] > 1.2,
+		"every machine takes over a second to reach speed"
+	)
+	_expect(fastest <= MountKinds.speed(MountKinds.MOTORCYCLE) * 1.15 + 0.05, "the fastest machine is not faster than it was: %.2f m/s" % fastest)
+	# The same at both tick rates, within a tenth.
+	for kind: StringName in [MountKinds.BICYCLE, MountKinds.QUAD, MountKinds.MOTORCYCLE]:
+		var fast: Dictionary = results["%s60" % kind]
+		var slow: Dictionary = results["%s30" % kind]
+		_expect(
+			absf(float(fast["reaches"]) - float(slow["reaches"])) < 0.15 * float(fast["reaches"])
+			and absf(float(fast["radius"]) - float(slow["radius"])) < 0.15 * float(fast["radius"])
+			and absf(float(fast["distance"]) - float(slow["distance"])) < 0.15 * float(fast["distance"]),
+			"a %s pulls, stops and turns the same at 30 ticks as at 60" % kind
+		)
+	# Leaning: the bicycle plainly, the quad not at all, nothing past what reads as falling.
+	var bicycle_bank := float(results["bicycle60"]["bank"])
+	var quad_bank := float(results["quad60"]["bank"])
+	_expect(
+		bicycle_bank > deg_to_rad(8.0) and bicycle_bank < deg_to_rad(28.0),
+		"the bicycle leans %.1f degrees into a full-lock corner" % rad_to_deg(bicycle_bank)
+	)
+	_expect(quad_bank < deg_to_rad(0.5), "and the quad leans %.1f degrees, which is none" % rad_to_deg(quad_bank))
+	floor_body.queue_free()
+
+## The parts of a ridden machine keep time with the ground: wheels turn at the
+## rate that rolling without slipping demands, a bicycle's pedals turn by the
+## gearing and stop when the child coasts, the bars and the quad's front wheels go
+## over with the steering, a quad rides on springs over a bump and a bicycle does
+## not, and the body leans only for the machines that lean.
+func _check_the_parts_of_a_ridden_machine_keep_time_with_the_ground() -> void:
+	print("the parts of a ridden machine keep time with the ground")
+	await process_frame
+	var field := HeightField.new(20260903)
+	for hz: int in [60, 30]:
+		var dt := 1.0 / float(hz)
+		for kind: StringName in [MountKinds.BICYCLE, MountKinds.QUAD]:
+			var mounts := Mounts.new(field)
+			get_root().add_child(mounts)
+			var camp := Vector3(-20.0, field.height_at(-20.0, 18.0), 18.0)
+			mounts.place(kind, camp)
+			mounts.mount(kind)
+			var pace := 6.0
+			var at := camp
+			# Warm up so the smoothed pace has settled.
+			for _frame in hz * 2:
+				at.z -= pace * dt
+				mounts.carry(at, 0.0)
+				mounts._process(dt)
+			var wheel_before := mounts.wheel_phase()
+			var crank_before := mounts.crank_phase()
+			var wheel_turned := 0.0
+			var crank_turned := 0.0
+			var last_wheel := wheel_before
+			var last_crank := crank_before
+			var ground_covered := 0.0
+			for _frame in hz * 2:
+				at.z -= pace * dt
+				ground_covered += pace * dt
+				mounts.carry(at, 0.0)
+				mounts._process(dt)
+				wheel_turned += fposmod(mounts.wheel_phase() - last_wheel, TAU)
+				crank_turned += fposmod(mounts.crank_phase() - last_crank, TAU)
+				last_wheel = mounts.wheel_phase()
+				last_crank = mounts.crank_phase()
+			var radius := MountKinds.wheel_radius(kind)
+			_expect(
+				absf(wheel_turned - ground_covered / radius) < 0.05 * ground_covered / radius,
+				"a %s's wheels turn %.1f rad over %.1f m of ground at %d ticks: %.1f rad for a %.2f m wheel" % [
+					kind, wheel_turned, ground_covered, hz, ground_covered / radius, radius
+				]
+			)
+			if kind == MountKinds.BICYCLE:
+				_expect(mounts.pedalling(), "a bicycle holding its speed is being pedalled")
+				_expect(
+					absf(crank_turned - wheel_turned * MountKinds.PEDAL_RATIO) < 0.05 * wheel_turned * MountKinds.PEDAL_RATIO,
+					"its cranks turn %.2f of a wheel turn at %d ticks: %.1f rad against %.1f" % [
+						MountKinds.PEDAL_RATIO, hz, crank_turned, wheel_turned * MountKinds.PEDAL_RATIO
+					]
+				)
+				var cranks := mounts.node_of(kind).get_node_or_null("Cranks") as Node3D
+				_expect(
+					cranks != null and absf(angle_difference(cranks.rotation.x, mounts.crank_phase())) < 0.001,
+					"the cranks drawn are at the phase the rider's feet are told"
+				)
+				# Coasting: slowing down by more than a freewheel's drag lets the pedals rest.
+				var rest := mounts.crank_phase()
+				var slowing := pace
+				for _frame in hz * 2:
+					slowing = maxf(slowing - 3.0 * dt, 1.0)
+					at.z -= slowing * dt
+					mounts.carry(at, 0.0)
+					mounts._process(dt)
+				_expect(
+					not mounts.pedalling() and absf(mounts.crank_phase() - rest) < PI,
+					"slowing down lets the pedals rest: not pedalling, cranks turned %.2f rad while the wheels rolled on" % absf(mounts.crank_phase() - rest)
+				)
+			mounts.queue_free()
+
+	# Steering: the bars and the quad's front wheels.
+	var steered := Mounts.new(field)
+	get_root().add_child(steered)
+	var spot := Vector3(-20.0, field.height_at(-20.0, 18.0), 18.0)
+	steered.place(MountKinds.QUAD, spot)
+	steered.place(MountKinds.BICYCLE, spot + Vector3(6.0, 0.0, 0.0))
+	steered.mount(MountKinds.QUAD)
+	steered.lean(0.0, 0.4)
+	steered.carry(spot, 0.0)
+	steered._process(1.0 / 60.0)
+	var quad_node := steered.node_of(MountKinds.QUAD)
+	_expect(
+		absf((quad_node.get_node("Wheel0") as Node3D).rotation.y - 0.4) < 0.001
+		and absf((quad_node.get_node("Wheel1") as Node3D).rotation.y - 0.4) < 0.001,
+		"the quad's front wheels go over with the bars"
+	)
+	_expect(
+		absf((quad_node.get_node("Wheel2") as Node3D).rotation.y) < 0.001
+		and absf((quad_node.get_node("Wheel3") as Node3D).rotation.y) < 0.001,
+		"and its back wheels stay straight"
+	)
+	steered.dismount(spot, 0.0)
+	steered.mount(MountKinds.BICYCLE)
+	steered.lean(0.0, -0.5)
+	steered.carry(spot + Vector3(6.0, 0.0, 0.0), 0.0)
+	steered._process(1.0 / 60.0)
+	var bike_node := steered.node_of(MountKinds.BICYCLE)
+	var steer := bike_node.get_node("Steer") as Node3D
+	var front_wheel := bike_node.get_node("Wheel0") as Node3D
+	var swung := front_wheel.position.x
+	_expect(
+		absf(steer.transform.basis.get_rotation_quaternion().get_angle() - 0.5) < 0.01,
+		"the handlebars, forks and front wheel go over together by %.2f rad" % steer.transform.basis.get_rotation_quaternion().get_angle()
+	)
+	_expect(
+		absf(swung) > 0.005 and absf(bike_node.get_node("Wheel1").position.x) < 0.0001,
+		"the front wheel swings %.3f m round the head tube with the bars and the back wheel stays put" % swung
+	)
+	# Leaning: told to lean, a ridden machine lays over about its tyres, and the
+	# ground's own up is what the rider is told.
+	steered.lean(0.0, 0.0)
+	steered.carry(spot + Vector3(6.0, 0.0, 0.0), 0.0)
+	var upright := bike_node.transform.basis.y
+	steered.lean(0.2, 0.0)
+	steered.carry(spot + Vector3(6.0, 0.0, 0.0), 0.0)
+	var laid := bike_node.transform.basis.y
+	var lies_over := acos(clampf(laid.dot(upright), -1.0, 1.0))
+	_expect(
+		absf(lies_over - 0.2) < 0.02,
+		"a bicycle told to lean 0.2 rad lies over by %.2f rad more than on the same ground upright" % lies_over
+	)
+	_expect(
+		steered.up_of(MountKinds.BICYCLE).dot(Vector3.UP) > 0.98,
+		"and the rider is handed the ground's up, not the lean, which they lean by themselves"
+	)
+	steered.dismount(spot, 0.0)
+	_expect(
+		absf((bike_node.get_node("Steer") as Node3D).transform.basis.get_rotation_quaternion().get_angle()) < 0.001
+		and absf(bike_node.transform.basis.y.dot(Vector3.UP) - 1.0) < 0.05,
+		"got off, the bicycle stands with its bars straight and upright"
+	)
+	steered.queue_free()
+
+	# Suspension: a bump moves a quad's body on its springs and it settles; a
+	# bicycle is rigid.
+	for hz: int in [60, 30]:
+		var dt := 1.0 / float(hz)
+		var sprung := Mounts.new(field)
+		get_root().add_child(sprung)
+		sprung.place(MountKinds.QUAD, spot)
+		sprung.place(MountKinds.BICYCLE, spot + Vector3(6.0, 0.0, 0.0))
+		var deflection := 0.0
+		var late := 0.0
+		sprung.mount(MountKinds.QUAD)
+		sprung._carried_to = spot
+		for frame in hz * 3:
+			# A kerb: the ground rises fifteen centimetres in a tenth of a second
+			# a second in, and stays there.
+			var rise := clampf((float(frame) * dt - 1.0) / 0.1, 0.0, 1.0) * 0.15
+			sprung._carried_to = spot + Vector3(0.0, rise, 0.0)
+			sprung._process(dt)
+			deflection = maxf(deflection, absf(sprung.saddle_lift()))
+			if frame >= hz * 3 - 1:
+				late = absf(sprung.saddle_lift())
+		_expect(
+			deflection > 0.005 and deflection <= 0.05 + 0.0001,
+			"over a kerb at %d ticks a quad's body moves %.3f m on its springs, within its travel" % [hz, deflection]
+		)
+		_expect(late < 0.004, "and has settled by the end: %.4f m" % late)
+		sprung.dismount(spot, 0.0)
+		sprung.mount(MountKinds.BICYCLE)
+		var rigid := 0.0
+		sprung._carried_to = spot + Vector3(6.0, 0.0, 0.0)
+		for frame in hz:
+			var rise := clampf((float(frame) * dt - 0.3) / 0.1, 0.0, 1.0) * 0.15
+			sprung._carried_to = spot + Vector3(6.0, rise, 0.0)
+			sprung._process(dt)
+			rigid = maxf(rigid, absf(sprung.saddle_lift()))
+		_expect(rigid == 0.0, "and a bicycle does not bob on a kerb")
+		sprung.queue_free()
+
+## A bicycle has no engine; it is heard as tyres and a freewheel, a bell when the
+## child sets off, and a quad's engine note rises with its speed.
+func _check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine() -> void:
+	print("a bicycle is heard as tyres and a quad as an engine")
+	_expect(
+		MountKinds.engine_effort(MountKinds.BICYCLE, 8.0) < 0.0,
+		"a bicycle has no engine to tell the sound about, at any speed"
+	)
+	_expect(MountKinds.engine_effort(MountKinds.HORSE, 8.0) < 0.0, "nor does a horse")
+	var slow := MountKinds.engine_effort(MountKinds.QUAD, 3.0)
+	var quick := MountKinds.engine_effort(MountKinds.QUAD, 10.0)
+	_expect(
+		slow >= 0.0 and quick > slow and quick <= 1.0,
+		"a quad's revs rise with its speed: %.2f at 3 m/s, %.2f at 10 m/s" % [slow, quick]
+	)
+	var sound := Ambience.new()
+	get_root().add_child(sound)
+	for _frame in 20:
+		sound.engine(MountKinds.engine_effort(MountKinds.BICYCLE, 6.0), 0.05)
+		sound.cycling(0.7, false, 0.05)
+	_expect(not sound.engine_is_running(), "a ridden bicycle starts no engine")
+	_expect(sound.cycling_is_heard(), "and is heard rolling: tyres and the freewheel's tick")
+	var pitch_slow := sound._ticks.pitch_scale
+	for _frame in 20:
+		sound.cycling(1.0, false, 0.05)
+	_expect(sound._ticks.pitch_scale > pitch_slow * 1.2, "the tick comes faster as the wheel does")
+	for _frame in 20:
+		sound.cycling(1.0, true, 0.05)
+	var chain_db := sound._ticks.volume_db
+	for _frame in 20:
+		sound.cycling(1.0, false, 0.05)
+	_expect(sound._ticks.volume_db > chain_db + 6.0, "the freewheel ticks louder coasting than the chain does pedalling")
+	for _frame in 30:
+		sound.cycling(0.0, true, 0.05)
+	_expect(not sound.cycling_is_heard(), "a bicycle standing still is silent")
+	for _frame in 10:
+		sound.cycling(0.8, true, 0.05)
+	_expect(sound.cycling_is_heard(), "and rolling again is heard")
+	for _frame in 30:
+		sound.cycling(-1.0, false, 0.05)
+	_expect(not sound.cycling_is_heard(), "got off, the sound fades away rather than lingering")
+	var bell := sound._bell.stream as AudioStreamWAV
+	_expect(
+		bell.loop_mode == AudioStreamWAV.LOOP_DISABLED and bell.data.size() / 2 > Ambience.RATE / 2,
+		"the bell is struck once, not looped, and rings for over half a second"
+	)
+	var loudest := 0
+	for i in bell.data.size() / 2:
+		loudest = maxi(loudest, absi(bell.data.decode_s16(i * 2)))
+	_expect(loudest > 4000 and loudest < 32000, "and is audible without clipping (peak %d of 32767)" % loudest)
+	sound.queue_free()
+
+## The pedals the rider's feet are on are the ones drawn, and the bicycle stays
+## a few meshes and warm colours.
+func _check_the_riders_feet_are_on_the_bicycles_pedals_and_it_is_drawn_warm() -> void:
+	print("the rider's feet are on the bicycle's pedals and it is drawn warm")
+	_expect(
+		is_equal_approx(float(SeatPose.POSES[&"bicycle"]["pedal_radius"]), MountKinds.PEDAL_REACH),
+		"the circle the feet go round is the length of the cranks drawn"
+	)
+	var rig := Character.build(2, 1, 1, Visitors.SHIRTS[2])
+	var motion := RigMotion.new(rig)
+	motion.seat = MountKinds.BICYCLE
+	motion.pedal_phase = 1.3
+	motion.gait = 6.0
+	for _i in 90:
+		motion.step(1.0 / 60.0)
+	_expect(absf(motion._pedal - 1.3) < 0.0001, "the rider's feet are put at the crank's phase, not a pace of their own")
+	motion.pedal_phase = -1.0
+	var before := motion._pedal
+	for _i in 30:
+		motion.step(1.0 / 60.0)
+	_expect(motion._pedal > before, "and with no word from the bicycle they pedal as they did")
+	rig.queue_free()
+	for kind: StringName in [MountKinds.BICYCLE, MountKinds.QUAD]:
+		var node := MountKinds.build_node(kind)
+		var meshes := 0
+		for child in node.find_children("*", "MeshInstance3D", true, false):
+			meshes += 1
+		_expect(meshes <= 7, "a %s is drawn in %d meshes, a few at most" % [kind, meshes])
+		node.free()
+	var frame := MountKinds.colour(MountKinds.BICYCLE)
+	_expect(frame.r > frame.b + 0.3 and frame.g >= frame.b, "the bicycle's red reads red under the sky light")
+	var tan := Color(0.62, 0.38, 0.20)
+	_expect(tan.r > tan.b and tan.g >= tan.b, "and its saddle reads warm")
 

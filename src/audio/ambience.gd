@@ -95,6 +95,11 @@ func _init() -> void:
 	_crickets = _voice(_make_crickets())
 	_engine = _voice(_make_engine())
 	_exhaust = _voice(_make_exhaust())
+	_tyres = _voice(_make_tyres())
+	_ticks = _voice(_make_freewheel())
+	_bell = _voice(_make_bell())
+	# A bell is struck, not looped.
+	_bell.stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
 
 ## How loud the engine is under the rider, and how far its pitch rises between
 ## idling and full pelt. Loud: the whole point of the machine is that it is
@@ -188,6 +193,128 @@ const ENGINE_FADE := 0.35
 const ENGINE_FADE_IN := 0.15
 var _engine_gain := 0.0
 var _engine_heavy := false
+
+## A bicycle has no engine, and is heard as what it is: tyres on grass, and the
+## soft tick of the freewheel when nobody is pedalling. Both come up and die away
+## over a quarter of a second, like the engine does, so that getting on or off
+## is not a click.
+const TYRE_DB := -22.0
+const TICK_DB := -19.0
+const CYCLE_FADE := 0.25
+var _tyres: AudioStreamPlayer
+var _ticks: AudioStreamPlayer
+var _bell: AudioStreamPlayer
+var _cycle_gain := 0.0
+var _cycle_speed := 0.0
+var _cycle_coasting := false
+
+## Called every frame with how fast the bicycle is going, from 0 for one standing
+## still to 1 for one at its top speed, and -1 for no bicycle at all; and
+## whether the child is pedalling (the freewheel only ticks when they are not).
+## The tick's rate rises with the speed because the loop is played faster, as
+## the wheel is.
+func cycling(speed: float, pedalling: bool, delta := 0.0) -> void:
+	if speed < 0.0:
+		_cycle_gain = 0.0 if delta <= 0.0 else maxf(_cycle_gain - delta / CYCLE_FADE, 0.0)
+	else:
+		_cycle_gain = 1.0 if delta <= 0.0 else minf(_cycle_gain + delta / CYCLE_FADE, 1.0)
+		var weight := 1.0 if delta <= 0.0 else clampf(delta * 6.0, 0.0, 1.0)
+		_cycle_speed = lerpf(_cycle_speed, clampf(speed, 0.0, 1.0), weight)
+		_cycle_coasting = not pedalling
+	if _cycle_gain <= 0.0:
+		_apply(_tyres, 0.0, TYRE_DB)
+		_apply(_ticks, 0.0, TICK_DB)
+		_cycle_speed = 0.0
+		return
+	# Nothing at a standstill: a bicycle at rest is silent, and the hiss rises
+	# with the pace rather than switching on with the first inch.
+	var rolling := smoothstep(0.02, 0.25, _cycle_speed)
+	_tyres.pitch_scale = 0.8 + 0.5 * _cycle_speed
+	_apply(_tyres, (0.25 + 0.75 * _cycle_speed) * rolling * _cycle_gain, TYRE_DB)
+	# Ticking while coasting; a faint chain tick while pedalling.
+	_ticks.pitch_scale = 0.35 + 2.2 * _cycle_speed
+	_apply(_ticks, (1.0 if _cycle_coasting else 0.22) * rolling * _cycle_gain, TICK_DB)
+
+## Is the bicycle heard? For the checks.
+func cycling_is_heard() -> bool:
+	return _tyres.playing or _ticks.playing
+
+## Ring the bell: two quick strikes of a small bell.
+func bell() -> void:
+	_bell.volume_db = -11.0
+	_bell.play()
+
+## Tyres on grass: soft, low-passed noise, made to loop seamlessly by blending
+## the end of a longer run of noise back into the start.
+func _make_tyres() -> AudioStreamWAV:
+	var samples := RATE
+	var blend := 1500
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 707070
+	var raw := PackedFloat32Array()
+	raw.resize(samples + blend)
+	var low := 0.0
+	for i in raw.size():
+		low = lerpf(low, noise.randf_range(-1.0, 1.0), 0.22)
+		raw[i] = low
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		var v := raw[i]
+		if i < blend:
+			var w := float(i) / float(blend)
+			v = raw[i] * w + raw[samples + i] * (1.0 - w)
+		data.encode_s16(i * 2, int(clampf(v * 1.8, -1.0, 1.0) * 20000.0))
+	return _wrap(data)
+
+## The freewheel: a dozen small clicks a second, each a short ring of the pawl
+## with a little noise at its head, soft enough to sit under the tyres.
+func _make_freewheel() -> AudioStreamWAV:
+	var samples := RATE
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	var noise := RandomNumberGenerator.new()
+	noise.seed = 808080
+	var ticks := 12
+	var length := int(RATE * 0.012)
+	for tick in ticks:
+		var start := int(float(tick) / float(ticks) * float(samples))
+		var loudness := 1.0 if tick % 3 != 0 else 0.7
+		for i in length:
+			var t := float(i) / float(RATE)
+			var ring := sin(TAU * 2400.0 * t) * exp(-t * 700.0)
+			var tap := noise.randf_range(-1.0, 1.0) * exp(-t * 1400.0) * 0.4
+			values[start + i] += (ring + tap) * loudness * 0.5
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 30000.0))
+	return _wrap(data)
+
+## A bicycle bell: two strikes a seventh of a second apart, each a bright tone
+## with an inharmonic partial that dies faster, which is what makes it a bell
+## and not a beep.
+func _make_bell() -> AudioStreamWAV:
+	var samples := int(RATE * 0.9)
+	var values := PackedFloat32Array()
+	values.resize(samples)
+	for strike in 2:
+		var start := int(float(strike) * 0.14 * float(RATE))
+		var loudness := 1.0 if strike == 0 else 0.8
+		for i in samples - start:
+			var t := float(i) / float(RATE)
+			var swell := 1.0 - exp(-t * 1200.0)
+			var tone := (
+				sin(TAU * 2700.0 * t) * exp(-t * 6.0)
+				+ 0.5 * sin(TAU * 2700.0 * 2.76 * t) * exp(-t * 16.0)
+				+ 0.25 * sin(TAU * 2700.0 * 5.4 * t) * exp(-t * 30.0)
+			)
+			values[start + i] += tone * swell * loudness * 0.4
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+	for i in samples:
+		data.encode_s16(i * 2, int(clampf(values[i], -1.0, 1.0) * 30000.0))
+	return _wrap(data)
 
 ## Is the engine running? For the checks.
 func engine_is_running() -> bool:

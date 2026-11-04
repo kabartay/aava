@@ -112,6 +112,13 @@ var _sat: StringName = &""
 var _posed := false
 var _bounce := 0.0
 var _pedal := 0.0
+## Where the machine's cranks are, when it says (the bicycle does): the feet
+## are put on them rather than going round at a pace of their own, so a pedal
+## never leaves the sole of a foot. Negative for no word.
+var pedal_phase := -1.0
+## How far the bars are over, in radians (see Player.steer_angle): the hands go
+## with them.
+var steer := 0.0
 var _stroke := 0.0
 ## A swing: how far its seat is tipped, last frame (a pendulum's seat leans
 ## front-high at the front of its swing), whether that is known, and how much
@@ -504,7 +511,9 @@ func _seat_step(delta: float, sitting: bool) -> void:
 	var carry := clampf(gait / 3.0, 0.0, 1.0)
 	_bounce += (4.0 + 0.8 * gait) * delta
 	_stroke += (1.5 + 0.4 * gait) * delta
-	if gait > 0.3:
+	if pedal_phase >= 0.0:
+		_pedal = pedal_phase
+	elif gait > 0.3:
 		_pedal += gait * 1.1 * delta
 	# A horse's stride rocks the body over the hips. The hips themselves stay on
 	# the seat, which the horse lifts and lowers and the rider's carrier goes
@@ -577,6 +586,10 @@ func _seat_step(delta: float, sitting: bool) -> void:
 		var mirror := -1.0 if side == 0 else 1.0
 		# The left side is what the pose says, the right its mirror.
 		var hand_goal := Vector3(grip.x * -mirror, grip.y, grip.z)
+		# The bars turn about the head tube, so a hand on a grip goes with them:
+		# forward on the outside of the turn, back on the inside.
+		if style == &"pedal" and absf(steer) > 0.001:
+			hand_goal.z += -hand_goal.x * sin(steer) * 1.0
 		if side == 1 and meal_age >= 0.0 and pose.get("eats", false):
 			# The fork hand goes up to the mouth: a hand's breadth ahead of the
 			# neck and a little above it, turned with the body.

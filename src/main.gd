@@ -997,6 +997,7 @@ func _process(delta: float) -> void:
 		# went on droning at its last pitch until the ground under them
 		# had arrived.
 		ambience.engine(-1.0)
+		ambience.cycling(-1.0, false)
 		if world.terrain.has_ground_at(player.global_position):
 			player.set_physics_process(true)
 			_waiting_for_ground = false
@@ -1192,13 +1193,20 @@ func _process(delta: float) -> void:
 	# Measured against what the machine itself can do, so a quad at its own
 	# full pelt sounds like full pelt rather than like a motorcycle dawdling.
 	ambience.engine(
-		clampf(
-			Vector2(player.velocity.x, player.velocity.z).length()
-			/ MountKinds.speed(MountKinds.kind_of(riding) if with_an_engine else MountKinds.MOTORCYCLE),
-			0.0, 1.0
-		) if with_an_engine else -1.0,
+		MountKinds.engine_effort(riding, Vector2(player.velocity.x, player.velocity.z).length()),
 		delta,
 		on_the_quad
+	)
+	# A bicycle has no engine; it is heard as tyres, and as the freewheel when
+	# nobody is pedalling. Silent for everything else.
+	var on_the_bicycle := MountKinds.kind_of(riding) == MountKinds.BICYCLE
+	ambience.cycling(
+		clampf(
+			Vector2(player.velocity.x, player.velocity.z).length() / MountKinds.speed(MountKinds.BICYCLE),
+			0.0, 1.0
+		) if on_the_bicycle else -1.0,
+		world.mounts.pedalling(),
+		delta
 	)
 	# The mount is carried along under the rider rather than the rider being
 	# parented to it.
@@ -1209,12 +1217,14 @@ func _process(delta: float) -> void:
 		# rider by up to a tick of travel, a quarter of a metre on the
 		# motorcycle, and showed as jitter under the seat.
 		var drawn := player.drawn_pose()
+		world.mounts.lean(player.ride_bank(), player.steer_angle())
 		world.mounts.carry(drawn["at"], drawn["facing"])
 		# Told after it is carried, so the seat follows the ground the horse is
 		# lying on this frame rather than the ground it was on last one.
 		player.set_seat_up(world.mounts.up_of(player.riding))
 		player.saddle_lift = world.mounts.saddle_lift()
 		player.ride_stride = world.mounts.stride()
+		player.ride_pedal = world.mounts.crank_phase() if on_the_bicycle else -1.0
 	else:
 		player.saddle_lift = 0.0
 	_watch_the_turnstile()
@@ -2952,6 +2962,10 @@ func _on_ride() -> void:
 	# A machine starts out pointing the way the child is facing.
 	player.take_the_handlebars(player.facing_angle())
 	sounds.play(Sounds.Sound.JUMP, 0.8)
+	# A ring of the bell as the child sets off on a bicycle, because every
+	# child does it the moment they are on.
+	if MountKinds.kind_of(kind) == MountKinds.BICYCLE:
+		ambience.bell()
 	hud.announce(Text.format("say_mounted", [Text.of("mount_%s_on" % MountKinds.kind_of(kind))]), 2.0)
 
 ## Whether the axe, swung now, would fall on a tree a child planted. The same

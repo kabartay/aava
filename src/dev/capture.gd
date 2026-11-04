@@ -344,6 +344,11 @@ func _spawn_player() -> void:
 			&"shoot_release": func() -> void: pass,
 			&"visit": func() -> void: pass,
 			&"dam": func() -> void: pass,
+			# The snack, lantern and ticket buttons arrived after this table
+			# was written, and the screenshot tool reported them as unwired.
+			&"ticket": func() -> void: pass,
+			&"snack": func() -> void: pass,
+			&"lantern": func() -> void: pass,
 		}
 	)
 

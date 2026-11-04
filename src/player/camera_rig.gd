@@ -138,6 +138,19 @@ func _ready() -> void:
 	# Start settled, or the first frame shows the camera flying in from the origin.
 	camera.global_position = _tip.global_position
 	_aim = _player.global_position + Vector3.UP * (AIM_HEIGHT + _eye_lift)
+	_point_camera_at_aim()
+
+## Turn the camera towards the aim point, unless that would be straight up or
+## down. look_at is undefined when the view direction is parallel to the up
+## vector, and Godot prints a warning for it; on a rig that is built a frame
+## before its spring arm has settled the tip can sit exactly above the aim.
+## Skipping that one turn costs nothing, because the next frame points it.
+func _point_camera_at_aim() -> void:
+	var to_aim := _aim - camera.global_position
+	if to_aim.length_squared() < 0.04:
+		return
+	if absf(to_aim.normalized().dot(Vector3.UP)) > 0.9999:
+		return
 	camera.look_at(_aim, Vector3.UP)
 
 ## Looking out of the child's own eyes rather than over their shoulder.
@@ -333,8 +346,7 @@ func _process(delta: float) -> void:
 
 	var aim_target := anchor + Vector3.UP * (AIM_HEIGHT + _eye_lift)
 	_aim = _aim.lerp(aim_target, 1.0 - exp(-AIM_LAMBDA * delta))
-	if camera.global_position.distance_squared_to(_aim) > 0.04:
-		camera.look_at(_aim, Vector3.UP)
+	_point_camera_at_aim()
 
 	# A small widening at a run. Barely noticeable consciously, and the single
 	# cheapest way to make running feel faster than walking. Close in, the field
