@@ -29,6 +29,8 @@ enum Kind {
 	MAP, TOGETHER, BAG, SETTINGS,
 	DIVE, SURFACE,
 	NEW_GAME,
+	SOUND_AMBIENCE, SOUND_EFFECTS, SPEAKER_ON, SPEAKER_OFF,
+	TICK,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -153,6 +155,16 @@ func _draw() -> void:
 			_gear(box)
 		Kind.NEW_GAME:
 			_play_again(box)
+		Kind.SOUND_AMBIENCE:
+			_note(box)
+		Kind.SOUND_EFFECTS:
+			_sparkle(box)
+		Kind.SPEAKER_ON:
+			_speaker(box, true)
+		Kind.SPEAKER_OFF:
+			_speaker(box, false)
+		Kind.TICK:
+			_tick(box)
 
 ## The mark that turns a machine into "get off it": an arrow rising away from
 ## it, up and to the side, which is the way somebody actually leaves one.
@@ -1045,3 +1057,59 @@ func _talk(box: Rect2) -> void:
 	]), tint)
 	for dot in 3:
 		draw_circle(centre + Vector2((float(dot) - 1.0) * w * 0.42, 0.0), unit * 0.035, HOLE)
+
+## A musical note: the valley's ambience, in the grown-up's volume control.
+func _note(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var head := centre + Vector2(-unit * 0.1, unit * 0.2)
+	var points := PackedVector2Array()
+	for i in 20:
+		var angle := TAU * float(i) / 20.0
+		points.append(head + Vector2(cos(angle) * unit * 0.13, sin(angle) * unit * 0.1))
+	draw_colored_polygon(points, tint)
+	var top := head + Vector2(unit * 0.12, -unit * 0.5)
+	draw_line(head + Vector2(unit * 0.12, 0.0), top, tint, maxf(2.5, unit * 0.06))
+	draw_line(top, top + Vector2(unit * 0.2, unit * 0.14), tint, maxf(3.0, unit * 0.09))
+
+## A burst of sparks: the interface's own sounds, the coin and the chime.
+func _sparkle(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	for i in 4:
+		var angle := TAU * float(i) / 4.0
+		var reach := Vector2(cos(angle), sin(angle)) * unit * 0.3
+		draw_line(centre - reach * 0.25, centre + reach, tint, maxf(3.0, unit * 0.08))
+	for i in 4:
+		var angle := TAU * (float(i) + 0.5) / 4.0
+		var reach := Vector2(cos(angle), sin(angle)) * unit * 0.16
+		draw_line(centre + reach * 0.4, centre + reach, INK_SOFT, maxf(2.0, unit * 0.06))
+
+## A loudspeaker, with its waves while the sound is on and barred when it is off.
+func _speaker(box: Rect2, on: bool) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center() + Vector2(-unit * 0.08, 0.0)
+	draw_colored_polygon(PackedVector2Array([
+		centre + Vector2(-unit * 0.2, -unit * 0.1),
+		centre + Vector2(-unit * 0.08, -unit * 0.1),
+		centre + Vector2(unit * 0.1, -unit * 0.26),
+		centre + Vector2(unit * 0.1, unit * 0.26),
+		centre + Vector2(-unit * 0.08, unit * 0.1),
+		centre + Vector2(-unit * 0.2, unit * 0.1),
+	]), tint)
+	if on:
+		for ring in 2:
+			var radius := unit * (0.16 + 0.12 * float(ring))
+			draw_arc(centre + Vector2(unit * 0.1, 0.0), radius, -0.9, 0.9, 16, tint, maxf(2.5, unit * 0.055))
+	else:
+		_barred(box)
+
+## A tick, for "that is me, go": drawn, because a tick glyph is only as good as
+## the font that happens to carry it.
+func _tick(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	var thick := maxf(4.0, unit * 0.11)
+	var elbow := centre + Vector2(-unit * 0.08, unit * 0.2)
+	draw_line(centre + Vector2(-unit * 0.28, unit * 0.02), elbow, tint, thick)
+	draw_line(elbow, centre + Vector2(unit * 0.3, -unit * 0.22), tint, thick)

@@ -23,6 +23,11 @@ const RING := Color(1.0, 1.0, 1.0, 0.95)
 ## six-year-old, and a target a three-year-old tapping at random can hit.
 const DOT := 0.62
 
+## The row under the hairs in the wide layout, a unit tall and as wide as the
+## faces above it: the room the first-run panel's tick goes in, so that the
+## panel is exactly as tall as the colours beside it. Null in the stacked layout.
+var footer: HBoxContainer = null
+
 var _unit: float
 var _look: Array = [Character.SIMPLE, 0, 0]
 var _shirt := -1
@@ -35,10 +40,18 @@ var _skin_buttons: Array[Button] = []
 var _hair_buttons: Array[Button] = []
 var _shirt_buttons: Array[Button] = []
 
+## From this side a picker lays itself out wide: everything the same size, in
+## two blocks side by side, so that a target a child hits is the same large
+## square whatever it is the colour of. Below it, the older stacked layout
+## with its smaller dots, which the settings of a very small panel still use.
+const WIDE_FROM := 100.0
+
 ## `unit` is the side of a button, in pixels.
 func _init(unit := 96.0) -> void:
 	_unit = unit
 	add_theme_constant_override("separation", 8)
+	var wide := unit >= WIDE_FROM
+	var dot := _unit * (1.0 if wide else DOT)
 
 	var faces := HBoxContainer.new()
 	faces.add_theme_constant_override("separation", 6)
@@ -57,43 +70,63 @@ func _init(unit := 96.0) -> void:
 		faces.add_child(button)
 		_faces.append(face)
 		_face_buttons.append(button)
-	add_child(faces)
 
-	# Skin and hair on one line, a gap between: two small families of dots that
-	# a child tells apart by what they are the colour of.
+	# Skin and hair: on one line with a gap between in the stacked layout, one
+	# line each in the wide one, where one line of ten would not fit a phone.
 	var tones := HBoxContainer.new()
 	tones.add_theme_constant_override("separation", 6)
+	var hairs := tones if not wide else HBoxContainer.new()
+	hairs.add_theme_constant_override("separation", 6)
 	for i in Character.SKINS.size():
-		var dot := _button(Vector2(_unit * DOT, _unit * DOT), Character.SKINS[i], 100)
-		dot.tooltip_text = String(Character.SKIN_NAMES[i])
-		dot.pressed.connect(func() -> void: _pick(1, i))
-		tones.add_child(dot)
-		_skin_buttons.append(dot)
-	var gap := Control.new()
-	gap.custom_minimum_size = Vector2(_unit * 0.4, 1.0)
-	tones.add_child(gap)
+		var swatch := _button(Vector2(dot, dot), Character.SKINS[i], 100)
+		swatch.tooltip_text = String(Character.SKIN_NAMES[i])
+		swatch.pressed.connect(func() -> void: _pick(1, i))
+		tones.add_child(swatch)
+		_skin_buttons.append(swatch)
+	if not wide:
+		var gap := Control.new()
+		gap.custom_minimum_size = Vector2(_unit * 0.4, 1.0)
+		tones.add_child(gap)
 	for i in Character.HAIRS.size():
-		var dot := _button(Vector2(_unit * DOT, _unit * DOT), Character.HAIRS[i], 6)
-		dot.tooltip_text = String(Character.HAIR_NAMES[i])
-		dot.pressed.connect(func() -> void: _pick(2, i))
-		tones.add_child(dot)
-		_hair_buttons.append(dot)
-	add_child(tones)
+		var swatch := _button(Vector2(dot, dot), Character.HAIRS[i], 6 if not wide else 14)
+		swatch.tooltip_text = String(Character.HAIR_NAMES[i])
+		swatch.pressed.connect(func() -> void: _pick(2, i))
+		hairs.add_child(swatch)
+		_hair_buttons.append(swatch)
 
 	# Twelve colours in two rows of six rather than one of twelve: each is as big
 	# as a skin dot, which a small finger can hit, and the panel does not grow
-	# wider than the faces above it to make room.
+	# wider than the faces above it to make room. Wide, they are three across
+	# and four down beside the faces, skin and hair, which with the row under
+	# those three (the footer) are the same four rows tall.
 	var shirts := GridContainer.new()
-	shirts.columns = 6
+	shirts.columns = 3 if wide else 6
 	shirts.add_theme_constant_override("h_separation", 6)
 	shirts.add_theme_constant_override("v_separation", 6)
 	for i in Visitors.SHIRTS.size():
-		var swatch := _button(Vector2(_unit * DOT, _unit * DOT), Visitors.SHIRTS[i], 8)
+		var swatch := _button(Vector2(dot, dot), Visitors.SHIRTS[i], 8 if not wide else 14)
 		swatch.tooltip_text = String(Visitors.SHIRT_NAMES[i])
 		swatch.pressed.connect(func() -> void: shirt_chosen.emit(i))
 		shirts.add_child(swatch)
 		_shirt_buttons.append(swatch)
-	add_child(shirts)
+
+	if wide:
+		var block := HBoxContainer.new()
+		block.add_theme_constant_override("separation", 16)
+		var left := VBoxContainer.new()
+		left.add_theme_constant_override("separation", 6)
+		left.add_child(faces)
+		left.add_child(tones)
+		left.add_child(hairs)
+		footer = HBoxContainer.new()
+		left.add_child(footer)
+		block.add_child(left)
+		block.add_child(shirts)
+		add_child(block)
+	else:
+		add_child(faces)
+		add_child(tones)
+		add_child(shirts)
 	_refresh()
 
 ## A flat coloured button. The ring round the chosen one is drawn in its
@@ -137,6 +170,14 @@ func set_worn(colour: Color) -> void:
 func worn() -> Color:
 	return _worn
 
+## The colour of the clothes the faces are drawn in: the picked shirt, else what
+## the child's body really wears, else the old default.
+func cloth() -> Color:
+	var colour: Color = Visitors.SHIRTS[_shirt] if _shirt >= 0 else Player.DEFAULT_SHIRT
+	if _shirt < 0 and _worn.a > 0.0:
+		colour = _worn
+	return colour
+
 ## What is shown as chosen, for a second picker to start from and for the checks.
 func look() -> Array:
 	return _look
@@ -145,11 +186,9 @@ func shirt() -> int:
 	return _shirt
 
 func _refresh() -> void:
-	var cloth: Color = Visitors.SHIRTS[_shirt] if _shirt >= 0 else Player.DEFAULT_SHIRT
-	if _shirt < 0 and _worn.a > 0.0:
-		cloth = _worn
+	var dressed := cloth()
 	for i in _faces.size():
-		_faces[i].dress(Character.SKINS[_look[1]], Character.HAIRS[_look[2]], cloth)
+		_faces[i].dress(Character.SKINS[_look[1]], Character.HAIRS[_look[2]], dressed)
 		_ring(_face_buttons[i], i == _look[0])
 	for i in _skin_buttons.size():
 		_ring(_skin_buttons[i], i == _look[1])

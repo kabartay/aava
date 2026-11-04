@@ -20,6 +20,13 @@ const STICK_SIZE := 250.0
 const BUTTON := 96.0
 ## The space kept between neighbouring thumb targets, 8 dp on that phone.
 const TOP_GAP := 16.0
+## The side of a target meant for a three-year-old's finger: about 9 mm on a
+## 2400 by 1080 phone at 510 dpi (121 base pixels, scaled 1.5, at 0.0498 mm a
+## pixel). The 96 above is the grown-up's 48 dp, 7.2 mm there; a toddler's aim
+## needs more, so the look picker and the first-run tick are this size.
+const CHILD_TARGET := 121.0
+## Seconds an untouched first-run panel waits before it puts itself away.
+const OFFER_IDLE := 45.0
 
 ## The purse: a coin, a gap, and four digits at font 26.
 const PURSE_WIDTH := 132.0
@@ -135,6 +142,11 @@ signal fire_fed()
 signal slept()
 signal together_opened()
 
+## A grown-up changed the sound in the settings: how many bars are lit for the
+## valley's ambience and for the interface's sounds (1 to Mix.STEPS), and
+## whether everything is muted.
+signal sound_changed(ambience: int, effects: int, muted: bool)
+
 ## A child typed their name in the settings panel.
 signal name_chosen(name: String)
 
@@ -194,6 +206,16 @@ var _name_field: LineEdit
 ## The faces, colour dots and clothes of the settings panel, and of the panel a
 ## first run opens on while it is open.
 var _menu_picker: LookPicker
+## The settings' door to the same choice at full size: a face that looks like
+## the child, which opens the panel a first run opens on.
+var _me_button: Button
+var _me_face: CharacterIcon
+var _ambience_bars: VolumeBars
+var _effects_bars: VolumeBars
+var _mute_button: Button
+var _sound_ambience := Mix.STEPS
+var _sound_effects := Mix.STEPS
+var _sound_muted := false
 var _offer: PanelContainer
 var _offer_picker: LookPicker
 var _player_name := ""
@@ -258,6 +280,11 @@ var _asking: PanelContainer
 var _mic_notice: PanelContainer
 var _mic_words: Label
 var _mic_seconds := 0.0
+## How long the first-run panel has sat untouched. A child who cannot read, and
+## has not understood that the picture is a choice, must not be left looking at
+## a panel that covers the stick: after OFFER_IDLE seconds it puts itself away,
+## counting as asked, and the settings still hold the way back to it.
+var _offer_idle := 0.0
 var _question: Label
 var _dam_button: Button
 var _fire_button: Button
@@ -705,6 +732,11 @@ func _init() -> void:
 
 	_danger = _build_danger()
 	add_child(_danger)
+	# The settings and the grown-ups' room open down the left side, over the
+	# stick's corner: with the stick drawn on top, its ring covered the sound
+	# rows. While either is open there is nothing to walk with anyway.
+	_menu.visibility_changed.connect(_hide_the_stick_under_panels)
+	_danger.visibility_changed.connect(_hide_the_stick_under_panels)
 
 	# A toggle of its own, next to the menu, so the map can always be brought
 	# back. It shows its state: filled when the map is open.
@@ -883,11 +915,40 @@ func _build_menu() -> VBoxContainer:
 	column.add_theme_constant_override("separation", 8)
 	column.visible = false
 
+	# Who they are: a big picture of them, which opens the panel of faces, skin,
+	# hair and colours at full size — the same panel a first run opens on, with
+	# the same large targets — and the name beside it.
+	#
+	# The choices used to be listed here, in a row of small dots, in the one
+	# panel a child opens by tapping a gear. Four millimetres across, they were
+	# a game of chance for a small finger, and there was no room on a phone's
+	# height to make them bigger *and* keep the language, the volume and the
+	# parents' door in the same place. So the panel of choices has one home, and
+	# here is a door to it.
+	var who_row := HBoxContainer.new()
+	who_row.add_theme_constant_override("separation", int(TOP_GAP))
+	_me_button = Button.new()
+	_me_button.focus_mode = Control.FOCUS_NONE
+	_me_button.custom_minimum_size = Vector2(CHILD_TARGET, CHILD_TARGET)
+	_me_face = CharacterIcon.new(Character.SIMPLE)
+	_me_face.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_me_face.offset_left = 5.0
+	_me_face.offset_top = 5.0
+	_me_face.offset_right = -5.0
+	_me_face.offset_bottom = -5.0
+	_me_button.add_child(_me_face)
+	_me_button.pressed.connect(offer_look)
+	who_row.add_child(_me_button)
+
+	var who_column := VBoxContainer.new()
+	who_column.add_theme_constant_override("separation", 4)
+	who_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	who_row.add_child(who_column)
 	var who := Label.new()
 	who.text = Text.of("ui_your_name")
 	who.add_theme_font_size_override("font_size", 20)
 	who.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.55))
-	column.add_child(who)
+	who_column.add_child(who)
 
 	# The one place in this game with a keyboard in it.
 	#
@@ -900,7 +961,7 @@ func _build_menu() -> VBoxContainer:
 	_name_field.placeholder_text = Text.of("ui_name_hint")
 	_name_field.max_length = Profiles.MAX_NAME
 	_name_field.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_name_field.custom_minimum_size = Vector2(BUTTON * 2.2, BUTTON * 0.7)
+	_name_field.custom_minimum_size = Vector2(BUTTON * 3.4, BUTTON * 0.7)
 	_name_field.add_theme_font_size_override("font_size", 22)
 	# Tapping it has to be made to work by hand.
 	#
@@ -959,17 +1020,16 @@ func _build_menu() -> VBoxContainer:
 			_name_field.text = _player_name
 		elif _name_field.text.strip_edges() != _player_name:
 			name_chosen.emit(_name_field.text))
-	column.add_child(_name_field)
+	who_column.add_child(_name_field)
+	column.add_child(who_row)
 
-	# The shirt, under the name, because the two together are the answer to
-	# "which one is you" — the name floats over the head and the colour is what
-	# carries across a valley, where the name is a smudge.
-	# Who they are is picked below it, by pictures: five faces, skin and hair
-	# as dots, and the colour of the clothes. No words, because the children
-	# choosing cannot yet read them.
+	# What the panel of choices starts from, and holds the child's choice for
+	# the checks and for the panel that opens: never shown, its faces are the
+	# panel's.
 	_menu_picker = LookPicker.new(BUTTON * 0.8)
 	_menu_picker.look_chosen.connect(func(look: Array) -> void: look_chosen.emit(look))
 	_menu_picker.shirt_chosen.connect(func(which: int) -> void: shirt_chosen.emit(which))
+	_menu_picker.visible = false
 	column.add_child(_menu_picker)
 
 	var heading := Label.new()
@@ -1010,6 +1070,24 @@ func _build_menu() -> VBoxContainer:
 		flags.add_child(button)
 	column.add_child(flags)
 
+	# The volume, for a grown-up: two rows of bars that grow taller, one for the
+	# valley's ambience and one for the interface's own sounds, and a speaker
+	# that silences everything. Pictures, like the rest of this panel: a note,
+	# a burst of sparks and a loudspeaker.
+	#
+	# Every one is a hold. This panel is a gear's tap from a three-year-old, and
+	# a game that has gone silent, or deafening, under a finger that was only
+	# exploring is a game a parent thinks is broken. A grown-up holds a second.
+	_mute_button = _icon_button(ActionIcon.Kind.SPEAKER_ON)
+	_mute_button.custom_minimum_size = Vector2(BUTTON, BUTTON)
+	_hold(_mute_button, func() -> void: _sound_edited(_sound_ambience, _sound_effects, not _sound_muted))
+	_ambience_bars = _build_volume_row(ActionIcon.Kind.SOUND_AMBIENCE, func(lit: int) -> void:
+		_sound_edited(lit, _sound_effects, _sound_muted), _mute_button)
+	column.add_child(_ambience_bars.get_parent())
+	_effects_bars = _build_volume_row(ActionIcon.Kind.SOUND_EFFECTS, func(lit: int) -> void:
+		_sound_edited(_sound_ambience, lit, _sound_muted), null)
+	column.add_child(_effects_bars.get_parent())
+
 	# Playing together used to have a row here. It has its own button in the top
 	# bar now, beside the map and the microphone, and a second way in from two
 	# taps down inside the settings is just somewhere else for it to be.
@@ -1030,6 +1108,59 @@ func _build_menu() -> VBoxContainer:
 		_layout())
 	column.add_child(door)
 	return column
+
+## One row of the volume: a picture of what it turns, then its bars, then
+## (on the first row) the mute. Each bar needs a hold. The row is returned
+## through its bars' parent, which is the row.
+func _build_volume_row(icon_kind: ActionIcon.Kind, chosen: Callable, lead: Button) -> VolumeBars:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(TOP_GAP))
+	if lead != null:
+		row.add_child(lead)
+	else:
+		# The mute's width, left empty, so the two rows' pictures line up.
+		var spacer := Control.new()
+		spacer.custom_minimum_size = Vector2(BUTTON, BUTTON)
+		row.add_child(spacer)
+	var picture := Control.new()
+	picture.custom_minimum_size = Vector2(BUTTON * 0.8, BUTTON)
+	var icon := ActionIcon.new(icon_kind)
+	icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+	picture.add_child(icon)
+	row.add_child(picture)
+	var bars := VolumeBars.new()
+	for i in bars.buttons.size():
+		_hold(bars.buttons[i], func() -> void: chosen.call(i + 1))
+	row.add_child(bars)
+	return bars
+
+## A grown-up held a bar or the speaker: take it, show it, tell the game.
+func _sound_edited(ambience: int, effects: int, muted: bool) -> void:
+	set_sound(ambience, effects, muted)
+	sound_changed.emit(_sound_ambience, _sound_effects, _sound_muted)
+
+## Show this sound setting, without telling anybody: the game's saved choice
+## on start, and again whenever the interface is rebuilt.
+func set_sound(ambience: int, effects: int, muted: bool) -> void:
+	_sound_ambience = clampi(ambience, 1, Mix.STEPS)
+	_sound_effects = clampi(effects, 1, Mix.STEPS)
+	_sound_muted = muted
+	if _ambience_bars != null:
+		_ambience_bars.set_steps(_sound_ambience)
+		_effects_bars.set_steps(_sound_effects)
+		var face := _face_of(_mute_button)
+		if face != null:
+			face.show_kind(ActionIcon.Kind.SPEAKER_OFF if muted else ActionIcon.Kind.SPEAKER_ON)
+		# A muted game dims the rows that no longer do anything; the speaker
+		# itself stays bright, it is the way back.
+		var shade := Color(1.0, 1.0, 1.0, 0.45 if muted else 1.0)
+		for bars: VolumeBars in [_ambience_bars, _effects_bars]:
+			for child in bars.get_parent().get_children():
+				if child != _mute_button:
+					(child as CanvasItem).modulate = shade
+
+func sound_state() -> Array:
+	return [_sound_ambience, _sound_effects, _sound_muted]
 
 ## The room where the world can be erased. Separate, plainly labelled, and still
 ## held rather than pressed: two doors and five seconds between a curious child
@@ -1509,7 +1640,8 @@ func _build_cafe_menu() -> PanelContainer:
 	column.add_child(row)
 	for dish in Dishes.ALL:
 		var tile := Button.new()
-		tile.custom_minimum_size = Vector2(BUTTON * 0.92, BUTTON * 1.2)
+		# A dish is a picture a three-year-old points at: nine millimetres each way.
+		tile.custom_minimum_size = Vector2(CHILD_TARGET, CHILD_TARGET * 1.1)
 		tile.focus_mode = Control.FOCUS_NONE
 		tile.pressed.connect(func() -> void: _dish_tapped(dish))
 		row.add_child(tile)
@@ -2026,7 +2158,9 @@ func is_mic_refused_shown() -> bool:
 func _answer_button(face: String, colour: Color, pressed: Callable) -> Button:
 	var button := Button.new()
 	button.text = face
-	button.custom_minimum_size = Vector2(BUTTON * 1.5, BUTTON)
+	# The cross and the tick under every question, the ones a small finger is
+	# asked to choose between: nine millimetres tall.
+	button.custom_minimum_size = Vector2(BUTTON * 1.5, CHILD_TARGET)
 	button.focus_mode = Control.FOCUS_NONE
 	button.add_theme_font_size_override("font_size", 40)
 	button.add_theme_color_override("font_color", colour)
@@ -2414,19 +2548,30 @@ func set_player_name(name: String) -> void:
 ## Ring the shirt this child is wearing, and unring the rest.
 func set_shirt(which: int) -> void:
 	_menu_picker.set_shirt(which)
+	_refresh_me()
 	if _offer_picker != null:
 		_offer_picker.set_shirt(which)
+
+## The settings' picture of the child, drawn as they are drawn.
+func _refresh_me() -> void:
+	if _me_face == null:
+		return
+	var look := _menu_picker.look()
+	_me_face.which = look[0]
+	_me_face.dress(Character.SKINS[look[1]], Character.HAIRS[look[2]], _menu_picker.cloth())
 
 ## The colour this child's body really is, for the faces in the pickers to wear
 ## when no shirt has been picked.
 func set_worn_shirt(colour: Color) -> void:
 	_menu_picker.set_worn(colour)
+	_refresh_me()
 	if _offer_picker != null:
 		_offer_picker.set_worn(colour)
 
 ## Ring who this child is drawn as, in the settings and in the first-run panel.
 func set_look(look: Array) -> void:
 	_menu_picker.set_look(look)
+	_refresh_me()
 	if _offer_picker != null:
 		_offer_picker.set_look(look)
 
@@ -2444,6 +2589,8 @@ func offer_look() -> void:
 	style.border_color = Color(1.0, 1.0, 1.0, 0.18)
 	style.set_border_width_all(1)
 	_offer.add_theme_stylebox_override("panel", style)
+	# A finger anywhere on the panel is a child still here.
+	_offer.gui_input.connect(func(_event: InputEvent) -> void: _offer_idle = 0.0)
 	add_child(_offer)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 12)
@@ -2454,16 +2601,42 @@ func offer_look() -> void:
 	title.add_theme_color_override("font_color", Color(1.0, 0.97, 0.90))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
-	_offer_picker = LookPicker.new(BUTTON * 1.0)
-	_offer_picker.look_chosen.connect(func(look: Array) -> void: look_chosen.emit(look))
-	_offer_picker.shirt_chosen.connect(func(which: int) -> void: shirt_chosen.emit(which))
+	# Every target on this panel is a three-year-old's: CHILD_TARGET, about nine
+	# millimetres. Four rows of them, with the colours of the clothes beside
+	# them, and a tick the width of the faces where the fifth row would be.
+	_offer_idle = 0.0
+	_offer_picker = LookPicker.new(CHILD_TARGET)
+	_offer_picker.look_chosen.connect(func(look: Array) -> void:
+		_offer_idle = 0.0
+		look_chosen.emit(look))
+	_offer_picker.shirt_chosen.connect(func(which: int) -> void:
+		_offer_idle = 0.0
+		shirt_chosen.emit(which))
 	column.add_child(_offer_picker)
 	_offer_picker.set_look(_menu_picker.look())
 	_offer_picker.set_shirt(_menu_picker.shirt())
 	_offer_picker.set_worn(_menu_picker.worn())
-	var go := _answer_button("✓", Color(0.42, 0.82, 0.46), close_look_offer)
-	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	column.add_child(go)
+	var go := Button.new()
+	go.focus_mode = Control.FOCUS_NONE
+	go.custom_minimum_size = Vector2(CHILD_TARGET * 2.0, CHILD_TARGET)
+	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var go_face := StyleBoxFlat.new()
+	go_face.bg_color = Color(0.20, 0.52, 0.28, 0.95)
+	go_face.set_corner_radius_all(14)
+	go.add_theme_stylebox_override("normal", go_face)
+	go.add_theme_stylebox_override("hover", go_face)
+	var go_pressed := go_face.duplicate() as StyleBoxFlat
+	go_pressed.bg_color = Color(0.30, 0.66, 0.38)
+	go.add_theme_stylebox_override("pressed", go_pressed)
+	var tick := ActionIcon.new(ActionIcon.Kind.TICK)
+	tick.tint = Color(1.0, 1.0, 1.0)
+	tick.set_anchors_preset(Control.PRESET_FULL_RECT)
+	go.add_child(tick)
+	go.pressed.connect(close_look_offer)
+	_offer_picker.footer.add_child(go)
+	# Over everything that opened before it: the settings, when it was opened
+	# from there, and the map, which is always added last.
+	_offer.move_to_front()
 	_layout()
 
 ## Put the first-run panel away. A child who has seen it has been asked.
@@ -2535,6 +2708,10 @@ func _pulse_the_kick_button(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_pulse_the_kick_button(delta)
+	if _offer != null:
+		_offer_idle += delta
+		if _offer_idle >= OFFER_IDLE:
+			close_look_offer()
 	if _mic_seconds > 0.0:
 		_mic_seconds -= delta
 		if _mic_seconds <= 0.0:
@@ -2920,8 +3097,14 @@ func _layout() -> void:
 	# its new size at the end of the frame.
 	if _cafe_menu != null:
 		_cafe_menu.size = _cafe_menu.get_combined_minimum_size()
+		# Centred, unless the dishes (nine millimetres each) are wide enough to
+		# reach the stick, in which case they stand clear of it on the right.
+		var clear_of_stick := safe.position.x + MARGIN + side + 12.0
+		var cafe_left := maxf(
+			safe.position.x + safe.size.x * 0.5 - _cafe_menu.size.x * 0.5, clear_of_stick
+		)
 		_cafe_menu.position = Vector2(
-			safe.position.x + safe.size.x * 0.5 - _cafe_menu.size.x * 0.5,
+			minf(cafe_left, safe.end.x - MARGIN - _cafe_menu.size.x),
 			safe.position.y + safe.size.y - BUTTON - MARGIN - _cafe_menu.size.y - 12.0
 		)
 
@@ -3065,3 +3248,8 @@ func _safe_area() -> Rect2:
 	if area.size.x < 240.0 or area.size.y < 200.0:
 		return viewport
 	return area
+
+## The stick is hidden while the settings or the grown-ups' room is open, so its
+## ring is not drawn over their controls and a press there cannot walk the child.
+func _hide_the_stick_under_panels() -> void:
+	_stick.visible = not (_menu.visible or _danger.visible)

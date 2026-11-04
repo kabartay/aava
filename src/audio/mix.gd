@@ -53,8 +53,22 @@ const UNDER_HUSH_DB := -4.0
 ## been heard by.
 const RUMBLE_CUTOFF := 60.0
 
+## The grown-up's volume control: a number of bars lit out of STEPS, for the
+## valley's ambience and for the interface's own sounds. Never below one bar,
+## because silence is the mute's job and a mute is easy to see and to undo; a
+## volume stuck at nothing is a game a parent believes is broken.
+const STEPS := 5
+
+## What each lit bar plays at, as a share of full volume. Uneven on purpose: the
+## ear hears loudness in ratios, so equal steps in amplitude sound like one big
+## drop at the bottom and nothing at the top.
+const STEP_GAIN: Array[float] = [0.08, 0.2, 0.4, 0.68, 1.0]
+
 static var _last_under := -1.0
 static var _duck := 0.0
+static var _ambience_steps := STEPS
+static var _effects_steps := STEPS
+static var _muted := false
 
 static func build() -> void:
 	var master := AudioServer.get_bus_index(&"Master")
@@ -86,6 +100,8 @@ static func build() -> void:
 		AudioServer.add_bus_effect(world, dull)
 	_last_under = -1.0
 	muffle(0.0)
+	# A rebuilt bus layout keeps what a grown-up asked for.
+	set_muted(_muted)
 
 ## How far under water the listener is, from 0 in the air to 1 fully under.
 ## Cheap to call every frame: nothing is touched unless it has changed.
@@ -134,10 +150,41 @@ static func _levels() -> void:
 	var world := AudioServer.get_bus_index(WORLD)
 	if world >= 0:
 		var under := clampf(_last_under, 0.0, 1.0)
-		AudioServer.set_bus_volume_db(world, lerpf(0.0, UNDER_HUSH_DB, under) + down)
+		AudioServer.set_bus_volume_db(
+			world, lerpf(0.0, UNDER_HUSH_DB, under) + down + step_db(_ambience_steps)
+		)
 	var effects := AudioServer.get_bus_index(EFFECTS)
 	if effects >= 0:
-		AudioServer.set_bus_volume_db(effects, down)
+		AudioServer.set_bus_volume_db(effects, down + step_db(_effects_steps))
+
+## The loudness of a number of lit bars, in decibels (0 at all of them).
+static func step_db(steps: int) -> float:
+	return linear_to_db(STEP_GAIN[clampi(steps, 1, STEPS) - 1])
+
+## The grown-up's volume: how many bars are lit for the ambience and for the
+## interface's sounds. Out-of-range numbers (an edited save) are clamped.
+static func set_steps(ambience: int, effects: int) -> void:
+	_ambience_steps = clampi(ambience, 1, STEPS)
+	_effects_steps = clampi(effects, 1, STEPS)
+	_levels()
+
+## Silence everything, the children's voices included, or end it. The Master
+## bus is muted rather than turned down, so the volume the grown-up chose is
+## still there when it ends.
+static func set_muted(muted: bool) -> void:
+	_muted = muted
+	var master := AudioServer.get_bus_index(&"Master")
+	if master >= 0:
+		AudioServer.set_bus_mute(master, muted)
+
+static func ambience_steps() -> int:
+	return _ambience_steps
+
+static func effects_steps() -> int:
+	return _effects_steps
+
+static func muted() -> bool:
+	return _muted
 
 ## Where the world's filter has got to. For the checks.
 static func world_cutoff() -> float:

@@ -82,6 +82,16 @@ func _gui_input(event: InputEvent) -> void:
 				if _travelled <= TAP_SLOP and not _was_pinching and not event.canceled:
 					tapped.emit()
 				_active_index = -1
+				# A finger still down after the first one lifted — the look
+				# finger of a pinch — carries on turning the view. It was
+				# ignored until it was lifted and put down again, which to a
+				# child is the camera freezing. Not a tap when it lifts: it
+				# has been down a while and is not where it started.
+				for remaining: int in _fingers:
+					_active_index = remaining
+					_press_at = _fingers[remaining]
+					_travelled = TAP_SLOP + 1.0
+					break
 			# A pinch ends the moment either finger lifts, so the next one
 			# starts from a fresh gap instead of jumping.
 			_pinch_gap = -1.0

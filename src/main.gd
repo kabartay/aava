@@ -141,6 +141,12 @@ func _ready() -> void:
 	# remembered: a switch that forgets is a switch nobody trusts.
 	_voice_allowed = SaveGame.as_bool(save.get("voice_allowed", true), true)
 	_first_person = SaveGame.as_bool(save.get("first_person", false))
+	# The grown-up's volume, kept like the language: a game that opens at full
+	# volume again every morning, after being turned down, is a game that gets
+	# turned down every morning. Out-of-range numbers are clamped by Mix.
+	_sound_ambience = clampi(SaveGame.as_int(save.get("sound_ambience", Mix.STEPS), Mix.STEPS), 1, Mix.STEPS)
+	_sound_effects = clampi(SaveGame.as_int(save.get("sound_effects", Mix.STEPS), Mix.STEPS), 1, Mix.STEPS)
+	_sound_muted = SaveGame.as_bool(save.get("sound_muted", false))
 	_cafe_paid = SaveGame.as_bool(save.get("cafe_paid", false))
 	# Clamped, not just checked for -1. The index off the network is validated
 	# in session.gd and this one was not, so a hand-edited save — or the
@@ -178,6 +184,8 @@ func _ready() -> void:
 	# Sound is created before the world, so the very first pickup is audible.
 	# Before anything that makes a sound, so every player finds its bus.
 	Mix.build()
+	Mix.set_steps(_sound_ambience, _sound_effects)
+	Mix.set_muted(_sound_muted)
 	sounds = Sounds.new()
 	add_child(sounds)
 
@@ -550,6 +558,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# where `hud` was still null, so the game reached the tablet with its talk
 	# button and its entire play-together panel connected to nothing at all.
 	hud.set_voice_allowed(_voice_allowed)
+	hud.set_sound(_sound_ambience, _sound_effects, _sound_muted)
 	hud.set_first_person(_first_person)
 	hud.set_cafe_paid(_cafe_paid)
 	hud.restore_cafe_choices(_cafe_paid, StringName(str(save.get("dish", Dishes.USUAL))))
@@ -666,6 +675,10 @@ var _coaster_told := false
 var _asked: StringName = &""
 ## Whether a parent has left talking switched on.
 var _voice_allowed := true
+## The grown-up's volume, in lit bars (Mix.STEPS is full), and the mute.
+var _sound_ambience := Mix.STEPS
+var _sound_effects := Mix.STEPS
+var _sound_muted := false
 
 ## Whether this child's own café asks a coin for a meal. A setting like the
 ## voice switch, so it is kept here, saved, and handed to each new interface:
@@ -1240,6 +1253,28 @@ func _process(delta: float) -> void:
 	var refused := riding != &"" and not world.mounts.can_ride_over(
 		riding, player.global_position
 	)
+	# How far ahead the ground stays ridable, so the machine brakes for the river,
+	# the pool and a bank too steep instead of being put down in the middle of
+	# them. Asked a few times a second and run down by the distance travelled in
+	# between.
+	var ride_pace := Vector2(player.velocity.x, player.velocity.z).length()
+	var ride_dir := Vector3.ZERO
+	if ride_pace > 0.3:
+		ride_dir = Vector3(player.velocity.x, 0.0, player.velocity.z) / ride_pace
+	elif player.ride_wish.length_squared() > 0.01:
+		ride_dir = player.ride_wish
+	if riding != &"" and ride_dir != Vector3.ZERO:
+		_ahead_age += delta
+		if _ahead_age >= AHEAD_EVERY:
+			_ahead_age = 0.0
+			_ahead_clear = world.mounts.clear_ahead(riding, player.global_position, ride_dir, ride_pace)
+		elif _ahead_clear < INF:
+			_ahead_clear = maxf(_ahead_clear - ride_pace * delta, 0.0)
+		player.ride_clear_ahead = _ahead_clear
+	else:
+		_ahead_clear = INF
+		_ahead_age = AHEAD_EVERY
+		player.ride_clear_ahead = INF
 	# Only following the ground has a rate; everything else holds still.
 	player.held_rate = 0.0
 	# A horse in deep water swims, and its rider stays in the saddle rather
@@ -1686,6 +1721,7 @@ func _connect_the_rest_of_the_hud() -> void:
 		_voice_allowed = allowed
 		voice.allowed = allowed
 		_write_save())
+	hud.sound_changed.connect(_on_sound_changed)
 	hud.shop_sold_back.connect(_on_sell_back)
 	hud.set_cafe_paid(_cafe_paid)
 	hud.cafe_price_toggled.connect(func(paid: bool) -> void:
@@ -1763,6 +1799,7 @@ func _show_the_state() -> void:
 	hud.set_task(_task_line())
 	_refresh_vitals()
 	hud.set_voice_allowed(_voice_allowed)
+	hud.set_sound(_sound_ambience, _sound_effects, _sound_muted)
 	hud.set_first_person(_first_person)
 	hud.set_cafe_paid(_cafe_paid)
 	hud.set_score(world.football.blue, world.football.red)
@@ -2014,6 +2051,17 @@ func _refresh_own_shirt() -> void:
 	player.set_shirt(_own_shirt_color())
 	if hud != null:
 		hud.set_worn_shirt(_own_shirt_color())
+
+## A grown-up changed the volume or the mute in the settings: applied to the
+## mixer at once, and written to the player's save so the next start keeps it.
+func _on_sound_changed(ambience: int, effects: int, muted: bool) -> void:
+	_sound_ambience = ambience
+	_sound_effects = effects
+	_sound_muted = muted
+	Mix.set_steps(ambience, effects)
+	Mix.set_muted(muted)
+	sounds.play(Sounds.Sound.CHIME, 1.35)
+	_write_save()
 
 ## A child picked a shirt in the settings.
 ##
@@ -3439,6 +3487,11 @@ static func eye_is_under(was: bool, under: float) -> bool:
 var _bad_ground := 0.0
 var _held_last := Player.NOT_HELD
 var _held_rate := 0.0
+## What the mount last found of the ground ahead (see Mounts.clear_ahead), and
+## how long ago, in seconds. Asked every AHEAD_EVERY.
+var _ahead_clear := INF
+var _ahead_age := 0.0
+const AHEAD_EVERY := 0.05
 
 ## The first row of a machine's stand at the shop with nothing standing on it.
 func _free_row(offset: Vector3) -> int:
@@ -3881,7 +3934,7 @@ func _resting_preview_on(velocity: Vector3) -> bool:
 const STANDING_SPEED := 0.3
 
 func _face_the_view_at_the_ball(ball: Ball, delta: float) -> void:
-	if ball == null or player.is_charging() or player.riding != &"":
+	if ball == null or player.is_charging() or not player.can_turn_to_the_view():
 		return
 	if Vector2(player.velocity.x, player.velocity.z).length() > STANDING_SPEED:
 		return
@@ -4343,6 +4396,9 @@ func _save_data() -> Dictionary:
 		"seed": world.world_seed,
 		"language": String(Text.language()),
 		"voice_allowed": _voice_allowed,
+		"sound_ambience": _sound_ambience,
+		"sound_effects": _sound_effects,
+		"sound_muted": _sound_muted,
 		"first_person": _first_person,
 		"cafe_paid": _cafe_paid,
 		# The dish a child chose from the menu, and what is left of an ice

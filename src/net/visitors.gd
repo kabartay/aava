@@ -446,6 +446,17 @@ func _animate(record: Dictionary, motion: RigMotion, node: Node3D, delta: float,
 		motion.seat_placed = false
 		motion.gait = motion.speed
 		motion.sit_time = Mounts.boarding_time(mount)
+		# A machine on wheels is drawn rolling: wheels, cranks, bars and lean are
+		# worked out from how the figure is moving (see Mounts.animate_remote).
+		if MountKinds.steers(mount):
+			var steed_node := node.get_node_or_null("Mount") as Node3D
+			if steed_node != null:
+				if not record.has("ride_state"):
+					record["ride_state"] = {}
+				Mounts.animate_remote(
+					steed_node, mount, record["ride_state"], node.position, node.rotation.y,
+					minf(waited, 0.25)
+				)
 		# Their horse is not moving here, so the saddle is lifted by the
 		# stride the rider keeps, which is the one it would have.
 		if MountKinds.kind_of(mount) == MountKinds.HORSE and not record.get("boarding", false):

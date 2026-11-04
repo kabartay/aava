@@ -29,12 +29,20 @@ const KEYS := {
 	KICK: [KEY_E, KEY_ENTER],
 }
 
+## How far an action must be pushed before it counts, as a share of its range.
+## The touch stick has a dead zone of its own (the HUD sets 0.12), so a second
+## one of 0.2 on top of it made the first third of the stick do almost nothing:
+## a three-year-old's small push at 0.3 of the way out walked at 0.21 m/s. The
+## keys are all or nothing, so they do not care.
+const DEADZONE := 0.05
+
 static func register() -> void:
 	for action in KEYS:
 		if InputMap.has_action(action):
+			InputMap.action_set_deadzone(action, DEADZONE)
 			InputMap.action_erase_events(action)
 		else:
-			InputMap.add_action(action, 0.2)
+			InputMap.add_action(action, DEADZONE)
 		for keycode in KEYS[action]:
 			var event := InputEventKey.new()
 			event.physical_keycode = keycode

@@ -203,6 +203,26 @@ func follow(darkness: float, delta: float) -> void:
 		# perfectly still flame is two lamps in one place.
 		_flame.scale = Vector3(1.0, flicker * flicker, 1.0)
 
+## Hand the light to `holder` while the body that carries the lamp is not drawn
+## (looking out of the child's own eyes): a node hidden with its parent gives no
+## light, and the lamp is meant to go on lighting the ground at dusk.
+func lend_the_light_to(holder: Node3D) -> void:
+	if _light.get_parent() == holder:
+		return
+	_light.reparent(holder, false)
+	_light.position = Vector3(0.0, HELD_AT.y, 0.0)
+
+## And take it back when the body is drawn again.
+func take_the_light_back() -> void:
+	if _light.get_parent() == self:
+		return
+	_light.reparent(self, false)
+	_light.position = HELD_AT
+
+## Whether the light is in the world, not hidden with an undrawn body. For the checks.
+func light_is_shining() -> bool:
+	return _light.is_visible_in_tree()
+
 func is_lit() -> bool:
 	return _light.light_energy > 0.01
 

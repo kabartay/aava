@@ -62,6 +62,7 @@ func _initialize() -> void:
 	_check_the_aim_follows_the_camera_and_the_preview_agrees()
 	_check_rocks_are_jumpable()
 	_check_the_camera_zooms()
+	await _check_the_child_on_foot_and_the_view_agree_c11()
 	await _check_the_indoor_camera_cannot_reach_outside()
 	_check_a_house_can_be_built_and_unbuilt()
 	_check_a_guest_is_not_marked_as_having_built_the_hosts_house()
@@ -355,6 +356,12 @@ func _initialize() -> void:
 	_check_the_seats_fit_children()
 	_check_the_choice_screen_is_for_small_fingers()
 	await _check_a_stray_tap_loses_nothing()
+	_check_the_grown_ups_volume_reaches_the_mixer_and_is_kept()
+	await _check_the_grown_ups_volume_is_held_not_tapped()
+	await _check_the_stick_hides_under_the_settings()
+	await _check_the_first_run_panel_is_nine_millimetres_and_cannot_trap_a_child()
+	await _check_no_tap_in_any_panel_spends_sells_deletes_resets_or_leaves()
+	_check_a_dog_settles_after_a_few_asks()
 	_check_the_earning_is_balanced()
 	_check_the_economy_has_no_free_coins()
 	await _check_the_rides_and_the_building_are_heard_and_not_stacked()
@@ -580,6 +587,12 @@ func _initialize() -> void:
 	await _check_a_child_shut_in_a_pocket_of_the_range_is_lifted_out()
 	_check_the_fallback_to_the_camp_is_open_ground()
 	await _check_the_wheeled_machines_pull_away_stop_turn_and_lean_as_they_should()
+	await _check_a_hill_slows_a_machine_and_it_stays_put_on_one()
+	await _check_a_machine_is_brought_up_softly_by_what_is_solid()
+	await _check_a_machine_stops_at_the_water_and_the_pool()
+	await _check_a_machine_rides_real_ground_without_launching()
+	await _check_the_other_phone_sees_the_wheels_bars_and_lean()
+	await _check_a_machine_left_on_a_slope_stays_there()
 	await _check_the_parts_of_a_ridden_machine_keep_time_with_the_ground()
 	_check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine()
 	_check_the_riders_feet_are_on_the_bicycles_pedals_and_it_is_drawn_warm()
@@ -32481,3 +32494,1140 @@ func _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main
 		"a machine copied into the shop floor by the engine is the machine copied vertex by vertex"
 	)
 
+## ---- Hills, walls, water, bumps and the other phone's view of a ridden machine.
+## A flat floor with its top at y = 0 and, if `angle` is not nought, a ramp that
+## rises ahead (towards -Z) from the line z = `foot`, as long and as wide as
+## anything is ridden. Returns what was made, for freeing.
+func _ramp_world(angle: float, foot: float) -> Array[Node]:
+	var made: Array[Node] = []
+	var floor_body := StaticBody3D.new()
+	var floor_shape := CollisionShape3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(4000.0, 2.0, 4000.0)
+	floor_shape.shape = slab
+	floor_body.add_child(floor_shape)
+	floor_body.position = Vector3(0.0, -1.0, 0.0)
+	get_root().add_child(floor_body)
+	made.append(floor_body)
+	if angle > 0.0:
+		var ramp := StaticBody3D.new()
+		var ramp_shape := CollisionShape3D.new()
+		var plank := BoxShape3D.new()
+		plank.size = Vector3(400.0, 6.0, 400.0)
+		ramp_shape.shape = plank
+		ramp.add_child(ramp_shape)
+		ramp.rotation.x = angle
+		# Its top surface passes through (0, 0, foot): the centre is three
+		# metres under that along the normal.
+		ramp.position = Vector3(0.0, 0.0, foot) - Vector3(0.0, cos(angle), sin(angle)) * 3.0
+		get_root().add_child(ramp)
+		made.append(ramp)
+	return made
+
+## Run the physics at `hz` ticks a second, and wait until it really is: a body
+## moves by the engine's own step, which for a frame or two after the rate is
+## changed is still the old one, and a check that rides at 30 on a step of 120
+## measures a machine a quarter as fast as the one it means.
+func _set_physics_rate(hz: int) -> void:
+	Engine.physics_ticks_per_second = hz
+	for _frame in 20:
+		await physics_frame
+		if is_equal_approx(get_root().get_physics_process_delta_time(), 1.0 / float(hz)):
+			return
+
+## Which machine at which tick rate: every machine at the usual rate and each rate
+## on some machine, which is what a check of what the physics does at 30, 60 and
+## 120 ticks a second needs without riding every machine at every rate.
+func _machines_and_rates() -> Array[Array]:
+	return [
+		[MountKinds.BICYCLE, 30], [MountKinds.BICYCLE, 60], [MountKinds.BICYCLE, 120],
+		[MountKinds.QUAD, 30], [MountKinds.QUAD, 60],
+		[MountKinds.MOTORCYCLE, 60], [MountKinds.MOTORCYCLE, 120],
+		[MountKinds.HORSE, 60],
+	]
+
+## The steepest ground a machine of this kind is allowed, as an angle: what the
+## game tells the body under the rider (main.gd, climbs_ground).
+func _climb_limit(kind: StringName) -> float:
+	return HeightField.slope_of(minf(MountKinds.max_slope(kind), Mounts.no_steeper_than_a_child()))
+
+func _rider_of(kind: StringName, at: Vector3, heading: float) -> Player:
+	var rider := Player.new()
+	get_root().add_child(rider)
+	rider.global_position = at
+	rider.riding = kind
+	rider.take_the_handlebars(heading)
+	# A horse goes where the camera looks; a machine where its bars point.
+	rider.camera_yaw = heading
+	rider.held_at_height = Player.NOT_HELD
+	rider.climbs_ground = _climb_limit(kind)
+	return rider
+
+## Ride for `seconds` at `hz` ticks a second with whatever keys are down, as the
+## game does round the body: the way ahead looked at when `mounts` is given. What
+## it reports is what the behaviours are judged on.
+func _ride_for(rider: Player, seconds: float, hz: int, mounts: Mounts = null, watch := Callable()) -> Dictionary:
+	var dt := 1.0 / float(hz)
+	var ahead := INF
+	var age := 0.05
+	var heading := Vector3(-sin(rider._ride_heading), 0.0, -cos(rider._ride_heading))
+	var report := {
+		"jolt": 0.0, "peak_pace": 0.0, "min_along": INF, "peak_y": -INF, "min_y": INF,
+		"peak_vy": 0.0,
+	}
+	var last := Vector2(rider.velocity.x, rider.velocity.z).length()
+	for _tick in int(seconds * float(hz)):
+		var flat := Vector3(rider.velocity.x, 0.0, rider.velocity.z)
+		var pace := flat.length()
+		if mounts != null:
+			var look := Vector3.ZERO
+			if pace > 0.3:
+				look = flat / pace
+			elif rider.ride_wish.length_squared() > 0.01:
+				look = rider.ride_wish
+			if look != Vector3.ZERO:
+				age += dt
+				if age >= 0.05:
+					age = 0.0
+					ahead = mounts.clear_ahead(rider.riding, rider.global_position, look, pace)
+				elif ahead < INF:
+					ahead = maxf(ahead - pace * dt, 0.0)
+				rider.ride_clear_ahead = ahead
+			else:
+				ahead = INF
+				age = 0.05
+				rider.ride_clear_ahead = INF
+		rider._physics_process(dt)
+		var now := Vector2(rider.velocity.x, rider.velocity.z).length()
+		report["jolt"] = maxf(float(report["jolt"]), last - now)
+		report["peak_pace"] = maxf(float(report["peak_pace"]), now)
+		report["min_along"] = minf(float(report["min_along"]), Vector3(rider.velocity.x, 0.0, rider.velocity.z).dot(heading))
+		report["peak_y"] = maxf(float(report["peak_y"]), rider.global_position.y)
+		report["min_y"] = minf(float(report["min_y"]), rider.global_position.y)
+		report["peak_vy"] = maxf(float(report["peak_vy"]), rider.velocity.y)
+		last = now
+		if watch.is_valid():
+			watch.call(rider)
+	report["pace"] = last
+	report["at"] = rider.global_position
+	return report
+
+## A hill takes the pace off a machine going up it, a machine on one holds and
+## does not roll off, and a bank steeper than the machine takes is met the way a
+## wall is: slowed to, not driven at until it stops dead.
+func _check_a_hill_slows_a_machine_and_it_stays_put_on_one() -> void:
+	print("a hill slows a machine and it stays put on one")
+	for combo: Array in _machines_and_rates():
+		var kind: StringName = combo[0]
+		var hz: int = combo[1]
+		await _set_physics_rate(hz)
+		if true:
+			var limit := _climb_limit(kind)
+			var flat_pace := 0.0
+			for share: float in [0.0, 0.5, 0.85]:
+				var angle := limit * share
+				var made := _ramp_world(angle, -20.0)
+				await physics_frame
+				await physics_frame
+				var rider := _rider_of(kind, Vector3(0.0, 0.05, 0.0), 0.0)
+				Input.action_press(InputActions.MOVE_FORWARD)
+				var up := _ride_for(rider, 6.0, hz)
+				Input.action_release(InputActions.MOVE_FORWARD)
+				var climbed := rider.global_position.y
+				if share == 0.0:
+					flat_pace = float(up["peak_pace"])
+				else:
+					_expect(
+						float(up["pace"]) < flat_pace * 0.97 and float(up["pace"]) > 0.2 * flat_pace,
+						"a %s at %d Hz going up %.0f degrees does %.1f m/s against %.1f on the flat: slower, and not stuck" % [
+							kind, hz, rad_to_deg(angle), float(up["pace"]), flat_pace
+						]
+					)
+					_expect(
+						climbed > 0.5 and float(up["jolt"]) < 3.5,
+						"and gets up it (%.1f m high) without a dead stop (%.1f m/s lost in one tick)" % [climbed, float(up["jolt"])]
+					)
+				rider.queue_free()
+				for body in made:
+					body.queue_free()
+				await physics_frame
+
+			# Beyond what it climbs: met like a wall.
+			var steep := _ramp_world(minf(limit + deg_to_rad(9.0), deg_to_rad(66.0)), -20.0)
+			await physics_frame
+			await physics_frame
+			var wall_rider := _rider_of(kind, Vector3(0.0, 0.05, 0.0), 0.0)
+			Input.action_press(InputActions.MOVE_FORWARD)
+			var met := _ride_for(wall_rider, 6.0, hz)
+			Input.action_release(InputActions.MOVE_FORWARD)
+			_expect(
+				float(met["jolt"]) < 3.5 and float(met["pace"]) < 1.5 and wall_rider.global_position.y < 3.0,
+				"a %s at %d Hz meets ground steeper than it climbs without a dead stop or a leap: %.1f m/s lost in one tick, %.1f m high, %.1f m/s" % [
+					kind, hz, float(met["jolt"]), wall_rider.global_position.y, float(met["pace"])
+				]
+			)
+			wall_rider.queue_free()
+			for body in steep:
+				body.queue_free()
+			await physics_frame
+
+			# Standing, coasting and braking on a slope inside its limit.
+			var slope := limit * 0.7
+			var hill := _ramp_world(slope, -5.0)
+			await physics_frame
+			await physics_frame
+			var spot := Vector3(0.0, 0.0, -17.0)
+			spot.y = (spot.z * -1.0 - 5.0) * tan(slope) + 0.05
+			var parked := _rider_of(kind, spot, 0.0)
+			_ride_for(parked, 1.0, hz)
+			var settled := parked.global_position
+			var rest := _ride_for(parked, 3.0, hz)
+			var rolled := parked.global_position.distance_to(settled)
+			_expect(rolled < 0.3, "a %s left standing on %.0f degrees at %d Hz rolls %.2f m in three seconds" % [kind, rad_to_deg(slope), hz, rolled])
+			# Coasting up it from speed: it slows, stops and does not run backwards.
+			parked.velocity = Vector3(0.0, 0.0, -MountKinds.speed(kind) * 0.6)
+			var coast := _ride_for(parked, 5.0, hz)
+			_expect(
+				float(coast["min_along"]) > -0.4 and float(coast["pace"]) < 0.5,
+				"coasting up it, a %s at %d Hz stops (%.1f m/s) and does not run back (%.2f)" % [kind, hz, float(coast["pace"]), float(coast["min_along"])]
+			)
+			parked.queue_free()
+			# Coming down it with the stick pushed, then braked: capped, and it holds.
+			var start_down := Vector3(0.0, (25.0 - 5.0) * tan(slope) + 0.05, -25.0)
+			var rider_down := _rider_of(kind, start_down, PI)
+			Input.action_press(InputActions.MOVE_FORWARD)
+			var down := _ride_for(rider_down, 3.0, hz)
+			Input.action_release(InputActions.MOVE_FORWARD)
+			_expect(
+				float(down["peak_pace"]) <= MountKinds.speed(kind) * 1.15 + 0.05,
+				"coming down %.0f degrees a %s at %d Hz is held to its speed: %.1f of %.1f m/s" % [
+					rad_to_deg(slope), kind, hz, float(down["peak_pace"]), MountKinds.speed(kind) * 1.15
+				]
+			)
+			if MountKinds.steers(kind):
+				# The brake is held until it has stopped and then let go, as a child does.
+				Input.action_press(InputActions.MOVE_BACK)
+				var braked_for := 0.0
+				var nose := Vector3(-sin(rider_down._ride_heading), 0.0, -cos(rider_down._ride_heading))
+				while braked_for < 5.0 and Vector3(rider_down.velocity.x, 0.0, rider_down.velocity.z).dot(nose) > 0.1:
+					_ride_for(rider_down, 0.1, hz)
+					braked_for += 0.1
+				Input.action_release(InputActions.MOVE_BACK)
+				var held_at := rider_down.global_position
+				var after := _ride_for(rider_down, 2.0, hz)
+				_expect(
+					braked_for < 4.5 and float(after["pace"]) < 0.3 and rider_down.global_position.distance_to(held_at) < 0.4,
+					"braking on the way down, a %s at %d Hz stops in %.1f s and the brake holds (%.1f m/s, %.2f m after)" % [
+						kind, hz, braked_for, float(after["pace"]), rider_down.global_position.distance_to(held_at)
+					]
+				)
+			rider_down.queue_free()
+			for body in hill:
+				body.queue_free()
+			await physics_frame
+	Engine.physics_ticks_per_second = 60
+
+## A machine ridden at a wall, a fence, a trunk or the café is slowed to it and
+## meets it with a nudge: no stopping dead from speed, no leaping, no going in,
+## and at a slant it slides along.
+func _check_a_machine_is_brought_up_softly_by_what_is_solid() -> void:
+	print("a machine is brought up softly by what is solid")
+	for combo: Array in _machines_and_rates():
+		var kind: StringName = combo[0]
+		var hz: int = combo[1]
+		await _set_physics_rate(hz)
+		if true:
+			var made := _ramp_world(0.0, 0.0)
+			# A wall at z = -40, a fence of two fingers' thickness at x = 60 ... and a trunk.
+			var obstacles: Array[Array] = [
+				[Vector3(40.0, 4.0, 1.0), Vector3(0.0, 2.0, -40.5), "wall"],
+				[Vector3(30.0, 2.0, 0.08), Vector3(0.0, 1.0, -40.04), "fence"],
+			]
+			for item: Array in obstacles:
+				var body := StaticBody3D.new()
+				body.collision_layer = TerrainSpec.LAYER_PROPS
+				var box := BoxShape3D.new()
+				box.size = item[0]
+				var shape := CollisionShape3D.new()
+				shape.shape = box
+				body.add_child(shape)
+				body.position = item[1]
+				get_root().add_child(body)
+				made.append(body)
+				await physics_frame
+				await physics_frame
+				var face := float((item[1] as Vector3).z) + float((item[0] as Vector3).z) * 0.5
+				var rider := _rider_of(kind, Vector3(0.0, 0.05, 0.0), 0.0)
+				Input.action_press(InputActions.MOVE_FORWARD)
+				var near_peak := [0.0]
+				var watch := func(r: Player) -> void:
+					if r.global_position.z - face < Player.RADIUS + 0.15:
+						near_peak[0] = maxf(near_peak[0], Vector2(r.velocity.x, r.velocity.z).length())
+				var hit := _ride_for(rider, 8.0, hz, null, watch)
+				Input.action_release(InputActions.MOVE_FORWARD)
+				var gap := rider.global_position.z - face
+				_expect(
+					float(hit["jolt"]) < 3.5 and float(hit["pace"]) < 1.2,
+					"a %s at %d Hz rides at the %s and is brought up softly: %.1f m/s lost in one tick at the worst, %.1f m/s at the end" % [
+						kind, hz, item[2], float(hit["jolt"]), float(hit["pace"])
+					]
+				)
+				_expect(
+					gap > 0.2 and gap < 2.0 and float(near_peak[0]) < 2.2,
+					"and meets it with a nudge (%.1f m/s on touching it) a body's width off it (%.2f m)" % [float(near_peak[0]), gap]
+				)
+				_expect(float(hit["peak_y"]) < 0.4 and float(hit["peak_vy"]) < 1.0, "without leaving the ground (%.2f m, %.1f m/s up)" % [float(hit["peak_y"]), float(hit["peak_vy"])])
+				rider.queue_free()
+				body.queue_free()
+				made.erase(body)
+				await physics_frame
+
+			# At a slant it slides along the wall rather than stopping on it.
+			var wall := StaticBody3D.new()
+			wall.collision_layer = TerrainSpec.LAYER_PROPS
+			var slab := BoxShape3D.new()
+			slab.size = Vector3(1.0, 4.0, 400.0)
+			var wall_shape := CollisionShape3D.new()
+			wall_shape.shape = slab
+			wall.add_child(wall_shape)
+			wall.position = Vector3(30.5, 2.0, 0.0)
+			get_root().add_child(wall)
+			made.append(wall)
+			await physics_frame
+			await physics_frame
+			# Pointed 25 degrees off the wall, towards it: heading -Z turned to the right.
+			var slant := _rider_of(kind, Vector3(20.0, 0.05, 0.0), -deg_to_rad(25.0))
+			Input.action_press(InputActions.MOVE_FORWARD)
+			var slid := _ride_for(slant, 5.0, hz)
+			Input.action_release(InputActions.MOVE_FORWARD)
+			_expect(
+				slant.global_position.x < 30.0 and slant.global_position.z < -12.0 and float(slid["jolt"]) < 3.5,
+				"a %s at %d Hz ridden at a wall on a slant slides along it: %.0f m on, %.2f m off, %.1f m/s lost in one tick" % [
+					kind, hz, -slant.global_position.z, 30.0 - slant.global_position.x, float(slid["jolt"])
+				]
+			)
+			slant.queue_free()
+			for body in made:
+				body.queue_free()
+			await physics_frame
+	Engine.physics_ticks_per_second = 60
+
+	# The real café wall, from the road, as a motorcycle and a quad meet it.
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+	var cafe := PlaceSpec.centre_of(&"cafe", camp)
+	var ground := field.height_at(cafe.x - 30.0, cafe.z)
+	var tiled := _ramp_world(0.0, 0.0)
+	(tiled[0] as StaticBody3D).position.y = ground - 1.0
+	await physics_frame
+	await physics_frame
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	for kind: StringName in [MountKinds.MOTORCYCLE, MountKinds.QUAD]:
+		var rider := _rider_of(kind, Vector3(cafe.x - 35.0, ground + 0.05, cafe.z), -PI * 0.5)
+		Input.action_press(InputActions.MOVE_FORWARD)
+		var met := _ride_for(rider, 7.0, 60, mounts)
+		Input.action_release(InputActions.MOVE_FORWARD)
+		_expect(
+			float(met["pace"]) < 0.5 and float(met["jolt"]) < 3.5
+			and not PlaceSpec.indoors(rider.global_position.x, rider.global_position.z, camp, -0.4)
+			and mounts.can_ride_over(kind, rider.global_position),
+			"a %s ridden at the café wall stops at it, outside, and is not put down for it (%.1f m/s, %.1f m/s lost in one tick)" % [kind, float(met["pace"]), float(met["jolt"])]
+		)
+		rider.queue_free()
+	mounts.queue_free()
+	places.queue_free()
+	for body in tiled:
+		body.queue_free()
+	await physics_frame
+
+## A wheeled machine ridden at the river or the pool stops short of it, on dry
+## ground, instead of being driven in until the game puts the child down.
+func _check_a_machine_stops_at_the_water_and_the_pool() -> void:
+	print("a machine stops at the water and the pool")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	var made := _ramp_world(0.0, 0.0)
+	await physics_frame
+	await physics_frame
+	var river_x := field.river_centre_x(-200.0)
+	var pool := PlaceSpec.centre_of(&"pool", camp)
+	for combo: Array in [
+		[MountKinds.BICYCLE, 30], [MountKinds.QUAD, 60], [MountKinds.MOTORCYCLE, 60], [MountKinds.MOTORCYCLE, 120]
+	]:
+		var kind: StringName = combo[0]
+		var hz: int = combo[1]
+		await _set_physics_rate(hz)
+		if true:
+			var rider := _rider_of(kind, Vector3(river_x + 45.0, 0.05, -200.0), PI * 0.5)
+			var dry := [true]
+			var watch := func(r: Player) -> void:
+				if not mounts.can_ride_over(kind, r.global_position):
+					dry[0] = false
+			Input.action_press(InputActions.MOVE_FORWARD)
+			var ride := _ride_for(rider, 8.0, hz, mounts, watch)
+			Input.action_release(InputActions.MOVE_FORWARD)
+			_expect(
+				bool(dry[0]) and float(ride["pace"]) < 0.5 and float(ride["jolt"]) < 3.5,
+				"a %s at %d Hz ridden at the river stops on dry ground (%.1f m/s, %.1f m/s lost in one tick) and is never in it" % [kind, hz, float(ride["pace"]), float(ride["jolt"])]
+			)
+			rider.queue_free()
+	for combo: Array in [[MountKinds.QUAD, 60], [MountKinds.HORSE, 60], [MountKinds.HORSE, 30]]:
+		var kind: StringName = combo[0]
+		var hz: int = combo[1]
+		await _set_physics_rate(hz)
+		if true:
+			var rider := _rider_of(kind, Vector3(pool.x - 50.0, 0.05, pool.z), -PI * 0.5)
+			var dry := [true]
+			var watch := func(r: Player) -> void:
+				if not mounts.can_ride_over(kind, r.global_position):
+					dry[0] = false
+			Input.action_press(InputActions.MOVE_FORWARD)
+			var ride := _ride_for(rider, 8.0, hz, mounts, watch)
+			Input.action_release(InputActions.MOVE_FORWARD)
+			_expect(
+				bool(dry[0]) and float(ride["pace"]) < 0.5,
+				"a %s at %d Hz ridden at the pool stops outside it (%.1f m/s)" % [kind, hz, float(ride["pace"])]
+			)
+			rider.queue_free()
+		await physics_frame
+	Engine.physics_ticks_per_second = 60
+	# Backing away from the edge works: the stick back from a stop at the water.
+	await physics_frame
+	var backer := _rider_of(MountKinds.QUAD, Vector3(river_x + 45.0, 0.05, -200.0), PI * 0.5)
+	Input.action_press(InputActions.MOVE_FORWARD)
+	_ride_for(backer, 9.0, 60, mounts)
+	Input.action_release(InputActions.MOVE_FORWARD)
+	var at_edge := backer.global_position.x
+	Input.action_press(InputActions.MOVE_BACK)
+	_ride_for(backer, 2.0, 60, mounts)
+	Input.action_release(InputActions.MOVE_BACK)
+	_expect(backer.global_position.x > at_edge + 1.0, "and can be backed away from it (%.1f m)" % (backer.global_position.x - at_edge))
+	backer.queue_free()
+	mounts.queue_free()
+	for body in made:
+		body.queue_free()
+
+## On the real baked ground, ridden hard, a machine follows the land without
+## being thrown off it: no launches, a quad's springs and a bicycle's lean inside
+## what they are meant to do, and the drawn height moves smoothly enough for the
+## camera that follows it.
+func _check_a_machine_rides_real_ground_without_launching() -> void:
+	print("a machine rides real ground without launching")
+	await physics_frame
+	var field := HeightField.new(20260903)
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	var mounts := Mounts.new(field)
+	get_root().add_child(mounts)
+	# A dry run of ground that is ridable all the way, found rather than assumed.
+	var from := field.find_spawn_point()
+	var bearing := 0.0
+	var found := false
+	for turn in 36:
+		bearing = float(turn) * TAU / 36.0
+		var clear := true
+		for step in range(0, 200, 4):
+			var probe := from + Vector3(-sin(bearing), 0.0, -cos(bearing)) * float(step)
+			if not mounts.can_ride_over(MountKinds.BICYCLE, probe):
+				clear = false
+				break
+		if clear:
+			found = true
+			break
+	_expect(found, "there is a ridable run of real ground from the spawn")
+	if not found:
+		terrain.queue_free()
+		mounts.queue_free()
+		return
+	for combo: Array in [
+		[MountKinds.BICYCLE, 30], [MountKinds.QUAD, 60], [MountKinds.MOTORCYCLE, 60], [MountKinds.QUAD, 120]
+	]:
+		var kind: StringName = combo[0]
+		var hz: int = combo[1]
+		await _set_physics_rate(hz)
+		var dt := 1.0 / float(hz)
+		if true:
+			var start := from
+			start.y = field.height_at(start.x, start.z)
+			terrain.follow(start)
+			terrain.ensure_ground_at(start)
+			mounts.place(kind, start, bearing)
+			mounts.mount(kind)
+			var rider := Player.new()
+			get_root().add_child(rider)
+			rider.global_position = start + Vector3(0.0, 0.2, 0.0)
+			rider.riding = kind
+			rider.take_the_handlebars(bearing)
+			rider.climbs_ground = _climb_limit(kind)
+			var held_last := Player.NOT_HELD
+			var held_rate := 0.0
+			var worst_vy := 0.0
+			var worst_off := 0.0
+			var worst_lean := 0.0
+			var worst_jerk := 0.0
+			var worst_spring := 0.0
+			var last_drawn := rider.global_position.y
+			var last_step := 0.0
+			Input.action_press(InputActions.MOVE_FORWARD)
+			var ticks := int(7.0 * float(hz))
+			for tick in ticks:
+				terrain.ensure_ground_at(rider.global_position)
+				if tick % 8 == 0:
+					terrain.follow(rider.global_position)
+				var under := Mounts.ground_under(
+					field, kind, rider.global_position, rider.facing_angle(),
+					Vector2(rider.velocity.x, rider.velocity.z).length()
+				)
+				if rider.global_position.y - under < 1.2:
+					var held := Mounts.held_height(
+						field, kind, rider.global_position, rider.velocity, rider.facing_angle(),
+						Vector2(held_last, held_rate), dt
+					)
+					rider.held_at_height = held.x
+					rider.held_rate = held.y
+					held_last = held.x
+					held_rate = held.y
+				else:
+					rider.held_at_height = Player.NOT_HELD
+					held_last = Player.NOT_HELD
+				var flat := Vector2(rider.velocity.x, rider.velocity.z).length()
+				if flat > 0.3:
+					rider.ride_clear_ahead = mounts.clear_ahead(
+						kind, rider.global_position, Vector3(rider.velocity.x, 0.0, rider.velocity.z) / flat, flat
+					)
+				else:
+					rider.ride_clear_ahead = INF
+				# A weave, so there is steering and leaning to judge as well as bumps.
+				var phase := float(tick) * dt
+				Input.action_release(InputActions.MOVE_LEFT)
+				Input.action_release(InputActions.MOVE_RIGHT)
+				if sin(phase * 0.9) > 0.5:
+					Input.action_press(InputActions.MOVE_RIGHT)
+				elif sin(phase * 0.9) < -0.5:
+					Input.action_press(InputActions.MOVE_LEFT)
+				rider.lean_with_the_ground(true, field, dt)
+				rider._physics_process(dt)
+				var drawn := rider.drawn_pose()
+				mounts.lean(rider.ride_bank(), rider.steer_angle())
+				mounts.carry(drawn["at"], drawn["facing"])
+				mounts._process(dt)
+				if tick > hz:
+					worst_vy = maxf(worst_vy, rider.velocity.y)
+					worst_off = maxf(worst_off, absf(rider.global_position.y - under))
+					var step: float = (drawn["at"] as Vector3).y - last_drawn
+					worst_jerk = maxf(worst_jerk, absf(step - last_step) / dt)
+					last_step = step
+					last_drawn = (drawn["at"] as Vector3).y
+				else:
+					last_drawn = (drawn["at"] as Vector3).y
+				worst_lean = maxf(worst_lean, absf(rider.ride_bank()))
+				worst_spring = maxf(worst_spring, absf(mounts._sprung))
+			Input.action_release(InputActions.MOVE_FORWARD)
+			Input.action_release(InputActions.MOVE_LEFT)
+			Input.action_release(InputActions.MOVE_RIGHT)
+			_expect(worst_vy < 3.0, "a %s at %d Hz over real ground is never thrown upwards (%.1f m/s)" % [kind, hz, worst_vy])
+			_expect(worst_off < 0.9, "and stays with the ground (%.2f m off it at the worst)" % worst_off)
+			_expect(worst_lean < deg_to_rad(28.0), "its lean stays inside %.0f degrees (%.1f)" % [28.0, rad_to_deg(worst_lean)])
+			_expect(
+				worst_spring <= float(Mounts.SPRING_TRAVEL.get(kind, 0.0)) + 0.001,
+				"its springs stay inside their travel (%.3f m)" % worst_spring
+			)
+			_expect(worst_jerk < 120.0, "and the height the camera follows changes smoothly (%.0f m/s squared at the worst)" % worst_jerk)
+			rider.queue_free()
+			mounts.dismount(start, bearing)
+	Engine.physics_ticks_per_second = 60
+	terrain.queue_free()
+	mounts.queue_free()
+
+## What the other phone draws of a ridden machine moves as the machine does:
+## the wheels turn by the ground covered, a bicycle's cranks with them, the bars
+## and a quad's front wheels go over into a turn the same way as at the rider's
+## own end, a bicycle leans into it and a quad does not.
+func _check_the_other_phone_sees_the_wheels_bars_and_lean() -> void:
+	print("the other phone sees the wheels, bars and lean")
+	await _set_physics_rate(60)
+	for kind: StringName in [MountKinds.BICYCLE, MountKinds.QUAD]:
+		# What the rider's own phone does, recorded: straight, then a right turn.
+		var floor_made := _ramp_world(0.0, 0.0)
+		await physics_frame
+		await physics_frame
+		var rider := _rider_of(kind, Vector3(0.0, 0.05, 0.0), 0.0)
+		var poses: Array[Array] = []
+		var dt := 1.0 / 60.0
+		Input.action_press(InputActions.MOVE_FORWARD)
+		var steer_at_end := 0.0
+		var bank_at_end := 0.0
+		for tick in 60 * 8:
+			if tick == 60 * 4:
+				Input.action_press(InputActions.MOVE_RIGHT)
+			rider._physics_process(dt)
+			var drawn := rider.drawn_pose()
+			poses.append([rider.global_position, rider._visual.rotation.y])
+			steer_at_end = rider.steer_angle()
+			bank_at_end = rider.ride_bank()
+		Input.action_release(InputActions.MOVE_FORWARD)
+		Input.action_release(InputActions.MOVE_RIGHT)
+		rider.queue_free()
+		for body in floor_made:
+			body.queue_free()
+
+		var steed := MountKinds.build_node(kind)
+		get_root().add_child(steed)
+		var state: Dictionary = {}
+		var wheel_before := 0.0
+		var crank_before := 0.0
+		var straight_bars := 0.0
+		var straight_wheel := 0.0
+		var front := steed.get_node_or_null("Wheel0") as Node3D
+		for tick in poses.size():
+			var pose: Array = poses[tick]
+			Mounts.animate_remote(steed, kind, state, pose[0], float(pose[1]), dt)
+			if tick == 60 * 4 - 1:
+				straight_bars = absf(float(state["bars"]))
+				straight_wheel = float(state["wheel"])
+				if kind == MountKinds.BICYCLE:
+					crank_before = float(state["crank"])
+		_expect(straight_wheel != wheel_before, "the %s's wheels turn on the other phone as it rolls straight" % kind)
+		if kind == MountKinds.BICYCLE:
+			_expect(absf(crank_before) > 0.5, "its cranks turn with it (%.1f rad)" % crank_before)
+		_expect(straight_bars < deg_to_rad(2.0), "bars straight going straight (%.1f degrees)" % rad_to_deg(straight_bars))
+		var bars := float(state["bars"])
+		_expect(
+			bars * steer_at_end > 0.0 and absf(bars) > 0.4 * absf(steer_at_end) and absf(bars) < 1.8 * absf(steer_at_end),
+			"in a right turn the bars go over as they do for the rider: %.1f degrees against %.1f" % [rad_to_deg(bars), rad_to_deg(steer_at_end)]
+		)
+		var bank := float(state["bank"])
+		if kind == MountKinds.BICYCLE:
+			_expect(
+				bank * bank_at_end > 0.0 and absf(bank) > 0.4 * absf(bank_at_end),
+				"the bicycle leans into it as the rider's does: %.1f degrees against %.1f" % [rad_to_deg(bank), rad_to_deg(bank_at_end)]
+			)
+		else:
+			_expect(absf(bank) < deg_to_rad(0.5), "the quad does not lean (%.2f degrees)" % rad_to_deg(bank))
+			_expect(front != null and absf(front.rotation.y) > deg_to_rad(5.0), "and its front wheels are turned over in the corner")
+		steed.queue_free()
+
+## A machine left on a slope stays where it was left, lying on the slope, and
+## does not roll off or sink.
+func _check_a_machine_left_on_a_slope_stays_there() -> void:
+	print("a machine left on a slope stays there")
+	await process_frame
+	var field := HeightField.new(20260903)
+	var spot := Vector3.ZERO
+	var found := false
+	for zi in range(-20, 21):
+		for xi in range(-20, 21):
+			var x := float(xi) * 20.0
+			var z := float(zi) * 20.0
+			var angle := rad_to_deg(acos(field.normal_at(x, z, 1.5).y))
+			if angle > 14.0 and angle < 24.0 and field.height_at(x, z) > 3.0 and field.steepness_at(x + 3.0, z) < 0.6:
+				spot = Vector3(x, field.height_at(x, z), z)
+				found = true
+				break
+		if found:
+			break
+	_expect(found, "there is a real slope of fourteen to twenty-four degrees to leave a machine on")
+	if not found:
+		return
+	for kind: StringName in [MountKinds.BICYCLE, MountKinds.QUAD, MountKinds.MOTORCYCLE]:
+		var mounts := Mounts.new(field)
+		get_root().add_child(mounts)
+		mounts.place(kind, spot, 0.7)
+		mounts.mount(kind)
+		mounts.carry(spot, 0.7)
+		mounts._process(1.0 / 60.0)
+		mounts.dismount(spot, 0.7)
+		var left := mounts.position_of(kind)
+		for _frame in 300:
+			mounts._process(1.0 / 60.0)
+		var node := mounts.node_of(kind)
+		var down := field.normal_at(left.x, left.z)
+		_expect(
+			mounts.position_of(kind).distance_to(left) < 0.01 and node.global_position.distance_to(left) < 0.01,
+			"a %s left on a slope is where it was left five seconds later" % kind
+		)
+		_expect(
+			node.global_transform.basis.y.dot(down) > cos(deg_to_rad(14.0)),
+			"and lies on it (%.0f degrees off the ground's own)" % rad_to_deg(acos(clampf(node.global_transform.basis.y.dot(down), -1.0, 1.0)))
+		)
+		_expect(absf(node.global_position.y - field.height_at(left.x, left.z)) < 0.35, "at the height of the ground")
+		mounts.queue_free()
+
+## The child on foot, the lantern in first person, the touch pad and the stick's
+## dead zone. Each of these was a measured fault:
+##  - a child sat at a café table (or on a swing or slide) with a ball within
+##    reach was turned to the camera by Main every frame while the seat turned
+##    them back every tick;
+##  - looking out of the child's own eyes hid the lantern's light with the body,
+##    so dusk was dark in first person whether the lantern was lit or not;
+##  - a finger left on the look pad after the first of a pinch lifted did
+##    nothing until it was lifted and put down again;
+##  - the action dead zone (0.2) sat on top of the stick's own (0.12): a push a
+##    third of the way out walked at 0.21 m/s.
+func _check_the_child_on_foot_and_the_view_agree_c11() -> void:
+	print("the child on foot, the lantern in first person, the pad and the stick")
+	InputActions.register()
+	# 1. Only a child who is free is turned to the view.
+	var child := Player.new()
+	get_root().add_child(child)
+	child.set_look([1, 0, 0])
+	_expect(child.can_turn_to_the_view(), "a child standing free can be turned to the view")
+	child.strapped_in = true
+	_expect(not child.can_turn_to_the_view(), "not one strapped into a ride")
+	child.strapped_in = false
+	child.is_carried = true
+	_expect(not child.can_turn_to_the_view(), "not one carried to a chair or down a slide")
+	child.is_carried = false
+	child.seat_pose = &"swing"
+	_expect(not child.can_turn_to_the_view(), "not one sitting in a seat pose")
+	child.seat_pose = &""
+	child.riding = &"bicycle"
+	_expect(not child.can_turn_to_the_view(), "not one on a machine")
+	child.riding = &""
+	child.is_swimming = true
+	_expect(not child.can_turn_to_the_view(), "not one swimming")
+	child.is_swimming = false
+	var head := MeshInstance3D.new()
+	head.mesh = SphereMesh.new()
+	get_root().add_child(head)
+	child.tend(head, true)
+	_expect(not child.can_turn_to_the_view(), "not one reaching out to an animal")
+	head.queue_free()
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var facing_fn := game.substr(game.find("func _face_the_view_at_the_ball("))
+	facing_fn = facing_fn.substr(0, facing_fn.find("\nfunc ", 10))
+	_expect(facing_fn.contains("can_turn_to_the_view()"), "and Main asks before turning a child to the view")
+
+	# 2. The lantern's light survives the body being hidden, in either order.
+	var lamp := Lantern.new()
+	child.hold(lamp)
+	_expect(lamp.light_is_shining(), "the lantern's light shines with the body drawn")
+	child.show_body(false)
+	_expect(not child.body_shown() and lamp.light_is_shining(), "and still shines when the child looks out of their own eyes")
+	child.show_body(true)
+	_expect(child.body_shown() and lamp.light_is_shining(), "and when the body is drawn again")
+	_expect(lamp.get_parent() == child._visual and lamp._light.get_parent() == lamp, "the light is back in the lantern, which the body carries")
+	var second := Player.new()
+	get_root().add_child(second)
+	second.show_body(false)
+	var lamp2 := Lantern.new()
+	second.hold(lamp2)
+	_expect(lamp2.light_is_shining(), "a lantern handed to a child who is already looking out of their own eyes lights too")
+	second.queue_free()
+	child.queue_free()
+
+	# 3. The dead zone: small pushes of the stick move a child gently.
+	_expect(
+		is_equal_approx(InputMap.action_get_deadzone(InputActions.MOVE_FORWARD), InputActions.DEADZONE),
+		"the movement actions use the one dead zone: %.2f" % InputMap.action_get_deadzone(InputActions.MOVE_FORWARD)
+	)
+	var floor_body := StaticBody3D.new()
+	var floor_shape := CollisionShape3D.new()
+	var slab := BoxShape3D.new()
+	slab.size = Vector3(400.0, 2.0, 400.0)
+	floor_shape.shape = slab
+	floor_body.add_child(floor_shape)
+	floor_body.position = Vector3(5000.0, -1.0, 5000.0)
+	get_root().add_child(floor_body)
+	await process_frame
+	var previous_rate := Engine.physics_ticks_per_second
+	var gentle := {}
+	for hz: int in [30, 60, 120]:
+		Engine.physics_ticks_per_second = hz
+		var walker := Player.new()
+		get_root().add_child(walker)
+		walker.global_position = Vector3(5000.0, 0.1, 5000.0)
+		Input.action_press(InputActions.MOVE_FORWARD, 0.3)
+		for _tick in hz * 2:
+			walker._physics_process(1.0 / float(hz))
+		Input.action_release(InputActions.MOVE_FORWARD)
+		var pace := Vector2(walker.velocity.x, walker.velocity.z).length()
+		gentle[hz] = pace
+		_expect(pace > 0.7 and pace < 1.3, "a push 0.3 of the way out walks gently at %d ticks: %.2f m/s (was 0.21)" % [hz, pace])
+		walker.queue_free()
+	Engine.physics_ticks_per_second = previous_rate
+	_expect(
+		absf((gentle[30] as float) - (gentle[120] as float)) < 0.02,
+		"and as fast at 30 ticks as at 120: %.3f against %.3f" % [gentle[30], gentle[120]]
+	)
+	floor_body.queue_free()
+
+	# 4. Two fingers on the look pad: the one that stays carries on turning.
+	var pad := CameraPad.new()
+	get_root().add_child(pad)
+	var turned := [0, 0]
+	pad.dragged.connect(func(_by: Vector2) -> void: turned[0] += 1)
+	pad.tapped.connect(func() -> void: turned[1] += 1)
+	var touch := func(index: int, pressed: bool, at: Vector2) -> void:
+		var event := InputEventScreenTouch.new()
+		event.index = index
+		event.pressed = pressed
+		event.position = at
+		pad._gui_input(event)
+	var drag := func(index: int, at: Vector2) -> void:
+		var event := InputEventScreenDrag.new()
+		event.index = index
+		event.position = at
+		event.relative = Vector2(12.0, 0.0)
+		event.screen_relative = Vector2(12.0, 0.0)
+		pad._gui_input(event)
+	touch.call(0, true, Vector2(900.0, 300.0))
+	drag.call(0, Vector2(912.0, 300.0))
+	_expect(turned[0] == 1, "one finger turns the view")
+	touch.call(1, true, Vector2(1000.0, 300.0))
+	drag.call(1, Vector2(1012.0, 300.0))
+	_expect(turned[0] == 1, "two fingers pinch and do not turn it")
+	touch.call(0, false, Vector2(912.0, 300.0))
+	drag.call(1, Vector2(1030.0, 300.0))
+	_expect(turned[0] == 2, "the finger left after the first lifts carries on turning it")
+	touch.call(1, false, Vector2(1030.0, 300.0))
+	_expect(turned[1] == 0, "and lifting it is not a tap on the world")
+	touch.call(2, true, Vector2(800.0, 300.0))
+	touch.call(2, false, Vector2(800.0, 300.0))
+	_expect(turned[1] == 1, "while a plain touch still is")
+	pad.queue_free()
+
+## What 9 mm is, in HUD pixels, on the phone this game is made for: a 2400 by
+## 1080 screen at about 510 dpi, with the 1280 by 720 base stretched to its
+## height (scale 1.5). One screen pixel is 25.4 / 510 mm.
+func _hud_pixels_in_mm(pixels: float) -> float:
+	return pixels * (1080.0 / 720.0) * 25.4 / 510.0
+
+## The grown-up's volume: bars lit for the valley's ambience and for the
+## interface's sounds, and a mute. Applied through the mixer's buses, clamped,
+## kept through a rebuilt mix, and written to and read from the player's save.
+func _check_the_grown_ups_volume_reaches_the_mixer_and_is_kept() -> void:
+	print("the grown-up's volume and mute reach the buses and are saved")
+	Mix.build()
+	var world := AudioServer.get_bus_index(Mix.WORLD)
+	var effects := AudioServer.get_bus_index(Mix.EFFECTS)
+	var master := AudioServer.get_bus_index(&"Master")
+	Mix.muffle(0.0)
+	Mix.duck(0.0)
+	Mix.set_steps(Mix.STEPS, Mix.STEPS)
+	Mix.set_muted(false)
+	_expect(absf(AudioServer.get_bus_volume_db(world)) < 0.01 and absf(AudioServer.get_bus_volume_db(effects)) < 0.01, "at every bar both buses play at full volume")
+	_expect(not AudioServer.is_bus_mute(master), "and nothing is muted")
+	var previous := 1.0
+	for steps in range(Mix.STEPS, 0, -1):
+		var db := Mix.step_db(steps)
+		_expect(db <= previous and db <= 0.0 and is_finite(db), "bar %d plays at %.1f dB, no louder than the one above" % [steps, db])
+		previous = db
+	_expect(Mix.step_db(1) > -40.0, "and one bar is still heard: silence is the mute's job")
+	Mix.set_steps(2, 4)
+	_expect(absf(AudioServer.get_bus_volume_db(world) - Mix.step_db(2)) < 0.01, "two bars turn the valley's ambience down to that")
+	_expect(absf(AudioServer.get_bus_volume_db(effects) - Mix.step_db(4)) < 0.01, "and four the interface's sounds")
+	# The reasons to be quieter add up: under water and under a voice.
+	Mix.duck(1.0)
+	Mix.muffle(1.0)
+	_expect(absf(AudioServer.get_bus_volume_db(effects) - (Mix.DUCK_DB + Mix.step_db(4))) < 0.01, "a voice ducks the effects from where the grown-up put them")
+	_expect(AudioServer.get_bus_volume_db(world) < Mix.step_db(2) + Mix.DUCK_DB + 0.01, "and the world is under water, under a voice, under the volume")
+	Mix.duck(0.0)
+	Mix.muffle(0.0)
+	Mix.set_steps(-3, 99)
+	_expect(Mix.ambience_steps() == 1 and Mix.effects_steps() == Mix.STEPS, "numbers off either end of the bars are clamped")
+	Mix.set_muted(true)
+	_expect(AudioServer.is_bus_mute(master) and Mix.muted(), "the mute silences the master bus, voices too")
+	Mix.build()
+	_expect(AudioServer.is_bus_mute(master) and Mix.ambience_steps() == 1, "and a rebuilt mix keeps both")
+	Mix.set_muted(false)
+	_expect(not AudioServer.is_bus_mute(master) and absf(AudioServer.get_bus_volume_db(world) - Mix.step_db(1)) < 0.01, "ending the mute gives back the volume that was chosen")
+	Mix.set_steps(Mix.STEPS, Mix.STEPS)
+
+	# Saved with the player and read back clamped, like the language.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var saved := game.substr(game.find("func _save_data("))
+	saved = saved.substr(0, saved.find("\nfunc ", 1))
+	for key: String in ["sound_ambience", "sound_effects", "sound_muted"]:
+		_expect(saved.contains("\"%s\"" % key), "%s is written to the save" % key)
+		_expect(game.contains("save.get(\"%s\"" % key), "and read back when the game opens")
+	_expect(game.contains("Mix.set_steps(_sound_ambience, _sound_effects)") and game.contains("Mix.set_muted(_sound_muted)"), "and applied to the mixer right after it is built")
+	_expect(game.contains("hud.set_sound(") and game.contains("hud.sound_changed.connect(_on_sound_changed)"), "the interface is shown the saved volume, and a change reaches the game")
+	var shown := game.substr(game.find("func _show_the_state("))
+	shown = shown.substr(0, shown.find("\nfunc ", 1))
+	_expect(shown.contains("hud.set_sound("), "a rebuilt interface (a new language) is shown the volume again")
+	_expect(int(SaveGame.as_int("junk", Mix.STEPS)) == Mix.STEPS and SaveGame.as_int(3.0, 5) == 3, "and a hand-edited number is read with the fallbacks every save uses")
+
+## The volume rows in the settings: pictures and bars, every one a hold with
+## its ring, big enough for a thumb, out of a toddler's way, and still inside
+## the panel's fit.
+func _check_the_grown_ups_volume_is_held_not_tapped() -> void:
+	print("the volume bars and the mute need a hold, and are big and drawn")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var heard: Array = []
+	hud.sound_changed.connect(func(a: int, e: int, m: bool) -> void: heard.append([a, e, m]))
+	# Open, because a ring lets go of a button that is hidden under a finger.
+	hud._toggle_menu()
+	await process_frame
+	hud.set_sound(Mix.STEPS, Mix.STEPS, false)
+	_expect(heard.is_empty(), "showing the saved volume tells nobody")
+	_expect(hud._ambience_bars != null and hud._effects_bars != null and hud._mute_button != null, "the settings have two rows of bars and a mute")
+	var all: Array[Button] = [hud._mute_button]
+	all.append_array(hud._ambience_bars.buttons)
+	all.append_array(hud._effects_bars.buttons)
+	_expect(all.size() == 1 + 2 * Mix.STEPS, "five bars a row")
+	for button: Button in all:
+		var ring: HoldRing = null
+		for child in button.get_children():
+			if child is HoldRing:
+				ring = child
+		_expect(ring != null, "a volume control needs a hold")
+		_expect(button.custom_minimum_size.x >= 72.0 and button.custom_minimum_size.y >= Hud.BUTTON, "and is %s px, a thumb or more" % button.custom_minimum_size)
+		if ring == null:
+			continue
+		button.pressed.emit()
+		button.button_down.emit()
+		ring._process(0.4)
+		button.button_up.emit()
+	_expect(heard.is_empty(), "taps and short holds change nothing")
+	var bar: Button = hud._ambience_bars.buttons[1]
+	var bar_ring: HoldRing = bar.get_child(bar.get_child_count() - 1)
+	bar.button_down.emit()
+	bar_ring._process(1.2)
+	bar.button_up.emit()
+	_expect(heard == [[2, Mix.STEPS, false]], "holding the second ambience bar lights two and says so (%s)" % str(heard))
+	_expect(hud._ambience_bars.steps == 2 and hud._effects_bars.steps == Mix.STEPS, "the bars show it")
+	var lit := 0
+	for fill in hud._ambience_bars.find_children("*", "ColorRect", true, false):
+		if (fill as ColorRect).color == VolumeBars.LIT:
+			lit += 1
+	_expect(lit == 2, "exactly two are drawn lit")
+	heard.clear()
+	var mute: Button = hud._mute_button
+	var mute_ring: HoldRing = mute.get_child(mute.get_child_count() - 1)
+	mute.button_down.emit()
+	mute_ring._process(1.2)
+	mute.button_up.emit()
+	_expect(heard == [[2, Mix.STEPS, true]] and hud.sound_state() == [2, Mix.STEPS, true], "holding the speaker mutes, and keeps the bars")
+	_expect(hud._face_of(mute).kind == ActionIcon.Kind.SPEAKER_OFF, "and the speaker is drawn barred")
+	hud.set_sound(3, 3, false)
+	_expect(hud._face_of(mute).kind == ActionIcon.Kind.SPEAKER_ON and hud._effects_bars.steps == 3, "a rebuilt interface is shown what was saved")
+	hud.set_sound(0, 99, false)
+	_expect(hud.sound_state() == [1, Mix.STEPS, false], "out-of-range numbers are clamped")
+	# In the settings, and the settings still fit every shape of phone.
+	await process_frame
+	_expect(hud._mute_button.is_visible_in_tree() and hud._ambience_bars.is_visible_in_tree(), "the rows are in the settings panel")
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	for shape: Vector2i in [Vector2i(1280, 720), Vector2i(1600, 720), Vector2i(1280, 960)]:
+		window.size = shape
+		window.content_scale_size = shape
+		await process_frame
+		hud._layout()
+		await process_frame
+		var area := hud._safe_area()
+		var box := Rect2(hud._menu.position, hud._menu.get_combined_minimum_size())
+		_expect(area.encloses(box), "the settings with the volume rows fit a %s phone (%s in %s)" % [str(shape), str(box), str(area)])
+		_expect(not box.intersects(Rect2(hud._menu_button.position, hud._menu_button.size)), "and leave the gear uncovered")
+	window.size = was_size
+	window.content_scale_size = was_content
+	hud.queue_free()
+
+## The first run, for a child who cannot read: a panel of pictures with a big
+## tick, every target at least 9 mm, nothing text-only in the way, and a way out
+## whatever the child does (the tick, back, or leaving it alone).
+func _check_the_first_run_panel_is_nine_millimetres_and_cannot_trap_a_child() -> void:
+	print("the first-run panel has 9 mm targets and cannot trap a child")
+	_expect(_hud_pixels_in_mm(Hud.CHILD_TARGET) >= 9.0, "a child's target is %.2f mm on the 2400 by 1080 phone" % _hud_pixels_in_mm(Hud.CHILD_TARGET))
+	var window := get_root()
+	var was_size := window.size
+	var was_content := window.content_scale_size
+	var hud := Hud.new()
+	window.add_child(hud)
+	await process_frame
+	var closed := [0]
+	hud.look_offer_closed.connect(func() -> void: closed[0] += 1)
+	for shape: Vector2i in [Vector2i(1280, 720), Vector2i(1600, 720), Vector2i(1280, 960)]:
+		window.size = shape
+		window.content_scale_size = shape
+		hud.offer_look()
+		await process_frame
+		await process_frame
+		var picker: LookPicker = hud._offer_picker
+		var smallest := 1e9
+		var count := 0
+		for group: Array in [picker._face_buttons, picker._skin_buttons, picker._hair_buttons, picker._shirt_buttons]:
+			for button: Button in group:
+				smallest = minf(smallest, minf(button.size.x, button.size.y))
+				count += 1
+		_expect(count == 5 + 5 + 5 + Visitors.SHIRTS.size(), "every choice is there (%d)" % count)
+		_expect(_hud_pixels_in_mm(smallest) >= 9.0, "%s: the smallest face, dot or colour is %.0f px = %.1f mm (was 4.4 mm)" % [str(shape), smallest, _hud_pixels_in_mm(smallest)])
+		var tick: Button = picker.footer.get_child(0)
+		_expect(_hud_pixels_in_mm(minf(tick.size.x, tick.size.y)) >= 9.0 and tick.size.x >= Hud.CHILD_TARGET * 4.0, "%s: the tick is a wide green bar, %.0f x %.0f px" % [str(shape), tick.size.x, tick.size.y])
+		_expect(tick.get_child_count() == 1 and tick.text.is_empty() and tick.get_child(0) is ActionIcon, "the tick is drawn, not written")
+		var area := hud._safe_area()
+		_expect(area.encloses(Rect2(hud._offer.position, hud._offer.size)), "%s: and the panel is inside the screen" % str(shape))
+		# No two targets touch: a finger on one is on that one.
+		var boxes: Array[Rect2] = []
+		for group: Array in [picker._face_buttons, picker._skin_buttons, picker._hair_buttons, picker._shirt_buttons]:
+			for button: Button in group:
+				boxes.append(Rect2(button.global_position, button.size))
+		var touching := 0
+		for i in boxes.size():
+			for j in range(i + 1, boxes.size()):
+				if boxes[i].intersects(boxes[j]):
+					touching += 1
+		_expect(touching == 0, "%s: no two choices overlap (%d)" % [str(shape), touching])
+		tick.pressed.emit()
+		_expect(not hud.look_offer_open(), "%s: the tick puts it away" % str(shape))
+	_expect(closed[0] == 3, "and says so each time")
+	window.size = was_size
+	window.content_scale_size = was_content
+
+	# Left alone, it puts itself away.
+	closed[0] = 0
+	hud.offer_look()
+	hud._process(Hud.OFFER_IDLE * 0.5)
+	hud._offer_picker._face_buttons[2].pressed.emit()
+	hud._process(Hud.OFFER_IDLE * 0.9)
+	_expect(hud.look_offer_open(), "a child still choosing is not hurried")
+	hud._process(Hud.OFFER_IDLE * 0.2)
+	_expect(not hud.look_offer_open() and closed[0] == 1, "an untouched panel puts itself away after %.0f s and counts as asked" % Hud.OFFER_IDLE)
+	# Back closes it too, and the settings hold a door back to it.
+	hud.offer_look()
+	_expect(hud.close_top_panel() and not hud.look_offer_open(), "back closes it")
+	hud._toggle_menu()
+	await process_frame
+	_expect(_hud_pixels_in_mm(minf(hud._me_button.size.x, hud._me_button.size.y)) >= 9.0, "the settings' picture of the child is a 9 mm door (%.0f px)" % hud._me_button.size.x)
+	hud.set_look([2, 1, 3])
+	_expect(hud._me_face.which == 2 and hud._me_face.skin == Character.SKINS[1] and hud._me_face.hair == Character.HAIRS[3], "and is drawn as the child chose")
+	hud._me_button.pressed.emit()
+	_expect(hud.look_offer_open() and hud._offer_picker.look() == [2, 1, 3], "tapping it opens the same panel, on what is chosen")
+	_expect(hud.close_top_panel() and hud._menu.visible, "back puts that panel away and leaves the settings")
+	hud.close_top_panel()
+	# The other targets a child is asked to choose between.
+	hud.ask("?")
+	await process_frame
+	for answer: Button in hud._asking.find_children("*", "Button", true, false):
+		_expect(_hud_pixels_in_mm(answer.custom_minimum_size.y) >= 9.0, "the cross and the tick under a question are 9 mm tall (%.0f px)" % answer.custom_minimum_size.y)
+	for dish: StringName in Dishes.ALL:
+		var tile: Button = hud._dish_tiles[dish]
+		_expect(_hud_pixels_in_mm(minf(tile.custom_minimum_size.x, tile.custom_minimum_size.y)) >= 9.0, "a dish on the café menu is 9 mm each way (%s)" % str(tile.custom_minimum_size))
+	hud.close_top_panel()
+	hud.set_cafe_menu_open(true, true, 5)
+	for shape: Vector2i in [Vector2i(1280, 720), Vector2i(1600, 720), Vector2i(1280, 960)]:
+		window.size = shape
+		window.content_scale_size = shape
+		await process_frame
+		hud._layout()
+		await process_frame
+		var menu := Rect2(hud._cafe_menu.position, hud._cafe_menu.size)
+		_expect(hud._safe_area().encloses(menu), "%s: the café menu with its big dishes is on the screen (%s)" % [str(shape), str(menu)])
+		_expect(not menu.intersects(Rect2(hud._stick.position, hud._stick.size)), "%s: and stands clear of the stick" % str(shape))
+	window.size = was_size
+	window.content_scale_size = was_content
+	hud.queue_free()
+
+## A sweep of every panel: a tap on any button, anywhere, spends nothing,
+## sells nothing, deletes nothing, resets nothing, changes no language,
+## changes no sound and leaves no game together. What is meant is a hold (or,
+## for the question under a ride's ticket, an answer to a question in pictures).
+func _check_no_tap_in_any_panel_spends_sells_deletes_resets_or_leaves() -> void:
+	print("no tap in any panel spends, sells, deletes, resets, changes language or leaves a game")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var fired: Array[String] = []
+	for name: String in ["reset_requested", "language_chosen", "shop_buy", "shop_sold_back", "ticket_pressed", "snack_pressed", "build_remove", "build_undo", "place_used", "dam_stick", "fire_fed", "sound_changed", "name_chosen"]:
+		_expect(hud.has_signal(name), "the interface has the %s signal" % name)
+		hud.connect(name, func(_a: Variant = null, _b: Variant = null, _c: Variant = null) -> void: fired.append(name))
+	hud.together.leave_requested.connect(func() -> void: fired.append("leave"))
+	hud.set_coins(500)
+	hud.set_owned({ShopStock.BICYCLE: 1})
+	hud.set_shop_open(true, 500, {ShopStock.BICYCLE: 1})
+	hud._shop_tapped(ShopStock.BICYCLE)
+	hud._toggle_menu()
+	hud._danger.visible = true
+	hud.together.open()
+	hud.set_building(true)
+	hud.set_place_offer(Places.CAFE)
+	hud.set_cafe_menu_open(true, false, 500)
+	await process_frame
+	var tapped := 0
+	for button: Button in hud.find_children("*", "Button", true, false):
+		button.pressed.emit()
+		tapped += 1
+	for button: Button in hud.together.find_children("*", "Button", true, false):
+		button.pressed.emit()
+		tapped += 1
+	_expect(tapped > 60, "a tap on every button there is (%d)" % tapped)
+	_expect(fired.is_empty(), "spent, sold, deleted, reset, changed or left nothing: %s" % ", ".join(fired))
+	# The bridge between a tap and each of these is a ring, on every one of them.
+	var needing: Array = [hud._reset_button, hud._shop_buy_button, hud._shop_sell_back, hud._ticket_button, hud._snack_button, hud._remove_button, hud._undo_button, hud._visit_button, hud._dam_button, hud._fire_button]
+	for flag: Button in hud._menu.find_children("*", "Button", true, false):
+		if Text.LANGUAGES.any(func(code: StringName) -> bool: return flag.tooltip_text == Text.ENDONYM[code]):
+			needing.append(flag)
+	var flags := 0
+	for button: Button in needing:
+		var rung := false
+		for child in button.get_children():
+			rung = rung or child is HoldRing
+		_expect(rung, "%s is behind a hold" % button.get_path())
+		if button.tooltip_text != "" and button.get_parent() is HBoxContainer:
+			flags += 1
+	_expect(flags >= Text.LANGUAGES.size(), "every language flag, not only one, needs it (%d)" % flags)
+	_expect(is_equal_approx((hud._reset_ring as HoldRing).seconds, Hud.RESET_HOLD) and Hud.RESET_HOLD >= 4.0, "and the reset needs seconds, not one")
+	hud.queue_free()
+
+## A dog asks for a stick three times and then settles for a long rest, for a
+## child who cannot go and find one; a stick given, or a walk away, starts the
+## count again.
+func _check_a_dog_settles_after_a_few_asks() -> void:
+	print("a dog settles after a few asks")
+	var voices := AnimalVoices.new()
+	get_root().add_child(voices)
+	voices.bake_now()
+	var node := Node3D.new()
+	get_root().add_child(node)
+	node.position = Vector3(2.0, 0.0, 0.0)
+	var dog := {"kind": &"dog", "node": node, "cooldown": 0.0}
+	var near: Array[Dictionary] = [dog]
+	var barks := 0
+	for _frame in 60 * 60:
+		if voices._beg(near, Vector3.ZERO, 1.0 / 60.0):
+			barks += 1
+	_expect(barks >= AnimalVoices.BEG_LIMIT and barks <= AnimalVoices.BEG_LIMIT + 1, "a minute beside an empty-handed child is %d asks, not a dozen" % barks)
+	_expect(AnimalVoices.BEG_REST >= 60.0, "after which the rest is long (%.0f s)" % AnimalVoices.BEG_REST)
+	var again := 0
+	for _frame in 60 * 90:
+		if voices._beg(near, Vector3.ZERO, 1.0 / 60.0):
+			again += 1
+	_expect(again >= 1, "and it asks again once the rest is over (%d)" % again)
+	# A stick given resets the count.
+	dog["cooldown"] = 5.0
+	for _frame in 60:
+		voices._beg(near, Vector3.ZERO, 1.0 / 60.0)
+	_expect(voices._begs == 0, "a stick given starts the count from nought")
+	node.queue_free()
+	voices.queue_free()
+
+## The settings open down the left side over the stick's corner, and the stick's
+## ring was drawn on top of the sound rows. It is hidden while the settings or
+## the grown-ups' room is open, and back when both are closed.
+func _check_the_stick_hides_under_the_settings() -> void:
+	print("the stick hides under the settings")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	_expect(hud._stick.visible, "the stick shows on the play screen")
+	hud._toggle_menu()
+	await process_frame
+	_expect(hud._menu.visible and not hud._stick.visible, "and hides while the settings are open")
+	hud._menu.visible = false
+	hud._danger.visible = true
+	await process_frame
+	_expect(not hud._stick.visible, "and while the grown-ups' room is open")
+	hud._danger.visible = false
+	await process_frame
+	_expect(hud._stick.visible, "and comes back when both are closed")
+	hud.queue_free()
+	await process_frame

@@ -269,6 +269,46 @@ const MACHINE_COAST := 2.2
 ## Reverse, as a share of what the machine does forwards.
 const REVERSE_SHARE := 0.32
 
+## How a mount copes with a hill. Up to this share of the steepest ground it
+## will take it holds its pace; beyond it, it labours, down to CLIMB_FLOOR of its
+## pace at the limit itself. A machine that did full speed up forty degrees and
+## then stopped dead at forty-one was the report; this is the ramp between.
+const CLIMB_EASY := 0.3
+const CLIMB_FLOOR := 0.35
+## How much of gravity a coasting machine feels along the slope: it slows
+## faster going up and keeps its roll going down, and never runs backwards of
+## its own accord.
+const COAST_GRAVITY := 4.5
+
+## How firmly a mount is brought up short of something solid or of ground it
+## cannot take: a steady deceleration, metres a second squared, worked out from
+## how far there is to go. Stopping dead at nineteen metres a second is a wall
+## the child has hit; stopping over eight metres is a machine that braked.
+const SOFT_DECEL := 22.0
+## What is left between the machine and what it is stopping for, and the pace it
+## may still creep up to a solid thing at, so that it meets it with a nudge.
+const SOFT_GAP := 0.3
+const SOFT_CREEP := 0.9
+## The rays are cast from about the height of the handlebars.
+const SOFT_RAY_HEIGHT := 0.8
+## And one low, for the foot of a bank and for what is no higher than a knee.
+const SOFT_LOW_RAY_HEIGHT := 0.22
+
+## Metres of ground ahead, along where the mount is going, that it may be ridden
+## on. Told by the game (it is the mount's own rule, in Mounts.can_ride_over);
+## infinite when the way is clear.
+var ride_clear_ahead := INF
+
+## The pace, in metres a second, at which the mount last met something solid
+## head on. For the camera and the sound, and for the checks.
+var bump_speed := 0.0
+
+## The way the stick is asking to go, flat and of length one; nought when it is
+## not pushed. See main's look-ahead.
+var ride_wish := Vector3.ZERO
+
+var _ray := PhysicsRayQueryParameters3D.new()
+
 ## Which way a steered machine is pointing. Kept here rather than read back
 ## off the drawn body, because the body eases towards it and steering off an
 ## eased value compounds into a wobble.
@@ -307,6 +347,8 @@ var _buffered_jump := 0.0
 var _gravity := 24.0
 var _last_reported := Vector3(1e9, 1e9, 1e9)
 var _visual: Node3D
+## What the body carries (see hold).
+var _held: Array[Node3D] = []
 
 func _init() -> void:
 	# Measured on rolling procedural terrain: at a run, the default snap length
@@ -802,6 +844,9 @@ func _physics_process(delta: float) -> void:
 	var push := clampf(wish.length(), 0.0, 1.0)
 	if push > 0.001:
 		wish /= wish.length()
+	# Which way it is being asked to go, for the game to look ahead along when the
+	# machine is standing still and has no velocity to say.
+	ride_wish = wish if push > 0.001 else Vector3.ZERO
 
 	# Pushing past three quarters breaks into a run without touching sprint,
 	# which is how a thumbstick is expected to behave and means a six-year-old
@@ -839,6 +884,15 @@ func _physics_process(delta: float) -> void:
 	# Riding is not running: it must not drain the child's own energy.
 	is_running = riding == &"" and top > WALK_SPEED + 0.01 and wish.length_squared() > 0.01
 
+	# A hill takes the pace off a mount going up it.
+	var slope_floor := Vector3.UP
+	if riding != &"" and not boating and not afloat and is_on_floor():
+		slope_floor = get_floor_normal()
+	if riding != &"" and wish.length_squared() > 0.01 and slope_floor.y < 0.999:
+		var uphill := atan(-(wish.x * slope_floor.x + wish.z * slope_floor.z) / maxf(slope_floor.y, 0.1))
+		var labour := clampf(uphill / maxf(climbs_ground, 0.1), 0.0, 1.0)
+		top *= lerpf(1.0, CLIMB_FLOOR, smoothstep(CLIMB_EASY, 1.0, labour))
+
 	# How hard the stick is pushed has already been spent on a mount — it chose
 	# the gait — so it must not be spent a second time here, which quietly
 	# squared it and made every pace short of full throttle far slower than it
@@ -865,7 +919,13 @@ func _physics_process(delta: float) -> void:
 		rate = MACHINE_PULL * MountKinds.pull_share(riding) if wish.length_squared() > 0.01 else MACHINE_COAST
 		if braking:
 			rate *= MountKinds.BRAKE_SHARE
+		var rolling := horizontal.length()
+		if wish.length_squared() <= 0.01 and rolling > 0.05 and slope_floor.y < 0.999:
+			# Coasting on a hill: gravity along the way it is rolling.
+			var along_hill := atan(-(horizontal.x * slope_floor.x + horizontal.z * slope_floor.z) / (rolling * maxf(slope_floor.y, 0.1)))
+			rate = maxf(rate + COAST_GRAVITY * sin(along_hill) * 2.0, MACHINE_COAST * 0.4)
 	horizontal = horizontal.move_toward(target, rate * delta)
+	horizontal = _brought_up_short(horizontal, delta)
 	is_moving = horizontal.length_squared() > 0.35
 
 	# Wheels do not slide sideways.
@@ -995,6 +1055,75 @@ func _physics_process(delta: float) -> void:
 		_last_reported = global_position
 		moved.emit(global_position)
 
+## A mount that is about to meet something is slowed to meet it gently.
+##
+## Left to the physics body, a wall is a wall: nineteen metres a second one
+## frame and nothing the next, a quad stopped dead against a tree and a child's
+## head left the camera behind. What a rider does is brake, so the pace is held
+## to what it could stop from over the distance to go, at SOFT_DECEL.
+##
+## Only the part of the speed that is going into the thing is held — a machine
+## coming at a wall at a slant keeps what is along it and slides, as it does
+## anywhere else. Three rays at the height of the bars find the solids; the
+## ground the game says is not for riding (water, the pool, a bank too steep)
+## comes from `ride_clear_ahead`, and stops the machine altogether short of it.
+func _brought_up_short(horizontal: Vector3, delta: float) -> Vector3:
+	var pace := horizontal.length()
+	bump_speed = 0.0
+	if riding == &"" or MountKinds.floats(riding) or pace < 0.05 or not is_inside_tree():
+		return horizontal
+	var dir := horizontal / pace
+	var out := horizontal
+	if ride_clear_ahead < INF:
+		var allowed := sqrt(2.0 * SOFT_DECEL * maxf(ride_clear_ahead - 1.0, 0.0))
+		# Never harder than twice the usual braking in one go: the distance is an
+		# estimate that is revised as the machine closes on it, and a revision must
+		# not be felt as a jolt.
+		allowed = maxf(allowed, pace - SOFT_DECEL * 2.0 * delta)
+		if pace > allowed:
+			out = dir * allowed
+	if pace < 1.0:
+		return out
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return out
+	var reach := pace * pace / (2.0 * SOFT_DECEL) + RADIUS + SOFT_GAP + pace * 0.25 + 0.8
+	var side := Vector3(-dir.z, 0.0, dir.x)
+	_ray.collision_mask = collision_mask
+	_ray.exclude = [get_rid()]
+	for cast: Vector2 in [
+		Vector2(-RADIUS * 0.9, SOFT_RAY_HEIGHT), Vector2(0.0, SOFT_RAY_HEIGHT),
+		Vector2(RADIUS * 0.9, SOFT_RAY_HEIGHT), Vector2(0.0, SOFT_LOW_RAY_HEIGHT),
+	]:
+		var from := global_position + Vector3(0.0, cast.y, 0.0) + side * cast.x
+		_ray.from = from
+		_ray.to = from + dir * reach
+		var hit := space.intersect_ray(_ray)
+		if hit.is_empty():
+			continue
+		var normal: Vector3 = hit["normal"]
+		# Ground that can be stood on is the machine's to climb, not a wall.
+		if normal.y > cos(climbs_ground) - 0.02:
+			continue
+		var wall := Vector3(normal.x, 0.0, normal.z)
+		if wall.length_squared() < 0.0001:
+			continue
+		wall = wall.normalized()
+		var into := -out.dot(wall)
+		if into <= 0.0:
+			continue
+		# A face that leans back (a bank) is touched by the round of the body before
+		# the ray finds it: the stand-off is the radius along the way it leans.
+		var standoff := RADIUS / maxf(Vector2(normal.x, normal.z).length(), 0.3)
+		var distance := ((hit["position"] as Vector3) - from).dot(dir) - standoff
+		var to_go := maxf(distance * into / maxf(pace, 0.01) - SOFT_GAP, 0.0)
+		var slow_enough := sqrt(SOFT_CREEP * SOFT_CREEP + 2.0 * SOFT_DECEL * to_go)
+		if into > slow_enough:
+			out += wall * (into - slow_enough)
+		if to_go < 0.6:
+			bump_speed = maxf(bump_speed, into)
+	return out
+
 ## Ask for a jump from the interface. It goes through the same buffer as the
 ## key, so a tapped button and a tapped key behave identically — including the
 ## grace period that lets a slightly early press still work on landing.
@@ -1084,6 +1213,17 @@ func _swim_bob() -> float:
 func show_body(shown: bool) -> void:
 	if _visual != null:
 		_visual.visible = shown
+	# A hidden body hides what it carries, and a lantern's light is one of those
+	# things: a child looking out of their own eyes at dusk had no lantern light
+	# at all, because the lamp's light node was hidden with the body. The light
+	# goes to the player itself while the body is not drawn.
+	for thing in _held:
+		var lamp := thing as Lantern
+		if lamp != null:
+			if shown:
+				lamp.take_the_light_back()
+			else:
+				lamp.lend_the_light_to(self)
 
 ## Is the drawn body showing? For the checks.
 func body_shown() -> bool:
@@ -1101,6 +1241,9 @@ func hold(thing: Node3D) -> void:
 		_visual = _build_visual()
 		add_child(_visual)
 	_visual.add_child(thing)
+	_held.append(thing)
+	if not _visual.visible:
+		show_body(false)
 
 ## Is this being carried on the body? For the checks.
 func is_held(thing: Node3D) -> bool:
@@ -1260,6 +1403,20 @@ func drawn_pose() -> Dictionary:
 
 func facing() -> Vector3:
 	return Vector3(-sin(_visual.rotation.y), 0.0, -cos(_visual.rotation.y))
+
+## Whether the body is free to be turned by the game to face the view (a child
+## standing at a ball, see Main._face_the_view_at_the_ball). Not when something
+## else already decides which way they face: a chair, a slide or a swing turns
+## them in its own tick, a ride's seat sets the whole pose, a mount points them
+## with its own turn rate, and a swimmer or a child reaching out to an animal is
+## busy. Turned by two easings at once, a child sitting at a café table with a
+## ball under it twisted towards the camera every frame and back to the chair
+## every tick.
+func can_turn_to_the_view() -> bool:
+	return not (
+		strapped_in or is_carried or seat_pose != &"" or riding != &""
+		or is_swimming or is_tending()
+	)
 
 ## Turn the body towards a direction while being carried, when there is no
 ## walking to turn it — down the slide, for one. Eased, like walking is.

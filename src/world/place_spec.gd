@@ -260,13 +260,13 @@ const BUILDINGS := {
 
 ## Is this point inside a building — on somebody's floor rather than on the
 ## ground? A little generous, so a tuft does not come up against the skirting.
-static func indoors(x: float, z: float, camp: Vector3) -> bool:
+static func indoors(x: float, z: float, camp: Vector3, margin := 0.4) -> bool:
 	for place in BUILDINGS:
 		var centre: Vector3 = camp + OFFSETS[place]
 		var shape: Array = BUILDINGS[place]
 		var dx := absf(x - centre.x)
 		var dz := absf(z - (centre.z + float(shape[2])))
-		if dx < float(shape[0]) * 0.5 + 0.4 and dz < float(shape[1]) * 0.5 + 0.4:
+		if dx < float(shape[0]) * 0.5 + margin and dz < float(shape[1]) * 0.5 + margin:
 			return true
 	return false
 

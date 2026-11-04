@@ -790,6 +790,11 @@ func _turn_the_wheels(delta: float) -> void:
 
 ## Turn one wheel by the distance rolled, and the quad's front pair by the bars.
 func _spin_wheel(child: Node, kind: StringName) -> void:
+	spin_wheel(child, kind, _wheel_phase, _bars)
+
+## The same, for any machine and any state: what the other phone's copy of a
+## ridden machine is turned by (see `animate_remote`).
+static func spin_wheel(child: Node, kind: StringName, wheel_phase: float, bars: float) -> void:
 	var wheel := child as Node3D
 	if wheel == null or not wheel.name.begins_with("Wheel"):
 		return
@@ -800,14 +805,81 @@ func _spin_wheel(child: Node, kind: StringName) -> void:
 	if kind == MountKinds.BICYCLE and wheel.name == &"Wheel0":
 		# The bicycle's front wheel is carried round the head tube with the
 		# forks it is hung from, then rolled in its own plane.
-		var over := Basis(MountKinds.bicycle_steering_axis(), _bars)
+		var over := Basis(MountKinds.bicycle_steering_axis(), bars)
 		var pivot := MountKinds.BICYCLE_HEAD_LOW
 		wheel.transform = Transform3D(
-			over * Basis(Vector3.RIGHT, fposmod(-_wheel_phase, TAU)),
+			over * Basis(Vector3.RIGHT, fposmod(-wheel_phase, TAU)),
 			pivot + over * (MountKinds.BICYCLE_WHEELS[0] - pivot)
 		)
 		return
-	wheel.rotation = Vector3(fposmod(-_wheel_phase, TAU), _bars if steered else 0.0, 0.0)
+	wheel.rotation = Vector3(fposmod(-wheel_phase, TAU), bars if steered else 0.0, 0.0)
+
+## Draw the machine somebody else is riding as they ride it, from what this phone
+## can see of them: where they are and which way they face, a frame at a time.
+## Nothing extra goes over the wire. The wheels turn by the ground covered, the
+## cranks follow the wheel while it is being driven, the bars (and a quad's
+## front wheels) go over by the turn the heading is making for the pace — the
+## same wheelbase arithmetic as Player — and a leaning machine leans into it.
+## `state` is the caller's to keep between frames; `at` is the flat position,
+## `facing` the heading in radians.
+static func animate_remote(
+	steed: Node3D, kind: StringName, state: Dictionary, at: Vector3, facing: float, delta: float
+) -> void:
+	var radius := MountKinds.wheel_radius(kind)
+	if radius <= 0.0 or delta <= 0.0 or not is_instance_valid(steed):
+		return
+	if not state.has("at"):
+		state["at"] = at
+		state["facing"] = facing
+		state["pace"] = 0.0
+		state["bars"] = 0.0
+		state["bank"] = 0.0
+		state["wheel"] = 0.0
+		state["crank"] = 0.0
+	var last_at: Vector3 = state["at"]
+	var rolled := Vector2(at.x - last_at.x, at.z - last_at.z)
+	# Forwards or backwards along its own nose.
+	var nose := Vector2(-sin(facing), -cos(facing))
+	var along := rolled.dot(nose)
+	var rate := angle_difference(float(state["facing"]), facing) / delta
+	var speed := clampf(along / delta, -20.0, 20.0)
+	var last_pace: float = state["pace"]
+	var pace := lerpf(last_pace, speed, 1.0 - exp(-8.0 * delta))
+	state["at"] = at
+	state["facing"] = facing
+	state["pace"] = pace
+	var wanted := 0.0
+	if absf(pace) > 0.5:
+		wanted = clampf(
+			atan(rate * MountKinds.wheelbase(kind) / pace), -MountKinds.FULL_LOCK, MountKinds.FULL_LOCK
+		)
+	var bars := lerpf(float(state["bars"]), wanted, 1.0 - exp(-10.0 * delta))
+	state["bars"] = bars
+	var spin := pace / radius * delta
+	var wheel := fposmod(float(state["wheel"]) + spin, TAU)
+	state["wheel"] = wheel
+	var crank: float = state["crank"]
+	if kind == MountKinds.BICYCLE and pace > 0.3 and (pace - last_pace) / delta > -0.6:
+		crank = fposmod(crank + spin * MountKinds.PEDAL_RATIO, TAU)
+		state["crank"] = crank
+	var cranks := steed.get_node_or_null("Cranks") as Node3D
+	if cranks != null:
+		cranks.rotation.x = crank
+	var steer := steed.get_node_or_null("Steer") as Node3D
+	if steer != null:
+		steer.transform.basis = Basis(MountKinds.bicycle_steering_axis(), bars)
+	for child in steed.get_children():
+		spin_wheel(child, kind, wheel, bars)
+	var hard := -bars / MountKinds.FULL_LOCK * clampf(
+		absf(pace) / maxf(MountKinds.speed(kind) * 0.6, 0.01), 0.0, 1.0
+	)
+	var bank := clampf(
+		hard * Player.RIDE_BANK * MountKinds.lean_share(kind),
+		-Player.RIDE_BANK * 1.4, Player.RIDE_BANK * 1.4
+	)
+	bank = lerpf(float(state["bank"]), bank, 1.0 - exp(-6.0 * delta))
+	state["bank"] = bank
+	steed.transform.basis = Basis(Vector3.BACK, bank)
 
 ## How far round the ridden machine's wheels are, and its cranks: both are kept
 ## rather than read back off the nodes, because a rider's feet are put on the
@@ -1819,7 +1891,10 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	# Nothing is ridden indoors. A quad went into the shop and stood between
 	# the shelves, which is funny once and then is a machine parked on the
 	# floor of a building a child has to walk round.
-	if PlaceSpec.indoors(at.x, at.z, camp):
+	# Inside the walls, not against them: a machine stopped at the outside of a wall
+	# stands a body's width off it, which the generous test the grass uses counted as
+	# indoors, and a child who had ridden into the café's wall was put down for it.
+	if PlaceSpec.indoors(at.x, at.z, camp, -0.4):
 		return false
 	if PlaceSpec.excavation(at.x, at.z, camp) > 0.4:
 		return false
@@ -1838,6 +1913,38 @@ func can_ride_over(kind: StringName, at: Vector3) -> bool:
 	if ground < field.water_level_at(at.x, at.z) + WHEELS_STAY_DRY:
 		return false
 	return field.steepness_at(at.x, at.z) <= steepest_ground(kind)
+
+## How far ahead of `at`, along `dir`, ground this mount may be ridden on goes on
+## for, for a machine doing `pace` metres a second: infinite when it is all
+## ridable as far as the machine could need to stop in. Sampled at spaced
+## distances rather than every metre, close together near the machine and
+## further apart beyond, because it is asked every frame a machine is moving
+## and each sample is a height-field lookup.
+func clear_ahead(kind: StringName, at: Vector3, dir: Vector3, pace: float) -> float:
+	if MountKinds.floats(kind):
+		return INF
+	var reach := pace * pace / (2.0 * Player.SOFT_DECEL) + 3.0
+	var last := 0.0
+	for step: float in AHEAD_STEPS:
+		var sample := at + dir * step
+		if not can_ride_over(kind, sample):
+			# Somewhere between the last good sample and this one: narrowed down,
+			# so that the machine is not stopped a body's length too late.
+			var good := last
+			var bad := step
+			for _narrow in 3:
+				var middle := (good + bad) * 0.5
+				if can_ride_over(kind, at + dir * middle):
+					good = middle
+				else:
+					bad = middle
+			return good
+		last = step
+		if step > reach:
+			break
+	return INF
+
+const AHEAD_STEPS: Array[float] = [1.0, 2.0, 3.0, 4.5, 6.5, 9.0, 12.0]
 
 ## How far above the water the ground has to be before something on wheels
 ## will ride over it. A hand's breadth: enough to keep them out of the shallows

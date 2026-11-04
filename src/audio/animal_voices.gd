@@ -309,7 +309,18 @@ const BEG_REACH := 7.0
 const BEG_GAP_MIN := 4.0
 const BEG_GAP_MAX := 8.5
 
+## A child of three cannot go and find a stick, and a dog that asks every few
+## seconds for as long as they stand there is a dog that is telling them off.
+## After this many asks in a row it settles for BEG_REST seconds. A stick given
+## (the dog's cooldown running), or the child going away for BEG_FORGET seconds,
+## starts the count again.
+const BEG_LIMIT := 3
+const BEG_REST := 75.0
+const BEG_FORGET := 20.0
+
 var _beg_wait := 0.0
+var _begs := 0
+var _beg_since := 0.0
 
 ## A dog near a child asks for its stick: a bark every few seconds until it
 ## has been given one, then quiet while it is happy.
@@ -322,10 +333,15 @@ var _beg_wait := 0.0
 ## Returns whether it barked, so a check can watch for it.
 func _beg(near: Array[Dictionary], listener: Vector3, delta: float) -> bool:
 	_beg_wait -= delta
+	_beg_since += delta
 	if _beg_wait > 0.0:
 		return false
 	for animal in near:
-		if animal["kind"] != &"dog" or float(animal.get("cooldown", 0.0)) > 0.0:
+		if animal["kind"] != &"dog":
+			continue
+		if float(animal.get("cooldown", 0.0)) > 0.0:
+			# It has been given something: the next hunger starts from nought.
+			_begs = 0
 			continue
 		var node = animal.get("node")
 		if node == null or not is_instance_valid(node):
@@ -336,7 +352,15 @@ func _beg(near: Array[Dictionary], listener: Vector3, delta: float) -> bool:
 		# A little higher than its ordinary bark, and short: asking, not
 		# telling off.
 		_play(&"dog", at, _rng.randf_range(1.12, 1.26))
-		_beg_wait = _rng.randf_range(BEG_GAP_MIN, BEG_GAP_MAX)
+		if _beg_since > BEG_FORGET:
+			_begs = 0
+		_beg_since = 0.0
+		_begs += 1
+		if _begs >= BEG_LIMIT:
+			_begs = 0
+			_beg_wait = BEG_REST
+		else:
+			_beg_wait = _rng.randf_range(BEG_GAP_MIN, BEG_GAP_MAX)
 		return true
 	_beg_wait = 0.5
 	return false
