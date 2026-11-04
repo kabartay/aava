@@ -487,7 +487,7 @@ func _rail(tool: SurfaceTool, solid: StaticBody3D, a: Vector2, b: Vector2, at: f
 	Park._solid(solid, rail.size, Transform3D(turn, middle))
 
 ## The big trampoline: the playground's, at twice the size. A frame on legs
-## with a dark mat stretched across it, and springs round the rim.
+## with a red mat stretched across it, and springs round the rim.
 func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 	var at := _at(TRAMPOLINE_AT)
 	var frame := TorusMesh.new()
@@ -510,7 +510,7 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 	Park._add(
 		tool, mat,
 		Transform3D(Basis(), at + Vector3(0.0, TRAMPOLINE_TOP - 0.05, 0.0)),
-		Color(0.13, 0.15, 0.20)
+		TerrainSpec.COLOR_BOUNCE_MAT
 	)
 	# The rim is solid all the way round.
 	#

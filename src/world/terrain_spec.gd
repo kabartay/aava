@@ -80,6 +80,22 @@ const COLOR_ROCK := Color(0.44, 0.43, 0.44)
 ## Mountain rock, a darker grey-brown than the stones in the meadow: against
 ## snow and haze a neutral mid-grey washed out to pale blue from the valley.
 const COLOR_CRAG := Color(0.36, 0.32, 0.29)
+## The warm grey-brown crag fades towards, in patches, so a steep hillside is
+## not one flat dark slab (see TerrainChunk._tint).
+const COLOR_CRAG_LIGHT := Color(0.60, 0.52, 0.42)
+## The crag colour at a point: broad slow patches of warmer, lighter rock (two
+## sines at unrelated wavelengths, so no repeat shows) over the dark base, so a
+## wide steep hillside is not one flat slab. Shared by the streamed terrain and
+## the distant ring, which must agree or the mountains change colour where one
+## hands over to the other.
+static func crag_at(x: float, z: float) -> Color:
+	var patch := 0.5 + 0.5 * sin(x * 0.11 + sin(z * 0.07) * 2.0) * sin(z * 0.13 - x * 0.04)
+	return COLOR_CRAG.lerp(COLOR_CRAG_LIGHT, clampf(patch * 1.6 - 0.3, 0.0, 1.0))
+
+## The mat of every trampoline, playground and fairground: a warm red that a
+## child reads as "bounce here" against the grass, where the near-black it was
+## read as a hole in the ground from any distance.
+const COLOR_BOUNCE_MAT := Color(0.80, 0.30, 0.26)
 ## Forest seen from far off, where no single tree can be made out: a
 ## hillside under trees is darker and bluer than the grass beside it, and
 ## that darkening is the whole of what a distant wood looks like.

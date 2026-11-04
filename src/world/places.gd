@@ -4554,7 +4554,7 @@ func _build_trampoline(at: Vector3, solid: StaticBody3D) -> void:
 	mat.height = 0.05
 	mat.radial_segments = 28
 	mat.rings = 1
-	_add(tool, mat, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP - 0.03, 0.0)), Color(0.12, 0.12, 0.14))
+	_add(tool, mat, Transform3D(Basis(), TRAMPOLINE + Vector3(0.0, TRAMPOLINE_TOP - 0.03, 0.0)), TerrainSpec.COLOR_BOUNCE_MAT)
 	_finish_into(tool, at)
 	var stand := CylinderShape3D.new()
 	stand.radius = TRAMPOLINE_RADIUS

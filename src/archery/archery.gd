@@ -87,6 +87,7 @@ func stand_up(at: Vector3, facing: Vector3) -> void:
 		spot.y = field.height_at(spot.x, spot.z) + 1.05
 		_targets.append({"centre": spot, "index": i})
 		_build_butt(spot)
+	_build_line(across)
 
 func target_count() -> int:
 	return _targets.size()
@@ -294,6 +295,38 @@ func _check_hit(was: Vector3, now: Vector3) -> int:
 				hit_target.emit(int(target["index"]), ring, int(RING_POINTS[ring]))
 				return int(target["index"])
 	return -1
+
+## The shooting line: a trodden pad of earth with a painted board across its
+## front edge and a marker stake at each end, so a child can see where to stand.
+## Before this the range was three targets in a meadow with nothing to say which
+## way to face. One mesh, the butts' own material, no collider (the line is
+## flat enough to walk over and nothing measures it).
+const LINE_HALF_WIDTH := 4.2
+func _build_line(across: Vector3) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var turn := Basis.looking_at(-_facing, Vector3.UP)
+	var pad := BoxMesh.new()
+	pad.size = Vector3(LINE_HALF_WIDTH * 2.0, 0.06, 3.0)
+	_add(tool, pad, Transform3D(turn, _origin + Vector3(0.0, 0.01, 0.0) - _facing * 1.4), TerrainSpec.COLOR_TRODDEN)
+	var board := BoxMesh.new()
+	board.size = Vector3(LINE_HALF_WIDTH * 2.0, 0.05, 0.16)
+	_add(tool, board, Transform3D(turn, _origin + Vector3(0.0, 0.04, 0.0)), Color(0.94, 0.92, 0.84))
+	for side in PackedFloat32Array([-1.0, 1.0]):
+		var end := _origin + across * side * (LINE_HALF_WIDTH - 0.2)
+		end.y = field.height_at(end.x, end.z)
+		var stake := BoxMesh.new()
+		stake.size = Vector3(0.09, 1.1, 0.09)
+		_add(tool, stake, Transform3D(turn, end + Vector3(0.0, 0.55, 0.0)), Color(0.46, 0.34, 0.22))
+		var cap := BoxMesh.new()
+		cap.size = Vector3(0.2, 0.2, 0.2)
+		_add(tool, cap, Transform3D(turn, end + Vector3(0.0, 1.2, 0.0)), Color(0.86, 0.30, 0.26))
+	tool.generate_normals()
+	tool.set_material(_material())
+	var line := MeshInstance3D.new()
+	line.mesh = tool.commit()
+	line.name = "ShootingLine"
+	add_child(line)
 
 ## A straw butt: a painted face on a stubby trestle, so a child can see what
 ## they are aiming at from the shooting line.

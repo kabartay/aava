@@ -174,7 +174,7 @@ func _colour(height: float, x: float, z: float) -> Color:
 		TerrainSpec.COLOR_PASTURE,
 		smoothstep(HeightField.CONIFER_TOP, HeightField.TREELINE + 6.0, height)
 	)
-	colour = colour.lerp(TerrainSpec.COLOR_CRAG, HeightField.rock_at(height, steep))
+	colour = colour.lerp(TerrainSpec.crag_at(x, z), HeightField.rock_at(height, steep))
 	# The same rule the streamed ground uses, from the height field, so the
 	# mountains do not change colour across the line where one ends and the
 	# other begins.

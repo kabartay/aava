@@ -321,7 +321,10 @@ static func _tint(
 	# Rock where nothing could root — and, above the pasture, rock whether it
 	# is steep or not: that is what makes the band above the grass read as
 	# crag rather than as more hillside.
-	color = color.lerp(TerrainSpec.COLOR_CRAG, HeightField.rock_at(height, steep))
+	# The crag is not one colour: a wide hillside of it was a single dark slab
+	# beside the lake. See TerrainSpec.crag_at.
+	var crag := TerrainSpec.crag_at(x, z)
+	color = color.lerp(crag, HeightField.rock_at(height, steep))
 
 	# The playground and the café are worn to earth by feet — a yellow-brown
 	# more like a path than a meadow, fading back into grass at the edge of the

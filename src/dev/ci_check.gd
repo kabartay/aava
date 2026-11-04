@@ -7231,6 +7231,11 @@ func _check_the_bow() -> void:
 	var line := Pitch.centre() + Vector3(0.0, 0.0, 60.0)
 	archery.stand_up(line, Vector3.FORWARD)
 	_expect(archery.target_count() == Archery.TARGET_COUNT, "the range has %d butts" % Archery.TARGET_COUNT)
+	# The shooting line is drawn, one mesh on the shared material, and solid to
+	# nothing: a child has to see where to stand, not bump into it.
+	var marker := archery.get_node_or_null("ShootingLine") as MeshInstance3D
+	_expect(marker != null and marker.mesh.get_surface_count() == 1, "the range draws its shooting line as one mesh")
+	_expect(marker != null and marker.find_children("*", "CollisionObject3D", true, false).is_empty(), "and the line has no collider")
 
 	# Three different shots, not the same one three times.
 	var distances: Array[float] = []
