@@ -82,9 +82,9 @@ ground.
 
 **Sound has three buses and a grown-up's switch.** `src/audio/mix.gd` builds
 Master (a 60 Hz high-pass, then a limiter), World (ambience and animals,
-dulled under water) and Effects (the game's own sounds). `volume_bars.gd` is the
-picture of loudness in the settings; the mute and each bar are held, not
-tapped, and the levels are saved.
+dulled under water) and Effects (the game's own sounds). The settings have a
+slim 0-100 slider per bus (drawn by `volume_look.gd`), which the mixer follows
+while it moves and which is saved when let go; the mute is held, not tapped.
 
 **Looks and seats.** `character.gd` draws five characters over one rig,
 `rig_motion.gd` moves it and `seat_pose.gd` sits it in every seat; `look_picker.gd`

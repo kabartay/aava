@@ -189,6 +189,8 @@ func _initialize() -> void:
 	_check_the_release_version_is_the_same_everywhere()
 	_check_signals_match_their_handlers()
 	_check_paths_lead_somewhere()
+	_check_the_roads_are_clear_and_gentle_all_the_way()
+	await _check_a_child_can_walk_every_road_into_its_place()
 	_check_dams_change_the_world()
 	_check_one_thing_a_day()
 	_check_players_and_worlds()
@@ -249,6 +251,7 @@ func _initialize() -> void:
 	_check_a_rider_is_offered_no_kick()
 	_check_rising_from_deep_water_is_the_same_at_any_frame_rate()
 	_check_the_roads_have_names()
+	_check_every_road_sign_has_a_picture()
 	_check_the_fairground()
 	await _check_the_fairground_is_dressed_without_blocking_anything()
 	_check_the_fairground_dressing_costs_little_and_the_machines_are_quiet()
@@ -1208,7 +1211,13 @@ func _check_animals_walk_round_the_playground() -> void:
 	var clear := spot + Vector3(-3.5, 0.0, 4.0)
 	_expect(not places.obstructed(clear.x, clear.z), "the open ground between the swings and the benches is")
 	_expect(places.obstructed(spot.x, spot.z + Places.HEDGE_RADIUS), "the hedge is solid to an animal")
-	_expect(not places.obstructed(spot.x + Places.HEDGE_RADIUS, spot.z), "except at its openings")
+	_expect(
+		not places.obstructed(
+			spot.x + cos(Places.HEDGE_AXIS) * Places.HEDGE_RADIUS,
+			spot.z + sin(Places.HEDGE_AXIS) * Places.HEDGE_RADIUS
+		),
+		"except at its openings"
+	)
 	var before := spot + Places.TRAMPOLINE + Vector3(0.0, 0.0, Places.TRAMPOLINE_RADIUS + 1.2)
 	var push := places.steer_around(before, Vector3.FORWARD, Vector3.FORWARD)
 	_expect(push.length() > 0.1 and push.z > 0.0, "walking at the trampoline, an animal is pushed back and aside")
@@ -10685,6 +10694,406 @@ func _check_the_map_symbols_and_the_way_to_them() -> void:
 	map.wait_for_bake()
 	map.queue_free()
 
+## Every road as a list of corners, from the same table the ground is painted
+## from: each route of `Paths.ROUTES`, then the winding walk from the lake to
+## the shop. Each entry is {"name", "from", "to"}.
+func _all_road_legs(camp: Vector3) -> Array[Dictionary]:
+	var legs: Array[Dictionary] = []
+	for route in Paths.ROUTES:
+		legs.append({
+			"name": "%s to %s" % [
+				"camp" if route["from"] == &"" else String(route["from"]), String(route["to"])
+			],
+			"from": Paths.end_of(route["from"], camp),
+			"to": Paths.end_of(route["to"], camp),
+		})
+	for corner in Paths.LAKE_WALK.size() - 1:
+		legs.append({
+			"name": "the lake walk, leg %d" % (corner + 1),
+			"from": Paths.LAKE_WALK[corner], "to": Paths.LAKE_WALK[corner + 1],
+		})
+	return legs
+
+## Whether a point lies inside a rectangle given by its middle and half-sizes,
+## grown by `margin` on every side.
+func _in_box(at: Vector3, middle: Vector3, half_x: float, half_z: float, margin: float) -> bool:
+	return absf(at.x - middle.x) < half_x + margin and absf(at.z - middle.z) < half_z + margin
+
+## The roads go where a child can go, and stop where a child can arrive.
+##
+## The old route check read the ground at eighty points along four-hundred-metre
+## lines, which is a sample every five metres: it never saw the bank at the
+## playground, which rises at a gradient of 1.3 inside the five. It found the
+## steepest ground by measuring the stretch between samples, and a road that
+## ends in a wall is no road. Every property here is something the first walk
+## of a child along a road found: the road ran into a hedge, a booth, a rail,
+## the café's wall and the shop's wall, rather than into the way in.
+func _check_the_roads_are_clear_and_gentle_all_the_way() -> void:
+	print("the roads are clear and gentle all the way")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var legs := _all_road_legs(camp)
+
+	# Gentle: a one-metre step along the centre line never climbs past 45
+	# degrees. Sampled every half metre, finer than the bank at a place's rim.
+	var steepest := 0.0
+	var steepest_at := ""
+	for leg in legs:
+		var a: Vector3 = leg["from"]
+		var b: Vector3 = leg["to"]
+		var steps := int(a.distance_to(b) / 0.5)
+		var before := field.height_at(a.x, a.z)
+		for step in range(1, steps + 1):
+			var at := a.lerp(b, float(step) / float(steps))
+			var here := field.height_at(at.x, at.z)
+			var gradient := absf(here - before) / (a.distance_to(b) / float(steps))
+			if gradient > steepest:
+				steepest = gradient
+				steepest_at = "%s at (%.0f, %.0f)" % [leg["name"], at.x, at.z]
+			before = here
+	_expect(
+		steepest < 1.0,
+		"no road climbs past 45 degrees: the steepest is %.2f, on %s" % [steepest, steepest_at]
+	)
+
+	# And so is the ground a road meets at a place's rim: the levelled disc and
+	# the slope that eases back into the valley. A bank of seven metres to lose
+	# in seven of feather is the playground's, and a child stops at the foot of
+	# it. The shop is left out: it stands on a plateau, and the walk to it is
+	# the lake walk, which is checked above.
+	var rim_worst := 0.0
+	var rim_where := ""
+	for place: StringName in [&"playground", &"cafe", &"pool", &"range"]:
+		var centre := PlaceSpec.centre_of(place, camp)
+		var radius: float = PlaceSpec.RADIUS[place]
+		var reach := radius + PlaceSpec.feather_of(place)
+		for turn in 72:
+			var angle := TAU * float(turn) / 72.0
+			var out := Vector2(cos(angle), sin(angle))
+			var radius_now := radius - 1.5
+			var before := field.height_at(centre.x + out.x * radius_now, centre.z + out.y * radius_now)
+			while radius_now < reach:
+				radius_now += 0.5
+				var here := field.height_at(centre.x + out.x * radius_now, centre.z + out.y * radius_now)
+				if absf(here - before) / 0.5 > rim_worst:
+					rim_worst = absf(here - before) / 0.5
+					rim_where = "%s at %.0f degrees" % [place, rad_to_deg(angle)]
+				before = here
+	_expect(
+		rim_worst < 1.0,
+		"no place stands on a bank steeper than 45 degrees: the steepest rim is %.2f, at the %s" % [
+			rim_worst, rim_where
+		]
+	)
+
+	# The fast form the ground is painted from is the table, leg for leg.
+	var drawn: Array[Vector4] = []
+	var i := 0
+	while i < Paths.SEGMENTS.size():
+		drawn.append(Vector4(
+			Paths.SEGMENTS[i], Paths.SEGMENTS[i + 1], Paths.SEGMENTS[i + 2], Paths.SEGMENTS[i + 3]
+		))
+		i += 4
+	var unmatched := 0
+	for leg in legs:
+		var a: Vector3 = leg["from"]
+		var b: Vector3 = leg["to"]
+		var found := false
+		for row in drawn:
+			if (
+				Vector2(row.x - a.x, row.y - a.z).length() < 0.2
+				and Vector2(row.z - b.x, row.w - b.z).length() < 0.2
+			):
+				found = true
+				break
+		if not found:
+			unmatched += 1
+			printerr("  no painted segment for %s" % leg["name"])
+	_expect(unmatched == 0, "every road in the table is painted: %d of %d are not" % [unmatched, legs.size()])
+	_expect(
+		drawn.size() == legs.size(),
+		"and nothing else is painted: %d segments against %d roads" % [drawn.size(), legs.size()]
+	)
+
+	# No road runs through a building, a fence, a rail or a booth: the centre
+	# line of every road is clear of every solid thing a place builds, except
+	# at the end where it meets its own door or gate.
+	var cafe := PlaceSpec.centre_of(&"cafe", camp)
+	var shop := PlaceSpec.centre_of(&"shop", camp)
+	var pool := PlaceSpec.centre_of(&"pool", camp)
+	var river_x := field.river_centre_x(BridgeSpec.CENTRE_Z)
+	var inside_a_building := 0
+	var on_the_bridge_rail := 0
+	var in_the_booth := 0
+	var through_a_table := 0
+	var booth := pool + Vector3(Places.POOL_FENCE_X + 0.9, 0.0, Places.POOL_GATE_HALF + 1.4)
+	for leg in legs:
+		var a: Vector3 = leg["from"]
+		var b: Vector3 = leg["to"]
+		var steps := int(a.distance_to(b) / 0.5)
+		for step in range(0, steps + 1):
+			var at := a.lerp(b, float(step) / float(maxi(steps, 1)))
+			if (
+				_in_box(at, cafe + Vector3(0.0, 0.0, Places.CAFE_MID_Z), Places.CAFE_WIDTH * 0.5, Places.CAFE_DEPTH * 0.5, 0.2)
+				or _in_box(at, shop + Vector3(0.0, 0.0, Places.SHOP_MID_Z), Places.SHOP_WIDTH * 0.5, Places.SHOP_DEPTH * 0.5, 0.2)
+			):
+				inside_a_building += 1
+			if _in_box(at, booth, 0.8, 0.8, 0.4):
+				in_the_booth += 1
+			for table in Places.CAFE_TERRACE:
+				if Vector2(at.x - (cafe.x + table.x), at.z - (cafe.z + table.z)).length() < 1.6:
+					through_a_table += 1
+			# The deck's rails stand along its two sides. A road that crosses the
+			# bridge runs down the middle; one that merely passes must clear it.
+			var crossing: bool = String(leg["name"]).contains("bridge")
+			if not crossing and BridgeSpec.on_deck(at.x + 0.9, at.z, river_x):
+				on_the_bridge_rail += 1
+			elif not crossing and absf(at.z - BridgeSpec.CENTRE_Z) < BridgeSpec.HALF_WIDTH + 1.0 \
+					and absf(at.x - (river_x - BridgeSpec.HALF_SPAN)) < 0.9:
+				on_the_bridge_rail += 1
+	_expect(inside_a_building == 0, "no road runs through the café or the shop (%d points)" % inside_a_building)
+	_expect(in_the_booth == 0, "or through the pool's ticket booth (%d points)" % in_the_booth)
+	_expect(through_a_table == 0, "or through a table on the café's terrace (%d points)" % through_a_table)
+	_expect(on_the_bridge_rail == 0, "and none runs into the bridge's rail from the side (%d points)" % on_the_bridge_rail)
+
+	# Where a road meets a door it is the door's own line: the café's is in the
+	# front wall, between the two tables, and the shop's is a porch with steps.
+	var door := Paths.end_of(&"cafe", camp)
+	_expect(
+		absf(door.x - cafe.x) < Places.CAFE_DOOR_HALF
+		and door.z < cafe.z + Places.CAFE_FRONT_Z + 0.1
+		and door.z > cafe.z + Places.CAFE_FRONT_Z - 2.0,
+		"the road to the café ends on its doormat, %.1f m from the wall" % (cafe.z + Places.CAFE_FRONT_Z - door.z)
+	)
+	var shop_door := Paths.end_of(&"shop", camp)
+	_expect(
+		absf(shop_door.x - shop.x) < 1.0
+		and shop_door.z < shop.z + Places.SHOP_MID_Z - Places.SHOP_DEPTH * 0.5 + 0.2,
+		"and the road to the shop ends on its porch"
+	)
+
+	# The playground's hedge is open where its two roads arrive. The ring used
+	# to be cut open due east and due west, and the roads come in 33 to 35
+	# degrees off that.
+	var playground := PlaceSpec.centre_of(&"playground", camp)
+	for from_where: StringName in [&"", &"sports"]:
+		var origin := Paths.end_of(from_where, camp)
+		var bearing := atan2(origin.z - playground.z, origin.x - playground.x)
+		var off := Places.hedge_to_gap(bearing)
+		_expect(
+			off < Places.hedge_opening() * 0.5,
+			"the hedge is open to the road from the %s: %.1f degrees off its axis, the gap is %.1f either side" % [
+				"camp" if from_where == &"" else String(from_where), rad_to_deg(off),
+				rad_to_deg(Places.hedge_opening())
+			]
+		)
+
+	# The bridge's ends are where the roads think they are.
+	_expect(
+		BridgeSpec.on_deck(Paths.BRIDGE_WEST_AT.x, Paths.BRIDGE_WEST_AT.z, river_x)
+		and BridgeSpec.on_deck(Paths.BRIDGE_EAST_AT.x, Paths.BRIDGE_EAST_AT.z, river_x),
+		"the roads meet the deck at both of its ends"
+	)
+	_expect(
+		absf(Paths.BRIDGE_EAST_AT.x - (river_x + BridgeSpec.HALF_SPAN)) < 0.2
+		and absf(Paths.BRIDGE_WEST_AT.x - (river_x - BridgeSpec.HALF_SPAN)) < 1.5,
+		"within a step of the abutments"
+	)
+	# And the road to the pool bends clear of the deck's end by more than half
+	# its own width.
+	var bend := Paths.end_of(&"pool_bend", camp)
+	_expect(
+		bend.x + Paths.HALF_WIDTH < river_x - BridgeSpec.HALF_SPAN,
+		"the road to the pool passes %.1f m west of the bridge's first rail" % (river_x - BridgeSpec.HALF_SPAN - bend.x - Paths.HALF_WIDTH)
+	)
+	# The spur to the fairground's gate leaves the road to the range on the road.
+	var spur := Paths.end_of(&"park_road", camp)
+	var butts_road_a := Paths.end_of(&"bridge_east", camp)
+	var butts_road_b := Paths.end_of(&"butts", camp)
+	var along := (spur.x - butts_road_a.x) / (butts_road_b.x - butts_road_a.x)
+	var road_z := lerpf(butts_road_a.z, butts_road_b.z, along)
+	_expect(
+		absf(road_z - spur.z) < 0.1,
+		"the spur to the fairground gate leaves the road to the range on its centre line (%.2f m off)" % absf(road_z - spur.z)
+	)
+
+## A child walks each road into its place, on the real ground and past the real
+## props. The terrain is baked a chunk at a time as they go, the way the game
+## does it, and the walk is at a full stick — a run. What fails is a child who
+## stops: a rail, a hedge, a wall or a bank where the road says there is none.
+func _check_a_child_can_walk_every_road_into_its_place() -> void:
+	print("a child can walk every road into its place")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var terrain := Terrain.new(field)
+	get_root().add_child(terrain)
+	var places := Places.new(field)
+	get_root().add_child(places)
+	places.stand_up(camp)
+	var bridge := Bridge.new(field)
+	get_root().add_child(bridge)
+	var park := Park.new(field)
+	get_root().add_child(park)
+	var post := Signpost.new(field)
+	get_root().add_child(post)
+
+	var player := Player.new()
+	get_root().add_child(player)
+
+	# Points a child passes through, in order. The first is where they start.
+	var cafe_bend := Paths.end_of(&"cafe_bend", camp)
+	var toward_camp := (camp - cafe_bend).normalized()
+	var playground := Paths.end_of(&"playground", camp)
+	var back_from_playground := (camp - playground).normalized()
+	var gate := ParkSpec.gate()
+	var walks: Array[Dictionary] = [
+		{
+			"name": "from the camp past the bridge to the pool's gate",
+			"points": [
+				camp + Vector3(0.0, 0.0, 1.0), Paths.end_of(&"pool_bend", camp),
+				Paths.end_of(&"pool", camp),
+			],
+		},
+		{
+			"name": "from the camp over the bridge to the fairground's gate and in",
+			"points": [
+				camp + Vector3(0.0, 0.0, 1.0), Paths.end_of(&"pool_bend", camp),
+				Paths.end_of(&"bridge_west", camp), Paths.end_of(&"bridge_east", camp),
+				Paths.end_of(&"park_road", camp), Paths.end_of(&"park_gate", camp),
+				Vector3(gate.x, 0.0, gate.z - 8.0), Vector3(FairDecor.AVENUE_X, 0.0, gate.z - 14.0),
+			],
+		},
+		{
+			"name": "up the avenue to the carousel's ramp and onto its deck",
+			"points": [
+				Vector3(FairDecor.AVENUE_X, 0.0, gate.z - 14.0), Vector3(FairDecor.AVENUE_X, 0.0, -2.0),
+				Vector3(76.6, 0.0, -2.0), Park.CAROUSEL_AT + Vector3(-4.2, 0.0, -1.7),
+			],
+		},
+		{
+			"name": "the last stretch of the road to the playground and in through the hedge",
+			"points": [
+				playground + back_from_playground * 55.0, playground,
+			],
+		},
+		{
+			"name": "round the café's corner, between its tables and in at the door",
+			"points": [
+				cafe_bend + toward_camp * 35.0, cafe_bend, Paths.end_of(&"cafe_gate", camp),
+				Paths.end_of(&"cafe", camp), Paths.end_of(&"cafe", camp) + Vector3(0.0, 0.0, 3.0),
+			],
+		},
+		{
+			"name": "along the lake walk to the shop's porch and in at its door",
+			"points": [
+				Paths.LAKE_WALK[3], Paths.LAKE_WALK[4], Paths.LAKE_WALK[5], Paths.LAKE_WALK[6],
+				Paths.LAKE_WALK[7], Paths.LAKE_WALK[8],
+				Paths.end_of(&"shop", camp) + Vector3(0.0, 0.0, 4.0),
+			],
+		},
+	]
+
+	for walk in walks:
+		var points: Array = walk["points"]
+		var start: Vector3 = points[0]
+		for _w in 2:
+			terrain.ensure_ground_at(start)
+			await physics_frame
+		player.velocity = Vector3.ZERO
+		player.position = Vector3(start.x, field.height_at(start.x, start.z) + 0.3, start.z)
+		# Settled on the ground before the first step.
+		for _w in 20:
+			await physics_frame
+
+		var length := 0.0
+		for index in range(1, points.size()):
+			length += (points[index - 1] as Vector3).distance_to(points[index] as Vector3)
+		var allowed := length / Player.WALK_SPEED + 5.0
+		var frames := 0
+		var next := 1
+		var best_y := player.position.y
+		while next < points.size() and float(frames) / 60.0 < allowed:
+			var target: Vector3 = points[next]
+			var to := Vector2(target.x - player.position.x, target.z - player.position.z)
+			if to.length() < 0.8:
+				next += 1
+				continue
+			terrain.ensure_ground_at(player.position)
+			terrain.ensure_ground_at(player.position + Vector3(to.x, 0.0, to.y).normalized() * 10.0)
+			player.camera_yaw = atan2(-to.x, -to.y)
+			Input.action_press(InputActions.MOVE_FORWARD, 1.0)
+			await physics_frame
+			frames += 1
+			best_y = maxf(best_y, player.position.y)
+		Input.action_release(InputActions.MOVE_FORWARD)
+		var arrived := next >= points.size()
+		var last: Vector3 = points[points.size() - 1]
+		_expect(
+			arrived,
+			"a child walks %s (%.0f m) in %.0f s%s" % [
+				walk["name"], length, float(frames) / 60.0,
+				"" if arrived else ", and stops at (%.1f, %.1f) short of (%.1f, %.1f)" % [
+					player.position.x, player.position.z, last.x, last.z
+				]
+			]
+		)
+		_expect(
+			float(frames) / 60.0 < length / Player.WALK_SPEED + 3.0 or not arrived,
+			"and not at a crawl: that is faster than a walking pace of %.1f m a second" % Player.WALK_SPEED
+		)
+		if String(walk["name"]).contains("carousel"):
+			_expect(
+				player.position.y > ParkSpec.LEVEL + 0.4,
+				"and is up on the carousel's deck, %.2f m above the sand" % (player.position.y - ParkSpec.LEVEL)
+			)
+
+	player.queue_free()
+	post.queue_free()
+	park.queue_free()
+	bridge.queue_free()
+	places.queue_free()
+	terrain.queue_free()
+
+
+## A child who cannot read follows the picture on the plate: a swing for the
+## playground, a cup for the café, waves for the pool, an arch for the bridge.
+## Each road has its own, drawn inside the square the plate leaves for it, with
+## room to spare before the name starts.
+func _check_every_road_sign_has_a_picture() -> void:
+	print("every road sign has a picture")
+	var seen: Array[String] = []
+	for road in Signpost.ROADS:
+		var toward: StringName = road["toward"]
+		var pieces := Signpost.icon_pieces(toward)
+		var tilts := Signpost.icon_tilts(toward)
+		_expect(pieces.size() >= 4, "the %s road has a picture of %d pieces" % [toward, pieces.size()])
+		_expect(tilts.size() == pieces.size(), "each piece has its tilt")
+		var inside := true
+		for index in pieces.size():
+			var piece := pieces[index]
+			# The room a piece takes once it is tilted.
+			var turn := absf(sin(tilts[index]))
+			var flat := absf(cos(tilts[index]))
+			var half_u := flat * piece.z * 0.5 + turn * piece.w * 0.5
+			var half_v := turn * piece.z * 0.5 + flat * piece.w * 0.5
+			if absf(piece.x) + half_u > Signpost.ICON_CELL * 0.5 + 0.01 \
+					or absf(piece.y) + half_v > Signpost.PLATE_HEIGHT * 0.5 - 0.03:
+				inside = false
+				printerr("  piece %d of the %s picture sticks out: %s" % [index, toward, piece])
+		_expect(inside, "and all of it is drawn inside the plate's own height")
+		var signature := "%d:%.2f" % [pieces.size(), pieces[0].x]
+		_expect(not seen.has(signature), "and it is not the picture of another road")
+		seen.append(signature)
+	# The picture and the arrow leave the name room: the plate is longer than
+	# the picture, the name and the arrow laid end to end.
+	for road in Signpost.ROADS:
+		var length := Signpost.plate_length(road["name"])
+		_expect(
+			length > Signpost.ICON_CELL + 0.165 * float(String(road["name"]).length()) + 0.5,
+			"%s is long enough for its picture, its name and its arrow" % road["name"]
+		)
+
+
 ## The junction at the camp has its name on it, and every plate points along
 ## the road it names.
 ##
@@ -14296,7 +14705,7 @@ func _check_animals_cannot_walk_through_the_shop_or_the_hedge() -> void:
 	var through := 0
 	for step in 720:
 		var angle := TAU * (float(step) + 0.5) / 720.0
-		var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
+		var to_gap := Places.hedge_to_gap(angle)
 		if to_gap < opening + 0.005:
 			continue
 		var at := pad + Vector3(cos(angle), 0.0, sin(angle)) * Places.HEDGE_RADIUS
@@ -27132,6 +27541,9 @@ func _check_the_top_bar_is_a_thumb_wide_and_clear_of_everything_else() -> void:
 			if child is HBoxContainer:
 				for flag_button in child.get_children():
 					var flag_control := flag_button as Control
+					# Only the flags: the volume rows are rows of the panel too.
+					if flag_control.find_children("*", "FlagIcon", false, false).is_empty():
+						continue
 					_expect(
 						flag_control.size.y >= Hud.BUTTON * 0.5 and flag_control.size.x >= Hud.BUTTON * 0.7,
 						"%s: a language flag is %.0f x %.0f px" % [shape, flag_control.size.x, flag_control.size.y]
@@ -33908,9 +34320,10 @@ func _check_the_child_on_foot_and_the_view_agree_c11() -> void:
 func _hud_pixels_in_mm(pixels: float) -> float:
 	return pixels * (1080.0 / 720.0) * 25.4 / 510.0
 
-## The grown-up's volume: bars lit for the valley's ambience and for the
+## The grown-up's volume: 0 to 100 for the valley's ambience and for the
 ## interface's sounds, and a mute. Applied through the mixer's buses, clamped,
-## kept through a rebuilt mix, and written to and read from the player's save.
+## kept through a rebuilt mix, and written to and read from the player's save,
+## a save from before the slider included.
 func _check_the_grown_ups_volume_reaches_the_mixer_and_is_kept() -> void:
 	print("the grown-up's volume and mute reach the buses and are saved")
 	Mix.build()
@@ -33919,55 +34332,69 @@ func _check_the_grown_ups_volume_reaches_the_mixer_and_is_kept() -> void:
 	var master := AudioServer.get_bus_index(&"Master")
 	Mix.muffle(0.0)
 	Mix.duck(0.0)
-	Mix.set_steps(Mix.STEPS, Mix.STEPS)
+	Mix.set_volume(Mix.FULL, Mix.FULL)
 	Mix.set_muted(false)
-	_expect(absf(AudioServer.get_bus_volume_db(world)) < 0.01 and absf(AudioServer.get_bus_volume_db(effects)) < 0.01, "at every bar both buses play at full volume")
+	_expect(absf(AudioServer.get_bus_volume_db(world)) < 0.01 and absf(AudioServer.get_bus_volume_db(effects)) < 0.01, "at 100 both buses play at full volume")
 	_expect(not AudioServer.is_bus_mute(master), "and nothing is muted")
 	var previous := 1.0
-	for steps in range(Mix.STEPS, 0, -1):
-		var db := Mix.step_db(steps)
-		_expect(db <= previous and db <= 0.0 and is_finite(db), "bar %d plays at %.1f dB, no louder than the one above" % [steps, db])
+	for percent in range(Mix.FULL, -1, -5):
+		var db := Mix.volume_db(percent)
+		_expect(db <= previous and db <= 0.0 and is_finite(db), "%d plays at %.1f dB, no louder than above it" % [percent, db])
 		previous = db
-	_expect(Mix.step_db(1) > -40.0, "and one bar is still heard: silence is the mute's job")
-	Mix.set_steps(2, 4)
-	_expect(absf(AudioServer.get_bus_volume_db(world) - Mix.step_db(2)) < 0.01, "two bars turn the valley's ambience down to that")
-	_expect(absf(AudioServer.get_bus_volume_db(effects) - Mix.step_db(4)) < 0.01, "and four the interface's sounds")
+	_expect(Mix.volume_db(0) <= Mix.SILENT_DB and Mix.volume_db(10) > -45.0, "0 is silent, and 10 is still heard")
+	_expect(Mix.volume_db(50) > -13.0 and Mix.volume_db(50) < -11.0, "and the middle of the slider sounds like the middle (%.1f dB)" % Mix.volume_db(50))
+	Mix.set_volume(40, 80)
+	_expect(absf(AudioServer.get_bus_volume_db(world) - Mix.volume_db(40)) < 0.01, "40 turns the valley's ambience down to that")
+	_expect(absf(AudioServer.get_bus_volume_db(effects) - Mix.volume_db(80)) < 0.01, "and 80 the interface's sounds")
 	# The reasons to be quieter add up: under water and under a voice.
 	Mix.duck(1.0)
 	Mix.muffle(1.0)
-	_expect(absf(AudioServer.get_bus_volume_db(effects) - (Mix.DUCK_DB + Mix.step_db(4))) < 0.01, "a voice ducks the effects from where the grown-up put them")
-	_expect(AudioServer.get_bus_volume_db(world) < Mix.step_db(2) + Mix.DUCK_DB + 0.01, "and the world is under water, under a voice, under the volume")
+	_expect(absf(AudioServer.get_bus_volume_db(effects) - (Mix.DUCK_DB + Mix.volume_db(80))) < 0.01, "a voice ducks the effects from where the grown-up put them")
+	_expect(AudioServer.get_bus_volume_db(world) < Mix.volume_db(40) + Mix.DUCK_DB + 0.01, "and the world is under water, under a voice, under the volume")
 	Mix.duck(0.0)
 	Mix.muffle(0.0)
-	Mix.set_steps(-3, 99)
-	_expect(Mix.ambience_steps() == 1 and Mix.effects_steps() == Mix.STEPS, "numbers off either end of the bars are clamped")
+	Mix.set_volume(-3, 999)
+	_expect(Mix.ambience_volume() == 0 and Mix.effects_volume() == Mix.FULL, "numbers off either end of the slider are clamped")
+	Mix.set_volume(30, Mix.FULL)
 	Mix.set_muted(true)
 	_expect(AudioServer.is_bus_mute(master) and Mix.muted(), "the mute silences the master bus, voices too")
 	Mix.build()
-	_expect(AudioServer.is_bus_mute(master) and Mix.ambience_steps() == 1, "and a rebuilt mix keeps both")
+	_expect(AudioServer.is_bus_mute(master) and Mix.ambience_volume() == 30, "and a rebuilt mix keeps both")
 	Mix.set_muted(false)
-	_expect(not AudioServer.is_bus_mute(master) and absf(AudioServer.get_bus_volume_db(world) - Mix.step_db(1)) < 0.01, "ending the mute gives back the volume that was chosen")
-	Mix.set_steps(Mix.STEPS, Mix.STEPS)
+	_expect(not AudioServer.is_bus_mute(master) and absf(AudioServer.get_bus_volume_db(world) - Mix.volume_db(30)) < 0.01, "ending the mute gives back the volume that was chosen")
+	Mix.set_volume(Mix.FULL, Mix.FULL)
+	# A save from before the slider kept bars, 1 to 5: each is read as the share
+	# that plays as loud, so nobody's game gets louder or quieter on update.
+	for steps in range(1, Mix.STEP_GAIN.size() + 1):
+		var percent := Mix.percent_of_steps(steps)
+		_expect(absf(db_to_linear(Mix.volume_db(percent)) - Mix.STEP_GAIN[steps - 1]) < 0.02, "%d old bars become %d, as loud as before" % [steps, percent])
+	_expect(Mix.percent_of_steps(5) == Mix.FULL and Mix.percent_of_steps(99) == Mix.FULL and Mix.percent_of_steps(-1) == Mix.percent_of_steps(1), "and odd old numbers are clamped")
 
 	# Saved with the player and read back clamped, like the language.
 	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
 	var saved := game.substr(game.find("func _save_data("))
 	saved = saved.substr(0, saved.find("\nfunc ", 1))
-	for key: String in ["sound_ambience", "sound_effects", "sound_muted"]:
+	for key: String in ["volume_ambience", "volume_effects", "sound_muted"]:
 		_expect(saved.contains("\"%s\"" % key), "%s is written to the save" % key)
-		_expect(game.contains("save.get(\"%s\"" % key), "and read back when the game opens")
-	_expect(game.contains("Mix.set_steps(_sound_ambience, _sound_effects)") and game.contains("Mix.set_muted(_sound_muted)"), "and applied to the mixer right after it is built")
+		_expect(game.contains("\"%s\"" % key), "and read back when the game opens")
+	var main_script: GDScript = load("res://src/main.gd")
+	var saved_volume := func(save: Dictionary) -> int:
+		return int(main_script.call("_saved_volume", save, "volume_ambience", "sound_ambience"))
+	_expect(saved_volume.call({"volume_ambience": 35, "sound_ambience": 1}) == 35, "the slider's own key wins over an old one")
+	_expect(saved_volume.call({"sound_ambience": 3}) == Mix.percent_of_steps(3), "an old save's bars are read as a share")
+	_expect(saved_volume.call({}) == Mix.FULL, "a first start is full volume")
+	_expect(saved_volume.call({"volume_ambience": "junk"}) == Mix.FULL and saved_volume.call({"volume_ambience": 500}) == Mix.FULL, "and a hand-edited number falls back or is clamped")
+	_expect(game.contains("Mix.set_volume(_sound_ambience, _sound_effects)") and game.contains("Mix.set_muted(_sound_muted)"), "and applied to the mixer right after it is built")
 	_expect(game.contains("hud.set_sound(") and game.contains("hud.sound_changed.connect(_on_sound_changed)"), "the interface is shown the saved volume, and a change reaches the game")
 	var shown := game.substr(game.find("func _show_the_state("))
 	shown = shown.substr(0, shown.find("\nfunc ", 1))
 	_expect(shown.contains("hud.set_sound("), "a rebuilt interface (a new language) is shown the volume again")
-	_expect(int(SaveGame.as_int("junk", Mix.STEPS)) == Mix.STEPS and SaveGame.as_int(3.0, 5) == 3, "and a hand-edited number is read with the fallbacks every save uses")
 
-## The volume rows in the settings: pictures and bars, every one a hold with
-## its ring, big enough for a thumb, out of a toddler's way, and still inside
-## the panel's fit.
+## The volume rows in the settings: a slim slider for each bus that the mixer
+## follows while it moves and that is kept when let go, a speaker that needs a
+## hold, small enough not to fill the panel, and still inside the panel's fit.
 func _check_the_grown_ups_volume_is_held_not_tapped() -> void:
-	print("the volume bars and the mute need a hold, and are big and drawn")
+	print("the volume sliders follow a finger, are kept when let go, and the mute needs a hold")
 	var hud := Hud.new()
 	get_root().add_child(hud)
 	await process_frame
@@ -33976,54 +34403,71 @@ func _check_the_grown_ups_volume_is_held_not_tapped() -> void:
 	# Open, because a ring lets go of a button that is hidden under a finger.
 	hud._toggle_menu()
 	await process_frame
-	hud.set_sound(Mix.STEPS, Mix.STEPS, false)
+	hud.set_sound(Mix.FULL, Mix.FULL, false)
+	Mix.set_volume(Mix.FULL, Mix.FULL)
 	_expect(heard.is_empty(), "showing the saved volume tells nobody")
-	_expect(hud._ambience_bars != null and hud._effects_bars != null and hud._mute_button != null, "the settings have two rows of bars and a mute")
-	var all: Array[Button] = [hud._mute_button]
-	all.append_array(hud._ambience_bars.buttons)
-	all.append_array(hud._effects_bars.buttons)
-	_expect(all.size() == 1 + 2 * Mix.STEPS, "five bars a row")
-	for button: Button in all:
-		var ring: HoldRing = null
-		for child in button.get_children():
-			if child is HoldRing:
-				ring = child
-		_expect(ring != null, "a volume control needs a hold")
-		_expect(button.custom_minimum_size.x >= 72.0 and button.custom_minimum_size.y >= Hud.BUTTON, "and is %s px, a thumb or more" % button.custom_minimum_size)
-		if ring == null:
-			continue
-		button.pressed.emit()
-		button.button_down.emit()
-		ring._process(0.4)
-		button.button_up.emit()
-	_expect(heard.is_empty(), "taps and short holds change nothing")
-	var bar: Button = hud._ambience_bars.buttons[1]
-	var bar_ring: HoldRing = bar.get_child(bar.get_child_count() - 1)
-	bar.button_down.emit()
-	bar_ring._process(1.2)
-	bar.button_up.emit()
-	_expect(heard == [[2, Mix.STEPS, false]], "holding the second ambience bar lights two and says so (%s)" % str(heard))
-	_expect(hud._ambience_bars.steps == 2 and hud._effects_bars.steps == Mix.STEPS, "the bars show it")
-	var lit := 0
-	for fill in hud._ambience_bars.find_children("*", "ColorRect", true, false):
-		if (fill as ColorRect).color == VolumeBars.LIT:
-			lit += 1
-	_expect(lit == 2, "exactly two are drawn lit")
+	_expect(hud._ambience_slider != null and hud._effects_slider != null and hud._mute_button != null, "the settings have two volume sliders and a mute")
+	if hud._ambience_slider == null:
+		hud.queue_free()
+		return
+	for slider: HSlider in [hud._ambience_slider, hud._effects_slider]:
+		_expect(slider.min_value == 0.0 and slider.max_value == float(Mix.FULL) and slider.step == 1.0, "a slider runs 0 to 100")
+		_expect(slider.value == float(Mix.FULL), "and shows what was saved")
+		_expect(slider.custom_minimum_size.y <= Hud.BUTTON * 0.75 and slider.custom_minimum_size.y >= 48.0, "and is slim but still a finger high (%s)" % slider.custom_minimum_size)
+		_expect(slider.has_theme_icon_override("grabber") and slider.has_theme_stylebox_override("grabber_area"), "with a round knob and a lit track")
+	var ambience_row := Hud._volume_row_of(hud._ambience_slider)
+	var effects_row := Hud._volume_row_of(hud._effects_slider)
+	_expect(ambience_row.get_parent() == effects_row.get_parent() and ambience_row != effects_row, "two rows in the same column")
+	_expect(hud._mute_button.get_parent() == ambience_row and hud._mute_button.custom_minimum_size.y <= Hud.BUTTON * 0.75, "the speaker leads the first row, smaller than before")
+	var ring: HoldRing = null
+	for child in hud._mute_button.get_children():
+		if child is HoldRing:
+			ring = child
+	_expect(ring != null, "the speaker needs a hold")
+	# A finger pressing the track and letting go, through the slider's own
+	# input: the mixer follows on the way, the game hears once, at the end.
+	await process_frame
+	var slider := hud._ambience_slider
+	hud._menu.move_to_front()
+	var at := slider.get_global_transform_with_canvas() * Vector2(slider.size.x * 0.25, slider.size.y * 0.5)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = at
+	press.global_position = at
+	get_root().push_input(press, true)
+	_expect(slider.value < 50.0 and slider.value > 0.0, "pressing a quarter along the track moves it there (%.0f)" % slider.value)
+	_expect(Mix.ambience_volume() == int(slider.value), "and the mixer follows at once, to be heard (%d)" % Mix.ambience_volume())
+	_expect(heard.is_empty(), "nothing is kept while the finger is down")
+	var release := press.duplicate() as InputEventMouseButton
+	release.pressed = false
+	get_root().push_input(release, true)
+	_expect(heard.size() == 1 and heard[0][0] == int(slider.value) and heard[0][1] == Mix.FULL and heard[0][2] == false, "letting go keeps it and says so once (%s)" % str(heard))
 	heard.clear()
+	var kept: int = hud.sound_state()[0]
 	var mute: Button = hud._mute_button
-	var mute_ring: HoldRing = mute.get_child(mute.get_child_count() - 1)
+	mute.pressed.emit()
 	mute.button_down.emit()
-	mute_ring._process(1.2)
+	if ring != null:
+		ring._process(0.4)
 	mute.button_up.emit()
-	_expect(heard == [[2, Mix.STEPS, true]] and hud.sound_state() == [2, Mix.STEPS, true], "holding the speaker mutes, and keeps the bars")
+	_expect(heard.is_empty(), "a tap on the speaker changes nothing")
+	if ring != null:
+		mute.button_down.emit()
+		ring._process(1.2)
+		mute.button_up.emit()
+	_expect(heard == [[kept, Mix.FULL, true]] and hud.sound_state() == [kept, Mix.FULL, true], "holding the speaker mutes, and keeps the sliders")
 	_expect(hud._face_of(mute).kind == ActionIcon.Kind.SPEAKER_OFF, "and the speaker is drawn barred")
-	hud.set_sound(3, 3, false)
-	_expect(hud._face_of(mute).kind == ActionIcon.Kind.SPEAKER_ON and hud._effects_bars.steps == 3, "a rebuilt interface is shown what was saved")
-	hud.set_sound(0, 99, false)
-	_expect(hud.sound_state() == [1, Mix.STEPS, false], "out-of-range numbers are clamped")
+	_expect(Hud._volume_pill_of(slider).modulate.a < 0.9 and mute.modulate.a == 1.0, "the sliders dim, the speaker stays bright")
+	hud.set_sound(30, 70, false)
+	_expect(hud._face_of(mute).kind == ActionIcon.Kind.SPEAKER_ON and hud._effects_slider.value == 70.0 and hud._ambience_slider.value == 30.0, "a rebuilt interface is shown what was saved")
+	_expect(heard.size() == 1, "and that tells nobody")
+	hud.set_sound(-5, 999, false)
+	_expect(hud.sound_state() == [0, Mix.FULL, false], "out-of-range numbers are clamped")
+	Mix.set_volume(Mix.FULL, Mix.FULL)
 	# In the settings, and the settings still fit every shape of phone.
 	await process_frame
-	_expect(hud._mute_button.is_visible_in_tree() and hud._ambience_bars.is_visible_in_tree(), "the rows are in the settings panel")
+	_expect(hud._mute_button.is_visible_in_tree() and hud._ambience_slider.is_visible_in_tree(), "the rows are in the settings panel")
 	var window := get_root()
 	var was_size := window.size
 	var was_content := window.content_scale_size

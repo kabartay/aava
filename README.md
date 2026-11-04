@@ -312,7 +312,7 @@ src/
     map_guide.gd, guide_badge.gd, map_route.gd, map_legend.gd, map_tool.gd,
     map_compass.gd     the chosen place and its pointer, the route, the key,
                        the round buttons and the peak that says north
-    hold_ring.gd, volume_bars.gd   a press that must be held; loudness as bars
+    hold_ring.gd, volume_look.gd   a press that must be held; the volume sliders' look
     look_picker.gd, character_icon.gd, flag_icon.gd, dish_icon.gd, coin_icon.gd
                        choosing who you are and the other drawn pictures
     action_icon.gd, item_chip.gd   every button's picture, and every item's,

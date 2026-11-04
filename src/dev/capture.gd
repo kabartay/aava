@@ -134,6 +134,8 @@ var _only_kind := ""
 var _animal_at := 9.0
 var _coins := 40
 var _menu := false
+## Open the grown-ups' settings panel (the gear's), for a picture of it.
+var _settings := false
 var _meal: StringName = &""
 var _meal_frames := 60
 var _sit := false
@@ -404,6 +406,8 @@ func _spawn_player() -> void:
 		_hud.set_owned(owned)
 	if _shop:
 		_hud.set_shop_open(true, _coins, {})
+	if _settings:
+		_hud._toggle_menu()
 	if _menu:
 		_hud.set_place_offer(Places.CAFE)
 		_hud.set_cafe_menu_open(true, false, _coins)
@@ -909,6 +913,8 @@ func _parse_arguments() -> void:
 				_coins = value.to_int()
 			"menu":
 				_menu = value.to_int() != 0
+			"settings":
+				_settings = value.to_int() != 0
 			"meal":
 				_meal = StringName(value)
 			"sit":

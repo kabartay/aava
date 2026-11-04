@@ -435,6 +435,16 @@ const HEDGE_HEIGHT := 1.35
 const HEDGE_THICKNESS := 0.85
 ## Half-width of each opening, in radians of the ring.
 const HEDGE_GAP := 0.21
+## Which way the openings face, as an angle round the ring (atan2 of z over x,
+## so 0 is east and the camp lies to the north-east). The comment above has
+## always said the opening faces the side the path arrives from, but the ring
+## was cut open at 0 and pi — due east and due west — while the roads from the
+## camp and from the sports ground both come in about 34 degrees north of east.
+## They ran into the green wall, and a child had to walk a quarter of the way
+## round it to find the gap. The openings face the roads now.
+## A whole number of blocks round from east, so the opening stays symmetrical
+## about its axis: the blocks are laid by their middles, from the east.
+const HEDGE_AXIS := -4.0 * TAU / float(HEDGE_SEGMENTS)
 const CORNER_TREES := 21.0
 
 var field: HeightField
@@ -738,6 +748,12 @@ static func hedge_opening() -> float:
 	var block := TAU / float(HEDGE_SEGMENTS)
 	return float(ceili(HEDGE_GAP / block - 0.5)) * block
 
+## How far an angle round the hedge ring is from the nearer of its two openings.
+static func hedge_to_gap(angle: float) -> float:
+	return minf(
+		absf(angle_difference(angle, HEDGE_AXIS)), absf(angle_difference(angle, HEDGE_AXIS + PI))
+	)
+
 static func _obstacle_group(centre: Vector3, circles: Array[Vector3]) -> Dictionary:
 	var reach := 0.0
 	for circle in circles:
@@ -760,7 +776,7 @@ func obstructed(x: float, z: float, margin := 0.0) -> bool:
 		var ring := float(group["ring"])
 		if ring > 0.0 and absf(away - ring) < float(group["ring_half"]) + margin:
 			var angle := atan2(dz, dx)
-			var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
+			var to_gap := hedge_to_gap(angle)
 			if to_gap >= float(group["gap"]):
 				return true
 	return false
@@ -790,7 +806,7 @@ func steer_around(at: Vector3, heading: Vector3, toward: Vector3, look_ahead := 
 			if band > look_ahead:
 				continue
 			var angle := atan2(flat.y, flat.x)
-			var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
+			var to_gap := hedge_to_gap(angle)
 			if to_gap < float(group["gap"]):
 				continue
 			var radial := Vector3(flat.x, 0.0, flat.y).normalized()
@@ -2587,7 +2603,7 @@ func _plant_hedge(at: Vector3, solid: StaticBody3D) -> void:
 		var angle := TAU * (float(i) + 0.5) / float(HEDGE_SEGMENTS)
 		# Openings facing towards and away from the camp's side, so the path
 		# arrives at a gap in the hedge rather than at the hedge.
-		var to_gap := minf(absf(angle_difference(angle, 0.0)), absf(angle_difference(angle, PI)))
+		var to_gap := hedge_to_gap(angle)
 		if to_gap < HEDGE_GAP:
 			continue
 		var height := HEDGE_HEIGHT + rng.randf_range(-0.12, 0.14)
@@ -2808,7 +2824,10 @@ func _build_pool(at: Vector3) -> void:
 	hub.radial_segments = 8
 	hub.rings = 1
 	_add(tool, hub, Transform3D(Basis(), Vector3(POOL_FENCE_X, 0.5, 0.0)), iron)
-	_build_ticket_booth(tool, Vector3(POOL_FENCE_X + 0.9, 0.0, -POOL_GATE_HALF - 1.4), solid)
+	# On the far side of the gateway from the road: the road from the camp comes
+	# in from the north along the line of the gate, and the booth stood on that
+	# side, so the last four metres of the path ran into its wall.
+	_build_ticket_booth(tool, Vector3(POOL_FENCE_X + 0.9, 0.0, POOL_GATE_HALF + 1.4), solid)
 	for i in POOL_LAMPS.size():
 		_build_lamp(tool, at, POOL_LAMPS[i], solid, 0.13 + 0.05 * float(i))
 	_finish_into(tool, at)

@@ -41,8 +41,16 @@ const BUTTS_OFFSET := PlaceSpec.RANGE_OFFSET
 
 const ROUTES: Array[Dictionary] = [
 	{"from": &"", "to": &"playground"},
-	{"from": &"", "to": &"cafe"},
-	{"from": &"", "to": &"pool"},
+	# The café's door faces north, away from the camp, and the road used to run
+	# to the middle of the building — through its east wall. It goes round the
+	# north-east corner and in along the line between the two terrace tables.
+	{"from": &"", "to": &"cafe_bend"},
+	# By way of the bridge's west end: the road south to the pool used to run
+	# straight from the camp, which is where the deck's first rail stands. A
+	# child walked into the rail at the first step and had to find the way round
+	# the end of it. The road bends out to the west of the abutment first.
+	{"from": &"", "to": &"pool_bend"},
+	{"from": &"pool_bend", "to": &"pool"},
 	# The sports ground — the pitch and the pool together — joined to the café
 	# and to the playground. These do not touch the camp, so it is not the only
 	# hub and the far side of the valley is worth crossing.
@@ -53,7 +61,20 @@ const ROUTES: Array[Dictionary] = [
 	# there to play sport. One road leaves it, and it forks to the café and to
 	# the playground.
 	{"from": &"sports", "to": &"playground"},
-	{"from": &"sports", "to": &"cafe"},
+	{"from": &"sports", "to": &"cafe_bend"},
+	{"from": &"cafe_bend", "to": &"cafe_gate"},
+	{"from": &"cafe_gate", "to": &"cafe"},
+	# Over the bridge. The road south to the pool passes the bridge's west end,
+	# and the roads to the far bank start from it: the archery range, the lake
+	# (and so the shop beyond it) and the fairground's gate. They used to leave
+	# the camp as a line straight to the range, which crossed the river by
+	# water two metres north of the bridge's rail, and nothing at all led to the
+	# lake, the shop or the gate: a child had to find them across open meadow.
+	{"from": &"pool_bend", "to": &"bridge_west"},
+	{"from": &"bridge_west", "to": &"bridge_east"},
+	{"from": &"bridge_east", "to": &"butts"},
+	{"from": &"bridge_east", "to": &"lake"},
+	{"from": &"park_road", "to": &"park_gate"},
 	# The lake up on the eastern shoulder and the shop above it: the two things
 	# a child in that quarter of the valley has come for, and a path between
 	# them is what says the pair belong together.
@@ -83,6 +104,13 @@ const LAKE_WALK: Array[Vector3] = [
 	Vector3(252.0, 0.0, 338.0),
 	Vector3(290.0, 0.0, 336.0),
 	Vector3(316.0, 0.0, 326.0),
+	# Round to the front of the shop rather than straight at its door. The door
+	# is in the front wall, which faces -Z, and the old last leg ran from the
+	# corner above to the door in one line: through the building's west wall.
+	# These two corners take the walk out to the north of the porch and in
+	# along the line of the steps.
+	Vector3(322.0, 0.0, 306.0),
+	Vector3(340.0, 0.0, 306.0),
 	Vector3(340.0, 0.0, 313.5),
 ]
 
@@ -117,7 +145,34 @@ const ARRIVES_AT := {
 	# The shop's door is in its front wall, which faces -Z. A path to the
 	# middle of the building arrives inside it.
 	&"shop": Vector3(0.0, 0.0, -6.5),
+	# The café's door is in its front wall, which also faces -Z: the doormat's
+	# far edge, between the two terrace tables.
+	&"cafe": Vector3(0.0, 0.0, -3.2),
 }
+
+## Where the road to the café turns: north-east of the building, clear of its
+## corner, and then in line with the door beyond the terrace. Measured from the
+## café's middle.
+## Where the road meets the bridge: a metre onto the deck at the west end (the
+## deck's first board is at x = -1.47) and the last board of the east end
+## (54.53). The river is a pure function of z, not of the seed, so these are
+## fixed numbers; a check ties them to the bridge.
+const BRIDGE_WEST_AT := Vector3(-1.0, 0.0, 26.0)
+const BRIDGE_EAST_AT := Vector3(54.5, 0.0, 26.0)
+
+## Where the spur to the fairground's gate leaves the road to the range: the
+## road's own height (z) at the gate's x, so the spur starts exactly on it.
+const PARK_ROAD_Z := 27.785
+
+const CAFE_BEND := Vector3(12.0, 0.0, -13.0)
+const CAFE_GATE := Vector3(0.0, 0.0, -13.0)
+
+## Where the road to the pool turns, measured from the camp: four metres west
+## of the camp's meridian and six south of it. The bridge's deck begins about
+## a metre and a half west of that meridian, so a road three metres wide
+## centred here clears its first rail by a metre. A check ties the bend to the
+## bridge so the two cannot drift apart.
+const POOL_BEND := Vector3(-4.0, 0.0, 6.0)
 
 ## The lake's end of that path: the eastern pond's shore on the side the shop
 ## is on, worked out from the pond itself rather than written down twice.
@@ -144,17 +199,26 @@ const LAKE_BEND := Vector3(-70.0, 0.0, 70.0)
 ## cannot quietly drift away from the readable one.
 const SEGMENTS: Array[float] = [
 	0.0, 18.0, -360.0, 268.0,
-	0.0, 18.0, -370.0, -282.0,
-	0.0, 18.0, -3.5, 86.0,
+	0.0, 18.0, -358.0, -295.0,
+	0.0, 18.0, -4.0, 24.0,
+	-4.0, 24.0, -3.5, 86.0,
 	-34.0, 60.0, -360.0, 268.0,
-	-34.0, 60.0, -370.0, -282.0,
-	0.0, 18.0, 440.0, 58.0,
+	-34.0, 60.0, -358.0, -295.0,
+	-358.0, -295.0, -370.0, -295.0,
+	-370.0, -295.0, -370.0, -285.2,
+	-4.0, 24.0, -1.0, 26.0,
+	-1.0, 26.0, 54.5, 26.0,
+	54.5, 26.0, 440.0, 58.0,
+	54.5, 26.0, 283.95, 273.84,
+	76.0, 27.785, 76.0, 15.0,
 	284.0, 274.0, 268.0, 282.0,
 	268.0, 282.0, 236.0, 316.0,
 	236.0, 316.0, 252.0, 338.0,
 	252.0, 338.0, 290.0, 336.0,
 	290.0, 336.0, 316.0, 326.0,
-	316.0, 326.0, 340.0, 313.5,
+	316.0, 326.0, 322.0, 306.0,
+	322.0, 306.0, 340.0, 306.0,
+	340.0, 306.0, 340.0, 313.5,
 ]
 
 ## Whether any route comes near this box at all, so a caller working over a
@@ -281,13 +345,6 @@ static func influence(x: float, z: float, camp: Vector3) -> float:
 		if strongest >= 0.999:
 			return 1.0
 
-	# The walk to the archery butts.
-	var butts := camp + BUTTS_OFFSET
-	var to_butts := _distance_to_segment(x, z, camp.x, camp.z, butts.x, butts.z)
-	if to_butts <= HALF_WIDTH + FEATHER:
-		strongest = maxf(
-			strongest, 1.0 - smoothstep(HALF_WIDTH, HALF_WIDTH + FEATHER, to_butts)
-		)
 	return strongest
 
 ## Where a named end of a route is. The empty name is the camp itself.
@@ -302,6 +359,22 @@ static func end_of(place: StringName, camp: Vector3) -> Vector3:
 		return sports_ground(camp)
 	if place == &"lake":
 		return lake_landing(camp)
+	if place == &"bridge_west":
+		return Vector3(BRIDGE_WEST_AT.x, 0.0, BRIDGE_WEST_AT.z)
+	if place == &"bridge_east":
+		return Vector3(BRIDGE_EAST_AT.x, 0.0, BRIDGE_EAST_AT.z)
+	if place == &"butts":
+		return camp + BUTTS_OFFSET
+	if place == &"park_road":
+		return Vector3(ParkSpec.gate().x, 0.0, PARK_ROAD_Z)
+	if place == &"park_gate":
+		return Vector3(ParkSpec.gate().x, 0.0, ParkSpec.gate().z - 1.0)
+	if place == &"cafe_bend":
+		return PlaceSpec.centre_of(&"cafe", camp) + CAFE_BEND
+	if place == &"cafe_gate":
+		return PlaceSpec.centre_of(&"cafe", camp) + CAFE_GATE
+	if place == &"pool_bend":
+		return camp + POOL_BEND
 	if place == &"lake_bend":
 		return lake_landing(camp) + LAKE_BEND
 	return PlaceSpec.centre_of(place, camp) + ARRIVES_AT.get(place, Vector3.ZERO)

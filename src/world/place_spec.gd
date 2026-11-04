@@ -93,8 +93,16 @@ const FOOTPRINT := {
 ## lose at its rim, and seven metres of it is a bank a child scrambles up
 ## rather than a slope they walk. The longer the drop, the longer the ramp.
 const FEATHER := 7.0
+##
+## The playground is the same case from the other side: it stands on a shoulder
+## whose ground falls seven metres across the rim towards the camp, and seven
+## metres of feather over that fall is a bank at 58 degrees. A child walking the
+## road from the camp stopped dead at the foot of it — the controller slides off
+## anything past 52 — so the playground, the road's destination, was not
+## reachable on foot. Twenty metres makes it a slope of about a quarter.
 const FEATHER_OF := {
 	&"range": 20.0,
+	&"playground": 20.0,
 }
 
 ## The fade for one place: its own if it has one, the common seven otherwise.

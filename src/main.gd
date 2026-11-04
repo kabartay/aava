@@ -143,9 +143,11 @@ func _ready() -> void:
 	_first_person = SaveGame.as_bool(save.get("first_person", false))
 	# The grown-up's volume, kept like the language: a game that opens at full
 	# volume again every morning, after being turned down, is a game that gets
-	# turned down every morning. Out-of-range numbers are clamped by Mix.
-	_sound_ambience = clampi(SaveGame.as_int(save.get("sound_ambience", Mix.STEPS), Mix.STEPS), 1, Mix.STEPS)
-	_sound_effects = clampi(SaveGame.as_int(save.get("sound_effects", Mix.STEPS), Mix.STEPS), 1, Mix.STEPS)
+	# turned down every morning. Out-of-range numbers are clamped by Mix. A save
+	# from before the slider has bars (1 to 5) under the old keys instead, read
+	# as the share that sounds as loud.
+	_sound_ambience = _saved_volume(save, "volume_ambience", "sound_ambience")
+	_sound_effects = _saved_volume(save, "volume_effects", "sound_effects")
 	_sound_muted = SaveGame.as_bool(save.get("sound_muted", false))
 	_cafe_paid = SaveGame.as_bool(save.get("cafe_paid", false))
 	# Clamped, not just checked for -1. The index off the network is validated
@@ -184,7 +186,7 @@ func _ready() -> void:
 	# Sound is created before the world, so the very first pickup is audible.
 	# Before anything that makes a sound, so every player finds its bus.
 	Mix.build()
-	Mix.set_steps(_sound_ambience, _sound_effects)
+	Mix.set_volume(_sound_ambience, _sound_effects)
 	Mix.set_muted(_sound_muted)
 	sounds = Sounds.new()
 	add_child(sounds)
@@ -677,9 +679,9 @@ var _coaster_told := false
 var _asked: StringName = &""
 ## Whether a parent has left talking switched on.
 var _voice_allowed := true
-## The grown-up's volume, in lit bars (Mix.STEPS is full), and the mute.
-var _sound_ambience := Mix.STEPS
-var _sound_effects := Mix.STEPS
+## The grown-up's volume, 0 to 100 (Mix.FULL), and the mute.
+var _sound_ambience := Mix.FULL
+var _sound_effects := Mix.FULL
 var _sound_muted := false
 
 ## Whether this child's own café asks a coin for a meal. A setting like the
@@ -2098,10 +2100,19 @@ func _on_sound_changed(ambience: int, effects: int, muted: bool) -> void:
 	_sound_ambience = ambience
 	_sound_effects = effects
 	_sound_muted = muted
-	Mix.set_steps(ambience, effects)
+	Mix.set_volume(ambience, effects)
 	Mix.set_muted(muted)
 	sounds.play(Sounds.Sound.CHIME, 1.35)
 	_write_save()
+
+## A volume from the save, 0 to 100: under its own key, or from the bars a save
+## before the slider kept under the old one, or full.
+static func _saved_volume(save: Dictionary, key: String, old_key: String) -> int:
+	if save.has(key):
+		return clampi(SaveGame.as_int(save[key], Mix.FULL), 0, Mix.FULL)
+	if save.has(old_key):
+		return Mix.percent_of_steps(SaveGame.as_int(save[old_key], 5))
+	return Mix.FULL
 
 ## A child picked a shirt in the settings.
 ##
@@ -4460,8 +4471,8 @@ func _save_data() -> Dictionary:
 		"seed": world.world_seed,
 		"language": String(Text.language()),
 		"voice_allowed": _voice_allowed,
-		"sound_ambience": _sound_ambience,
-		"sound_effects": _sound_effects,
+		"volume_ambience": _sound_ambience,
+		"volume_effects": _sound_effects,
 		"sound_muted": _sound_muted,
 		"first_person": _first_person,
 		"cafe_paid": _cafe_paid,

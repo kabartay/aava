@@ -142,9 +142,9 @@ signal fire_fed()
 signal slept()
 signal together_opened()
 
-## A grown-up changed the sound in the settings: how many bars are lit for the
-## valley's ambience and for the interface's sounds (1 to Mix.STEPS), and
-## whether everything is muted.
+## A grown-up changed the sound in the settings: the volume of the valley's
+## ambience and of the interface's sounds (0 to Mix.FULL), and whether
+## everything is muted. Sent when a slider is let go, not on every step of it.
 signal sound_changed(ambience: int, effects: int, muted: bool)
 
 ## A child typed their name in the settings panel.
@@ -210,11 +210,11 @@ var _menu_picker: LookPicker
 ## the child, which opens the panel a first run opens on.
 var _me_button: Button
 var _me_face: CharacterIcon
-var _ambience_bars: VolumeBars
-var _effects_bars: VolumeBars
+var _ambience_slider: HSlider
+var _effects_slider: HSlider
 var _mute_button: Button
-var _sound_ambience := Mix.STEPS
-var _sound_effects := Mix.STEPS
+var _sound_ambience := Mix.FULL
+var _sound_effects := Mix.FULL
 var _sound_muted := false
 var _offer: PanelContainer
 var _offer_picker: LookPicker
@@ -1081,23 +1081,24 @@ func _build_menu() -> VBoxContainer:
 		flags.add_child(button)
 	column.add_child(flags)
 
-	# The volume, for a grown-up: two rows of bars that grow taller, one for the
-	# valley's ambience and one for the interface's own sounds, and a speaker
-	# that silences everything. Pictures, like the rest of this panel: a note,
-	# a burst of sparks and a loudspeaker.
+	# The volume, for a grown-up: two sliders, one for the valley's ambience
+	# (a note) and one for the interface's own sounds (a coin), and
+	# a speaker that silences everything. Slim, like the volume bar on any
+	# phone: the owner found the old rows of tall bars far too big.
 	#
-	# Every one is a hold. This panel is a gear's tap from a three-year-old, and
-	# a game that has gone silent, or deafening, under a finger that was only
-	# exploring is a game a parent thinks is broken. A grown-up holds a second.
+	# The speaker is a hold: a game gone silent under a finger that was only
+	# exploring is a game a parent thinks is broken. A slider has to be dragged
+	# or pressed on its track, which a passing tap rarely does, and the change
+	# is only kept when it is let go.
 	_mute_button = _icon_button(ActionIcon.Kind.SPEAKER_ON)
-	_mute_button.custom_minimum_size = Vector2(BUTTON, BUTTON)
+	_mute_button.custom_minimum_size = Vector2(VOLUME_ROW, VOLUME_ROW)
 	_hold(_mute_button, func() -> void: _sound_edited(_sound_ambience, _sound_effects, not _sound_muted))
-	_ambience_bars = _build_volume_row(ActionIcon.Kind.SOUND_AMBIENCE, func(lit: int) -> void:
-		_sound_edited(lit, _sound_effects, _sound_muted), _mute_button)
-	column.add_child(_ambience_bars.get_parent())
-	_effects_bars = _build_volume_row(ActionIcon.Kind.SOUND_EFFECTS, func(lit: int) -> void:
-		_sound_edited(_sound_ambience, lit, _sound_muted), null)
-	column.add_child(_effects_bars.get_parent())
+	_ambience_slider = _build_volume_row(ActionIcon.new(ActionIcon.Kind.SOUND_AMBIENCE), _mute_button)
+	column.add_child(_volume_row_of(_ambience_slider))
+	# A coin for the interface's sounds: the coin is the one everybody knows,
+	# and the burst of sparks drawn this small read as a plus.
+	_effects_slider = _build_volume_row(CoinIcon.new(), null)
+	column.add_child(_volume_row_of(_effects_slider))
 
 	# Playing together used to have a row here. It has its own button in the top
 	# bar now, beside the map and the microphone, and a second way in from two
@@ -1120,32 +1121,97 @@ func _build_menu() -> VBoxContainer:
 	column.add_child(door)
 	return column
 
-## One row of the volume: a picture of what it turns, then its bars, then
-## (on the first row) the mute. Each bar needs a hold. The row is returned
-## through its bars' parent, which is the row.
-func _build_volume_row(icon_kind: ActionIcon.Kind, chosen: Callable, lead: Button) -> VolumeBars:
+## The height of a volume row, and the width of its slider: a finger-sized
+## knob on a slim track, the shape of a phone's own volume bar.
+const VOLUME_ROW := 64.0
+const VOLUME_WIDTH := 300.0
+const VOLUME_KNOB := 34
+
+## One row of the volume: (on the first row) the mute, then a pill with a small
+## picture of what it turns and its slider. The slider is returned; the pill
+## is _volume_pill_of it, and the whole row _volume_row_of it.
+func _build_volume_row(face: Control, lead: Button) -> HSlider:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(TOP_GAP))
+	row.add_theme_constant_override("separation", int(TOP_GAP * 0.5))
 	if lead != null:
 		row.add_child(lead)
 	else:
-		# The mute's width, left empty, so the two rows' pictures line up.
+		# The mute's width, left empty, so the two pills line up.
 		var spacer := Control.new()
-		spacer.custom_minimum_size = Vector2(BUTTON, BUTTON)
+		spacer.custom_minimum_size = Vector2(VOLUME_ROW, VOLUME_ROW)
 		row.add_child(spacer)
+	var pill := PanelContainer.new()
+	var ground := StyleBoxFlat.new()
+	ground.bg_color = Color(1.0, 1.0, 1.0, 0.1)
+	ground.set_corner_radius_all(int(VOLUME_ROW * 0.5))
+	ground.content_margin_left = 14.0
+	ground.content_margin_right = 22.0
+	pill.add_theme_stylebox_override("panel", ground)
+	pill.custom_minimum_size = Vector2(0.0, VOLUME_ROW)
+	row.add_child(pill)
+	var inside := HBoxContainer.new()
+	inside.add_theme_constant_override("separation", 12)
+	pill.add_child(inside)
 	var picture := Control.new()
-	picture.custom_minimum_size = Vector2(BUTTON * 0.8, BUTTON)
-	var icon := ActionIcon.new(icon_kind)
-	icon.set_anchors_preset(Control.PRESET_FULL_RECT)
-	picture.add_child(icon)
-	row.add_child(picture)
-	var bars := VolumeBars.new()
-	for i in bars.buttons.size():
-		_hold(bars.buttons[i], func() -> void: chosen.call(i + 1))
-	row.add_child(bars)
-	return bars
+	picture.custom_minimum_size = Vector2(VOLUME_ROW * 0.62, VOLUME_ROW * 0.62)
+	picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.set_anchors_preset(Control.PRESET_FULL_RECT)
+	picture.add_child(face)
+	inside.add_child(picture)
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = Mix.FULL
+	slider.step = 1.0
+	slider.value = Mix.FULL
+	slider.focus_mode = Control.FOCUS_NONE
+	slider.custom_minimum_size = Vector2(VOLUME_WIDTH, VOLUME_ROW)
+	slider.size_flags_vertical = Control.SIZE_FILL
+	_style_volume_slider(slider)
+	# Heard while it moves, so the grown-up can find the level by ear; kept
+	# (and saved, with a chime) once it is let go.
+	slider.value_changed.connect(func(_value: float) -> void: _volume_moved())
+	slider.drag_ended.connect(func(_changed: bool) -> void: _volume_let_go())
+	inside.add_child(slider)
+	return slider
 
-## A grown-up held a bar or the speaker: take it, show it, tell the game.
+## The rounded ground a volume slider sits in, with its picture.
+static func _volume_pill_of(slider: HSlider) -> PanelContainer:
+	return slider.get_parent().get_parent() as PanelContainer
+
+## The whole row a volume slider is in, the mute or its space included.
+static func _volume_row_of(slider: HSlider) -> HBoxContainer:
+	return _volume_pill_of(slider).get_parent() as HBoxContainer
+
+## A slim track, lit up to the knob, and a round knob: the look of a phone's
+## own volume bar.
+func _style_volume_slider(slider: HSlider) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(1.0, 1.0, 1.0, 0.22)
+	track.set_corner_radius_all(4)
+	track.content_margin_top = 4.0
+	track.content_margin_bottom = 4.0
+	slider.add_theme_stylebox_override("slider", track)
+	var lit := track.duplicate() as StyleBoxFlat
+	lit.bg_color = VolumeLook.LIT
+	slider.add_theme_stylebox_override("grabber_area", lit)
+	slider.add_theme_stylebox_override("grabber_area_highlight", lit)
+	var knob := VolumeLook.knob(VOLUME_KNOB)
+	slider.add_theme_icon_override("grabber", knob)
+	slider.add_theme_icon_override("grabber_highlight", knob)
+
+## A slider is moving: the mixer follows it at once, nobody is told yet.
+func _volume_moved() -> void:
+	_sound_ambience = int(_ambience_slider.value)
+	_sound_effects = int(_effects_slider.value)
+	Mix.set_volume(_sound_ambience, _sound_effects)
+
+## A slider was let go: what it shows is the grown-up's choice.
+func _volume_let_go() -> void:
+	_sound_edited(int(_ambience_slider.value), int(_effects_slider.value), _sound_muted)
+
+## A grown-up let go of a slider or held the speaker: take it, show it, tell
+## the game.
 func _sound_edited(ambience: int, effects: int, muted: bool) -> void:
 	set_sound(ambience, effects, muted)
 	sound_changed.emit(_sound_ambience, _sound_effects, _sound_muted)
@@ -1153,22 +1219,20 @@ func _sound_edited(ambience: int, effects: int, muted: bool) -> void:
 ## Show this sound setting, without telling anybody: the game's saved choice
 ## on start, and again whenever the interface is rebuilt.
 func set_sound(ambience: int, effects: int, muted: bool) -> void:
-	_sound_ambience = clampi(ambience, 1, Mix.STEPS)
-	_sound_effects = clampi(effects, 1, Mix.STEPS)
+	_sound_ambience = clampi(ambience, 0, Mix.FULL)
+	_sound_effects = clampi(effects, 0, Mix.FULL)
 	_sound_muted = muted
-	if _ambience_bars != null:
-		_ambience_bars.set_steps(_sound_ambience)
-		_effects_bars.set_steps(_sound_effects)
+	if _ambience_slider != null:
+		_ambience_slider.set_value_no_signal(_sound_ambience)
+		_effects_slider.set_value_no_signal(_sound_effects)
 		var face := _face_of(_mute_button)
 		if face != null:
 			face.show_kind(ActionIcon.Kind.SPEAKER_OFF if muted else ActionIcon.Kind.SPEAKER_ON)
-		# A muted game dims the rows that no longer do anything; the speaker
+		# A muted game dims the pills that no longer do anything; the speaker
 		# itself stays bright, it is the way back.
 		var shade := Color(1.0, 1.0, 1.0, 0.45 if muted else 1.0)
-		for bars: VolumeBars in [_ambience_bars, _effects_bars]:
-			for child in bars.get_parent().get_children():
-				if child != _mute_button:
-					(child as CanvasItem).modulate = shade
+		for slider: HSlider in [_ambience_slider, _effects_slider]:
+			_volume_pill_of(slider).modulate = shade
 
 func sound_state() -> Array:
 	return [_sound_ambience, _sound_effects, _sound_muted]

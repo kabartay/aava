@@ -53,21 +53,23 @@ const UNDER_HUSH_DB := -4.0
 ## been heard by.
 const RUMBLE_CUTOFF := 60.0
 
-## The grown-up's volume control: a number of bars lit out of STEPS, for the
-## valley's ambience and for the interface's own sounds. Never below one bar,
-## because silence is the mute's job and a mute is easy to see and to undo; a
-## volume stuck at nothing is a game a parent believes is broken.
-const STEPS := 5
+## The grown-up's volume control: a share from 0 to 100 for the valley's
+## ambience and for the interface's own sounds, set with a slider. 0 is that
+## bus silent; the mute (which silences everything, voices too) stays the
+## big, easy-to-see way to quiet the game.
+const FULL := 100
 
-## What each lit bar plays at, as a share of full volume. Uneven on purpose: the
-## ear hears loudness in ratios, so equal steps in amplitude sound like one big
-## drop at the bottom and nothing at the top.
+## The quietest a bus is ever set to: at 0 it is effectively off.
+const SILENT_DB := -80.0
+
+## What the five bars of the old settings meant, as a share of full amplitude.
+## Kept only to read a save written before the slider (see percent_of_steps).
 const STEP_GAIN: Array[float] = [0.08, 0.2, 0.4, 0.68, 1.0]
 
 static var _last_under := -1.0
 static var _duck := 0.0
-static var _ambience_steps := STEPS
-static var _effects_steps := STEPS
+static var _ambience := FULL
+static var _effects := FULL
 static var _muted := false
 
 static func build() -> void:
@@ -151,21 +153,33 @@ static func _levels() -> void:
 	if world >= 0:
 		var under := clampf(_last_under, 0.0, 1.0)
 		AudioServer.set_bus_volume_db(
-			world, lerpf(0.0, UNDER_HUSH_DB, under) + down + step_db(_ambience_steps)
+			world, lerpf(0.0, UNDER_HUSH_DB, under) + down + volume_db(_ambience)
 		)
 	var effects := AudioServer.get_bus_index(EFFECTS)
 	if effects >= 0:
-		AudioServer.set_bus_volume_db(effects, down + step_db(_effects_steps))
+		AudioServer.set_bus_volume_db(effects, down + volume_db(_effects))
 
-## The loudness of a number of lit bars, in decibels (0 at all of them).
-static func step_db(steps: int) -> float:
-	return linear_to_db(STEP_GAIN[clampi(steps, 1, STEPS) - 1])
+## The loudness of a slider's share, in decibels (0 at 100). The share is
+## squared on the way to amplitude because the ear hears loudness in ratios:
+## a straight line sounds like nothing happens across the top half and
+## everything happens at the bottom.
+static func volume_db(percent: int) -> float:
+	var share := clampi(percent, 0, FULL)
+	if share == 0:
+		return SILENT_DB
+	return maxf(SILENT_DB, linear_to_db(pow(float(share) / float(FULL), 2.0)))
 
-## The grown-up's volume: how many bars are lit for the ambience and for the
-## interface's sounds. Out-of-range numbers (an edited save) are clamped.
-static func set_steps(ambience: int, effects: int) -> void:
-	_ambience_steps = clampi(ambience, 1, STEPS)
-	_effects_steps = clampi(effects, 1, STEPS)
+## The slider's share that plays as loud as a number of the old bars did, for
+## a save written before the slider.
+static func percent_of_steps(steps: int) -> int:
+	var gain := STEP_GAIN[clampi(steps, 1, STEP_GAIN.size()) - 1]
+	return roundi(sqrt(gain) * FULL)
+
+## The grown-up's volume, 0 to 100, for the ambience and for the interface's
+## sounds. Out-of-range numbers (an edited save) are clamped.
+static func set_volume(ambience: int, effects: int) -> void:
+	_ambience = clampi(ambience, 0, FULL)
+	_effects = clampi(effects, 0, FULL)
 	_levels()
 
 ## Silence everything, the children's voices included, or end it. The Master
@@ -177,11 +191,11 @@ static func set_muted(muted: bool) -> void:
 	if master >= 0:
 		AudioServer.set_bus_mute(master, muted)
 
-static func ambience_steps() -> int:
-	return _ambience_steps
+static func ambience_volume() -> int:
+	return _ambience
 
-static func effects_steps() -> int:
-	return _effects_steps
+static func effects_volume() -> int:
+	return _effects
 
 static func muted() -> bool:
 	return _muted

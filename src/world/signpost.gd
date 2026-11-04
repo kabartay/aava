@@ -33,7 +33,15 @@ const POLE_HEIGHT := 9.6
 const PLATE_HEIGHT := 0.66
 const PLATE_DEPTH := 0.13
 const PLATE_PER_LETTER := 0.165
-const PLATE_MARGIN := 1.45
+const PLATE_MARGIN := 1.95
+
+## What a child who cannot read sees on a plate: a small gold picture of where
+## the road goes, at the end of the plate nearest the post.
+const ICON_GOLD := Color(0.98, 0.82, 0.30)
+## How far from the post's axis the picture's middle stands, and the size of the
+## square it is drawn in.
+const ICON_AT := POLE_RADIUS + 0.40
+const ICON_CELL := 0.48
 
 const BLUE := Color(0.10, 0.20, 0.38)
 const OFF_WHITE := Color(0.92, 0.93, 0.90)
@@ -268,6 +276,10 @@ func _build_plate(tool: SurfaceTool, road: int) -> void:
 				OFF_WHITE
 			)
 
+	# A picture of the place, for those who do not read yet.
+	for face: float in [1.0, -1.0]:
+		_icon(tool, toward, turn, at, face)
+
 	# The name, on both faces, so the sign reads from either side of the road.
 	for face: float in [1.0, -1.0]:
 		var label := Label3D.new()
@@ -276,11 +288,100 @@ func _build_plate(tool: SurfaceTool, road: int) -> void:
 		label.pixel_size = PLATE_HEIGHT * 0.0052
 		label.modulate = OFF_WHITE
 		label.rotation.y = heading + (0.0 if face > 0.0 else PI)
-		var out := turn * (middle + Vector3(-0.22, 0.0, 0.0))
+		var out := turn * (middle + Vector3(0.04, 0.0, 0.0))
 		label.position = out + Vector3(0.0, 0.0, 0.0) + (turn * Vector3(
 			0.0, 0.0, face * (PLATE_DEPTH * 0.5 + 0.02)
 		))
 		add_child(label)
+
+## The pictures: each is a handful of flat gold boxes drawn in a square of
+## ICON_CELL metres, as {u, v, width, height, tilt} rows — u along the plate and
+## v up it, from the middle of the square. Pictures rather than letters, because
+## the youngest child in the valley cannot read a plate but can tell a swing
+## from a cup.
+static func icon_pieces(toward: StringName) -> Array[Vector4]:
+	var out: Array[Vector4] = []
+	match toward:
+		&"playground":
+			# A swing: the frame's two legs, the beam, two ropes and a seat.
+			out.append(Vector4(-0.15, 0.0, 0.03, 0.46))
+			out.append(Vector4(0.15, 0.0, 0.03, 0.46))
+			out.append(Vector4(0.0, 0.20, 0.40, 0.05))
+			out.append(Vector4(-0.07, 0.03, 0.022, 0.32))
+			out.append(Vector4(0.07, 0.03, 0.022, 0.32))
+			out.append(Vector4(0.0, -0.14, 0.20, 0.05))
+		&"cafe":
+			# A cup on its saucer, with steam over it.
+			out.append(Vector4(-0.02, -0.03, 0.24, 0.18))
+			out.append(Vector4(-0.02, -0.15, 0.38, 0.035))
+			out.append(Vector4(0.17, 0.00, 0.08, 0.035))
+			out.append(Vector4(0.17, -0.08, 0.08, 0.035))
+			out.append(Vector4(0.205, -0.04, 0.035, 0.115))
+			out.append(Vector4(-0.09, 0.16, 0.03, 0.12))
+			out.append(Vector4(-0.02, 0.19, 0.03, 0.12))
+			out.append(Vector4(0.05, 0.16, 0.03, 0.12))
+		&"pool":
+			# A swimmer's head over three rows of waves.
+			out.append(Vector4(0.0, 0.17, 0.10, 0.10))
+			for row in 3:
+				for column in 4:
+					out.append(Vector4(-0.165 + 0.11 * float(column), 0.05 - 0.12 * float(row), 0.12, 0.04))
+		&"bridge":
+			# An arch of short slats over a deck, with water under it.
+			out.append(Vector4(0.0, -0.11, 0.46, 0.045))
+			out.append(Vector4(0.0, -0.20, 0.30, 0.03))
+			for slat in ARCH_SLATS:
+				var spot := arch_spot(slat)
+				out.append(Vector4(spot.x, spot.y, 0.09, 0.035))
+		_:
+			out.append(Vector4(0.0, 0.0, 0.3, 0.3))
+	return out
+
+## The tilt of each piece, parallel to `icon_pieces`: radians about the plate's
+## own normal.
+static func icon_tilts(toward: StringName) -> Array[float]:
+	var out: Array[float] = []
+	match toward:
+		&"playground":
+			out.append_array([0.20, -0.20, 0.0, 0.0, 0.0, 0.0])
+		&"cafe":
+			out.append_array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+		&"pool":
+			out.append(0.0)
+			for row in 3:
+				for column in 4:
+					out.append(0.5 if column % 2 == 0 else -0.5)
+		&"bridge":
+			out.append_array([0.0, 0.0])
+			for slat in ARCH_SLATS:
+				out.append(PI * float(slat) / float(ARCH_SLATS - 1) + PI * 0.5)
+		_:
+			out.append(0.0)
+	return out
+
+## Draw the picture for one road on one face of its plate.
+func _icon(tool: SurfaceTool, toward: StringName, turn: Basis, at: float, face: float) -> void:
+	var pieces := icon_pieces(toward)
+	var tilts := icon_tilts(toward)
+	var z := face * (PLATE_DEPTH * 0.5 + 0.016)
+	for index in pieces.size():
+		var piece := pieces[index]
+		var box := BoxMesh.new()
+		box.size = Vector3(piece.z, piece.w, 0.012)
+		var local := Vector3(ICON_AT + piece.x, at + piece.y, z)
+		Signpost._add(
+			tool, box,
+			Transform3D(turn * Basis(Vector3.BACK, tilts[index]), turn * local),
+			ICON_GOLD
+		)
+
+## How many slats make the bridge's arch, and where each one stands: round half
+## a circle, from one end of the deck over the top to the other.
+const ARCH_SLATS := 9
+
+static func arch_spot(slat: int) -> Vector2:
+	var angle := PI * float(slat) / float(ARCH_SLATS - 1)
+	return Vector2(cos(angle) * 0.19, sin(angle) * 0.19 - 0.09)
 
 ## The bearing from the post to what a road leads to.
 func bearing_to(toward: StringName) -> float:
