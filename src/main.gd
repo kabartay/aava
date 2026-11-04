@@ -1421,6 +1421,7 @@ func _process(delta: float) -> void:
 	# up kicking differently.
 	var ball := _ball_near()
 	hud.set_ball_in_reach(ball != null, ball != null and _can_throw(ball))
+	_face_the_view_at_the_ball(ball, delta)
 	if ball != null and Input.is_action_just_pressed(InputActions.KICK):
 		_on_kick_start()
 	if player.is_charging() and Input.is_action_just_released(InputActions.KICK):
@@ -1442,7 +1443,7 @@ func _process(delta: float) -> void:
 			hud.set_kick_preview(false, 0.0, 0.0)
 			kick_preview.hide_path()
 		else:
-			hud.set_kick_preview(true, player.kick_charge, camera_rig.aim_height())
+			hud.set_kick_preview(true, player.kick_charge, _kick_loft())
 			_show_where_it_goes(ball)
 	else:
 		hud.set_kick_preview(false, 0.0, 0.0)
@@ -3663,7 +3664,7 @@ func _on_kick_release() -> void:
 	if world.football.has_ball(ball):
 		world.football.kick(
 			ball, player.global_position, player.facing(), player.is_sprinting(),
-			maxf(strength, Ball.TAP_STRENGTH), camera_rig.aim_height(), _kick_look()
+			maxf(strength, Ball.TAP_STRENGTH), _kick_loft(), Vector3.ZERO, _kick_turn()
 		)
 		return
 	ball.kick(
@@ -3671,18 +3672,29 @@ func _on_kick_release() -> void:
 		player.facing(),
 		player.is_sprinting(),
 		maxf(strength, Ball.TAP_STRENGTH),
-		camera_rig.aim_height(),
-		_kick_look()
+		_kick_loft(),
+		Vector3.ZERO,
+		_kick_turn()
 	)
 
-## Where the camera looks along the ground, which is where a kick is aimed.
+## How high the finger has slid the shot, 0 (along the ground) to 1 (a high
+## chip), and how far it has turned it, in radians with right positive. Both are
+## zero for a tap, so a tap kicks the way the child faces, along the ground.
 ## One place for the kick and for its preview, so the dots cannot show a
-## different direction from the one the ball takes.
+## different shot from the one the ball takes.
+func _kick_loft() -> float:
+	return hud.kick_aim().y
+
+func _kick_turn() -> float:
+	return hud.kick_aim().x
+
+## Where the camera looks along the ground. A child standing at a ball turns to
+## face it (see _face_the_view_at_the_ball), which is what makes the way they
+## face, and so the way a kick goes, the way they are looking.
 func _kick_look() -> Vector3:
 	return Vector3(-sin(camera_rig.yaw), 0.0, -cos(camera_rig.yaw))
 
-## A dotted line from the ball to where a kick would send it, with a ring where
-## it comes down: shown whenever a ball is at the child's feet, for a tap, and
+## A dotted line from the ball to where a kick would send it: shown whenever a ball is at the child's feet, for a tap, and
 ## following the hold while the button is down. The same arithmetic the kick and
 ## the throw use, so it is not a guess. Which way a kick went and how far was the
 ## question asked most from the phone; this answers it before the foot moves, and
@@ -3702,18 +3714,34 @@ func _show_where_it_goes(ball: Ball) -> void:
 	var flight := PackedVector3Array([ball.position])
 	flight.append_array(path)
 	var on_target := Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0 and ball.look == Ball.Look.FOOTBALL
-	var end := path[path.size() - 1] if not path.is_empty() else ball.position
-	kick_preview.show_path(path, on_target, float(ground.call(end.x, end.z)))
+	kick_preview.show_path(path, on_target)
 
 ## The velocity a kick of `strength` would give `ball` this very moment: the one
 ## sum the aim indicator draws from and the real kick is made with, because both
 ## ask Ball.launch_velocity the same question of the same child — where they
-## stand, face and look, whether they are sprinting, how high the camera is aimed.
+## stand and face, whether they are sprinting, and how far the finger has slid
+## the shot sideways and up.
 func _kick_launch(ball: Ball, strength: float) -> Vector3:
 	return Ball.launch_velocity(
 		ball.position, player.global_position, player.facing(), player.is_sprinting(),
-		maxf(strength, Ball.TAP_STRENGTH), camera_rig.aim_height(), _kick_look()
+		maxf(strength, Ball.TAP_STRENGTH), _kick_loft(), Vector3.ZERO, _kick_turn()
 	)
+
+## Standing still with a ball at the feet, the child turns to face where the
+## camera looks, so the dotted line, which starts from the way they face, points
+## where they are looking. Facing was otherwise wherever they last walked, which
+## has nothing to do with the view once they stop and swing the camera round — the
+## "random left or right" of the line. Not while the button is held: the aim
+## is then the finger's, and the child must not swivel under it.
+## Below this pace, in metres a second, a child counts as standing still.
+const STANDING_SPEED := 0.3
+
+func _face_the_view_at_the_ball(ball: Ball, delta: float) -> void:
+	if ball == null or player.is_charging() or player.riding != &"":
+		return
+	if Vector2(player.velocity.x, player.velocity.z).length() > STANDING_SPEED:
+		return
+	player.face(_kick_look(), delta)
 
 ## The tick or the cross under a question. Everything that spends a child's
 ## coins comes through here.

@@ -272,6 +272,8 @@ func _initialize() -> void:
 	_check_the_carousel_is_softer_and_has_the_same_nodes()
 	_check_the_foot_is_where_the_ball_is_when_it_leaves()
 	_check_a_kick_goes_where_the_child_faces_from_beside_and_behind()
+	_check_the_kick_aim_is_the_facing_and_the_finger_turns_it()
+	await _check_the_kick_button_slides_to_aim()
 	await _check_a_child_running_into_the_ball_pushes_it_ahead()
 	await _check_a_ball_passes_and_bounces_like_a_football()
 	await _check_posts_ring_and_the_net_is_dead()
@@ -17186,10 +17188,12 @@ func _check_the_scoreboard_stands_clear_and_is_kept_clear() -> void:
 	_expect(not Pitch.near_scoreboard(Pitch.CENTRE.x, Pitch.CENTRE.z), "and the middle of the pitch does not")
 	ground.queue_free()
 
-## The kick goes where the camera looks, and where the preview says: the ball's
-## launch, the preview's arc and the green mark all come from the one arithmetic.
+## The kick goes the way the child faces, and where the preview says: the ball's
+## launch, the preview's dots and the green mark all come from the one arithmetic.
+## (Was "follows the camera": the camera-look blend is gone from the game's aim,
+## see _check_the_kick_aim_is_the_facing_and_the_finger_turns_it.)
 func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
-	print("the aim follows the camera and the preview agrees")
+	print("the aim follows the facing and the preview agrees")
 	var field := HeightField.new(20260903)
 	var flat := func(x: float, z: float) -> float:
 		return field.height_at(x, z)
@@ -17198,22 +17202,10 @@ func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
 	var at := Vector3(mouth.x - 10.0, surface + Ball.RADIUS, mouth.z)
 	var striker := at - Vector3(1.1, 0.0, 0.0)
 
-	# The child has walked at the ball from the west, so they face east: facing
-	# is where they walked (close in, the kick goes by where the child faces).
-	# These calls used to say LEFT, a child walking east but facing west.
-	# Straight ahead: look and run-up agree, and so does the kick.
-	var ahead := Ball.aim_direction(at, striker, Vector3.RIGHT, Vector3.RIGHT)
-	_expect(ahead.is_equal_approx(Vector3.RIGHT), "ball straight ahead of the view goes the way the view points")
-	# Looking well away from where they walked: the run-up wins past eighty degrees.
-	var sideways := Ball.aim_direction(at, striker, Vector3.RIGHT, Vector3.BACK)
-	_expect(sideways.is_equal_approx(Vector3.RIGHT), "a ball well off to the side of the view is kicked the way they walked")
-	# In between, a blend that lies between the two.
-	var between := Ball.aim_direction(at, striker, Vector3.RIGHT, Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(40.0)))
-	var turned := Vector3.RIGHT.angle_to(between)
-	_expect(turned > deg_to_rad(2.0) and turned < deg_to_rad(40.0), "in between it blends: %.0f degrees off the run-up" % rad_to_deg(turned))
-	_expect(Ball.aim_direction(at, striker, Vector3.RIGHT).is_equal_approx(Vector3.RIGHT), "with no look it is the run-up, as before")
-	# Standing on the ball, the look is all there is.
-	_expect(Ball.aim_direction(at, at, Vector3.LEFT, Vector3.FORWARD).is_equal_approx(Vector3.FORWARD), "on top of the ball it follows the view")
+	# The child has walked at the ball from the west, so they face east.
+	_expect(Ball.aim_direction(at, striker, Vector3.RIGHT).is_equal_approx(Vector3.RIGHT), "a ball ahead of the child goes the way they face")
+	# A child standing on the ball goes where they face, not where a camera looks.
+	_expect(Ball.aim_direction(at, at, Vector3.LEFT).is_equal_approx(Vector3.LEFT), "on top of the ball it follows the facing")
 
 	var ball := Ball.new(at)
 	# The kick and its preview, over a sweep of loft: the same velocity, the
@@ -17223,40 +17215,37 @@ func _check_the_aim_follows_the_camera_and_the_preview_agrees() -> void:
 	var ring_agrees := true
 	for step in 21:
 		var loft := float(step) / 20.0
-		var look := Vector3.RIGHT
-		var launch := Ball.launch_velocity(at, striker, Vector3.RIGHT, false, 0.8, loft, look)
+		var launch := Ball.launch_velocity(at, striker, Vector3.RIGHT, false, 0.8, loft)
 		var path := Ball.predict(at, launch, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
 		var flight := PackedVector3Array([at])
 		flight.append_array(path)
 		var on_target := Pitch.goal_ahead(flight, Ball.RADIUS, flat) == 1
 		found_on_target = found_on_target or on_target
 		ball.position = at
-		ball.kick(striker, Vector3.RIGHT, false, 0.8, loft, look)
+		ball.kick(striker, Vector3.RIGHT, false, 0.8, loft)
 		if not ball.linear_velocity.is_equal_approx(launch):
 			kick_agrees = false
 		var preview := KickPreview.new()
-		preview.show_path(path, on_target, float(flat.call(path[path.size() - 1].x, path[path.size() - 1].z)))
-		var end := path[path.size() - 1]
-		if preview.is_on_target() != on_target or Vector2(preview.ring_position().x - end.x, preview.ring_position().z - end.z).length() > 0.001:
+		preview.show_path(path, on_target)
+		if preview.is_on_target() != on_target or preview.dots_shown() != path.size():
 			ring_agrees = false
 		preview.free()
 	_expect(kick_agrees, "the ball leaves with exactly the velocity the preview was drawn from")
-	_expect(ring_agrees, "the ring is where the arc ends, and green exactly when the shot is on target")
+	_expect(ring_agrees, "the dots are the whole path, and green exactly when the shot is on target")
 	_expect(found_on_target, "a shot at the middle of the east goal from ten metres is marked on target for some loft")
 
 	# Aimed wide, no loft makes it a shot on goal; aimed at the middle and
 	# sent over the bar, it is not either.
-	var wide_look := Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(-20.0))
 	var any_wide := false
 	for step in 21:
-		var launch := Ball.launch_velocity(at, striker, Vector3.RIGHT, false, 0.8, float(step) / 20.0, wide_look)
+		var launch := Ball.launch_velocity(at, striker, Vector3.RIGHT, false, 0.8, float(step) / 20.0, Vector3.ZERO, deg_to_rad(20.0))
 		var path := Ball.predict(at, launch, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
 		var flight := PackedVector3Array([at])
 		flight.append_array(path)
 		if Pitch.goal_ahead(flight, Ball.RADIUS, flat) >= 0:
 			any_wide = true
 	_expect(not any_wide, "turned twenty degrees off the goal, no loft is marked on target")
-	var over := Ball.launch_velocity(at, striker, Vector3.RIGHT, true, 1.0, 1.0, Vector3.RIGHT)
+	var over := Ball.launch_velocity(at, striker, Vector3.RIGHT, true, 1.0, 1.0)
 	var over_path := Ball.predict(at, over, ball.effective_linear_damp(), ball.gravity_strength(), 2.6, 0.09, flat)
 	var over_flight := PackedVector3Array([at])
 	over_flight.append_array(over_path)
@@ -23584,10 +23573,9 @@ func _check_the_foot_is_where_the_ball_is_when_it_leaves() -> void:
 	child.queue_free()
 
 ## Standing beside the ball, or a step past it, the kick goes where the child
-## faces and the camera looks — not sideways, nor back at the child.
+## faces — not sideways, nor back at the child.
 func _check_a_kick_goes_where_the_child_faces_from_beside_and_behind() -> void:
 	print("a kick goes where the child faces, from beside and from behind")
-	var look := Vector3.RIGHT
 	var facing := Vector3.RIGHT
 	var spots := {
 		"beside": Vector3(0.0, 0.0, 0.8),
@@ -23598,11 +23586,258 @@ func _check_a_kick_goes_where_the_child_faces_from_beside_and_behind() -> void:
 	for name: String in spots:
 		var ball_at: Vector3 = spots[name]
 		# The child is at the origin, the ball at `ball_at` from them.
-		var aim := Ball.aim_direction(ball_at, Vector3.ZERO, facing, look)
+		var aim := Ball.aim_direction(ball_at, Vector3.ZERO, facing)
 		_expect(aim.dot(Vector3.RIGHT) > 0.97, "a ball %s goes ahead (%.0f degrees off)" % [name, rad_to_deg(aim.angle_to(Vector3.RIGHT))])
 	# And turned to the side, facing and looking that way, it follows them.
-	var left := Ball.aim_direction(Vector3(0.0, 0.0, 0.9), Vector3.ZERO, Vector3.FORWARD, Vector3.FORWARD)
+	var left := Ball.aim_direction(Vector3(0.0, 0.0, 0.9), Vector3.ZERO, Vector3.FORWARD)
 	_expect(left.dot(Vector3.FORWARD) > 0.97, "and a child turned to the left kicks it to the left")
+
+## The aim of a kick is the way the child faces, turned and lifted by the finger.
+##
+## Reproduction of the owner's "the dotted line points left or right, completely
+## random": a child at the ball facing the goal, the camera swung to one side.
+## The old aim blended the camera's look with the child's facing, and the blend
+## was not monotonic: a camera 15 degrees off dragged the line 15 degrees, one
+## 30 off dragged it 24, one 50 off only 20, one 90 off none at all. The way a
+## child faces is where they last walked, which has nothing to do with where
+## the camera is once they stop, so the line also wandered with the view and not
+## with the body. Now the line is the facing alone, the standing child is turned
+## to the view by the game, and the finger turns and lifts it from there.
+func _check_the_kick_aim_is_the_facing_and_the_finger_turns_it() -> void:
+	print("the kick aim is the facing, and the finger turns and lifts it")
+	var facing := Vector3.RIGHT
+	var at := Vector3(0.7, Ball.RADIUS, 0.0)
+	# The camera swung to the side makes no difference: it is not an input.
+	var base := Ball.launch_velocity(at, Vector3.ZERO, facing, false, 0.6, 0.0)
+	_expect(absf(Vector2(base.x, base.z).angle_to(Vector2.RIGHT)) < 0.001, "standing at the ball facing the goal, the shot goes at the goal")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var launch_fn := game.substr(game.find("func _kick_launch("))
+	launch_fn = launch_fn.substr(0, launch_fn.find("\nfunc ", 10))
+	var release := game.substr(game.find("func _on_kick_release()"))
+	release = release.substr(0, release.find("\nfunc ", 10))
+	_expect(not launch_fn.contains("_kick_look()") and not release.contains("_kick_look()") and not release.contains("aim_height"), "neither the kick nor its preview reads the camera")
+	_expect(launch_fn.contains("_kick_loft(), Vector3.ZERO, _kick_turn()"), "the preview is drawn from the finger's loft and turn")
+	_expect(release.count("_kick_loft()") == 2 and release.count("_kick_turn()") == 2, "and the kick, on the pitch or off it, is made from the same two")
+	_expect(game.contains("func _face_the_view_at_the_ball("), "a child standing at the ball is turned to the view, so the facing is where they look")
+	# A real body turned towards a direction reports that direction.
+	var child := Player.new()
+	get_root().add_child(child)
+	for angle: float in [0.0, 70.0, -130.0, 179.0]:
+		var wanted := Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(angle))
+		child.face(wanted, 100.0)
+		_expect(child.facing().angle_to(wanted) < 0.01, "a child told to face %.0f degrees does" % angle)
+		var aimed := Ball.aim_direction(Vector3.ZERO + child.facing() * 0.7, Vector3.ZERO, child.facing())
+		_expect(aimed.angle_to(wanted) < 0.01, "and kicks that way from %.0f degrees" % angle)
+	child.queue_free()
+
+	# The slide turns it, right positive, and does not change how hard.
+	var heading := Vector2(base.x, base.z).normalized()
+	var right_of := Vector2(0.0, 1.0)
+	for degrees: float in [-60.0, -20.0, 20.0, 60.0]:
+		var turned := Ball.launch_velocity(at, Vector3.ZERO, facing, false, 0.6, 0.0, Vector3.ZERO, deg_to_rad(degrees))
+		var way := Vector2(turned.x, turned.z).normalized()
+		var off := rad_to_deg(heading.angle_to(way))
+		_expect(absf(absf(off) - absf(degrees)) < 0.1 and (way.dot(right_of) > 0.0) == (degrees > 0.0), "sliding %+.0f degrees turns the shot %.1f degrees, to the %s" % [degrees, absf(off), "right" if degrees > 0.0 else "left"])
+		_expect(is_equal_approx(turned.length(), base.length()), "a turned shot is as hard")
+		_expect(is_equal_approx(turned.y, base.y), "and as high")
+	# And the slide up lifts it, from along the ground to a high chip.
+	var last_rise := -1.0
+	var rises := true
+	for step in 11:
+		var lifted := Ball.launch_velocity(at, Vector3.ZERO, facing, false, 0.6, float(step) / 10.0)
+		var rise := lifted.y / Vector2(lifted.x, lifted.z).length()
+		if rise <= last_rise:
+			rises = false
+		last_rise = rise
+	_expect(rises, "each step up the slide sends the ball higher")
+	var chip := Ball.launch_velocity(at, Vector3.ZERO, facing, false, 0.6, 1.0)
+	_expect(rad_to_deg(atan2(chip.y, Vector2(chip.x, chip.z).length())) > 45.0, "the top of the slide is a high chip (over 45 degrees)")
+	var low := Ball.launch_velocity(at, Vector3.ZERO, facing, false, 0.6, 0.0)
+	_expect(rad_to_deg(atan2(low.y, Vector2(low.x, low.z).length())) < 3.0, "and none at all is along the grass")
+
+	# The kick leaves with exactly the velocity the dots were drawn from, turned
+	# and lifted, and the dots start along it.
+	var ball := Ball.new(at)
+	var field := HeightField.new(20260903)
+	var ground := func(x: float, z: float) -> float:
+		return field.height_at(x, z)
+	var same := true
+	var along := true
+	for turn: float in [-45.0, 0.0, 33.0]:
+		for loft: float in [0.0, 0.4, 1.0]:
+			ball.position = at
+			var drawn := Ball.launch_velocity(at, Vector3.ZERO, facing, false, 0.8, loft, Vector3.ZERO, deg_to_rad(turn))
+			ball.kick(Vector3.ZERO, facing, false, 0.8, loft, Vector3.ZERO, deg_to_rad(turn))
+			if not ball.linear_velocity.is_equal_approx(drawn):
+				same = false
+			var dots := Ball.aim_path(at, drawn, ball.effective_linear_damp(), ball.gravity_strength(), ground)
+			var start_heading := Vector2(dots[2].x - at.x, dots[2].z - at.z)
+			if absf(start_heading.angle_to(Vector2(drawn.x, drawn.z))) > 0.05:
+				along = false
+	_expect(same, "release launches exactly the velocity the preview was drawn from, for every turn and loft")
+	_expect(along, "and the dots leave along it")
+	ball.free()
+
+	# Reach: from the penalty spot, and from further out, some slide puts the ball
+	# into the top of the goal; and a full slide up is a lob that comes down short.
+	var mouth := Pitch.goal_centre(1)
+	for back: float in [Pitch.PENALTY_SPOT, 11.0]:
+		var spot := Vector3(mouth.x - back, field.height_at(mouth.x - back, mouth.z) + Ball.RADIUS, mouth.z)
+		var shooter := Ball.new(spot)
+		var highest := 0.0
+		for step in 101:
+			var shot := Ball.launch_velocity(spot, spot - Vector3(1.0, 0.0, 0.0), facing, false, 1.0, float(step) / 100.0)
+			var path := Ball.aim_path(spot, shot, shooter.effective_linear_damp(), shooter.gravity_strength(), ground)
+			var flight := PackedVector3Array([spot])
+			flight.append_array(path)
+			if Pitch.goal_ahead(flight, Ball.RADIUS, ground) != 1:
+				continue
+			for i in range(1, flight.size()):
+				if flight[i].x >= mouth.x:
+					highest = maxf(highest, flight[i].y - field.height_at(mouth.x, mouth.z))
+					break
+		_expect(highest > 0.75 * Pitch.GOAL_HEIGHT, "from %.0f m a slide up reaches the top of the goal (%.2f m of %.1f on target)" % [back, highest, Pitch.GOAL_HEIGHT])
+		# A lob: a medium kick at full lift goes high and comes down close.
+		var lob := Ball.launch_velocity(spot, spot - Vector3(1.0, 0.0, 0.0), facing, false, 0.7, 1.0)
+		var lob_path := Ball.aim_path(spot, lob, shooter.effective_linear_damp(), shooter.gravity_strength(), ground)
+		var peak := 0.0
+		for point in lob_path:
+			peak = maxf(peak, point.y - spot.y)
+		_expect(peak > 2.0, "a medium kick at full lift is a lob, %.1f m up" % peak)
+		shooter.free()
+
+
+## The kick button aims by sliding: sideways turns the line, up lifts it, down
+## flattens it, in fractions of the screen's height; a tap kicks straight; the
+## camera is not turned by it; letting go anywhere kicks; a guest's slid kick
+## reaches the host as the launch the dots showed.
+func _check_the_kick_button_slides_to_aim() -> void:
+	print("the kick button slides to aim")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	hud.set_ball_in_reach(true)
+	await process_frame
+	var button: Button = hud._kick_button
+	_expect(button.keep_pressed_outside, "a finger that slides off the button still kicks when it lets go")
+	var height := hud.get_viewport().get_visible_rect().size.y
+	var turn_max := Hud.KICK_TURN_MAX
+	_expect(is_equal_approx(rad_to_deg(turn_max), 60.0), "the turn is limited to sixty degrees each way")
+
+	# Sensitivity, by the fraction of the screen's height, not by pixels.
+	hud.slide_kick_aim(Vector2(Hud.KICK_TURN_REACH * height * 0.5, 0.0), height)
+	_expect(is_equal_approx(hud.kick_aim().x, turn_max * 0.5), "half the reach sideways is half the turn (%.0f degrees)" % rad_to_deg(hud.kick_aim().x))
+	hud.slide_kick_aim(Vector2(10.0 * height, 0.0), height)
+	_expect(is_equal_approx(hud.kick_aim().x, turn_max), "however far right, no more than the limit")
+	hud.slide_kick_aim(Vector2(-Hud.KICK_TURN_REACH * height * 0.25, 0.0), height)
+	_expect(is_equal_approx(hud.kick_aim().x, turn_max * 0.75), "and it comes back as soon as the finger does")
+	hud.slide_kick_aim(Vector2(-10.0 * height, 0.0), height)
+	_expect(is_equal_approx(hud.kick_aim().x, -turn_max), "left turns the other way, to the same limit")
+	hud.slide_kick_aim(Vector2(0.0, -Hud.KICK_LOFT_REACH * height * 0.5), height)
+	_expect(is_equal_approx(hud.kick_aim().y, 0.5), "up lifts: half the reach is half the loft")
+	hud.slide_kick_aim(Vector2(0.0, -5.0 * height), height)
+	_expect(is_equal_approx(hud.kick_aim().y, 1.0), "to a high chip at most")
+	hud.slide_kick_aim(Vector2(0.0, Hud.KICK_LOFT_REACH * height * 0.25), height)
+	_expect(is_equal_approx(hud.kick_aim().y, 0.75), "and down flattens it")
+	hud.slide_kick_aim(Vector2(0.0, 5.0 * height), height)
+	_expect(is_equal_approx(hud.kick_aim().y, 0.0), "to along the ground at the least")
+	# The same slide on a taller screen is the same slide: pixels do not matter.
+	var before := hud.kick_aim()
+	hud.slide_kick_aim(Vector2(0.1 * 2160.0, 0.0), 2160.0)
+	var second := hud.kick_aim().x - before.x
+	hud.slide_kick_aim(Vector2(0.1 * 720.0, 0.0), 720.0)
+	_expect(is_equal_approx(hud.kick_aim().x - before.x - second, second), "a tenth of the screen is the same turn at any resolution")
+
+	# Pressing starts straight; the release reads the slide; the next is straight.
+	var read := []
+	hud.kick_released.connect(func() -> void: read.append(hud.kick_aim()))
+	button.button_down.emit()
+	_expect(hud.kick_aim() == Vector2.ZERO, "a new press starts with no slide")
+	# A real touch: a finger down on the button, then a drag, then another finger.
+	var centre := button.get_global_rect().get_center()
+	var down := InputEventScreenTouch.new()
+	down.index = 2
+	down.pressed = true
+	down.position = centre
+	hud._input(down)
+	_expect(hud.kick_finger() == 2, "the finger on the button is the one that aims")
+	var drag := InputEventScreenDrag.new()
+	drag.index = 2
+	drag.position = centre + Vector2(60.0, -60.0)
+	drag.relative = Vector2(60.0, -60.0)
+	drag.screen_relative = Vector2(0.1 * height, -0.1 * height)
+	hud._input(drag)
+	var aimed := hud.kick_aim()
+	_expect(is_equal_approx(aimed.x, turn_max * 0.1 / Hud.KICK_TURN_REACH) and is_equal_approx(aimed.y, 0.1 / Hud.KICK_LOFT_REACH), "a drag of the finger on the button slides the aim (%.0f degrees, loft %.2f)" % [rad_to_deg(aimed.x), aimed.y])
+	var other := InputEventScreenDrag.new()
+	other.index = 5
+	other.screen_relative = Vector2(0.3 * height, 0.3 * height)
+	hud._input(other)
+	_expect(hud.kick_aim() == aimed, "a second finger, turning the camera, does not aim")
+	# The mouse, which is also sent as a touch on a desktop, is not read twice.
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(0.3 * height, 0.0)
+	motion.screen_relative = motion.relative
+	hud._input(motion)
+	_expect(hud.kick_aim() == aimed, "mouse motion is not counted on top of the touch drag it comes with")
+	button.button_up.emit()
+	_expect(read.size() == 1 and read[0] == aimed, "the release reads the slide the line was showing")
+	_expect(hud.kick_aim() == Vector2.ZERO, "and the next kick starts straight")
+	# Nothing but the drag on the button is kept from the camera.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/ui/hud.gd"))
+	var handler := game.substr(game.find("func _input(event: InputEvent)"))
+	handler = handler.substr(0, handler.find("\nfunc ", 10))
+	_expect(handler.contains("set_input_as_handled()") and handler.contains("drag.index != _kick_finger"), "the finger's drag is taken, so the camera does not also orbit")
+	# A tap: no slide, so straight and along the ground, as before.
+	button.button_down.emit()
+	button.button_up.emit()
+	_expect(read.size() == 2 and read[1] == Vector2.ZERO, "a tap with no slide kicks straight along the ground")
+	var tapped := Ball.launch_velocity(Vector3(0.7, Ball.RADIUS, 0.0), Vector3.ZERO, Vector3.RIGHT, false, maxf(0.0, Ball.TAP_STRENGTH), 0.0, Vector3.ZERO, 0.0)
+	_expect(tapped.length() > 0.0 and tapped.z == 0.0 and tapped.x > 0.0, "and it moves the ball (%.1f m/s)" % tapped.length())
+	# The words: before any slide the label says to slide.
+	hud.set_kick_preview(true, 0.3, 0.0)
+	_expect(hud._aim_label.text == Text.of("aim_slide"), "while holding, before sliding, the label says to slide to aim")
+	hud.slide_kick_aim(Vector2(0.0, -0.2 * height), height)
+	hud.set_kick_preview(true, 0.3, hud.kick_aim().y)
+	_expect(hud._aim_label.text != Text.of("aim_slide"), "and after sliding it says where the ball is going")
+	hud.queue_free()
+
+	# The kick preview has no ring, and its dots are small and not fully opaque.
+	var preview := KickPreview.new()
+	var code := _code_only(FileAccess.get_file_as_string("res://src/football/kick_preview.gd"))
+	_expect(not code.contains("TorusMesh") and not code.contains("RING_") and not preview.has_method("ring_position"), "the landing ring is gone")
+	_expect(preview.get_child_count() == 1, "only the dots are left in the marker")
+	_expect(KickPreview.DOT_RADIUS <= 0.08 and KickPreview.COLOUR.a <= 0.7, "the dots are small (%.2f m) and a little transparent (%.2f)" % [KickPreview.DOT_RADIUS, KickPreview.COLOUR.a])
+	preview.show_path(PackedVector3Array([Vector3.ZERO, Vector3.ONE]), true)
+	_expect(preview.is_on_target(), "and still go green when on target")
+	preview.free()
+
+	# A guest's slid kick goes to the host as exactly the launch the dots showed.
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var away: Vector3 = made[1]
+	var pair := _football_pair(field)
+	var host_ground: FootballGround = pair[2]
+	var guest_ground: FootballGround = pair[3]
+	var mine: Ball = host_ground._balls[1]
+	var shown: Ball = guest_ground._balls[1]
+	var spot := away + Vector3(-8.0, 0.0, 8.0)
+	mine.reset_to(spot)
+	shown.show_at(spot + Vector3.UP * Ball.RADIUS, Quaternion())
+	guest_ground.set_process(false)
+	for i in 30:
+		await physics_frame
+		guest_ground._process(1.0 / 60.0)
+	var strike_from := spot + Vector3(-0.9, 0.0, 0.0)
+	pair[0].guest_positions[pair[1]._link_id] = strike_from
+	var turn := deg_to_rad(35.0)
+	var asked := Ball.launch_velocity(mine.position, strike_from, Vector3.RIGHT, false, 0.7, 0.8, Vector3.ZERO, turn)
+	var flat_one := Ball.launch_velocity(mine.position, strike_from, Vector3.RIGHT, false, 0.7, 0.0)
+	guest_ground.kick(shown, strike_from, Vector3.RIGHT, false, 0.7, 0.8, Vector3.ZERO, turn)
+	_expect(mine.linear_velocity.is_equal_approx(asked), "the host's ball leaves exactly as the guest's slid kick was drawn (%s)" % str(mine.linear_velocity))
+	_expect(mine.linear_velocity.z > 0.3 * mine.linear_velocity.length() and mine.linear_velocity.y > flat_one.y + 1.0, "turned right and lifted, not the straight flat kick the old aim sent")
+	_free_football_pair(pair)
+	(made[0] as Node).queue_free()
+
 
 ## Running into a ball takes it along: it is pushed, not passed through, not
 ## stood against like a wall (the old capsule stopped a running child dead and a
@@ -28394,12 +28629,12 @@ func _check_the_aim_line_is_where_the_kick_goes() -> void:
 	await physics_frame
 	var east := Vector3.RIGHT
 	# name, distance from the foot, bearing of the ball from the foot's facing
-	# (degrees), look off the facing (degrees), sprint, strength, loft
+	# (degrees), finger slid off the facing (degrees), sprint, strength, loft
 	var cases: Array[Array] = [
 		["standing, ball a stride ahead", 0.6, 0.0, 0.0, false, 0.7, 0.6],
 		["running at it", 0.9, 0.0, 10.0, true, 0.4, 0.5],
-		["a step away, to the side, view turned", 0.3, 90.0, 30.0, false, 0.8, 0.5],
-		["at the edge of reach, view turned the other way", 1.05, 20.0, -25.0, false, 1.0, 0.4],
+		["a step away, to the side, slid round", 0.3, 90.0, 30.0, false, 0.8, 0.5],
+		["at the edge of reach, slid the other way", 1.05, 20.0, -25.0, false, 1.0, 0.4],
 		["a tap along the grass", 0.6, 0.0, 0.0, false, 0.0, 0.0],
 		["half a swing along the grass", 0.6, 0.0, 0.0, false, 0.5, 0.0],
 	]
@@ -28409,9 +28644,9 @@ func _check_the_aim_line_is_where_the_kick_goes() -> void:
 		var spot := striker + east.rotated(Vector3.UP, bearing) * float(c[1])
 		ball.reset_to(spot)
 		await physics_frame
-		var look := east.rotated(Vector3.UP, deg_to_rad(float(c[3])))
+		var turn := deg_to_rad(float(c[3]))
 		var strength := maxf(float(c[5]), Ball.TAP_STRENGTH)
-		var launch := Ball.launch_velocity(ball.position, striker, east, bool(c[4]), strength, float(c[6]), look)
+		var launch := Ball.launch_velocity(ball.position, striker, east, bool(c[4]), strength, float(c[6]), Vector3.ZERO, turn)
 		var path := Ball.aim_path(ball.position, launch, ball.effective_linear_damp(), ball.gravity_strength(), flat)
 		var end := path[path.size() - 1]
 		var heading := Vector2(launch.x, launch.z).normalized()
@@ -28422,7 +28657,7 @@ func _check_the_aim_line_is_where_the_kick_goes() -> void:
 				worst_turn = maxf(worst_turn, rad_to_deg(off.angle_to(heading)))
 		_expect(worst_turn < 2.0, "%s: the dots lie along the kick (%.1f degrees at worst)" % [c[0], worst_turn])
 		var began := ball.position
-		var speed := ball.kick(striker, east, bool(c[4]), strength, float(c[6]), look)
+		var speed := ball.kick(striker, east, bool(c[4]), strength, float(c[6]), Vector3.ZERO, turn)
 		_expect(speed > 0.0 and ball.linear_velocity.is_equal_approx(launch), "%s: the kick leaves with exactly the velocity the line was drawn from (%.1f m/s)" % [c[0], speed])
 		var landed := Vector3.INF
 		var high := 0.0

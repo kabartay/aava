@@ -209,6 +209,12 @@ var _message: Label
 var _message_timer := 0.0
 var _building := false
 var _kick_button: Button
+## The finger that is holding the kick button, so a second finger turning the
+## camera is not mistaken for aiming; -1 while none is.
+var _kick_finger := -1
+## How far the finger has slid since pressing: x is the turn in radians (right
+## is positive), y is the loft from 0 (flat) to 1 (a high chip).
+var _kick_aim := Vector2.ZERO
 var _pulse := 0.0
 const KICK_PULSE_RATE := 6.0
 var _score: Panel
@@ -364,8 +370,18 @@ func _init() -> void:
 	# sits on screen as a control that does nothing.
 	_kick_button = _icon_button(ActionIcon.Kind.KICK)
 	# button_down / button_up rather than pressed, because a kick is a hold.
-	_kick_button.button_down.connect(func() -> void: kick_started.emit())
-	_kick_button.button_up.connect(func() -> void: kick_released.emit())
+	_kick_button.button_down.connect(func() -> void:
+		_kick_aim = Vector2.ZERO
+		kick_started.emit()
+	)
+	_kick_button.button_up.connect(func() -> void:
+		kick_released.emit()
+		# After the release has read it, so the next kick starts straight.
+		_kick_aim = Vector2.ZERO
+		_kick_finger = -1
+	)
+	# The finger may slide off the button to aim; letting go anywhere still kicks.
+	_kick_button.keep_pressed_outside = true
 	_kick_button.visible = false
 	add_child(_kick_button)
 
@@ -2086,6 +2102,64 @@ func set_build_state(kind: StringName, valid: bool, reason: String) -> void:
 	_status.text = name if reason.is_empty() else "%s — %s" % [name, reason]
 	_layout()
 
+## How far across the screen, as a fraction of its height, the finger slides to
+## turn the shot all the way to KICK_TURN_MAX, and how far up to lift it from a
+## flat drive to the highest chip. Fractions of the height so the feel is the
+## same on a phone at any resolution. A third of the screen's height is an easy
+## reach for a thumb in landscape.
+const KICK_TURN_MAX := deg_to_rad(60.0)
+const KICK_TURN_REACH := 0.33
+const KICK_LOFT_REACH := 0.30
+
+## Slide the aim by `relative` pixels of finger travel on a screen `height`
+## pixels tall: sideways turns the line, up lifts it, down flattens it. Each is
+## clamped as it accumulates, so a finger that has gone past the end of the range
+## comes back the moment it reverses instead of having to unwind.
+func slide_kick_aim(relative: Vector2, height: float) -> void:
+	if height <= 0.0:
+		return
+	var fraction := relative / height
+	_kick_aim.x = clampf(_kick_aim.x + fraction.x / KICK_TURN_REACH * KICK_TURN_MAX, -KICK_TURN_MAX, KICK_TURN_MAX)
+	_kick_aim.y = clampf(_kick_aim.y - fraction.y / KICK_LOFT_REACH, 0.0, 1.0)
+
+## The aim the finger has slid to on the kick button: x the turn in radians,
+## positive to the right; y the loft, 0 to 1. Zero for a tap and for a key.
+func kick_aim() -> Vector2:
+	return _kick_aim
+
+## Which finger is on the kick button, for the checks.
+func kick_finger() -> int:
+	return _kick_finger
+
+## The slide that aims a kick. Read here, before the screen gets it, so that the
+## drag that began on the kick button never also turns the camera, and from the
+## one finger that is on the button. Touch drags only: with touch emulated from
+## the mouse a mouse drag arrives as a touch drag too, and reading the mouse
+## motion as well would count every slide twice.
+func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		if touch.pressed:
+			if _kick_finger < 0 and _kick_button.is_visible_in_tree() and _kick_button.get_global_rect().has_point(touch.position):
+				_kick_finger = touch.index
+		elif touch.index == _kick_finger:
+			if touch.canceled:
+				_kick_aim = Vector2.ZERO
+			# Not at once: the button's own release, which reads the aim, comes
+			# after this. Whatever it did, the finger is no longer ours.
+			_forget_kick_finger.call_deferred()
+		return
+	if event is InputEventScreenDrag and _kick_finger >= 0:
+		var drag := event as InputEventScreenDrag
+		if drag.index != _kick_finger:
+			return
+		# screen_relative, not relative: the latter is scaled by the stretch.
+		slide_kick_aim(drag.screen_relative, get_viewport().get_visible_rect().size.y)
+		get_viewport().set_input_as_handled()
+
+func _forget_kick_finger() -> void:
+	_kick_finger = -1
+
 ## Show or hide the kick button, and give it the right face: a kick for a
 ## ball on the ground, a throw for a basketball within range of the ring.
 func set_ball_in_reach(in_reach: bool, throwing := false) -> void:
@@ -2175,7 +2249,10 @@ func set_kick_preview(charging: bool, strength: float, loft: float) -> void:
 	_power_fill.color = Color(0.98, 0.78, 0.28).lerp(Color(0.96, 0.38, 0.26), strength)
 
 	var aim := Text.of("aim_ground")
-	if loft > 0.66:
+	if _kick_aim == Vector2.ZERO:
+		# Nothing slid yet: say that sliding is how, in words a six-year-old has.
+		aim = Text.of("aim_slide")
+	elif loft > 0.66:
 		aim = Text.of("aim_high")
 	elif loft > 0.3:
 		aim = Text.of("aim_over")

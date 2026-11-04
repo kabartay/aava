@@ -208,15 +208,16 @@ func _build_mesh(which: Look) -> Mesh:
 	return tool.commit()
 
 ## Strike the ball. `strength` and `loft` both run from 0 to 1: strength is how
-## long the button was held, loft is how high the camera was looking.
+## long the button was held, loft is how far the finger slid up on it. `turn` is
+## how far, in radians, the finger slid sideways: positive is to the child's right.
 ##
 ## Returns the resulting speed in metres per second, or zero if the striker was
 ## not close enough to reach it.
-func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25, look := Vector3.ZERO) -> float:
+func kick(from: Vector3, facing: Vector3, sprinting: bool, strength := 1.0, loft := 0.25, look := Vector3.ZERO, turn := 0.0) -> float:
 	if not within_reach(position, from):
 		return 0.0
 
-	var launch := launch_velocity(position, from, facing, sprinting, strength, loft, look)
+	var launch := launch_velocity(position, from, facing, sprinting, strength, loft, look, turn)
 	var speed := launch.length()
 	strike(launch, strength, loft)
 	return speed
@@ -365,7 +366,11 @@ func follow_the_host(on: bool) -> void:
 const RUN_UP_NEAR := 1.2
 const RUN_UP_FAR := 2.0
 
-## Where the camera looking along `look` sends a kick from `from` at a ball at
+## Where a kick from `from` at a ball at `at` goes along the ground when the
+## child has not slid the finger: the way they face. The game passes no `look`;
+## it is an optional second opinion, kept for callers that still have one.
+##
+## Where a camera looking along `look` would send a kick from `from` at a ball at
 ## `at`, along the ground. The ball straight ahead of the view goes the way the
 ## view points. A child who walked at a ball that is off to one side of the view
 ## still kicks it the way they walked, so between ten and eighty degrees of
@@ -401,13 +406,17 @@ static func aim_direction(at: Vector3, from: Vector3, facing: Vector3, look := V
 ## so the aim preview can draw where the ball will go before it is kicked and
 ## be right about it — the same arithmetic, in one place.
 ##
-## Which way it goes is `aim_direction`: where the camera looks, `look`, so a
-## child turns the view to aim; and the run-up line from striker to ball when
-## no look is given or the ball is well off to one side of the view. Strength is
+## Which way it goes is `aim_direction`: with no `look`, the way the child faces
+## close to the ball and the run-up line from further out, and then turned by
+## `turn` radians (positive to the right) — the sideways slide of the finger on
+## the kick button. `loft` is the upward slide. Strength is
 ## squared, so the first half of the hold barely adds anything and the last
 ## quarter adds a lot — winding up rather than being dragged up to speed.
-static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinting: bool, strength: float, loft: float, look := Vector3.ZERO) -> Vector3:
+static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinting: bool, strength: float, loft: float, look := Vector3.ZERO, turn := 0.0) -> Vector3:
 	var direction := aim_direction(at, from, facing, look)
+	if not is_zero_approx(turn):
+		# Positive is to the right, and a positive turn about up is to the left.
+		direction = direction.rotated(Vector3.UP, -turn)
 	var charged := clampf(strength, 0.0, 1.0)
 	var speed := lerpf(KICK_SPEED_MIN, KICK_SPEED_MAX, charged * charged)
 	if sprinting:

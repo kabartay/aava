@@ -841,6 +841,7 @@ const STRINGS := {
 	"ui_upper_floor": {EN: "floor %d", FR: "niveau %d", RU: "этаж %d"},
 
 	# Aiming a kick.
+	"aim_slide": {EN: "slide to aim", FR: "glisse pour viser", RU: "води пальцем — целься"},
 	"aim_ground": {EN: "along the ground", FR: "au ras du sol", RU: "низом"},
 	"aim_over": {EN: "up and over", FR: "en cloche", RU: "повыше"},
 	"aim_high": {EN: "high over the top", FR: "très haut", RU: "высоко навесом"},

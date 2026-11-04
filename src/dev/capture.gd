@@ -44,14 +44,15 @@ extends Node3D
 ##   --only=KIND  with --animals=1, place just that kind, straight ahead
 ##   --animalat=METRES  how far ahead of the camera they stand (default 9)
 ##   --kick=SECONDS kick the nearest ball, then watch it fly for this long
-##   --aim=1        show the aim preview (arc, landing ring, green when on
-##                  target) as the game draws it while the kick button is held
+##   --aim=1        show the aim preview (the dots, green when on target) as
+##                  the game draws it while the kick button is held
 ##   --score=B,R    set the football score (blue, red) before the shot
 ##   --side=0|1     the chip says which side this child plays (0 blue, 1 red)
 ##   --winner=0|1   that side has won the match: board title, confetti, announcement
 ##   --flash=0|1    that side's number is flashing on the board, as after a goal
 ##   --power=0..1   how hard to kick it
 ##   --loft=0..1    how high: 0 along the ground, 1 chipped over the top
+##   --turn=DEG     how far the finger slid the shot sideways, right positive
 ##   --nowater=1    leave the water sheet out, to see the ground under it
 ##   --unshaded=1   draw the terrain as flat vertex colour, no lighting at all,
 ##                  which separates "the colours are wrong" from "the light is"
@@ -93,6 +94,7 @@ var _at_shop := false
 var _kick_after := 0.0
 var _kick_strength := 1.0
 var _kick_loft := 0.25
+var _kick_turn := 0.0
 var _aim_preview := false
 var _score := Vector2i(-1, -1)
 var _side := -1
@@ -555,31 +557,37 @@ func _kick_nearest() -> void:
 	var ball := _world.football.ball_near(_player.global_position)
 	if ball == null:
 		return
+	# As the game turns a child standing at a ball to face the view.
+	_player.face(_kick_look(), 100.0)
 	ball.kick(
 		_player.global_position, _player.facing(), false,
-		_kick_strength, _kick_loft, _kick_look()
+		_kick_strength, _kick_loft, Vector3.ZERO, deg_to_rad(_kick_turn)
 	)
 
 func _kick_look() -> Vector3:
 	return Vector3(-sin(_rig.yaw), 0.0, -cos(_rig.yaw))
 
 ## The aim preview the game shows while the kick button is held, drawn the way
-## the game draws it: the kick's own arithmetic, the ring, and the green mark.
+## the game draws it: the kick's own arithmetic and the green mark.
 func _show_the_aim() -> void:
 	# With no player (the free camera, which is what a shot is usually taken
 	# with), a striker stands beside the middle ball and looks along --yaw.
 	var striker := Pitch.centre() + Vector3(1.1, 0.0, 0.0)
+	striker.y = _world.field.height_at(striker.x, striker.z)
 	var look := Vector3(-sin(deg_to_rad(_yaw)), 0.0, -cos(deg_to_rad(_yaw)))
 	if _player != null:
 		striker = _player.global_position
 		look = _kick_look()
+		# As the game turns a child standing at a ball to face the view.
+		_player.face(look, 100.0)
+		look = _player.facing()
 	var ball := _world.football.ball_near(striker)
 	if ball == null:
 		return
 	var ground := func(x: float, z: float) -> float:
 		return _world.field.height_at(x, z)
 	var velocity := Ball.launch_velocity(
-		ball.position, striker, look, false, _kick_strength, _kick_loft, look
+		ball.position, striker, look, false, _kick_strength, _kick_loft, Vector3.ZERO, deg_to_rad(_kick_turn)
 	)
 	var path := Ball.aim_path(
 		ball.position, velocity, ball.effective_linear_damp(), ball.gravity_strength(), ground
@@ -590,7 +598,7 @@ func _show_the_aim() -> void:
 	add_child(preview)
 	var end := path[path.size() - 1]
 	print("aim preview: %d dots from %v to %v, on target: %s" % [path.size(), ball.position, end, Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0])
-	preview.show_path(path, Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0, float(ground.call(end.x, end.z)))
+	preview.show_path(path, Pitch.goal_ahead(flight, Ball.RADIUS, ground) >= 0)
 
 func _wait_for_world() -> void:
 	var frames := 0
@@ -774,6 +782,8 @@ func _parse_arguments() -> void:
 				_kick_strength = value.to_float()
 			"loft":
 				_kick_loft = value.to_float()
+			"turn":
+				_kick_turn = value.to_float()
 			"house":
 				_house = value.to_int() != 0
 			"testhouse":
