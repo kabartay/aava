@@ -37,6 +37,14 @@ const DRINK := 1.0
 ## What one drink restores, as a fraction of full energy.
 const DRINK_RESTORE := 0.34
 
+## The longest stretch of time one call to advance() counts. A phone that
+## stalls for seconds while the valley builds, or while the OS looks away,
+## hands the next frame that whole stall as its delta; counted in full it was
+## several seconds of free rest (about 3.3 energy after an eight second load,
+## on every reload) or of running that never happened. One second is far
+## above any real frame, so ordinary play is untouched.
+const MAX_STEP := 1.0
+
 ## Below this the player cannot run. Not zero, so there is a moment of warning
 ## rather than a sudden stop.
 const TIRED := 0.02
@@ -61,6 +69,7 @@ func can_run() -> bool:
 ## it used to be folded into `delta`, so running past a fire drained faster.
 func advance(delta: float, running: bool, moving: bool, recovery_scale := 1.0) -> void:
 	var before := energy
+	delta = minf(delta, MAX_STEP)
 	if running and moving:
 		energy -= RUN_DRAIN * delta
 	elif moving:

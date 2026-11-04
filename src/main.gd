@@ -1211,7 +1211,8 @@ func _process(delta: float) -> void:
 	# And after an ice cream, for half a minute: cooled down, a child's breath
 	# comes back twice as fast.
 	var cool := Dishes.COOL_BOOST if _cooled_for > 0.0 else 1.0
-	_cooled_for = maxf(_cooled_for - delta, 0.0)
+	_cooled_for = maxf(_cooled_for - minf(delta, Vitals.MAX_STEP), 0.0)
+	_check_the_day_turned(delta)
 	vitals.advance(
 		delta, player.is_running, player.is_moving,
 		(1.0 + warmth * (Hearths.REST_BONUS - 1.0)) * cool
@@ -4640,6 +4641,22 @@ func _drop_the_kick_hold() -> void:
 		hud.drop_the_kick_hold()
 	if kick_preview != null:
 		kick_preview.hide_path()
+
+## How often the clock is looked at while the game is open, in seconds, and
+## the countdown to the next look.
+const DAY_CHECK_EVERY := 20.0
+var _day_check_in := DAY_CHECK_EVERY
+
+## A game left open across local midnight never gets a resume notification, so
+## it went on offering (and paying) yesterday's task until the phone was put
+## down. Looked at every few seconds; it costs one clock read.
+func _check_the_day_turned(delta: float) -> void:
+	_day_check_in -= delta
+	if _day_check_in > 0.0:
+		return
+	_day_check_in = DAY_CHECK_EVERY
+	if today != null and hud != null and _world_ready:
+		_turn_the_day()
 
 ## Offer the new day's task if midnight has passed since the last one was set.
 func _turn_the_day() -> void:

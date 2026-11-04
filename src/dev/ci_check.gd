@@ -193,6 +193,7 @@ func _initialize() -> void:
 	_check_the_shop_adds_up()
 	_check_nodes_are_usable_immediately()
 	_check_energy_never_strands()
+	_check_a_stalled_frame_is_not_free_rest()
 	_check_the_valley_remembers()
 	_check_a_tree_can_be_felled()
 	_check_riding()
@@ -208,6 +209,7 @@ func _initialize() -> void:
 	await _check_a_child_can_walk_every_road_into_its_place()
 	_check_dams_change_the_world()
 	_check_one_thing_a_day()
+	_check_the_day_cannot_be_paid_twice_by_the_clock_and_turns_while_open()
 	_check_players_and_worlds()
 	_check_the_map_shows_the_valley()
 	await _check_the_map_zooms_pans_and_never_traps_input()
@@ -7177,6 +7179,26 @@ func _check_nodes_are_usable_immediately() -> void:
 	build.queue_free()
 	structures.queue_free()
 
+## A phone that stalls while the valley builds hands the next frame the whole
+## stall as its delta. Every reload gave about 3.3 energy (eight seconds of
+## standing still) for nothing; a stall while running took energy it should not.
+func _check_a_stalled_frame_is_not_free_rest() -> void:
+	print("a stalled frame is not free rest")
+	var rested := Vitals.new()
+	rested.energy = 20.0
+	rested.advance(8.0, false, false)
+	_expect(rested.energy <= 20.0 + Vitals.REST_RECOVERY * Vitals.MAX_STEP + 0.001, "an eight second frame at rest returns at most one second of rest (%.2f)" % rested.energy)
+	var ran := Vitals.new()
+	ran.advance(8.0, true, true)
+	_expect(ran.energy >= Vitals.MAX_ENERGY - Vitals.RUN_DRAIN * Vitals.MAX_STEP - 0.001, "and costs at most one second of running (%.2f)" % ran.energy)
+	var steady := Vitals.new()
+	steady.energy = 20.0
+	for _i in 60:
+		steady.advance(1.0 / 60.0, false, false)
+	_expect(is_equal_approx(steady.energy, 20.0 + Vitals.REST_RECOVERY), "ordinary frames are counted in full: a second of rest is %.2f" % Vitals.REST_RECOVERY)
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	_expect(game.contains("minf(delta, Vitals.MAX_STEP)"), "an ice cream's cooling is not eaten by a stall either")
+
 ## Energy paces the day. The one thing it must never do is leave a child unable
 ## to get home, so most of this check is about what stays possible at zero.
 func _check_energy_never_strands() -> void:
@@ -8739,6 +8761,39 @@ func _check_dams_change_the_world() -> void:
 	restored.queue_free()
 	partial.queue_free()
 	carried_over.queue_free()
+
+## The task pays once a day by the calendar, not by what the clock last said:
+## winding the clock back a day offered it again and paid again, and a game left
+## open across midnight kept offering yesterday's until the phone was put down.
+func _check_the_day_cannot_be_paid_twice_by_the_clock_and_turns_while_open() -> void:
+	print("the day's task cannot be paid twice by the clock, and turns while the game is open")
+	var monday := 1_760_000_000
+	var today := Today.new()
+	today.begin(monday)
+	var paid: Array[int] = []
+	today.completed.connect(func(_k: StringName, reward: int) -> void: paid.append(reward))
+	today.record(today.kind(), today.needed())
+	_expect(paid.size() == 1, "finished and paid once")
+	today.begin(monday - 86400)
+	_expect(today.is_finished(), "the clock wound back a day does not offer it again")
+	today.record(today.kind(), 99)
+	today.begin(monday + 3600)
+	today.record(today.kind(), 99)
+	_expect(paid.size() == 1, "and neither back nor forward pays it a second time (%d payments)" % paid.size())
+	today.begin(monday + 86400)
+	_expect(not today.is_finished(), "the next real day still offers a new one")
+	var wrong := Today.new()
+	wrong.last_finished = Today._day_number(monday) + 400
+	wrong.begin(monday)
+	_expect(not wrong.is_finished(), "a clock that was a year ahead does not hold the task shut")
+	var travelled := Today.new()
+	travelled.last_finished = Today._day_number(monday) + 1
+	travelled.begin(monday)
+	_expect(travelled.is_finished(), "but a day ahead, which a time zone explains, is still a finished day")
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var tick := game.substr(game.find("func _check_the_day_turned"))
+	tick = tick.substr(0, tick.find("\nfunc ", 1))
+	_expect(tick.contains("_turn_the_day()") and game.contains("_check_the_day_turned(delta)"), "an open game looks at the date every few seconds, and the frame does")
 
 ## One thing a day. Deliberately small: a child who misses three days must not
 ## come back to a backlog, and ignoring it entirely must cost nothing.

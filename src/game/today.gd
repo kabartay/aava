@@ -46,6 +46,10 @@ const AMOUNT := {
 	PLANT: 2,
 }
 
+## How many days ahead of the clock a finished day can be before it is taken
+## for a clock that was wrong. Two covers every time zone change there is.
+const MAX_SKEW_DAYS := 2
+
 ## Which calendar day was last finished. Days are counted from the unix epoch,
 ## so this survives clock changes better than storing a date.
 var last_finished := -1
@@ -63,6 +67,11 @@ var _saved_day := -1
 ## does not even see — was nought of three on opening it again.
 func begin(now: int) -> void:
 	var day := _day_number(now)
+	# A clock that was once far ahead (a wrong date, a trip across the date
+	# line) must not hold today's task shut for months: a finish further ahead
+	# than any time zone explains is forgotten.
+	if last_finished > day + MAX_SKEW_DAYS:
+		last_finished = day - 1
 	if day != _saved_day:
 		_progress = 0
 	_day = day
@@ -87,8 +96,12 @@ func needed() -> int:
 func done() -> int:
 	return _progress
 
+## Finished today, or on a later day than the clock now says. Only equality
+## used to count, so winding the clock back a day (or flying west) offered the
+## same day's task again and paid it again, and winding it forward made it
+## pay a third time: eight coins for every turn of the date.
 func is_finished() -> bool:
-	return last_finished == _day
+	return last_finished >= _day
 
 ## The kind of place on the map today's task is done at (a PlaceGlyph.Kind), or
 ## -1 when it is not done in one place or is already done.
