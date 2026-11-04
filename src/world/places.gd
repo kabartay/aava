@@ -4387,7 +4387,11 @@ func light_lamps(darkness: float, delta: float) -> void:
 		# that never changes at all reads as painted on.
 		var breathe := 1.0 + 0.025 * sin(_wind_time * 2.3 + float(i) * 2.1)
 		var light: OmniLight3D = lamp["light"]
-		light.light_energy = float(lamp.get("energy", LAMP_ENERGY)) * strength * breathe
+		# Written only when it moves: in daylight every lamp is at nought and
+		# each of those writes was a message to the renderer for nothing.
+		var energy := float(lamp.get("energy", LAMP_ENERGY)) * strength * breathe
+		if light.light_energy != energy:
+			light.light_energy = energy
 		# Switched off outright when dark enough not to matter: an omni light
 		# at zero energy still costs the phone its share of the frame.
 		light.visible = strength > 0.01

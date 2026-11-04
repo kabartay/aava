@@ -396,6 +396,14 @@ func follow(player: Node3D, camera: CameraRig, structures: Structures) -> void:
 ## the race. AnimalVoices learnt this on CI; this class had the same exposure
 ## and nothing closing it.
 func _notification(what: int) -> void:
+	# A finger lifted while the game is away never reports it: forget the lot.
+	if (
+		what == NOTIFICATION_APPLICATION_PAUSED
+		or what == NOTIFICATION_APPLICATION_FOCUS_OUT
+		or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT
+	):
+		_gesture.cancel()
+		return
 	if what == NOTIFICATION_VISIBILITY_CHANGED:
 		# Closed with a finger down: forget it, so that nothing is left holding a
 		# drag that will never finish.
@@ -590,6 +598,33 @@ func _orient(yaw: float, world_position: Vector3, centre: Vector3, range_metres:
 	# so the pointers that pin themselves to the rim keep clear of it.
 	_compass.position = Vector2(_view.px - _compass.size.x - 6.0, 6.0)
 
+## What the region names were last laid out for.
+var _regions_laid_for := PackedFloat32Array()
+## What the stickers were last arranged for.
+var _marks_arranged_for := PackedFloat32Array()
+## How many times the region names and the stickers were really laid out, for
+## the checks: a map standing still must not add to either.
+var layouts_done := 0
+
+## Everything `_place_regions` reads, as numbers, so that two equal lists mean
+## the same picture. The names are in it by hash, so a change of language lays
+## them out again.
+func _regions_signature(centre: Vector3, range_metres: float) -> PackedFloat32Array:
+	var sig := PackedFloat32Array([
+		float(_size), centre.x, centre.z, range_metres,
+		1.0 if _legend.is_open() else 0.0, 1.0 if _legend.visible else 0.0,
+		_compass.position.x, _compass.position.y, _player_dot.position.x, _player_dot.position.y,
+		float(_regions.size()), float(_region_labels.size()), float(_view.px),
+	])
+	if _size == Size.LARGE or _size == Size.FULL:
+		for region in _regions:
+			sig.append(float(Text.of(String(MapPainter.REGION_TEXT[region["kind"]])).hash() & 0xFFFFF))
+		for destination in _destinations:
+			var glyph: PlaceGlyph = destination["glyph"]
+			sig.append(glyph.position.x if glyph.visible else -1.0e6)
+			sig.append(glyph.position.y)
+	return sig
+
 ## One label for every region the bake found, made once.
 func _sync_region_labels() -> void:
 	var found := _regions
@@ -607,11 +642,19 @@ func _sync_region_labels() -> void:
 ## the pictures of the places do the work. A name is dropped, rather than
 ## squeezed in, when it would run off the map or over another name or picture.
 func _place_regions(centre: Vector3, range_metres: float) -> void:
+	# The same inputs lay the names out the same way, so a map that has not
+	# moved does not set a font size, measure a string and settle the overlaps
+	# sixty times a second to arrive at what is already on it.
+	var signature := _regions_signature(centre, range_metres)
+	if signature == _regions_laid_for:
+		return
+	_regions_laid_for = signature
 	for label in _region_labels:
 		label.visible = false
 	# Nor under the key, which covers the picture.
 	if (_size != Size.LARGE and _size != Size.FULL) or _legend.is_open():
 		return
+	layouts_done += 1
 	var half := _view.px * 0.5
 	var scale := _view.px / range_metres
 	var font := 15 if _size == Size.LARGE else 18
@@ -966,12 +1009,21 @@ static func pulse_scale(seconds: float) -> float:
 	return 1.09 + 0.09 * sin(seconds * 4.0)
 
 func _pulse_suggested() -> void:
+	# Nobody sees a sticker on a map that is shut, and a Control's transform is
+	# a notification to the engine whether or not the value is new: fourteen of
+	# them every frame for a picture that is not showing.
+	if _size == Size.HIDDEN:
+		return
 	var seconds := float(Time.get_ticks_msec()) / 1000.0
 	for destination in _destinations:
 		var glyph: PlaceGlyph = destination["glyph"]
 		var wanted := _suggested >= 0 and int(glyph.kind) == _suggested
-		glyph.pivot_offset = glyph.size * 0.5
-		glyph.scale = Vector2.ONE * (pulse_scale(seconds) if wanted else 1.0)
+		var pivot := glyph.size * 0.5
+		if glyph.pivot_offset != pivot:
+			glyph.pivot_offset = pivot
+		var scaled := Vector2.ONE * (pulse_scale(seconds) if wanted else 1.0)
+		if glyph.scale != scaled:
+			glyph.scale = scaled
 
 ## The guide, for whoever draws the pointer on the play screen.
 func guide() -> MapGuide:
@@ -1059,6 +1111,14 @@ func _flat_distance(index: int, from: Vector3) -> float:
 ## view's transform (so it follows every pan and zoom), and is the same every
 ## frame.
 func _arrange_marks(centre: Vector3, range_metres: float) -> void:
+	# A map that has not moved, with nothing on it that has, is arranged as it
+	# already is: the nearest few, the rim, the overlaps and the stems were
+	# worked out again every frame to the same answer.
+	var signature := _marks_signature(centre, range_metres)
+	if _arranged and signature == _marks_arranged_for:
+		return
+	_marks_arranged_for = signature
+	layouts_done += 1
 	var diameter := glyph_diameter(_size)
 	var canvas := Vector2(_view.px, _view.px)
 	var middle := canvas * 0.5
@@ -1144,6 +1204,22 @@ func _arrange_marks(centre: Vector3, range_metres: float) -> void:
 		goal_shown = chosen.visible and _is_present(_destinations[_guide.index])
 	_route.set_state(you, goal, diameter * 0.5, goal_shown, stems)
 	_arranged = true
+
+## Everything `_arrange_marks` reads, as numbers.
+func _marks_signature(centre: Vector3, range_metres: float) -> PackedFloat32Array:
+	var sig := PackedFloat32Array([
+		float(_size), centre.x, centre.z, range_metres, float(_view.px),
+		_player_dot.position.x, _player_dot.position.y,
+		_compass.position.x, _compass.position.y,
+		1.0 if _me_button.visible else 0.0, _me_button.position.x, _me_button.position.y,
+		1.0 if _legend.visible else 0.0, 1.0 if _legend.is_open() else 0.0,
+		float(_guide.index) if _guide.active else -1.0,
+	])
+	for destination in _destinations:
+		var at: Vector3 = destination["at"]
+		sig.append(at.x)
+		sig.append(at.z)
+	return sig
 
 ## Which sticker a point on the map is on, if any, as an index into the
 ## destinations: the nearest whose middle is within the hit radius, or -1. Takes

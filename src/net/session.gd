@@ -415,6 +415,8 @@ static func _is_private_172(address: String) -> bool:
 
 func _process(delta: float) -> void:
 	_since_move += delta
+	if _hello_wait.is_empty():
+		return
 	for id: int in _hello_wait.keys():
 		# A frame that lasted a minute because the phone was put away is not a
 		# minute of silence from the other one.

@@ -162,6 +162,8 @@ signal talk_started()
 signal talk_released()
 
 var _stick: VirtualJoystick
+## The whole-screen look pad, kept so that a lost finger can be forgotten.
+var _pad: CameraPad
 var _backpack: Backpack
 var _minimap: Minimap
 var _guide_badge: GuideBadge
@@ -333,6 +335,7 @@ var _shop_rows: Dictionary = {}
 
 func _init() -> void:
 	var pad := CameraPad.new()
+	_pad = pad
 	pad.name = "CameraPad"
 	pad.dragged.connect(func(delta: Vector2) -> void: camera_dragged.emit(delta))
 	pad.pinched.connect(func(amount: float) -> void:
@@ -346,19 +349,7 @@ func _init() -> void:
 			build_place.emit())
 	add_child(pad)
 
-	# Godot 4.7 ships this node; writing one by hand is both unnecessary and,
-	# since the class name is now taken, actively broken.
-	_stick = VirtualJoystick.new()
-	_stick.name = "MoveStick"
-	_stick.joystick_mode = VirtualJoystick.JOYSTICK_DYNAMIC
-	_stick.joystick_size = STICK_SIZE
-	_stick.tip_size = STICK_SIZE * 0.42
-	_stick.deadzone_ratio = 0.12
-	_stick.action_left = InputActions.MOVE_LEFT
-	_stick.action_right = InputActions.MOVE_RIGHT
-	_stick.action_up = InputActions.MOVE_FORWARD
-	_stick.action_down = InputActions.MOVE_BACK
-	add_child(_stick)
+	_build_stick()
 
 	_backpack = Backpack.new()
 	# The bag changes height as it is opened and shut, and everything down the
@@ -3385,7 +3376,84 @@ func _safe_area() -> Rect2:
 		return viewport
 	return area
 
+## Godot 4.7 ships this node; writing one by hand is both unnecessary and,
+## since the class name is now taken, actively broken.
+##
+## Built in a function of its own because the only way to make the stock stick
+## forget a finger is to throw it away and build another (see let_go_of_touches).
+func _build_stick() -> void:
+	_stick = VirtualJoystick.new()
+	_stick.name = "MoveStick"
+	_stick.joystick_mode = VirtualJoystick.JOYSTICK_DYNAMIC
+	_stick.joystick_size = STICK_SIZE
+	_stick.tip_size = STICK_SIZE * 0.42
+	_stick.deadzone_ratio = 0.12
+	_stick.action_left = InputActions.MOVE_LEFT
+	_stick.action_right = InputActions.MOVE_RIGHT
+	_stick.action_up = InputActions.MOVE_FORWARD
+	_stick.action_down = InputActions.MOVE_BACK
+	add_child(_stick)
+
+## Forget every finger the movement stick and the look pad think are down.
+##
+## A finger lifted while the game is not looking — Home, a call, the app
+## switcher, the settings panel opening over the stick under the other thumb —
+## never delivers its release. The stock stick then keeps the dead finger's
+## index for good: its actions stay pressed (the child walks on by itself), it
+## goes on following drags of that index even while hidden, and it refuses every
+## new finger until that index happens to be lifted. The look pad had the same
+## hole: a dead finger left in its table made the next single finger count as
+## the second of a pinch, so the view zoomed instead of turning.
+##
+## The stick has no way to be told to let go, so it is replaced; the pad has.
+func let_go_of_touches() -> void:
+	if _pad != null:
+		_pad.release_all()
+	for action: StringName in [
+		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+		InputActions.MOVE_FORWARD, InputActions.MOVE_BACK,
+	]:
+		Input.action_release(action)
+	# Deferred: this is reached from a notification and from visibility_changed,
+	# both of which can arrive while the tree is busy with its children.
+	_replace_stick.call_deferred()
+
+func _replace_stick() -> void:
+	if _stick == null or not is_instance_valid(_stick):
+		return
+	var was := _stick
+	var slot := was.get_index()
+	var seen := was.visible
+	var corner := was.position
+	var span := was.size
+	remove_child(was)
+	was.queue_free()
+	_build_stick()
+	move_child(_stick, slot)
+	_stick.position = corner
+	_stick.size = span
+	_stick.visible = seen
+	# The old stick may have pressed them once more on its way out.
+	for action: StringName in [
+		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+		InputActions.MOVE_FORWARD, InputActions.MOVE_BACK,
+	]:
+		Input.action_release(action)
+
+func _notification(what: int) -> void:
+	if (
+		what == NOTIFICATION_APPLICATION_PAUSED
+		or what == NOTIFICATION_APPLICATION_FOCUS_OUT
+		or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT
+	):
+		let_go_of_touches()
+
 ## The stick is hidden while the settings or the grown-ups' room is open, so its
 ## ring is not drawn over their controls and a press there cannot walk the child.
 func _hide_the_stick_under_panels() -> void:
-	_stick.visible = not (_menu.visible or _danger.visible)
+	var wanted := not (_menu.visible or _danger.visible)
+	# Hidden under a finger: that finger's release will be taken by the panel,
+	# not the stick, so the stick is emptied now or the child walks on under it.
+	if not wanted and _stick.visible:
+		let_go_of_touches()
+	_stick.visible = wanted

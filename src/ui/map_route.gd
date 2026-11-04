@@ -26,6 +26,13 @@ func set_state(you: Vector2, goal: Vector2, goal_radius: float, goal_shown: bool
 	has_target = goal_shown
 	stems = moved
 
+## Breathes only while somebody can see it: a shut map used to run this every
+## frame to return at its first line, and a node that is not processing is not
+## asked at all.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED or what == NOTIFICATION_ENTER_TREE:
+		set_process(is_visible_in_tree())
+
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return

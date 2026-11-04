@@ -187,6 +187,9 @@ var _carrying := false
 var _cap: MeshInstance3D
 var _cap_paint: StandardMaterial3D
 
+## The one material the train's cars are drawn with.
+var _car_paint: StandardMaterial3D
+
 func _init(at: Vector3) -> void:
 	name = "RollerCoaster"
 	position = at
@@ -1142,11 +1145,14 @@ func _build_car(index: int) -> AnimatableBody3D:
 		)
 
 	tool.generate_normals()
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.vertex_color_is_srgb = true
-	material.roughness = 0.62
-	tool.set_material(material)
+	# The cars are alike in everything but their colours, which are in the
+	# vertices: one material for all of them.
+	if _car_paint == null:
+		_car_paint = StandardMaterial3D.new()
+		_car_paint.vertex_color_use_as_albedo = true
+		_car_paint.vertex_color_is_srgb = true
+		_car_paint.roughness = 0.62
+	tool.set_material(_car_paint)
 	var drawn := MeshInstance3D.new()
 	drawn.mesh = tool.commit()
 	car.add_child(drawn)

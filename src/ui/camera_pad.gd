@@ -59,9 +59,28 @@ func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
+## Forget every finger. For when releases will never arrive: the app was put
+## away, a call came in, the window lost focus. A finger left in the table made
+## the next single finger the second of a pinch, so the view zoomed instead of
+## turning, and a stale look finger refused every new one.
+func release_all() -> void:
+	_fingers.clear()
+	_active_index = -1
+	_pinch_gap = -1.0
+	_was_pinching = false
+	_travelled = 0.0
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed:
+			# The same index going down again means its release was lost. It is
+			# a new finger, not a second one, and not the look finger it was.
+			if _fingers.has(event.index):
+				_fingers.erase(event.index)
+				if event.index == _active_index:
+					_active_index = -1
+				if _fingers.is_empty():
+					_was_pinching = false
 			_fingers[event.index] = event.position
 			if _fingers.size() >= 2:
 				_was_pinching = true
@@ -101,6 +120,11 @@ func _gui_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventScreenDrag:
+		# A finger this pad never saw go down (its press came before a release_all)
+		# is not counted: a stray one would make the next finger half a pinch.
+		if not _fingers.has(event.index):
+			accept_event()
+			return
 		_fingers[event.index] = event.position
 
 		# Two fingers down means the player is sizing the view, not turning it.

@@ -196,9 +196,23 @@ const RIDE_ARM := 7.2
 ## the way round, was the complaint.
 const RIDE_LOOK := 1.1
 
+## How long, in seconds, a view the child has turned by hand is left alone
+## before the ride starts bringing it round to the front again. The note above
+## promises a thumb wins "for a few seconds"; the pull used to run from the
+## first frame, so a child who turned to look at the scenery was dragged back
+## against their own thumb, and a view they had turned and let go of was half
+## way back within a second.
+const RIDE_LOOK_GRACE := 2.5
+
+## Seconds since the child last turned the view by hand.
+var _since_turned := RIDE_LOOK_GRACE
+
 ## Told, while riding, which way the ride is pointed.
 func look_along(heading: float, delta: float) -> void:
 	if not _riding:
+		return
+	_since_turned += delta
+	if _since_turned < RIDE_LOOK_GRACE:
 		return
 	yaw = lerp_angle(yaw, heading, 1.0 - exp(-RIDE_LOOK * delta))
 
@@ -370,6 +384,7 @@ func aim_height() -> float:
 
 ## Screen drag from the touch layer, in pixels.
 func orbit(drag: Vector2) -> void:
+	_since_turned = 0.0
 	yaw -= drag.x * DRAG_SENSITIVITY
 	pitch = clampf(pitch - drag.y * DRAG_SENSITIVITY, PITCH_MIN, PITCH_MAX)
 

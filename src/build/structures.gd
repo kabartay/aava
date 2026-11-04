@@ -905,23 +905,38 @@ func light_lamps(darkness: float, near: Vector3) -> void:
 			if record.get("light") != null:
 				_lamps.append(record)
 		_lamps_revision = revision
+	if _lamps.is_empty():
+		return
 	var candidates: Array[Dictionary] = []
 	for record in _lamps:
 		var light: OmniLight3D = record.get("light")
 		if light == null or not is_instance_valid(light):
 			continue
-		light.visible = false
+		record["lamp_wanted"] = false
 		var at: Vector3 = record["position"]
 		var distance := Vector2(at.x - near.x, at.z - near.z).length()
 		if darkness > 0.15 and distance < LAMP_SHOWN_WITHIN:
 			record["lamp_distance"] = distance
 			candidates.append(record)
-	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a["lamp_distance"]) < float(b["lamp_distance"]))
+	if not candidates.is_empty():
+		candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return float(a["lamp_distance"]) < float(b["lamp_distance"]))
 	for i in mini(candidates.size(), LAMPS_LIT):
 		var light: OmniLight3D = candidates[i]["light"]
-		light.light_energy = LAMP_ENERGY * smoothstep(0.15, 0.45, darkness)
-		light.visible = true
+		var energy := LAMP_ENERGY * smoothstep(0.15, 0.45, darkness)
+		if light.light_energy != energy:
+			light.light_energy = energy
+		candidates[i]["lamp_wanted"] = true
+	# Each light is set to what it should be and left alone when it already is:
+	# switched off and on again every frame was two changes a lamp for the
+	# renderer to hear, for a lamp that stayed lit all night.
+	for record in _lamps:
+		var light: OmniLight3D = record.get("light")
+		if light == null or not is_instance_valid(light):
+			continue
+		var wanted: bool = record.get("lamp_wanted", false)
+		if light.visible != wanted:
+			light.visible = wanted
 
 ## The room a square is in: every square reachable from it without crossing a
 ## wall, a door or a window, or an empty answer if the walls do not close it in

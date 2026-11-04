@@ -43,6 +43,10 @@ static func shown_at_pace(pace: float, was_shown: bool) -> bool:
 var _dots: MultiMeshInstance3D
 var _shown := 0
 var _on_target := false
+## The dots are all parked out of sight, so parking them again is nothing to do.
+var _parked := false
+## How many times the dots were really parked, for the checks.
+var parkings := 0
 
 func _init() -> void:
 	name = "KickPreview"
@@ -77,6 +81,8 @@ func _init() -> void:
 func show_path(points: PackedVector3Array, on_target := false) -> void:
 	var multi := _dots.multimesh
 	var count := mini(points.size(), MAX_DOTS)
+	if count > 0:
+		_parked = false
 	var tint := ON_TARGET if on_target else COLOUR
 	for i in MAX_DOTS:
 		if i < count:
@@ -90,6 +96,13 @@ func show_path(points: PackedVector3Array, on_target := false) -> void:
 	_dots.visible = count > 0
 
 func hide_path() -> void:
+	# The game asks this every frame the child is not aiming; forty dots do not
+	# need parking again, with two messages to the renderer each, when they are
+	# already parked.
+	if _parked:
+		return
+	_parked = true
+	parkings += 1
 	for i in MAX_DOTS:
 		_park(i)
 	_shown = 0

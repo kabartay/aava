@@ -101,6 +101,10 @@ var _gates_open: Array[float] = []
 var _cap: MeshInstance3D
 var _cap_paint: StandardMaterial3D
 
+## The materials the gondolas and their panes are drawn with, one of each.
+var _car_paint: StandardMaterial3D
+var _pane_paint: StandardMaterial3D
+
 func _init(at: Vector3) -> void:
 	name = "FerrisWheel"
 	position = at
@@ -695,22 +699,25 @@ func _build_car(index: int) -> AnimatableBody3D:
 	)
 
 	tool.generate_normals()
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.vertex_color_is_srgb = true
-	material.roughness = 0.62
-	tool.set_material(material)
+	# Every gondola is drawn with the same two materials; the colour of each is
+	# in its vertices.
+	if _car_paint == null:
+		_car_paint = StandardMaterial3D.new()
+		_car_paint.vertex_color_use_as_albedo = true
+		_car_paint.vertex_color_is_srgb = true
+		_car_paint.roughness = 0.62
+		_pane_paint = StandardMaterial3D.new()
+		_pane_paint.vertex_color_use_as_albedo = true
+		_pane_paint.vertex_color_is_srgb = true
+		_pane_paint.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_pane_paint.albedo_color = Color(1.0, 1.0, 1.0, 0.28)
+		_pane_paint.roughness = 0.1
+	tool.set_material(_car_paint)
 	var drawn := MeshInstance3D.new()
 	drawn.mesh = tool.commit()
 	car.add_child(drawn)
 	glass.generate_normals()
-	var pane_material := StandardMaterial3D.new()
-	pane_material.vertex_color_use_as_albedo = true
-	pane_material.vertex_color_is_srgb = true
-	pane_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	pane_material.albedo_color = Color(1.0, 1.0, 1.0, 0.28)
-	pane_material.roughness = 0.1
-	glass.set_material(pane_material)
+	glass.set_material(_pane_paint)
 	var panes := MeshInstance3D.new()
 	panes.name = "Glass"
 	panes.mesh = glass.commit()

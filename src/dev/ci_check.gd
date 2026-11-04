@@ -42,6 +42,11 @@ func _initialize() -> void:
 	await _check_loading_reaches_what_is_already_built()
 	await _check_the_busy_frame_does_its_work_on_change()
 	await _check_the_animal_step_reuses_what_it_has_already_read()
+	_check_a_map_standing_still_is_laid_out_once()
+	_check_a_shut_map_does_no_work()
+	_check_a_kick_path_that_is_hidden_stays_parked()
+	_check_a_steady_night_does_not_flicker_the_lamps()
+	_check_the_fairground_is_a_few_materials_not_a_hundred()
 	_check_inventory_arithmetic()
 	_check_build_costs_are_real()
 	_check_a_grove_forms()
@@ -199,6 +204,10 @@ func _initialize() -> void:
 	_check_players_and_worlds()
 	_check_the_map_shows_the_valley()
 	await _check_the_map_zooms_pans_and_never_traps_input()
+	await _check_fingers_work_together_through_the_viewport()
+	await _check_a_lost_finger_is_forgotten()
+	await _check_the_map_answers_touch_through_the_viewport()
+	await _check_the_ride_waits_for_a_hand_that_turned_the_view()
 	_check_the_map_symbols_follow_pan_and_zoom()
 	_check_playing_together()
 	_check_a_visit_survives_a_mount_and_a_handover()
@@ -30450,6 +30459,137 @@ func _check_the_kick_aim_is_finite_for_any_stance() -> void:
 								bad += 1
 	_expect(bad == 0, "no stance gives a NaN or an empty aim line (%d bad)" % bad)
 
+## A map that has not moved lays out its stickers and its names once, not every
+## frame: the nearest few, the rim, the overlaps and the font sizes were worked
+## out afresh sixty times a second to the answer already on the screen. Moving
+## the view, or the child, does lay it out again.
+func _check_a_map_standing_still_is_laid_out_once() -> void:
+	print("a map standing still is laid out once")
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var built: Array[Vector3] = []
+	for which: String in ["small", "large", "full"]:
+		var map := Minimap.new(field)
+		get_root().add_child(map)
+		map.open_at(which)
+		map.track(camp, 0.0, built)
+		map.wait_for_bake()
+		for _settle in 3:
+			map.track(camp, 0.0, built)
+		var done := map.layouts_done
+		_expect(done > 0, "the %s map was laid out when it opened" % which)
+		for _frame in 40:
+			map.track(camp, 0.0, built)
+		_expect(
+			map.layouts_done == done,
+			"the %s map standing still for forty frames is laid out no more (%d, then %d)" % [which, done, map.layouts_done]
+		)
+		if which != "full":
+			map.track(camp + Vector3(30.0, 0.0, 10.0), 0.0, built)
+			_expect(map.layouts_done > done, "and the %s map is laid out again once the child moves" % which)
+		map.queue_free()
+
+## A map that is shut costs nothing it can avoid: its stickers do not swell, its
+## route does not breathe, and the pointer is not redrawn.
+func _check_a_shut_map_does_no_work() -> void:
+	print("a shut map does no work")
+	var field := HeightField.new(20260903)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	map.hide_map()
+	var glyph: PlaceGlyph = map._destinations[0]["glyph"]
+	glyph.scale = Vector2(3.0, 3.0)
+	map.suggest(int(glyph.kind))
+	map._pulse_suggested()
+	_expect(glyph.scale == Vector2(3.0, 3.0), "a shut map leaves its stickers' scale alone")
+	_expect(not map._route.is_processing(), "a shut map's route is not processing")
+	map.open_at("small")
+	map._pulse_suggested()
+	_expect(glyph.scale != Vector2(3.0, 3.0), "an open map swells the sticker it suggests")
+	_expect(map._route.is_processing(), "an open map's route breathes")
+	map.hide_map()
+	_expect(not map._route.is_processing(), "and stops when the map is put away again")
+	map.queue_free()
+
+## The aiming dots are parked once, not forty at a time every frame the child
+## is not aiming: the game asks for them hidden on every frame, and each parking
+## is two messages to the renderer per dot.
+func _check_a_kick_path_that_is_hidden_stays_parked() -> void:
+	print("a kick path that is hidden stays parked")
+	var kick := KickPreview.new()
+	get_root().add_child(kick)
+	kick.hide_path()
+	var first := kick.parkings
+	for _frame in 120:
+		kick.hide_path()
+	_expect(kick.parkings == first, "hiding a hidden path sixty times parks nothing more (%d, then %d)" % [first, kick.parkings])
+	kick.show_path(PackedVector3Array([Vector3(1.0, 1.0, 1.0), Vector3(2.0, 1.0, 1.0)]))
+	_expect(kick.dots_shown() == 2, "a path shown is shown")
+	kick.hide_path()
+	_expect(kick.parkings == first + 1 and kick.dots_shown() == 0, "and hiding it afterwards parks the dots again, once")
+	kick.queue_free()
+
+## Lamps a child has built stay as they are on a night that does not change: the
+## ones that are lit are not switched off and on again every frame to arrive at
+## the same state, and a valley with none builds no list at all.
+func _check_a_steady_night_does_not_flicker_the_lamps() -> void:
+	print("a steady night does not flicker the lamps")
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	structures.light_lamps(0.9, Vector3.ZERO)
+	for i in 8:
+		structures.place(HouseParts.LAMP, Vector3(float(i) * 2.0, 3.0, 0.0), 0.0)
+	structures.light_lamps(0.9, Vector3.ZERO)
+	var changes := [0]
+	for record in structures._records:
+		var light: OmniLight3D = record.get("light")
+		if light != null:
+			light.visibility_changed.connect(func() -> void: changes[0] += 1)
+	for _frame in 30:
+		structures.light_lamps(0.9, Vector3.ZERO)
+	_expect(
+		structures.lamps_lit() == Structures.LAMPS_LIT,
+		"%d lamps are lit all night" % Structures.LAMPS_LIT
+	)
+	_expect(changes[0] == 0, "and thirty frames of the same night change no lamp's visibility (%d changes)" % changes[0])
+	structures.light_lamps(0.0, Vector3.ZERO)
+	_expect(structures.lamps_lit() == 0, "and morning puts them out")
+	structures.free()
+
+## The fairground is drawn with a handful of materials. Every ride part had a
+## material of its own, all identical, so ninety meshes were ninety states for
+## the renderer; the budget holds the number of meshes and of materials, which
+## is what the draw-call cost of the fairground is made of.
+func _check_the_fairground_is_a_few_materials_not_a_hundred() -> void:
+	print("the fairground is a few materials, not a hundred")
+	var park := Park.new(HeightField.new(20260903))
+	get_root().add_child(park)
+	var meshes := 0
+	var casters := 0
+	var materials := {}
+	var stack: Array[Node] = [park]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		stack.append_array(node.get_children())
+		var drawn := node as MeshInstance3D
+		if drawn == null or drawn.mesh == null:
+			continue
+		meshes += 1
+		if drawn.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			casters += 1
+		if drawn.material_override != null:
+			materials[drawn.material_override] = true
+		for surface in drawn.mesh.get_surface_count():
+			var paint := drawn.get_active_material(surface)
+			if paint != null:
+				materials[paint] = true
+	_expect(meshes <= 100, "the fairground is %d meshes (budget 100)" % meshes)
+	_expect(casters <= 97, "of which %d cast a shadow (budget 97)" % casters)
+	_expect(materials.size() <= 24, "painted with %d materials (budget 24)" % materials.size())
+	_expect(park.get_node("Ground") != null and park.get_node("Lamps") != null, "and the grounds' whole dressing is the two meshes Ground and Lamps")
+	park.free()
+
 ## The three buttons the fuzz found that a tap could spend something through:
 ## a log on the fire, a stick to the dam, and the axe on a wild tree while there
 ## are coins in the purse to be charged for it.
@@ -32663,6 +32803,313 @@ func _check_the_pool_holds_its_fence_and_lets_a_swimmer_out() -> void:
 	Engine.physics_ticks_per_second = ticks
 	terrain.queue_free()
 	places.queue_free()
+
+## A finger down or up, pushed through the root viewport the way the phone's
+## touch screen delivers it: at a real position, to whichever control is there.
+## The mouse events other checks use are a different path, and
+## `pointing/emulate_mouse_from_touch` is off, so only this one is the phone.
+func _vp_touch(index: int, down: bool, at: Vector2, canceled := false) -> void:
+	var event := InputEventScreenTouch.new()
+	event.index = index
+	event.pressed = down
+	event.canceled = canceled
+	event.position = at
+	get_root().push_input(event, true)
+
+## A finger sliding to `at`, through the root viewport (see _vp_touch).
+func _vp_drag(index: int, at: Vector2, by: Vector2) -> void:
+	var event := InputEventScreenDrag.new()
+	event.index = index
+	event.position = at
+	event.relative = by
+	event.screen_relative = by
+	get_root().push_input(event, true)
+
+## How hard the movement actions are held, as one number.
+func _walk_push() -> float:
+	return Input.get_vector(
+		InputActions.MOVE_LEFT, InputActions.MOVE_RIGHT,
+		InputActions.MOVE_FORWARD, InputActions.MOVE_BACK
+	).length()
+
+## The phone has a touch screen and no mouse, so everything a child does must work
+## from touch events alone, several at once. This pushes real touches through the
+## viewport: the left thumb on the stick, the right on the look pad and the
+## buttons, a second finger landing while the first is held, a finger sliding off
+## its control, one lifted outside the window, and a pinch with the stick held.
+func _check_fingers_work_together_through_the_viewport() -> void:
+	print("fingers work together, through the viewport")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud._layout()
+	await process_frame
+	var seen := {"jump": 0, "turn": 0, "zoom": 0}
+	hud.jump_pressed.connect(func() -> void: seen["jump"] += 1)
+	hud.camera_dragged.connect(func(_by: Vector2) -> void: seen["turn"] += 1)
+	hud.camera_zoomed.connect(func(_by: float) -> void: seen["zoom"] += 1)
+	var middle := hud._stick.position + hud._stick.size * 0.5
+	var jump_at := hud._jump_button.get_global_rect().get_center()
+	var look_at := Vector2(900.0, 400.0)
+
+	# The stick, alone: a push is a walk, and lifting the finger stops it.
+	_vp_touch(0, true, middle)
+	_vp_drag(0, middle + Vector2(60.0, 0.0), Vector2(60.0, 0.0))
+	await process_frame
+	_expect(_walk_push() > 0.3, "a thumb pushed from the middle of the stick walks (%.2f)" % _walk_push())
+	_expect(seen["turn"] == 0, "and the stick finger does not turn the view as well")
+
+	# A second finger on a button while the stick is held.
+	_vp_touch(1, true, jump_at)
+	await process_frame
+	_vp_touch(1, false, jump_at)
+	await process_frame
+	_expect(seen["jump"] == 1, "a second finger on jump jumps")
+	_expect(_walk_push() > 0.3, "and the stick is still held")
+
+	# And a third on the look pad, turning the view while walking.
+	_vp_touch(2, true, look_at)
+	_vp_drag(2, look_at + Vector2(30.0, 0.0), Vector2(30.0, 0.0))
+	_vp_drag(0, middle + Vector2(62.0, 0.0), Vector2(2.0, 0.0))
+	await process_frame
+	_expect(seen["turn"] == 1 and seen["zoom"] == 0, "the right thumb turns the view with the left on the stick (%s)" % str(seen))
+	_expect(_walk_push() > 0.3, "and the walk goes on")
+	_vp_touch(2, false, look_at + Vector2(30.0, 0.0))
+
+	# A pinch with the stick held: two more fingers on the pad zoom, and neither
+	# turns the view or lets go of the walk.
+	seen["turn"] = 0
+	_vp_touch(3, true, look_at)
+	_vp_touch(4, true, look_at + Vector2(100.0, 0.0))
+	_vp_drag(4, look_at + Vector2(130.0, 0.0), Vector2(30.0, 0.0))
+	_vp_drag(4, look_at + Vector2(160.0, 0.0), Vector2(30.0, 0.0))
+	await process_frame
+	_expect(seen["zoom"] >= 1 and seen["turn"] == 0, "a pinch with the stick held zooms and does not turn (%s)" % str(seen))
+	_expect(_walk_push() > 0.3, "and the stick stays held through it")
+	_vp_touch(4, false, look_at + Vector2(160.0, 0.0))
+	_vp_touch(3, false, look_at)
+
+	# The stick finger slides onto a button and lifts there: the button was never
+	# pressed, so it does nothing, and the walk stops.
+	_vp_drag(0, jump_at, jump_at - (middle + Vector2(62.0, 0.0)))
+	await process_frame
+	_expect(_walk_push() > 0.3, "sliding the stick finger onto a button does not let go of the stick")
+	_vp_touch(0, false, jump_at)
+	await process_frame
+	_expect(seen["jump"] == 1, "lifting it on the jump button does not jump")
+	_expect(_walk_push() == 0.0, "and lets go of the stick")
+
+	# Lifted outside the window.
+	_vp_touch(0, true, middle)
+	_vp_drag(0, middle + Vector2(60.0, 0.0), Vector2(60.0, 0.0))
+	_vp_drag(0, Vector2(-300.0, 500.0), Vector2(-400.0, 0.0))
+	_vp_touch(0, false, Vector2(-300.0, 500.0))
+	await process_frame
+	_expect(_walk_push() == 0.0, "a finger that slides off the screen and lifts there does not leave the stick held")
+	_vp_touch(0, true, middle)
+	_vp_drag(0, middle + Vector2(0.0, -60.0), Vector2(0.0, -60.0))
+	await process_frame
+	_expect(_walk_push() > 0.3, "and the stick takes the next finger")
+	_vp_touch(0, false, middle, true)
+	await process_frame
+	_expect(_walk_push() == 0.0, "a touch the system cancels lets go too")
+	hud.queue_free()
+
+## A finger can be lifted while the game is not looking: Home, a call, the app
+## switcher, or a panel opening over the stick under the other thumb. No release
+## ever comes. The stock stick then kept the dead finger for good: its actions
+## stayed held so the child walked on by themselves, it went on following that
+## finger's drags while hidden, and it refused every new finger. The look pad
+## kept the dead finger too, which made the next single finger the second of a
+## pinch, so the view zoomed instead of turning; the map did the same.
+func _check_a_lost_finger_is_forgotten() -> void:
+	print("a lost finger is forgotten")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	hud._layout()
+	await process_frame
+	var seen := {"turn": 0, "zoom": 0}
+	hud.camera_dragged.connect(func(_by: Vector2) -> void: seen["turn"] += 1)
+	hud.camera_zoomed.connect(func(_by: float) -> void: seen["zoom"] += 1)
+	var middle := hud._stick.position + hud._stick.size * 0.5
+	var look_at := Vector2(900.0, 400.0)
+
+	for what: int in [
+		Node.NOTIFICATION_APPLICATION_PAUSED,
+		Node.NOTIFICATION_APPLICATION_FOCUS_OUT,
+		Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT,
+	]:
+		seen["turn"] = 0
+		seen["zoom"] = 0
+		# Both thumbs down, then the app goes away.
+		_vp_touch(0, true, middle)
+		_vp_drag(0, middle + Vector2(60.0, 0.0), Vector2(60.0, 0.0))
+		_vp_touch(1, true, look_at)
+		_vp_drag(1, look_at + Vector2(20.0, 0.0), Vector2(20.0, 0.0))
+		await process_frame
+		_expect(_walk_push() > 0.3 and seen["turn"] == 1, "notification %d: walking and looking" % what)
+		get_root().propagate_notification(what)
+		await process_frame
+		_expect(_walk_push() == 0.0, "notification %d lets go of the stick" % what)
+		# Back again, with fingers that have different numbers.
+		_vp_touch(5, true, middle)
+		_vp_drag(5, middle + Vector2(0.0, -60.0), Vector2(0.0, -60.0))
+		await process_frame
+		_expect(_walk_push() > 0.3, "notification %d: a new finger with a new number takes the stick" % what)
+		_vp_touch(5, false, middle)
+		seen["turn"] = 0
+		_vp_touch(6, true, look_at)
+		_vp_drag(6, look_at + Vector2(25.0, 0.0), Vector2(25.0, 0.0))
+		await process_frame
+		_expect(seen["turn"] == 1 and seen["zoom"] == 0, "notification %d: one new finger turns the view and does not pinch it (%s)" % [what, str(seen)])
+		_vp_touch(6, false, look_at)
+		# The old fingers' releases arrive late, and change nothing.
+		_vp_touch(0, false, middle)
+		_vp_touch(1, false, look_at)
+		await process_frame
+		_expect(_walk_push() == 0.0, "notification %d: and the dead fingers lifting later is harmless" % what)
+
+	# The same finger number going down again means its release was lost.
+	var pad := CameraPad.new()
+	get_root().add_child(pad)
+	var turned := [0, 0]
+	pad.dragged.connect(func(_by: Vector2) -> void: turned[0] += 1)
+	pad.pinched.connect(func(_by: float) -> void: turned[1] += 1)
+	var down := InputEventScreenTouch.new()
+	down.index = 0
+	down.pressed = true
+	down.position = Vector2(100.0, 100.0)
+	pad._gui_input(down)
+	pad._gui_input(down)
+	var slide := InputEventScreenDrag.new()
+	slide.index = 0
+	slide.position = Vector2(130.0, 100.0)
+	slide.screen_relative = Vector2(30.0, 0.0)
+	pad._gui_input(slide)
+	_expect(turned == [1, 0], "a finger that goes down twice with no release between is one finger, not two (%s)" % str(turned))
+	var stray := InputEventScreenDrag.new()
+	stray.index = 7
+	stray.position = Vector2(400.0, 100.0)
+	stray.screen_relative = Vector2(10.0, 0.0)
+	pad._gui_input(stray)
+	pad._gui_input(slide)
+	_expect(turned == [2, 0], "a drag from a finger the pad never saw go down is ignored (%s)" % str(turned))
+	pad.queue_free()
+
+	# A panel opening over the stick under a held thumb.
+	_vp_touch(0, true, middle)
+	_vp_drag(0, middle + Vector2(60.0, 0.0), Vector2(60.0, 0.0))
+	await process_frame
+	hud._toggle_menu()
+	await process_frame
+	_expect(not hud._stick.visible and _walk_push() == 0.0, "the settings opening over a held stick stops the walk")
+	_vp_drag(0, middle + Vector2(64.0, 0.0), Vector2(4.0, 0.0))
+	await process_frame
+	_expect(_walk_push() == 0.0, "and the hidden stick does not go on following that finger")
+	_vp_touch(0, false, middle)
+	hud._toggle_menu()
+	await process_frame
+	_expect(hud._stick.visible, "the stick is back when the panel is shut")
+	_vp_touch(0, true, middle)
+	_vp_drag(0, middle + Vector2(0.0, -60.0), Vector2(0.0, -60.0))
+	await process_frame
+	_expect(_walk_push() > 0.3, "and works at once")
+	_vp_touch(0, false, middle)
+	hud.queue_free()
+
+	# The map, with a finger lost under it.
+	var field := HeightField.new(20260903)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	map.show_map()
+	map._cycle_size()
+	map.track(field.camp_centre(), 0.0, [] as Array[Vector3])
+	_map_touch(map, 0, true, Vector2(100.0, 100.0))
+	map.propagate_notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	_expect(not map._gesture.is_active(), "the map forgets a finger when the app loses focus")
+	var before := map.view_range()
+	_map_touch(map, 3, true, Vector2(200.0, 200.0))
+	_map_drag(map, 3, Vector2(260.0, 200.0))
+	_expect(is_equal_approx(map.view_range(), before), "so one new finger pans and does not zoom")
+	_map_touch(map, 3, false, Vector2(260.0, 200.0))
+	_map_touch(map, 3, true, Vector2(200.0, 200.0))
+	_map_touch(map, 3, true, Vector2(200.0, 200.0))
+	_expect(map._gesture._points.size() == 1, "a finger that goes down twice on the map is still one finger")
+	map.queue_free()
+
+## The map answers a finger that reaches it through the viewport: a tap on a
+## sticker chooses it, a tap on bare map resizes it, a drag does neither.
+func _check_the_map_answers_touch_through_the_viewport() -> void:
+	print("the map answers touch through the viewport")
+	var field := HeightField.new(20260903)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	map.position = Vector2(300.0, 200.0)
+	map.show_map()
+	map._cycle_size()
+	await process_frame
+	map.track(field.camp_centre(), 0.0, [] as Array[Vector3])
+	var swing := -1
+	for index in map._destinations.size():
+		if map.glyph_at_index(index).kind == PlaceGlyph.Kind.PLAYGROUND:
+			swing = index
+	if swing < 0:
+		_expect(false, "the map has a playground sticker to tap")
+		map.queue_free()
+		return
+	var glyph := map.glyph_at_index(swing)
+	var inside := glyph.position + glyph.size * 0.5 + map._canvas.position
+	var at := map.get_global_transform_with_canvas() * inside
+	map._last_symbol_tap = -1000
+	_vp_touch(0, true, at)
+	_vp_touch(0, false, at)
+	_expect(map.guide().active and map.guide().kind == PlaceGlyph.Kind.PLAYGROUND, "a finger tapping a sticker chooses it")
+	_expect(map._size == Minimap.Size.LARGE, "and does not resize the map")
+	# Dragging across the map pans it and chooses nothing new.
+	var before := map.view_range()
+	map._last_symbol_tap = -1000
+	_vp_touch(0, true, at)
+	_vp_drag(0, at + Vector2(80.0, 0.0), Vector2(80.0, 0.0))
+	_vp_touch(0, false, at + Vector2(80.0, 0.0))
+	_expect(map._size == Minimap.Size.LARGE and is_equal_approx(map.view_range(), before), "a drag is not a tap, and does not zoom")
+	# A pinch through the viewport.
+	var a := map.get_global_transform_with_canvas() * (map._canvas.position + Vector2(100.0, 150.0))
+	var b := a + Vector2(80.0, 0.0)
+	_vp_touch(1, true, a)
+	_vp_touch(2, true, b)
+	_vp_drag(2, b + Vector2(60.0, 0.0), Vector2(60.0, 0.0))
+	_expect(map.view_range() < before, "two fingers spreading zoom the map in")
+	_vp_touch(2, false, b + Vector2(60.0, 0.0))
+	_vp_touch(1, false, a)
+	_expect(not map._gesture.is_active(), "and nothing is held afterwards")
+	map.queue_free()
+
+## The rider's view is the child's: after a hand has turned it, the ride waits a
+## few seconds before it starts bringing it round to the front again.
+func _check_the_ride_waits_for_a_hand_that_turned_the_view() -> void:
+	print("the ride waits for a hand that turned the view")
+	var player := Player.new()
+	get_root().add_child(player)
+	var rig := CameraRig.new(player)
+	get_root().add_child(rig)
+	await process_frame
+	rig.set_riding(true)
+	rig.yaw = 1.0
+	rig.orbit(Vector2(10.0, 0.0))
+	var turned_to := rig.yaw
+	for _i in 120:
+		rig.look_along(0.0, 1.0 / 60.0)
+	_expect(is_equal_approx(rig.yaw, turned_to), "two seconds after a thumb turned it, the view is where the thumb left it (%.3f)" % rig.yaw)
+	for _i in 120:
+		rig.look_along(0.0, 1.0 / 60.0)
+	_expect(absf(rig.yaw) < absf(turned_to), "and then it is brought round to the front (%.3f)" % rig.yaw)
+	rig.orbit(Vector2(10.0, 0.0))
+	var again := rig.yaw
+	rig.look_along(0.0, 1.0 / 60.0)
+	_expect(is_equal_approx(rig.yaw, again), "a thumb that turns it again starts the wait over")
+	rig.queue_free()
+	player.queue_free()
 
 ## Run a child at the fence from `side`, jumping once `lead` metres nearer than
 ## a metre from it, and say whether they ended up inside.

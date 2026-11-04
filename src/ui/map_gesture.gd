@@ -81,6 +81,12 @@ func feed(event: InputEvent, origin: Vector2) -> bool:
 
 func _button(id: int, down: bool, at: Vector2) -> void:
 	if down:
+		# The same finger going down again means its release was lost (the app
+		# was put away under it). Left in the table it made the next lone finger
+		# half a pinch, so the map zoomed instead of panning.
+		if _points.has(id):
+			_points.erase(id)
+			_starts.erase(id)
 		_points[id] = at
 		_starts[id] = at
 		_tap_possible = _points.size() == 1

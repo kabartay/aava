@@ -570,6 +570,9 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 		# Solid, like the legs of anything else a child walks up to.
 		Park._solid(solid, Vector3(0.24, TRAMPOLINE_TOP, 0.24), stand)
 
+## The paint every ride part is drawn with. See `commit`.
+static var _ride_paint: StandardMaterial3D
+
 ## Finish a surface and hang it on a node. Every ride builds its still parts
 ## and its moving parts into separate tools and then calls this, so the whole
 ## fairground is a handful of meshes rather than a hundred.
@@ -577,11 +580,16 @@ func _build_trampoline(tool: SurfaceTool, solid: StaticBody3D) -> void:
 ## — a button that lights up, for one.
 static func commit(tool: SurfaceTool, parent: Node3D, drawn_name: String) -> MeshInstance3D:
 	tool.generate_normals()
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.vertex_color_is_srgb = true
-	material.roughness = 0.8
-	tool.set_material(material)
+	# One paint for every part of every ride: a hundred meshes each with a
+	# material of its own, all the same, were a hundred states for the renderer
+	# to tell apart and nothing to look at. The buttons that light up carry a
+	# material of their own as an override, so none of them depends on this.
+	if _ride_paint == null:
+		_ride_paint = StandardMaterial3D.new()
+		_ride_paint.vertex_color_use_as_albedo = true
+		_ride_paint.vertex_color_is_srgb = true
+		_ride_paint.roughness = 0.8
+	tool.set_material(_ride_paint)
 	var mesh := tool.commit()
 	if mesh == null or mesh.get_surface_count() == 0:
 		return null
