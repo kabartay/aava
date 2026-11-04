@@ -1540,11 +1540,52 @@ func nearest_caring(player_position: Vector3, inventory: Inventory) -> Dictionar
 		# itself to a child who has none.
 		if AnimalKinds.gives(kind) == ItemKinds.WOOL and not has_shears:
 			continue
+		# Milk is drunk on the spot, so a child who is not tired would spend the
+		# cow's two minutes on nothing.
+		if AnimalKinds.gives(kind) == &"milk" and not needs_milk:
+			continue
 		var wanted := AnimalKinds.want(kind)
-		if wanted != &"" and inventory.count(wanted) <= 0 and not is_thirsty(animal):
+		if wanted != &"" and inventory.count(wanted) <= 0 and not (is_thirsty(animal) and has_water):
 			continue
 		best_distance = distance
 		best = animal
+	return best
+
+## Whether the child has water to pour, and whether milk would do them any good.
+## Set by the game each frame, like `has_shears`. A thirsty animal is only
+## offered to a child with no food for it if there is a drink to give.
+var has_water := true
+var needs_milk := true
+
+## Why the animal nearest the player, within reach, cannot be helped right now,
+## so the care button can say so in a picture: `{"animal": ..., "why": ...}` or
+## empty. `why` is &"rest" (on its cooldown), &"shears" (a sheep, and none),
+## &"item" (it wants a stick or a cone and the bag has none) or &"full" (a cow,
+## and the child is not tired). Only asked when `nearest_caring` found nobody.
+func nearest_blocked(player_position: Vector3, inventory: Inventory) -> Dictionary:
+	var best := {}
+	var best_distance := REACH
+	for animal in _living:
+		var node: Node3D = animal["node"]
+		if not is_instance_valid(node):
+			continue
+		var distance := node.position.distance_to(player_position)
+		if distance > best_distance:
+			continue
+		var kind: StringName = animal["kind"]
+		var why := &""
+		if float(animal["cooldown"]) > 0.0:
+			why = &"rest"
+		elif AnimalKinds.gives(kind) == ItemKinds.WOOL and not has_shears:
+			why = &"shears"
+		elif AnimalKinds.gives(kind) == &"milk" and not needs_milk:
+			why = &"full"
+		elif AnimalKinds.want(kind) != &"" and inventory.count(AnimalKinds.want(kind)) <= 0:
+			why = &"item"
+		if why == &"":
+			continue
+		best_distance = distance
+		best = {"animal": animal, "why": why}
 	return best
 
 ## Thirst is separate from hunger: an animal far from the river wants a drink,

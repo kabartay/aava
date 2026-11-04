@@ -31,6 +31,7 @@ enum Kind {
 	NEW_GAME,
 	SOUND_AMBIENCE, SOUND_EFFECTS, SPEAKER_ON, SPEAKER_OFF,
 	TICK,
+	STROKE, CONE, SHEARS, MILK,
 }
 
 ## One colour for all of them, near-white and slightly warm, matching the ring
@@ -53,6 +54,20 @@ const HOLE := Color(0.16, 0.16, 0.18, 0.85)
 
 var kind: Kind = Kind.JUMP
 var tint := INK
+
+## How much of a ring round the glyph is filled, 0 to 1, or below zero for no
+## ring. Used for "ready again in this long": the ring of a resting animal's
+## button fills as the animal recovers, which a child who cannot read can see.
+var ring := -1.0
+
+## Set the ring. Quantised to a twentieth so a button counting down is not
+## redrawn sixty times a second for no visible change.
+func show_ring(fraction: float) -> void:
+	var stepped := -1.0 if fraction < 0.0 else roundf(clampf(fraction, 0.0, 1.0) * 20.0) / 20.0
+	if is_equal_approx(stepped, ring):
+		return
+	ring = stepped
+	queue_redraw()
 
 func _init(which: Kind) -> void:
 	kind = which
@@ -165,6 +180,23 @@ func _draw() -> void:
 			_speaker(box, false)
 		Kind.TICK:
 			_tick(box)
+		Kind.STROKE:
+			_stroke(box)
+		Kind.CONE:
+			_cone(box)
+		Kind.SHEARS:
+			_shears(box)
+		Kind.MILK:
+			_milk(box)
+	if ring >= 0.0:
+		var unit := minf(box.size.x, box.size.y)
+		var centre := box.get_center()
+		draw_arc(centre, unit * 0.46, 0.0, TAU, 40, INK_SOFT, maxf(2.0, unit * 0.03))
+		if ring > 0.0:
+			draw_arc(
+				centre, unit * 0.46, -PI * 0.5, -PI * 0.5 + TAU * ring, 40, tint,
+				maxf(3.0, unit * 0.06)
+			)
 
 ## The mark that turns a machine into "get off it": an arrow rising away from
 ## it, up and to the side, which is the way somebody actually leaves one.
@@ -1113,3 +1145,55 @@ func _tick(box: Rect2) -> void:
 	var elbow := centre + Vector2(-unit * 0.08, unit * 0.2)
 	draw_line(centre + Vector2(-unit * 0.28, unit * 0.02), elbow, tint, thick)
 	draw_line(elbow, centre + Vector2(unit * 0.3, -unit * 0.22), tint, thick)
+
+## A hand held out flat, with four fingers and a thumb: "stroke it".
+func _stroke(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center() + Vector2(0.0, unit * 0.08)
+	var palm := Rect2(centre + Vector2(-unit * 0.2, -unit * 0.04), Vector2(unit * 0.4, unit * 0.3))
+	draw_rect(palm, tint)
+	for finger in 4:
+		var x := palm.position.x + unit * 0.05 + float(finger) * unit * 0.1
+		var tall := unit * (0.26 if finger == 1 or finger == 2 else 0.2)
+		draw_line(Vector2(x, palm.position.y), Vector2(x, palm.position.y - tall), tint, unit * 0.075)
+	draw_line(
+		palm.position + Vector2(0.0, unit * 0.18), palm.position + Vector2(-unit * 0.14, unit * 0.04),
+		tint, unit * 0.08
+	)
+
+## A fir cone: scales in rows, narrowing to a point.
+func _cone(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	draw_colored_polygon(PackedVector2Array([
+		centre + Vector2(0.0, -unit * 0.32),
+		centre + Vector2(unit * 0.2, -unit * 0.02),
+		centre + Vector2(unit * 0.14, unit * 0.3),
+		centre + Vector2(-unit * 0.14, unit * 0.3),
+		centre + Vector2(-unit * 0.2, -unit * 0.02),
+	]), tint)
+	for row in 3:
+		var y := centre.y - unit * 0.06 + float(row) * unit * 0.1
+		draw_line(Vector2(centre.x - unit * 0.17, y), Vector2(centre.x + unit * 0.17, y), HOLE, unit * 0.025)
+
+## Scissors: two blades crossing, two rings for the fingers.
+func _shears(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center()
+	draw_line(centre + Vector2(-unit * 0.28, -unit * 0.3), centre + Vector2(unit * 0.12, unit * 0.14), tint, unit * 0.07)
+	draw_line(centre + Vector2(unit * 0.28, -unit * 0.3), centre + Vector2(-unit * 0.12, unit * 0.14), tint, unit * 0.07)
+	draw_arc(centre + Vector2(-unit * 0.2, unit * 0.24), unit * 0.1, 0.0, TAU, 16, tint, unit * 0.055)
+	draw_arc(centre + Vector2(unit * 0.2, unit * 0.24), unit * 0.1, 0.0, TAU, 16, tint, unit * 0.055)
+
+## A pail of milk: a tapered bucket, a handle over it, and the white on top.
+func _milk(box: Rect2) -> void:
+	var unit := minf(box.size.x, box.size.y)
+	var centre := box.get_center() + Vector2(0.0, unit * 0.06)
+	var bucket := PackedVector2Array([
+		centre + Vector2(-unit * 0.22, -unit * 0.14), centre + Vector2(unit * 0.22, -unit * 0.14),
+		centre + Vector2(unit * 0.16, unit * 0.26), centre + Vector2(-unit * 0.16, unit * 0.26),
+		centre + Vector2(-unit * 0.22, -unit * 0.14),
+	])
+	draw_polyline(bucket, tint, unit * 0.07)
+	draw_arc(centre + Vector2(0.0, -unit * 0.14), unit * 0.22, PI, TAU, 18, tint, unit * 0.045)
+	draw_rect(Rect2(centre + Vector2(-unit * 0.18, -unit * 0.1), Vector2(unit * 0.36, unit * 0.07)), INK_SOFT)

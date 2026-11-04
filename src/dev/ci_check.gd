@@ -154,6 +154,7 @@ func _initialize() -> void:
 	_check_the_icon_is_the_valley()
 	_check_the_valley_is_populated()
 	_check_a_flock_is_worth_keeping()
+	await _check_an_animal_that_cannot_be_helped_says_why_in_a_picture()
 	_check_every_animal_is_finished()
 	_check_the_forest_is_asked_once()
 	_check_nobody_falls_out_of_the_world()
@@ -4203,6 +4204,76 @@ func _check_a_flock_is_worth_keeping() -> void:
 		Text.set_language(code)
 		_expect(not ItemKinds.label(ItemKinds.WOOL).begins_with("?"), "wool is named in %s" % code)
 	Text.set_language(Text.EN)
+
+## A care button that does nothing is the worst kind. A thirsty dog with no
+## stick and no water was offered ("wants a stick") and the press did nothing;
+## a cow was milked by a child who was not tired, and her two minutes spent on
+## nothing; a resting animal, a sheep without shears and a dog without a stick
+## showed no button at all, with nothing to say why.
+func _check_an_animal_that_cannot_be_helped_says_why_in_a_picture() -> void:
+	print("an animal that cannot be helped says why, in a picture")
+	var field := HeightField.new(20260903)
+	var animals := Animals.new(field, 20260903)
+	get_root().add_child(animals)
+	var spot := field.find_spawn_point()
+	var bag := Inventory.new()
+	# A dog far from any river is thirsty.
+	var far := Vector3(spot.x, 0.0, spot.z)
+	var dog := animals.put_one_at(AnimalKinds.DOG, far + Vector3(1.0, 0.0, 0.0))
+	if not animals.is_thirsty(dog):
+		dog["node"].position = Vector3(far.x, 0.0, far.z)
+	if animals.is_thirsty(dog):
+		animals.has_water = false
+		_expect(
+			animals.nearest_caring(far, bag).is_empty(),
+			"a thirsty dog with no stick and no water is not offered, the press would do nothing"
+		)
+		animals.has_water = true
+		_expect(not animals.nearest_caring(far, bag).is_empty(), "with water it is")
+		animals.has_water = false
+	var held := animals.nearest_blocked(far, bag)
+	_expect(
+		not held.is_empty() and held["why"] == &"item",
+		"it shows a dimmed button for the stick it is missing"
+	)
+	bag.add(ItemKinds.STICK, 1)
+	_expect(animals.nearest_blocked(far, bag).is_empty(), "and none once there is a stick")
+	_expect(not animals.nearest_caring(far, bag).is_empty(), "when it is offered")
+	animals.care_for(dog, bag)
+	held = animals.nearest_blocked(far, bag)
+	_expect(not held.is_empty() and held["why"] == &"rest", "a fed dog shows it is resting")
+
+	var sheep := animals.put_one_at(AnimalKinds.SHEEP, far + Vector3(0.0, 0.0, -1.0))
+	dog["cooldown"] = 0.0
+	dog["node"].position = far + Vector3(50.0, 0.0, 50.0)
+	animals.has_shears = false
+	_expect(animals.nearest_blocked(far, bag)["why"] == &"shears", "a sheep with no shears asks for them")
+	animals.has_shears = true
+	_expect(sheep["cooldown"] == 0.0 and animals.nearest_blocked(far, bag).is_empty(), "and not once there are some")
+
+	var cow := animals.put_one_at(AnimalKinds.COW, far + Vector3(-1.0, 0.0, 0.0))
+	sheep["node"].position = far + Vector3(50.0, 0.0, 50.0)
+	animals.needs_milk = false
+	_expect(animals.nearest_caring(far, bag).is_empty(), "a child who is not tired is not offered milk")
+	_expect(animals.nearest_blocked(far, bag)["why"] == &"full", "and is told so")
+	animals.needs_milk = true
+	_expect(not animals.nearest_caring(far, bag).is_empty() and float(cow["cooldown"]) == 0.0, "a tired one is offered it")
+	animals.queue_free()
+
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var plain := hud._care_button.get_combined_minimum_size().x
+	hud.set_animal_in_reach("resting", ActionIcon.Kind.SLEEP, true, 0.5)
+	_expect(hud._care_button.visible and hud._care_icon.visible, "the care button wears a picture")
+	_expect(hud._care_button.modulate.a < 1.0, "dimmed when the animal cannot be helped")
+	_expect(is_equal_approx(hud._care_icon.ring, 0.5), "with a ring showing how far through its rest it is")
+	_expect(hud._care_button.get_combined_minimum_size().x > plain, "and room left for the picture")
+	hud.set_animal_in_reach("wants a stroke", ActionIcon.Kind.STROKE)
+	_expect(hud._care_button.modulate.a == 1.0 and hud._care_icon.ring < 0.0, "a ready animal is bright and ringless")
+	hud.set_animal_in_reach("")
+	_expect(not hud._care_button.visible and not hud._care_icon.visible, "and nothing is left behind when it walks away")
+	hud.queue_free()
 
 ## Every animal has everything an animal here needs.
 ##

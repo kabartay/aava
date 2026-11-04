@@ -260,6 +260,9 @@ var _aim_label: Label
 var _storey_label: Label
 var _task_label: Label
 var _care_button: Button
+## The picture on the care button's face: what the animal wants, or what is
+## missing, so a child who cannot read is told as well.
+var _care_icon: ActionIcon
 var _coins_label: Label
 var _purse: PanelContainer
 var _vitals: VitalsGauge
@@ -526,6 +529,16 @@ func _init() -> void:
 	_care_button.pressed.connect(func() -> void: care_pressed.emit())
 	_care_button.visible = false
 	add_child(_care_button)
+	# The picture sits in a margin cut into the button's left side, so the word
+	# beside it still sizes the button as it always did.
+	_care_icon = ActionIcon.new(ActionIcon.Kind.STROKE)
+	_care_icon.anchor_bottom = 1.0
+	_care_icon.offset_left = 6.0
+	_care_icon.offset_right = 6.0 + CARE_ICON
+	_care_icon.offset_top = 6.0
+	_care_icon.offset_bottom = -6.0
+	_care_icon.visible = false
+	_care_button.add_child(_care_icon)
 
 	# Coins sit beside the bag, because they are the other thing you have.
 	# The purse: a slab like the bag above it, with a coin drawn on it and the
@@ -2005,14 +2018,39 @@ func set_owned(owned: Dictionary) -> void:
 func is_shop_open() -> bool:
 	return _shop.visible
 
+## The side of the picture on the care button's face.
+const CARE_ICON := BUTTON - 12.0
+
 ## Show the care button when an animal is within reach, labelled with what it
 ## wants, so the child is told the answer at the moment he can act on it.
-func set_animal_in_reach(wish: String) -> void:
+##
+## `icon` is an ActionIcon.Kind (or -1 for none) drawn on the button's face.
+## `blocked` dims the button: the animal is there but cannot be helped yet, and
+## the picture says what is missing (a stick, shears) or that it is resting.
+## `rested` is how far through its rest the animal is, 0 to 1, drawn as a ring
+## round the picture, or below zero for no ring.
+func set_animal_in_reach(wish: String, icon := -1, blocked := false, rested := -1.0) -> void:
 	var showing := not wish.is_empty()
-	if _care_button.visible == showing and _care_button.text == wish:
+	_care_icon.show_ring(rested)
+	var dim := Color(1.0, 1.0, 1.0, 0.62 if blocked else 1.0)
+	if _care_button.modulate != dim:
+		_care_button.modulate = dim
+	if icon >= 0:
+		_care_icon.show_kind(icon as ActionIcon.Kind)
+	if _care_button.visible == showing and _care_button.text == wish and _care_icon.visible == (icon >= 0):
 		return
 	_care_button.visible = showing
 	_care_button.text = wish
+	_care_icon.visible = showing and icon >= 0
+	var shift := (CARE_ICON + 12.0) if _care_icon.visible else 0.0
+	for state: String in ["normal", "hover", "pressed", "disabled", "focus"]:
+		if shift == 0.0:
+			_care_button.remove_theme_stylebox_override(state)
+			continue
+		_care_button.remove_theme_stylebox_override(state)
+		var box := _care_button.get_theme_stylebox(state).duplicate() as StyleBox
+		box.content_margin_left = shift
+		_care_button.add_theme_stylebox_override(state, box)
 	_layout()
 
 ## The purse is a fixed width sized for four digits, so four digits is what it

@@ -299,6 +299,12 @@ const STRINGS := {
 	"wish_stroke": {EN: "wants a stroke", FR: "veut une caresse", RU: "хочет, чтобы погладили"},
 	# The item goes in as its object form — Russian declines it: "хочет палку".
 	"wish_give": {EN: "wants a %s", FR: "veut %s", RU: "хочет %s"},
+	"wish_drink": {EN: "%s is thirsty", FR: "%s a soif", RU: "%s хочет пить"},
+	"wish_resting": {EN: "resting", FR: "se repose", RU: "отдыхает"},
+	"wish_not_tired": {EN: "you are not tired", FR: "tu n'es pas fatigué", RU: "ты не устал"},
+	"need_shears": {EN: "needs shears", FR: "il faut des ciseaux", RU: "нужны ножницы"},
+	# The item as an object: "bring a stick", "принеси палку".
+	"need_give": {EN: "bring a %s", FR: "apporte %s", RU: "принеси %s"},
 	"say_fed": {EN: "+%d", FR: "+%d", RU: "+%d"},
 	"say_friend": {
 		EN: "%s is your friend now",

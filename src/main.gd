@@ -1355,6 +1355,8 @@ func _process(delta: float) -> void:
 	world.riding = riding
 	world.mounts.saddled = wallet.has(ShopStock.SADDLE)
 	world.animals.has_shears = wallet.has(ShopStock.SHEARS)
+	world.animals.has_water = vitals.has_bottle and vitals.water >= Vitals.DRINK
+	world.animals.needs_milk = vitals.energy < Vitals.MAX_ENERGY * MILK_NEEDED_BELOW
 	var on_the_motorcycle := MountKinds.kind_of(riding) == MountKinds.MOTORCYCLE
 	var on_the_quad := MountKinds.kind_of(riding) == MountKinds.QUAD
 	var with_an_engine := on_the_motorcycle or on_the_quad
@@ -1565,10 +1567,7 @@ func _process(delta: float) -> void:
 
 	# The care button says what the animal in front of you wants, at the moment
 	# you can do something about it.
-	var near_animal := world.animals.nearest_caring(player.global_position, inventory)
-	hud.set_animal_in_reach(
-		AnimalKinds.wish(near_animal["kind"]) if not near_animal.is_empty() else ""
-	)
+	_show_the_care_button()
 	tasks.on_moved(player.global_position)
 	_point_the_map_at_the_task()
 	build_mode.aim(player.global_position, camera_rig.yaw)
@@ -3409,9 +3408,71 @@ func _tend(animal: Dictionary) -> void:
 			errand = (node as Node3D).position + way.limit_length(BEAVER_ERRAND)
 	world.animals.answer(animal, player.global_position, errand)
 
+## Below this share of full energy a cow's milk is worth having.
+const MILK_NEEDED_BELOW := 0.98
+
+## What the care button shows. An animal that can be helped gets its wish and a
+## picture of it; one that cannot gets a dimmed button with a picture of what
+## is missing (a stick, a cone, shears), or the moon and a ring that fills as it
+## rests, so a child who cannot read is never left pressing nothing.
+func _show_the_care_button() -> void:
+	var near := world.animals.nearest_caring(player.global_position, inventory)
+	if not near.is_empty():
+		var kind: StringName = near["kind"]
+		if world.animals.is_thirsty(near) and world.animals.has_water:
+			hud.set_animal_in_reach(Text.format("wish_drink", [AnimalKinds.label(kind)]), ActionIcon.Kind.DRINK)
+		else:
+			hud.set_animal_in_reach(AnimalKinds.wish(kind), _care_icon_of(kind))
+		return
+	var held := world.animals.nearest_blocked(player.global_position, inventory)
+	if held.is_empty():
+		hud.set_animal_in_reach("")
+		return
+	var animal: Dictionary = held["animal"]
+	var kind2: StringName = animal["kind"]
+	var why: StringName = held["why"]
+	if why == &"rest":
+		var total := AnimalKinds.cooldown(kind2)
+		hud.set_animal_in_reach(
+			Text.of("wish_resting"), ActionIcon.Kind.SLEEP, true,
+			1.0 - float(animal["cooldown"]) / maxf(total, 0.1)
+		)
+	else:
+		hud.set_animal_in_reach(_blocked_words(kind2, why), _care_icon_of(kind2), true, 0.0)
+
+## What an animal that cannot be helped says to the child, in words.
+func _blocked_words(kind: StringName, why: StringName) -> String:
+	if why == &"shears":
+		return Text.of("need_shears")
+	if why == &"full":
+		return Text.of("wish_not_tired")
+	return Text.format("need_give", [ItemKinds.label_object(AnimalKinds.want(kind))])
+
+## The picture for what an animal wants.
+func _care_icon_of(kind: StringName) -> ActionIcon.Kind:
+	if AnimalKinds.gives(kind) == ItemKinds.WOOL:
+		return ActionIcon.Kind.SHEARS
+	if AnimalKinds.gives(kind) != &"":
+		return ActionIcon.Kind.MILK
+	match AnimalKinds.want(kind):
+		&"stick":
+			return ActionIcon.Kind.GIVE_STICK
+		&"cone":
+			return ActionIcon.Kind.CONE
+	return ActionIcon.Kind.STROKE
+
 func _on_care() -> void:
 	var animal := world.animals.nearest_caring(player.global_position, inventory)
 	if animal.is_empty():
+		# Pressed on a dimmed button: refused out loud rather than nothing.
+		var held := world.animals.nearest_blocked(player.global_position, inventory)
+		if not held.is_empty():
+			sounds.play(Sounds.Sound.REFUSE)
+			var why: StringName = held["why"]
+			var who: Dictionary = held["animal"]
+			hud.announce(
+				Text.of("wish_resting") if why == &"rest" else _blocked_words(who["kind"], why), 1.8
+			)
 		return
 	# A thirsty animal takes water rather than food. This is the bottle's second
 	# use and the reason it is the cheapest thing in the shop.
