@@ -974,17 +974,18 @@ func _build_menu() -> VBoxContainer:
 		# survive being tiny; the Circassian one is twelve stars and three
 		# arrows over a green field, and at fifty pixels across it was a green
 		# rectangle with nothing on it at all.
-		# Tall enough to be a thumb target (BUTTON, which is 48 dp on a 360 dp
-		# tall phone) and still the flags' own three-to-two shape, so the
-		# pictures are scaled and not squashed.
-		button.custom_minimum_size = Vector2(BUTTON * 1.4, BUTTON)
+		# Half as wide and half as tall as a thumb button (owner, 2026-11-04: the
+		# full-size row was the loudest thing in the settings). Changing language
+		# is a hold and a grown-up's job, so a smaller target costs a child
+		# nothing; the flags keep their own three-to-two shape.
+		button.custom_minimum_size = Vector2(BUTTON * 0.7, BUTTON * 0.5)
 		button.tooltip_text = Text.ENDONYM[code]
 		var flag := FlagIcon.new(FlagIcon.for_language(code))
 		flag.set_anchors_preset(Control.PRESET_FULL_RECT)
-		flag.offset_left = 4.0
-		flag.offset_top = 4.0
-		flag.offset_right = -4.0
-		flag.offset_bottom = -4.0
+		flag.offset_left = 3.0
+		flag.offset_top = 3.0
+		flag.offset_right = -3.0
+		flag.offset_bottom = -3.0
 		button.add_child(flag)
 		# Held: a change of language rebuilds the whole interface under a
 		# child who did not mean it, in words they may not read.

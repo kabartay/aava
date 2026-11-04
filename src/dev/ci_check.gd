@@ -25266,7 +25266,8 @@ func _check_the_top_bar_is_a_thumb_wide_and_clear_of_everything_else() -> void:
 						continue
 					_expect(Rect2(Vector2.ZERO, view).encloses(named[key] as Rect2), "%s: %s is on the screen (%s of %s)" % [where, key, str(named[key]), str(view)])
 				hud.set_building(false)
-		# The language flags, in the settings panel, as tall as a thumb.
+		# The language flags, in the settings panel: half a thumb each way since
+		# the owner asked for them a quarter of the size, and no smaller.
 		hud._menu.visible = true
 		await process_frame
 		await process_frame
@@ -25275,7 +25276,7 @@ func _check_the_top_bar_is_a_thumb_wide_and_clear_of_everything_else() -> void:
 				for flag_button in child.get_children():
 					var flag_control := flag_button as Control
 					_expect(
-						flag_control.size.y >= Hud.BUTTON and flag_control.size.x >= Hud.BUTTON,
+						flag_control.size.y >= Hud.BUTTON * 0.5 and flag_control.size.x >= Hud.BUTTON * 0.7,
 						"%s: a language flag is %.0f x %.0f px" % [shape, flag_control.size.x, flag_control.size.y]
 					)
 		hud._menu.visible = false
