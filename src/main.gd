@@ -2705,7 +2705,12 @@ func _sell_at_home() -> void:
 	var sale := Venues.sell(inventory, wallet)
 	if sale.x <= 0:
 		sounds.play(Sounds.Sound.REFUSE)
-		hud.announce(Text.of("say_nothing_to_sell"), 2.4)
+		# A bag with wool in it and a purse with no room is not "nothing to
+		# sell": the valley's shop says the purse is full, and so does this one.
+		var carrying := false
+		for item: StringName in ShopStock.BUYS:
+			carrying = carrying or inventory.count(item) > 0
+		hud.announce(Text.of("say_purse_full" if carrying else "say_nothing_to_sell"), 2.4)
 		return
 	journal.record(Journal.COINS, sale.y)
 	sounds.play(Sounds.Sound.CHIME, 1.2)
@@ -3191,12 +3196,6 @@ func _outside_the_shop(offset: Vector3) -> Vector3:
 		return world.field.find_spawn_point() + offset
 	return spot + offset
 
-## Sell something back to the shop, for half what it cost.
-##
-## The machine goes with it: a bicycle sold is a bicycle gone from the valley,
-## and the one that disappears is the one standing at the shop door if there is
-## one there — otherwise the furthest away, because that is the one a child has
-## decided they are not walking back for.
 ## Move the camera between over the shoulder and behind the eyes.
 func _on_view_toggled() -> void:
 	_first_person = not _first_person
@@ -3217,6 +3216,12 @@ var _shirt := -1
 var _look: Array = [Character.SIMPLE, 0, 0]
 var _look_offered := true
 
+## Sell something back to the shop, for half what it cost.
+##
+## The machine goes with it: a bicycle sold is a bicycle gone from the valley,
+## and the one that disappears is the one standing at the shop door if there is
+## one there — otherwise the furthest away, because that is the one a child has
+## decided they are not walking back for.
 func _on_sell_back(item: StringName) -> void:
 	if not wallet.has(item):
 		return
@@ -3228,6 +3233,13 @@ func _on_sell_back(item: StringName) -> void:
 	if _visiting and _is_a_machine(item):
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.of("say_sell_at_home"), 3.0)
+		return
+	# A full purse refuses before anything is touched. The child used to be put
+	# down off their machine first and only then told the purse was too full,
+	# so a refused sale still cost them their ride.
+	if ShopStock.sells_back(item) > wallet.room():
+		sounds.play(Sounds.Sound.REFUSE)
+		hud.announce(Text.of("say_purse_full"), 2.6)
 		return
 	# Selling the last of a machine while sitting on it gets the child off
 	# first. Mounts will never sell the one being ridden, and without this the
@@ -3287,8 +3299,6 @@ func _is_a_machine(item: StringName) -> bool:
 	return item == ShopStock.BICYCLE or item == ShopStock.MOTORCYCLE or item == ShopStock.QUAD
 
 func _on_buy(item: StringName) -> void:
-	# A bar of chocolate is used up rather than owned, so it goes through the
-	# purse rather than the ledger: buy as many as you like, one at a time.
 	# Selling: the shop buys wool, and nothing else. Handled here rather than
 	# in the shop panel because the coins and the bag both live on this side.
 	if ShopStock.pays_for(item) > 0:
@@ -3312,6 +3322,8 @@ func _on_buy(item: StringName) -> void:
 		hud.announce(Text.format("say_sold", [carried, paid]), 2.4)
 		hud.set_shop_open(true, wallet.coins, wallet.owned)
 		return
+	# A bar of chocolate is used up rather than owned, so it goes through the
+	# purse rather than the ledger: buy as many as you like, one at a time.
 	if ShopStock.is_consumable(item):
 		if not wallet.spend(ShopStock.price(item)):
 			sounds.play(Sounds.Sound.REFUSE)
@@ -3319,6 +3331,10 @@ func _on_buy(item: StringName) -> void:
 			return
 		inventory.add(item, 1)
 		sounds.play(Sounds.Sound.PICKUP, 1.2)
+		# Said, like every other purchase: the bar goes into the bag, which is
+		# off to one side, and a child holding the button for a second wants to
+		# hear that it worked.
+		hud.announce(Text.format("say_bought", [ShopStock.label(item)]), 2.0)
 		hud.set_shop_open(true, wallet.coins, wallet.owned)
 		return
 	# Nor a machine in somebody else's valley. It would be stood outside the
@@ -3350,8 +3366,8 @@ func _on_buy(item: StringName) -> void:
 		if item == ShopStock.LANTERN:
 			lantern.owned = true
 		# A machine is left outside, so it has to say so: a child who buys a
-		# bicycle at a counter looks around the room for it.
-		# A machine is left outside, and a second one stands beside the first:
+		# bicycle at a counter looks around the room for it. A second one
+		# stands beside the first:
 		# each is its own thing in the world, named the way the boats and the
 		# horses are, so two bicycles are two bicycles rather than one flag.
 		for machine: Array in [

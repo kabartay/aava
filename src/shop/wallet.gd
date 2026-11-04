@@ -55,8 +55,6 @@ func has(item: StringName) -> bool:
 func count_of(item: StringName) -> int:
 	return int(owned.get(item, 0))
 
-## Buy something. Returns false without spending anything if it is unaffordable
-## or already owned, so a purchase can never half-succeed.
 ## Buy something. Returns false without spending anything if it is
 ## unaffordable, so a purchase can never half-succeed.
 ##

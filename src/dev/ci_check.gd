@@ -533,6 +533,7 @@ func _initialize() -> void:
 	_check_a_remote_piece_on_the_child_sets_them_beside_it()
 	_check_an_animal_is_not_born_in_a_built_piece()
 	_check_the_chunk_under_a_fast_child_always_has_collision()
+	await _check_the_shop_audit_fixes()
 
 	if _failures > 0:
 		printerr("FAILED: %d check(s)" % _failures)
@@ -27808,4 +27809,81 @@ func _check_an_animal_held_at_a_wall_on_its_way_to_the_child_waits() -> void:
 	animals.watch(spot + Vector3(0.0, 0.0, 5.0), Inventory.new())
 	_expect((cat["target"] as Vector3).distance_to(node_at) < 0.01, "and is not re-aimed on the next frame")
 	animals.queue_free()
+
+## The shop audit: a sign a child can see, grass kept off the steps, a shelf and
+## panel that fit a 720 px screen in every language, a buy button greyed at the
+## limit, and a refused sale that costs nothing.
+func _check_the_shop_audit_fixes() -> void:
+	print("the shop audit: sign, steps, panel fit, limit greyed, refusals cost nothing")
+	# The sign must hang above the porch roof's edge at the wall (centre height
+	# 3.0 m, 0.08 m half-thickness, 1.4 m half-depth tilted 8 degrees), and
+	# under the eave.
+	var roof_edge := 3.0 + 0.08 + 1.4 * tan(deg_to_rad(8.0))
+	_expect(
+		Places.SHOP_SIGN_Y - Places.SHOP_SIGN_HEIGHT * 0.5 > roof_edge,
+		"the shop's sign hangs clear above the porch roof (%.2f m, roof edge %.2f m)" % [
+			Places.SHOP_SIGN_Y - Places.SHOP_SIGN_HEIGHT * 0.5, roof_edge
+		]
+	)
+	_expect(
+		Places.SHOP_SIGN_Y + Places.SHOP_SIGN_HEIGHT * 0.5 < Places.shop_eave_height(),
+		"and below the eave"
+	)
+	# Grass stays off the stone steps, which reach 3.35 m out from the wall.
+	var field := HeightField.new(20260903)
+	var camp := field.camp_centre()
+	var shop := PlaceSpec.centre_of(&"shop", camp)
+	var front_of_shop := shop.z + PlaceSpec.BUILDINGS[&"shop"][2] - Places.SHOP_DEPTH * 0.5
+	_expect(
+		PlaceSpec.on_floor(shop.x, front_of_shop - 3.3, camp),
+		"the foot of the shop's steps counts as floor, so no grass grows through them"
+	)
+	# The panel, with a sell button showing, is no taller than the screen in any
+	# language; and the buy button is greyed for a thing owned to its limit.
+	for lang: StringName in [Text.EN, Text.FR, Text.RU]:
+		Text.set_language(lang)
+		var hud := Hud.new()
+		get_root().add_child(hud)
+		await process_frame
+		hud.set_carried_for_sale(ItemKinds.WOOL, 5)
+		hud.set_shop_open(true, 500, {ShopStock.QUAD: 1, ShopStock.BICYCLE: 1})
+		hud._shop_tapped(ShopStock.QUAD)
+		await process_frame
+		_expect(
+			hud._shop.get_combined_minimum_size().y <= 720.0,
+			"%s: the shop panel with a sell button is %.0f px high, within 720" % [
+				lang, hud._shop.get_combined_minimum_size().y
+			]
+		)
+		_expect(hud._shop_buy_button.disabled, "%s: a quad already owned cannot be bought again (button greyed)" % lang)
+		hud._shop_tapped(ShopStock.BICYCLE)
+		_expect(not hud._shop_buy_button.disabled, "%s: a second bicycle can still be bought" % lang)
+		hud._shop_tapped(ShopStock.MOTORCYCLE)
+		_expect(not hud._shop_buy_button.disabled, "%s: a motorcycle with 500 coins can be bought" % lang)
+		hud.set_shop_open(true, 50, {})
+		hud._shop_tapped(ShopStock.BICYCLE)
+		_expect(hud._shop_buy_button.disabled, "%s: a bicycle at 50 coins is greyed" % lang)
+		hud.queue_free()
+		await process_frame
+	Text.set_language(Text.EN)
+	# A sale refused for a full purse puts nobody off their machine, and a child's
+	# own shop says the purse is full rather than that there is nothing to sell.
+	var game := _code_only(FileAccess.get_file_as_string("res://src/main.gd"))
+	var sell_back := game.substr(game.find("func _on_sell_back("), 2600)
+	_expect(
+		sell_back.find("sells_back(item) > wallet.room()") >= 0
+		and sell_back.find("sells_back(item) > wallet.room()") < sell_back.find("_on_ride()"),
+		"a sale into a full purse is refused before the child is put off their machine"
+	)
+	var at_home := game.substr(game.find("func _sell_at_home("), 900)
+	_expect(at_home.contains("say_purse_full"), "a child's own shop says so when the purse is full")
+	# And the purse itself: no coins are lost and nothing leaves on a refusal.
+	var wallet := Wallet.new()
+	wallet.coins = Wallet.MAX_COINS - 10
+	wallet.take(ShopStock.MOTORCYCLE)
+	_expect(
+		wallet.sell_back(ShopStock.MOTORCYCLE, ShopStock.sells_back(ShopStock.MOTORCYCLE)) == 0
+		and wallet.has(ShopStock.MOTORCYCLE) and wallet.coins == Wallet.MAX_COINS - 10,
+		"a motorcycle is not sold into a purse with room for 10 coins"
+	)
 

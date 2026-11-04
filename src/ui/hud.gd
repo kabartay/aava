@@ -277,6 +277,10 @@ var _shop_shelf: ScrollContainer
 ## anything below the fold is unreachable — and the quad made eleven things,
 ## which is three rows at five and two rows at six.
 const SHOP_COLUMNS := 6
+## How many buttons' height the shop panel takes besides its shelf: heading, the
+## chosen thing's name and line, the buy and sell buttons and the way out, and the
+## panel's own margins.
+const SHOP_CHROME := 3.9
 ## The picture a child has tapped, the two lines that answer them, and what is
 ## already theirs.
 var _shop_chosen := &""
@@ -1277,7 +1281,12 @@ func _refresh_shop_buy() -> void:
 		# one may always be bought, because what a child pays for is the thing
 		# and not the right to have one.
 		_shop_buy_button.text = Text.of("ui_buy")
-		_shop_buy_button.disabled = _shop_coins < ShopStock.price(_shop_chosen)
+		# Greyed for too dear and for as many as the child may have; the tap on
+		# the picture still says what it is, and "×2" beside it says why.
+		_shop_buy_button.disabled = (
+			_shop_coins < ShopStock.price(_shop_chosen)
+			or int(_shop_have.get(_shop_chosen, 0)) >= ShopStock.limit(_shop_chosen)
+		)
 
 ## Ring the chosen picture, so it is plain which one the words belong to and
 ## which one a second tap would buy.
@@ -1353,8 +1362,12 @@ func set_shop_open(open: bool, coins: int, owned: Dictionary) -> void:
 			price_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.52))
 			if many > 0:
 				price_label.text = "%d ●   ×%d" % [price, many]
+			# Dim for too dear, and dim for as many as they may have: a quad
+			# already bought looked as buyable as ever, and the hold on "buy"
+			# ended in a refusal.
 			row.modulate = (
-				Color.WHITE if coins >= price else Color(1.0, 1.0, 1.0, 0.45)
+				Color.WHITE if coins >= price and many < ShopStock.limit(item)
+				else Color(1.0, 1.0, 1.0, 0.45)
 			)
 			# Never disabled. A bought thing still has to answer "what is this"
 			# when a child taps it — that was the whole point of the words —
@@ -2708,10 +2721,18 @@ func _layout() -> void:
 		# about it, the buying button and the way out below. Measured generously
 		# — the bottom row was being clipped by a hair, which reads as a row
 		# that is not there.
-		var shelf_room := safe.size.y - BUTTON * 4.6
+		#
+		# Measured, then, with both the buying and the selling button showing:
+		# the panel's other parts come to about 3.8 buttons' height (367 px
+		# against the 3.9 allowed here), and the old figure of 4.6 was never
+		# used at all, so the panel simply asked for 710 px of a 720 px screen.
+		# Where the safe area is shorter than that (a phone with a notch or a
+		# gesture bar) the panel ran off the bottom and hid the way out; now the
+		# shelf takes what is left and scrolls, which it was built to do.
+		var shelf_room := safe.size.y - BUTTON * SHOP_CHROME
 		_shop_shelf.custom_minimum_size = Vector2(
 			float(SHOP_COLUMNS) * (BUTTON * 1.5 + 10.0),
-			maxf(float(rows) * tile_height + 12.0, BUTTON * 2.0)
+			clampf(float(rows) * tile_height + 12.0, BUTTON * 1.7, maxf(shelf_room, BUTTON * 1.7))
 		)
 	_shop.position = Vector2(
 		safe.position.x + safe.size.x * 0.5 - _shop.size.x * 0.5,

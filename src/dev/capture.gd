@@ -20,6 +20,7 @@ extends Node3D
 ##                  than an empty valley
 ##   --build=1      open build mode with the ghost preview showing
 ##   --atcafe=1     read --pos and --look as metres from the café's site
+##   --atshop=1     the same for the shop's site (z negative is out in front)
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
 ##   --lang=en|fr|ru  which language to draw the interface in
 ##   --zoom=METRES  pull the camera this far further out than its default
@@ -88,6 +89,7 @@ var _demo := false
 var _build := false
 var _at_pitch := false
 var _at_cafe := false
+var _at_shop := false
 var _kick_after := 0.0
 var _kick_strength := 1.0
 var _kick_loft := 0.25
@@ -149,6 +151,13 @@ func _ready() -> void:
 		cafe_site.y = _world.field.height_at(cafe_site.x, cafe_site.z)
 		_camera_position += cafe_site
 		_look_at += cafe_site
+	if _at_shop:
+		# The same, for the shop: x along its front, z towards its back wall,
+		# so the porch and the stands are at negative z.
+		var shop_site := PlaceSpec.centre_of(&"shop", _world.field.camp_centre())
+		shop_site.y = _world.field.height_at(shop_site.x, shop_site.z)
+		_camera_position += shop_site
+		_look_at += shop_site
 	if _hide_water:
 		_world.water.visible = false
 	if _unshaded:
@@ -737,6 +746,8 @@ func _parse_arguments() -> void:
 				_build = value.to_int() != 0
 			"atcafe":
 				_at_cafe = value.to_int() != 0
+			"atshop":
+				_at_shop = value.to_int() != 0
 			"atpitch":
 				_at_pitch = value.to_int() != 0
 			"kick":

@@ -92,6 +92,11 @@ const SHOP_DEPTH: float = PlaceSpec.BUILDINGS[&"shop"][1]
 const SHOP_HEIGHT := 4.8
 const SHOP_MID_Z: float = PlaceSpec.BUILDINGS[&"shop"][2]
 const SHOP_DOOR_HALF := 1.3
+## How high the shop's sign hangs on the front wall, middle of the board. Above
+## the porch roof, which at its wall edge reaches 3.3 m: a check holds it clear.
+const SHOP_SIGN_Y := 4.0
+## The board is 0.7 m tall.
+const SHOP_SIGN_HEIGHT := 0.7
 ## Where the counter runs, and where the goods stand on the shelves behind it.
 const SHOP_COUNTER_Z := SHOP_MID_Z + 4.2
 ## What stands on the floor for sale, and where. Five bicycles along one wall
@@ -1228,15 +1233,20 @@ func _build_shop(at: Vector3) -> void:
 
 	# Outside: a sign over the door, an awning, a barrel, and a rail to tie a
 	# horse to — nothing is ridden through a doorway.
+	#
+	# The sign hangs on the wall above the porch roof. It used to be at 2.85 m,
+	# which is under the porch roof's edge (3.0 m, 8 degrees down towards the
+	# road): seen from the road the sign and its gold coin were behind the roof,
+	# and the shop had no sign at all.
 	var sign := BoxMesh.new()
-	sign.size = Vector3(3.0, 0.7, 0.12)
-	_add(tool, sign, Transform3D(Basis(), Vector3(0.0, 2.85, front - 0.14)), timber.darkened(0.2))
+	sign.size = Vector3(3.0, SHOP_SIGN_HEIGHT, 0.12)
+	_add(tool, sign, Transform3D(Basis(), Vector3(0.0, SHOP_SIGN_Y, front - 0.14)), timber.darkened(0.2))
 	var coin := CylinderMesh.new()
 	coin.top_radius = 0.22
 	coin.bottom_radius = 0.22
 	coin.height = 0.06
 	coin.radial_segments = 12
-	_add(tool, coin, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.0, 2.85, front - 0.22)), Color(1.0, 0.86, 0.36))
+	_add(tool, coin, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.0, SHOP_SIGN_Y, front - 0.22)), Color(1.0, 0.86, 0.36))
 	var awning := BoxMesh.new()
 	awning.size = Vector3(w * 0.7, 0.1, 1.2)
 	_add(tool, awning, Transform3D(

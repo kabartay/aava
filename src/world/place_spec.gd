@@ -266,11 +266,13 @@ static func indoors(x: float, z: float, camp: Vector3) -> bool:
 ## walls: half the width, then how far it reaches out from the front wall. The
 ## café's is its doormat, 1.8 m wide and 0.9 m deep, with a hand's breadth of
 ## margin; the shop's is its porch deck, which runs the width of the building
-## and a little over. `indoors` stops at the wall, so a tuft came up on the mat
+## and a little over, and its two stone steps, which reach 3.4 m out from the
+## wall (the deck itself 2.6 m): grass came up round the steps at 2.9 m.
+## `indoors` stops at the wall, so a tuft came up on the mat
 ## and between the porch boards while none grew inside.
 const DOORSTEPS := {
 	&"cafe": [1.2, 1.4],
-	&"shop": [8.8, 2.9],
+	&"shop": [8.8, 3.6],
 }
 
 ## Is this point on a floor of a place: inside a building, or on the mat or
