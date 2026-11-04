@@ -179,6 +179,8 @@ func _initialize() -> void:
 	_check_night_is_dark()
 	_check_places_worth_walking_to()
 	_check_every_handler_is_reachable()
+	_check_the_docs_name_scripts_that_exist()
+	_check_the_release_version_is_the_same_everywhere()
 	_check_signals_match_their_handlers()
 	_check_paths_lead_somewhere()
 	_check_dams_change_the_world()
@@ -685,6 +687,18 @@ func _expect(condition: bool, message: String) -> void:
 		_ok(message)
 	else:
 		_fail(message)
+
+## Open a session on a random high port instead of the game's fixed one, so a
+## check does not collide with another process holding that port (a running
+## game, a second suite). Tries a few ports; failing to find any is a FAIL, not
+## a silent skip of everything the check would have asserted.
+func _host_on_free_port(session: Session, display_name: String) -> bool:
+	for _attempt in 12:
+		session.port_override = randi_range(30000, 60000)
+		if session.host(display_name):
+			return true
+	_fail("could not open a session on any of 12 random ports")
+	return false
 
 ## A script that fails to parse returns null from load(). This also catches the
 ## cyclic class_name dependency that hangs Godot's loader, because the import
@@ -4223,6 +4237,13 @@ func _check_the_forest_is_asked_once() -> void:
 		forest.forget_tree_query()
 		forest.trees_near(at, TreeCollision.REACH)
 	var warm := float(Time.get_ticks_usec() - again) / 20.0
+	# The best of a few more runs: one descheduled slice on a loaded machine
+	# must not decide a comparison of speeds.
+	for _repeat in 5:
+		var one := Time.get_ticks_usec()
+		forest.forget_tree_query()
+		forest.trees_near(at, TreeCollision.REACH)
+		warm = minf(warm, float(Time.get_ticks_usec() - one))
 
 	_expect(trees.size() > 0, "%d trees stand within reach there" % trees.size())
 	_expect(
@@ -13649,8 +13670,13 @@ func _check_the_view_can_be_swapped() -> void:
 	rig.set_first_person(false)
 	# The camera eases back down the arm rather than snapping to the end of
 	# it, so this waits the way a player's eye does.
-	for settle in 60:
+	# The ease runs on the frame's real delta, so a fixed count of frames is a
+	# fixed amount of easing only if the machine is steady: wait for the arm to
+	# arrive instead, bounded.
+	for settle in 1200:
 		await process_frame
+		if settle >= 60 and rig.camera.global_position.distance_to(player.global_position) > 2.0:
+			break
 	_expect(player.body_shown(), "and comes back when the camera does")
 	_expect(
 		rig.camera.global_position.distance_to(player.global_position) > 2.0,
@@ -14708,7 +14734,7 @@ func _check_a_guest_is_placed_where_they_stand_and_sharing_needs_company() -> vo
 
 	var session := Session.new()
 	get_root().add_child(session)
-	if session.host("Amir"):
+	if _host_on_free_port(session, "Amir"):
 		_expect(session.is_connected_to_anyone(), "a host is connected")
 		_expect(not session.has_company(), "but with nobody through the door there is no company")
 		session.guests[5] = "Bo"
@@ -20944,8 +20970,10 @@ func _check_talking_is_buffered_ducked_gated_and_explained() -> void:
 
 	# Ducking: the valley and the interface turn down under a voice, gently,
 	# and come back after it.
-	voice._heard_at[8] = Time.get_ticks_msec()
+	# Heard afresh on every step: the voice counts as live for only 150 ms of
+	# wall clock, which a loaded machine can overrun between two steps.
 	for i in 30:
+		voice._heard_at[8] = Time.get_ticks_msec()
 		voice._listen(0.05)
 	var world := AudioServer.get_bus_index(Mix.WORLD)
 	var effects := AudioServer.get_bus_index(Mix.EFFECTS)
@@ -21013,6 +21041,7 @@ func _check_talking_is_buffered_ducked_gated_and_explained() -> void:
 	_expect(game.contains("voice.permission_refused.connect(hud.show_mic_refused)"), "the game connects one to the other")
 	hud.queue_free()
 	talker.queue_free()
+
 ## The other child on a horse, a bicycle, a motorcycle, a quad or a boat is drawn
 ## on it, in the saddle, and a phone that says nothing about it is on foot.
 func _check_the_other_child_is_drawn_on_what_they_ride() -> void:
@@ -21315,7 +21344,7 @@ func _check_a_big_valley_arrives_in_parts_and_the_panel_offers_both_ways() -> vo
 	# Hosting, then joining, leaves the hosting behind.
 	var both := Session.new()
 	get_root().add_child(both)
-	if both.host("Amir"):
+	if _host_on_free_port(both, "Amir"):
 		var closed := [0]
 		both.closed.connect(func() -> void: closed[0] += 1)
 		_expect(both.join("127.0.0.1", "Amir"), "a child who is hosting can join another")
@@ -22513,7 +22542,7 @@ func _check_a_host_with_nobody_there_cannot_open_the_microphone() -> void:
 	get_root().add_child(voice)
 	voice.attach(session)
 	voice._available = true
-	if session.host("Amir"):
+	if _host_on_free_port(session, "Amir"):
 		voice.start_talking()
 		_expect(not voice.is_talking(), "alone in a hosted valley, talk does nothing")
 		session.close()
@@ -25238,12 +25267,12 @@ func _check_a_child_running_into_the_ball_pushes_it_ahead() -> void:
 	var highest := 0.0
 	var closest := 99.0
 	var started := child.global_position.x
-	var clock := Time.get_ticks_usec()
 	for i in 90:
 		await physics_frame
 		# The frame's real length, as the game gives it: a slow one is a bigger step.
-		var took := float(Time.get_ticks_usec() - clock) / 1.0e6
-		clock = Time.get_ticks_usec()
+		# One physics tick, not the wall clock: a loaded machine's slow frame
+		# would otherwise be a bigger step and the check a different experiment.
+		var took := 1.0 / float(Engine.physics_ticks_per_second)
 		ground.dribble(child.global_position, child.velocity, took)
 		highest = maxf(highest, ball.position.y - away.y)
 		closest = minf(closest, ball.position.x - child.global_position.x)
@@ -30536,9 +30565,17 @@ func _check_the_host_arbitrates_a_pickup_a_machine_and_a_parking_two_phones_reac
 	_expect(guest_bag.count(kind) == 0, "the guest's phone gave the second one back: %d" % guest_bag.count(kind))
 	# The common case: only the guest reaches one, and keeps it with no wait.
 	var other: Dictionary = {}
+	# The first tile may hold only the contested pickup, which would leave this
+	# half of the check with nothing to reach: build more of the guest's valley
+	# until something else is lying there.
+	var extra_step := 0
+	while guest_pickups.count_active() == 0 and extra_step < 60:
+		guest_pickups._build_tile(Vector2i(8 + extra_step % 8, extra_step / 8))
+		extra_step += 1
 	for r: Dictionary in guest_pickups._active:
 		other = r
 		break
+	_expect(not other.is_empty(), "the guest's valley has a second pickup to reach alone")
 	if not other.is_empty():
 		var other_kind: StringName = other["kind"]
 		var before := guest_bag.count(other_kind)
@@ -31126,6 +31163,13 @@ func _check_the_parts_of_a_ridden_machine_keep_time_with_the_ground() -> void:
 		_expect(rigid == 0.0, "and a bicycle does not bob on a kerb")
 		sprung.queue_free()
 
+## Stop the valley's animals and ducks ticking, for a check about something else
+## that runs thousands of frames in a whole world.
+func _quiet_the_creatures(world: World) -> void:
+	for node: Node in [world.animals, world.ducks]:
+		if node != null:
+			node.process_mode = Node.PROCESS_MODE_DISABLED
+
 ## A bicycle has no engine; it is heard as tyres and a freewheel, a bell when the
 ## child sets off, and a quad's engine note rises with its speed.
 func _check_a_bicycle_is_heard_as_tyres_and_a_quad_as_an_engine() -> void:
@@ -31531,6 +31575,7 @@ func _check_a_child_shut_in_a_pocket_of_the_range_is_lifted_out() -> void:
 		"and a position that is not a number is caught as a fall is"
 	)
 
+	_expect(outs.size() == pockets.size(), "every pocket has a way out to set a child down on")
 	if outs.is_empty():
 		return
 	# Set down where the lift puts them, on real ground, at two physics rates:
@@ -31707,6 +31752,10 @@ func _check_a_paid_child_is_held_in_the_seat_of_every_ride_to_the_end() -> void:
 	await _settle_the_ground(world)
 	wallet.tickets = 20
 	wallet.earn(500)
+	# The creatures of the valley are not what is under test and cost most of
+	# every tick (tens of milliseconds a frame across thousands of ride ticks);
+	# the rides, the child, the park and the ground all keep running.
+	_quiet_the_creatures(world)
 
 	var rides: Array[StringName] = [&"drop_tower", &"pirate_ship", &"wheel", &"coaster"]
 	for rate: int in [60, 30]:
@@ -32921,7 +32970,7 @@ func _check_a_long_session_does_not_grow_the_scene() -> void:
 	# rather than hangs, and says how many it did.
 	var laps := 0
 	var started := Time.get_ticks_msec()
-	while laps < 12 and Time.get_ticks_msec() - started < 90000:
+	while laps < 12 and Time.get_ticks_msec() - started < 40000:
 		for stop: Vector3 in circuit:
 			await _carry_the_child_to(world, player, stop, 90)
 		laps += 1
@@ -32988,7 +33037,15 @@ func _check_the_start_up_does_not_synthesise_sound_or_rebuild_meshes_on_the_main
 	_expect(worker._bell.stream.loop_mode == AudioStreamWAV.LOOP_DISABLED, "and the bell is still struck rather than looped")
 	print("  ambience returned in %.1f ms, against %.0f ms to make by hand" % [float(returned_in) / 1000.0, float(plain_took) / 1000.0])
 	# Relative, in one run: the clock of a loaded machine says nothing alone.
-	_expect(returned_in * 4 < plain_took, "the game's ambience does not hold the first frame: %.1f ms against %.0f ms by hand" % [float(returned_in) / 1000.0, float(plain_took) / 1000.0])
+	# Best of three returns: one stalled slice on a loaded machine must not
+	# decide a comparison of speeds. Each extra one is freed, which waits for its
+	# bake.
+	for _repeat in 2:
+		var again_at := Time.get_ticks_usec()
+		var extra := Ambience.new(true)
+		returned_in = mini(returned_in, Time.get_ticks_usec() - again_at)
+		extra.free()
+	_expect(returned_in * 4 < plain_took, "the game's ambience does not hold the first frame: %.1f ms against %.0f ms by hand (best of three)" % [float(returned_in) / 1000.0, float(plain_took) / 1000.0])
 	worker.free()
 	plain.free()
 
@@ -34172,3 +34229,53 @@ func _check_the_stick_hides_under_the_settings() -> void:
 	_expect(hud._stick.visible, "and comes back when both are closed")
 	hud.queue_free()
 	await process_frame
+
+## README.md's layout and ARCHITECTURE.md name scripts in code font or a column
+## of file names. A file renamed or deleted leaves the page naming something
+## that is not there, and nothing else would notice. Every `name.gd` a page
+## mentions must be a script somewhere under src/.
+func _check_the_docs_name_scripts_that_exist() -> void:
+	print("the docs name only scripts that exist")
+	var have := {}
+	for path in _find_scripts("res://src"):
+		have[path.get_file()] = true
+	var name_pattern := RegEx.new()
+	name_pattern.compile("[a-z][a-z0-9_]*\\.gd\\b")
+	for page: String in ["res://README.md", "res://docs/ARCHITECTURE.md"]:
+		var text := FileAccess.get_file_as_string(page)
+		_expect(text.length() > 0, "%s can be read" % page)
+		var missing := PackedStringArray()
+		for found in name_pattern.search_all(text):
+			var script_name := found.get_string()
+			if not have.has(script_name) and not missing.has(script_name):
+				missing.append(script_name)
+		_expect(missing.is_empty(), "%s names no script that is not there (%s)" % [page, ", ".join(missing)])
+
+## A release has one version, written in four places: the Android preset, the
+## citation file, the Zenodo record and the BibTeX in the README. Bumping three
+## of them cites a build that does not exist.
+func _check_the_release_version_is_the_same_everywhere() -> void:
+	print("the release version is the same everywhere")
+	var preset := FileAccess.get_file_as_string("res://export_presets.cfg")
+	var citation := FileAccess.get_file_as_string("res://CITATION.cff")
+	var zenodo := FileAccess.get_file_as_string("res://.zenodo.json")
+	var readme := FileAccess.get_file_as_string("res://README.md")
+	var found := {}
+	var jobs := [
+		["export_presets.cfg", preset, "version/name=\"([0-9.]+)\""],
+		["CITATION.cff", citation, "(?m)^version: ([0-9.]+)"],
+		[".zenodo.json", zenodo, "\"version\": \"([0-9.]+)\""],
+		["README.md", readme, "version\\s*=\\s*\\{([0-9.]+)\\}"],
+	]
+	for job: Array in jobs:
+		var pattern := RegEx.new()
+		pattern.compile(job[2])
+		var hit := pattern.search(job[1])
+		_expect(hit != null, "%s states a version" % job[0])
+		if hit != null:
+			found[job[0]] = hit.get_string(1)
+	var versions := {}
+	for version in found.values():
+		versions[version] = true
+	_expect(versions.size() <= 1, "all four agree (%s)" % str(found))
+

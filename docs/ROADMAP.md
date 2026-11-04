@@ -4,7 +4,7 @@ What is worth building next, in what order, and why. Ordered by value to the
 three children the game is for — ten, six, and two — rather than by how
 interesting the problem is.
 
-Last updated: 2026-09-06.
+Last updated: 2026-11-04.
 
 ## The principle behind the ordering
 
@@ -24,8 +24,8 @@ left now that the original list is done.
 
 Walls, doors, windows and posts are solid now — a real fix, since a child
 could walk straight through a wall they had just built, and the camera sailed
-through it too. Floors, roofs and stairs deliberately were not given
-collision alongside them: nothing in the game yet supports actually standing
+through it too. Floors and stairs deliberately were not given
+collision alongside them (roofs have it since): nothing in the game yet supports actually standing
 on an upper storey, and a solid floor with no way onto it only traps a child
 underneath it.
 
@@ -63,6 +63,36 @@ horizon that reads as a destination rather than a backdrop. Purely visual;
 worth doing with a screenshot in hand at every step, since a mountain range
 is judged by the eye, not by a number.
 
+## Open items, 2026-11-04
+
+Small and known, in no particular order. Those marked *owner* wait on a
+decision, not on work.
+
+- **Out-of-play ball cue** (*owner*): when a ball leaves the pitch there is no
+  sign of it besides the stray coming back on its own. Whether to show one, and
+  what, is undecided.
+- **The build "−" removes the wrong piece** (*owner*): it takes away the piece
+  nearest the child, not the one under the ghost. Which should win is undecided.
+- **No redo.** Undo takes back the last piece; nothing puts it back again.
+- **Pickups never respawn.** What a child has gathered stays gathered, so a
+  long-lived valley runs out of sticks near where they play.
+- **The two children's arrows are not synced.** An arrow loosed on the range is
+  drawn on the shooter's phone only; the other child sees no arrow in flight.
+- **Chopping has no hold or fall animation.** A held press fells the tree at
+  once.
+- **Kerb step-up.** A child cannot step onto a low kerb or sill without a jump.
+- **Left-handed layout.** The sticks and buttons are laid out for a right
+  thumb; there is no mirrored arrangement.
+- **Release keystore.** Builds are signed with the debug key; a real release
+  keystore is not set up.
+- **Keep `src/dev` out of the APK.** The export preset ships the development
+  tools along with the game.
+- **Kabardian (AD) translations are missing for the new keys** — those added
+  with the map, the guide, the volume, the rides' sync and the café menu. See
+  `KABARDIAN.md`.
+- **The ride sync has not met two phones over an evening**, only a scripted
+  pair.
+
 ## Things worth doing that were not asked for
 
 - **A photograph** — let a child keep a picture of something he built.
@@ -78,15 +108,15 @@ is judged by the eye, not by a number.
 
 ## Known debt
 
-- `main.gd` is 1,469 lines and doing too much: the process loop, the save
+- `main.gd` is about 4,500 lines and doing too much: the process loop, the save
   format, and every handler. It was 1,096 when this entry was written and the
-  handler count has grown twice since, which was the condition for splitting
-  it.
-- `src/ui/hud.gd` is 1,391 lines for the same reason — every on-screen
+  handler count has grown several times since, which was the condition for
+  splitting it.
+- `src/ui/hud.gd` is about 3,250 lines for the same reason — every on-screen
   control, its layout, and its state, in one file.
-- `src/dev/ci_check.gd` is 6,578 lines. This is the project's whole safety net
-  and every line of it earns its keep, but it is twice the length it was when
-  this entry first said it was too long — worth splitting by subject (world,
+- `src/dev/ci_check.gd` is about 33,600 lines. This is the project's whole safety
+  net and every line of it earns its keep, but it is five times the length it was
+  when this entry first said it was too long — worth splitting by subject (world,
   building, animals, networking).
 - The capture tool duplicates a little of the game's own setup despite shared
   wiring. Each divergence has produced a screenshot of a game nobody plays.

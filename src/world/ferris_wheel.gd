@@ -1,7 +1,7 @@
 class_name FerrisWheel
 extends Node3D
 
-## The big wheel: thirty metres to the top, turning slowly, with gondolas that
+## The big wheel: fifty metres across, turning slowly, with gondolas that
 ## stay upright as they go round.
 ##
 ## The rim and its spokes are scenery and simply rotate. The gondolas are not:

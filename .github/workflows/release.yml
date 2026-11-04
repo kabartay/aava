@@ -54,7 +54,7 @@ jobs:
           fi
 
       - name: Checks
-        run: ~/godot/godot --headless --path . --script src/dev/ci_check.gd
+        run: ~/godot/godot --headless --fixed-fps 60 --path . --script src/dev/ci_check.gd
 
       # The tag, the version inside the build, and the version this project
       # tells the world to cite all have to be the same thing. A release page

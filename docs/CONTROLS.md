@@ -10,8 +10,8 @@ a control a child has to be told about is a control he forgets.
 | Zoom | pinch with two fingers | mouse wheel |
 | Jump | **jump** button | `Space` |
 | Gather | walk over it | walk over it |
-| Kick | hold **kick**; look up to chip, down to drive | hold `E` |
-| Throw | hold **throw** beside a basketball near the hoop, release to shoot | hold `E` |
+| Kick | hold **kick**, and slide the thumb to aim: sideways turns the shot, up lifts it; a tap goes flat and straight | hold `E` (no slide: the shot goes the way you face) |
+| Throw | hold **throw** beside a basketball near the hoop, release to shoot (the same slide aims it) | hold `E` |
 | Build | **build**, then a tab and a piece, then `+` | same |
 | Remove | `−` next to a piece | same |
 | Care for an animal | **feed** / **pet** when one is close | same |
@@ -21,8 +21,9 @@ a control a child has to be told about is a control he forgets.
 | Fill the bottle | walk into the shallows | same |
 | Swim | walk into the water | same |
 | Swing, eat | **swing** / **eat** at the playground or café | same |
-| Shoot | hold **shoot** at the range, release to loose; the bow draws and a dotted arc shows where the arrow will go | hold `E` |
-| Ride / get off | **ride** when something to ride is close — the button shows which: a horse, a bicycle, a motorcycle or an oar | same |
+| Shoot | hold **shoot** at the range, release to loose; the bow draws and a dotted arc shows where the arrow will go. Slide the finger while holding, as with the kick: sideways turns the shot, up lifts it | hold `E` |
+| Ride / get off | **ride** when something to ride is close — the button shows which: a horse, a bicycle, a quad, a motorcycle or an oar | same |
+| Fairground ride | buy a ticket at the kiosk, then step onto the ride; the bars come down by themselves and go up when it stops | same |
 | Cross deep water | ride the horse in: it swims, and you stay in the saddle | same |
 | Swing | **swing** at a seat, again and again to go higher; push the stick to get off | same |
 | Row | **row** beside a boat at the big pond; it stops at the far shore | same |
@@ -35,8 +36,11 @@ a control a child has to be told about is a control he forgets.
 | Sleep | **sleep**, at a bed after dark | same |
 | Talk | hold **talk**, when someone else is in the valley | same |
 | Shop | walk into the shop, north-east of the camp, and press **shop** at the counter | same |
-| Map | tap to cycle small, large, then the whole valley | click it |
-| Language, reset | `≡` top left | same |
+| Map | tap bare map to cycle small, large, then the whole valley; on the large and whole map, drag to pan, pinch to zoom, tap a picture to be shown the way | click; mouse wheel zooms |
+| Map buttons | **+**, **−**, the target (back to me) and a cross to close, in a strip beside the large map; the **?** opens the key to its pictures | same |
+| Back (Android) | closes the open panel — settings, shop, the grown-ups' room, the play-together screen; only with none open does it leave the game | — |
+| Sound | `≡`, then hold the speaker to mute; two rows of bars set the valley's sound and the game's own | same |
+| Language, sound, reset | `≡` top left | same |
 
 ## Things worth knowing
 
@@ -44,10 +48,14 @@ a control a child has to be told about is a control he forgets.
 metres; a full hold reaches the goal from the halfway line. Running at the ball
 adds to whatever the hold gave.
 
-**Where you look is where it goes.** Looking level drives the ball along the
-ground; looking up chips it. The words under the power bar say which, and a
-faint dotted arc in the air shows the ball's whole path while the button is
-held — the same for a basketball thrown at the ring.
+**Where you face is where it goes.** A tap sends the ball flat and straight the
+way the child faces, and standing at a ball turns the child to the view, so
+that is where you are looking. Hold the button and slide: sideways turns the
+shot by up to sixty degrees, up lifts it to a high chip, down flattens it
+again. The words *slide to aim* say so, and a small dotted line in the air shows
+where the ball will go while the button is held — the same for a basketball
+thrown at the ring. Running at the ball carries your pace along the shot, and a
+touch while running takes the ball along with you, a little ahead of your feet.
 
 **A basketball is thrown, not kicked.** Within a few metres of the hoop the kick
 button becomes a throw, and releasing it lobs the ball at the ring. Holding
@@ -138,9 +146,13 @@ swing and it carries you through its arc, then slows to a stop.
 **Follow the paths.** The worn ground between the camp, the playground, the pool
 and the café will take you somewhere worth going.
 
-**Tap the map a third time to see the whole valley**, with a coloured dot for
-every place worth going — there is no reading required, since the colour is
-the label.
+**Tap the map a third time to see the whole valley**, painted with hills, shore,
+forest and paths and a picture sticker for every place worth going — nothing
+needs reading, since the picture is the label. Pinch or turn the wheel to zoom
+from the whole valley down to a house and its garden, drag to move about. Tap a
+sticker and a small badge at the edge of the play screen points the way, with a
+dotted line on the map; tap it again, or arrive, and it goes. The mountain is
+named but cannot be walked to.
 
 **You can swim.** Walk into the river or the pool and you float. There is no
 drowning and no way to be dragged under — jump to stroke upwards and get out.
@@ -157,8 +169,16 @@ whether you would like to see.
 is worth 5, red 3, white 1.
 
 **The horse fords the river; the bicycle does not.** The bicycle is faster on
-flat ground and refuses hills and deep water. Ride one somewhere it cannot go
-and you are simply put down — you are never stranded.
+flat ground and refuses hills and deep water. A machine that meets a wall, a
+fence, a trunk, steep ground or the bank slows softly and slides along it
+rather than stopping dead; a hill slows a climb and coasting feels the slope.
+Ride one somewhere it cannot go and you are simply put down — you are never
+stranded.
+
+**A ride waits for its bars.** The drop tower, ship, big wheel and coaster do
+not start until every harness is down, and a child who has paid stays in the
+seat until the bars are up. When two phones are playing, the host's ride is the
+ride and the guest's phone follows it.
 
 **Resetting the world is held for five seconds**, not pressed. The valley is
 shared between brothers, and a button either of them can press deletes the

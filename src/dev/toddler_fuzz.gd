@@ -491,6 +491,11 @@ func _press(at: Vector2, what: String, seconds: float, steady: bool) -> int:
 	viewport.push_input(down, true)
 	var frames := maxi(int(round(seconds / FRAME)), 1)
 	var rings: Array[HoldRing] = []
+	# A ring made since the last attach (the interface builds some lazily, and
+	# a tap can rebuild it) would otherwise run on the engine's real frame, and
+	# complete a hold nobody counted as meant: a spend with "no hold or answer"
+	# that appears only when the machine's frame is long. Idempotent.
+	_attach_rings()
 	for ring in _rings():
 		if ring.is_holding():
 			rings.append(ring)

@@ -78,7 +78,7 @@ jobs:
           fi
 
       - name: Checks
-        run: ~/godot/godot --headless --path . --script src/dev/ci_check.gd
+        run: ~/godot/godot --headless --fixed-fps 60 --path . --script src/dev/ci_check.gd
 
       - name: Export Android APK
         if: github.event_name == 'push'

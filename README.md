@@ -40,8 +40,9 @@ animals that speak on their own terms, and a whole ambient soundscape
 synthesised from nothing but code.
 
 There is a fairground across the river with a carousel, two moving walkways,
-a trampoline, a fifty-metre wheel and a wooden coaster with two vertical
-loops, whose speed is integrated from the slope of its own track — the loops
+a trampoline, a fifty-metre wheel, a drop tower, a pirate ship and a wooden
+coaster with two vertical loops, whose bars come down before anything moves,
+and whose clocks the host's phone shares with a guest's, whose speed is integrated from the slope of its own track — the loops
 are sized by what the drop actually pays out, v² ≥ 5gR, rather than by eye. A
 bridge crosses to it, because a machine on wheels cannot ford the river and a
 horse can; street signs stand where the four roads meet, each turned by
@@ -67,9 +68,10 @@ placed, green when it can be and red with the reason when it cannot. See
 [docs/CONTROLS.md](docs/CONTROLS.md) for the full list.
 
 Walk south-west and you find a football pitch by the river. Stand next to a
-ball and a **kick** button appears; press it, or `E`, and the ball goes. Run at
-it and it goes much harder — that is the whole skill of shooting, and it is
-worth more to a six-year-old than any charge-up meter. Balls that end up in the
+ball and a **kick** button appears; press it, or `E`, and the ball goes. Hold
+it and slide the thumb to turn or lift the shot; run at the ball and it goes
+much harder — that is the whole skill of shooting, and it is worth more to a
+six-year-old than any charge-up meter. Balls that end up in the
 river come back on their own.
 
 Plant three saplings close together, keep playing, and they grow. When all three
@@ -139,16 +141,10 @@ many chunks and triangles were actually built and where the camera ended up —
 which is how the inverted triangle winding that made the whole valley
 invisible from above was finally caught.
 
-There is also a numeric probe for questions an image cannot answer at all:
+The checks CI runs, which are worth running by hand before a commit:
 
 ```sh
-godot --headless --path . --script src/dev/probe.gd
-```
-
-And the checks CI runs, which are worth running by hand before a commit:
-
-```sh
-godot --headless --path . --script src/dev/ci_check.gd
+godot --headless --fixed-fps 60 --path . --script src/dev/ci_check.gd
 ```
 
 Every assertion in there corresponds to a bug that actually happened. The one
@@ -250,6 +246,16 @@ src/
     ducks.gd           ducks on the ponds, which give nothing and are the point
     mount_kinds.gd, mounts.gd     the horse, the bicycle, the motorcycle, the boats
     hearths.gd         campfires: fuel, warmth, the flame itself
+    park.gd, park_spec.gd   the fairground and where it stands; its rides:
+                       carousel.gd, ferris_wheel.gd, roller_coaster.gd,
+                       drop_tower.gd, pirate_ship.gd, walkway.gd
+    fair_decor.gd, ride_sounds.gd   its lamps, stalls and signs; its hum
+    bridge.gd, bridge_spec.gd, signpost.gd, plaque.gd   the crossing and the street signs
+    clear_ground.gd    ground that is built over, where grass must not grow
+    respawn_spot.gd    where a child is saved and may reappear
+    animal_loft.gd, animal_natural.gd, animal_small.gd, horse_natural.gd
+                       the animals as smooth painted skins
+    wind.gd, flag.gd, sail.gd   one wind, and what flies in it
     boulders.gd        the jumpable rocks
     felled.gd          stumps left behind by the axe
   football/
@@ -257,16 +263,21 @@ src/
     goal.gd            posts you can hit and netting that kills the ball
     football_ground.gd goals, balls, scoring, and fetching strays
     kick_preview.gd    where the ball will go, drawn while you wind up
+    pitch_markings.gd, scoreboard.gd   the lines and corner flags, and the board
   archery/
     archery.gd         the range, the butts, and the bow itself
   player/
     player.gd          the controller: acceleration, coyote time, jump buffer
     camera_rig.gd      third-person camera that glides instead of ticking
+    character.gd, rig_motion.gd, seat_pose.gd   five characters, how they move,
+                       and how they sit in every seat
     lantern.gd         the light a child carries after dark
   build/
     build_kinds.gd     what can be built, what it costs, what it grows into
     house_parts.gd     walls, doors, windows, floors, roofs, stairs, a bed
     structures.gd      what has been built, and what it has since become
+    plans.gd, venues.gd, keep_out.gd   ready-made buildings, what a built café
+                       or shop does, and ground that belongs to something else
     build_mode.gd      the ghost preview, snapping, and the one overlap rule
   shop/
     wallet.gd          coins, and what has been bought
@@ -279,20 +290,31 @@ src/
     today.gd, tasks.gd one thing worth doing each day, and the opening steps
     profiles.gd        players, map templates, and the worlds made from them
     save_game.gd       the save file, as readable JSON, split by player and world
+    dishes.gd          the café's six dishes
     wiring.gd          how the interface and the game are connected, once
   net/
     session.gd         LAN multiplayer: hosting, joining, what gets sent
     visitors.gd        drawing the other children in the valley
+    ride_sync.gd       the host's rides, followed by the guest's phone
     voice.gd           push-to-talk voice chat
   audio/
     sounds.gd          short sound effects, synthesised at load
     ambience.gd        wind, water, birds and leaf rustle, positional and looping
     animal_voices.gd   barks, chatter, grunts and purrs, as single events
+    mix.gd             the buses: a limiter on Master, World, Effects
   ui/
     camera_pad.gd      the look-around touch layer
     hud.gd             every on-screen control
     minimap.gd, map_arrow.gd, place_glyph.gd   the map, the arrow that shows
                        which way you face, and the picture for each destination
+    map_view.gd, map_gesture.gd, map_painter.gd   where it looks, how fingers
+                       move it, and how it is painted
+    map_guide.gd, guide_badge.gd, map_route.gd, map_legend.gd, map_tool.gd,
+    map_compass.gd     the chosen place and its pointer, the route, the key,
+                       the round buttons and the peak that says north
+    hold_ring.gd, volume_bars.gd   a press that must be held; loudness as bars
+    look_picker.gd, character_icon.gd, flag_icon.gd, dish_icon.gd, coin_icon.gd
+                       choosing who you are and the other drawn pictures
     action_icon.gd, item_chip.gd   every button's picture, and every item's,
                        drawn in code rather than loaded as art
     backpack.gd, vitals_gauge.gd, part_icon.gd, shop_icon.gd   the rest of the interface
@@ -302,7 +324,7 @@ src/
   input_actions.gd     input actions, registered in code
   dev/
     capture.gd         screenshot tool
-    probe.gd           headless numeric probe
+    toddler_fuzz.gd, net_pair.gd   a random-tapping child; two processes as a pair
     ci_check.gd        the numeric check suite CI runs on every push
     perf_log.gd        which step of the frame was slowest, named in the log
 ```

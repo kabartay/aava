@@ -28,10 +28,16 @@ store will act on a name and an icon long before it will read a licence.
 The game is made for children and given away. If you want to do something with
 it that this does not cover, the sensible thing is to ask.
 
-## Third-party data
+## Third-party material
 
-The shape of the great mountain (`src/world/elbrus_relief.gd`) is derived from
-a 3D terrain model of Mount Elbrus made with TerraPrinter (terraprinter.com),
-whose map data is © OpenStreetMap contributors. It was reduced to a coarse
-128 × 128 height grid by `dev/elbrus/make_relief.py`; the model itself is not
-included.
+None is included. There are no image, model, font or audio files in the
+repository apart from the icon: every shape is built in code and every sound
+is synthesised at load, and the interface uses the engine's own default font.
+The shape of the great mountain was once taken from a terrain model of Mount
+Elbrus (TerraPrinter, map data © OpenStreetMap contributors); it was replaced
+by a drawn likeness, and neither the model nor any data derived from it remains
+in the repository.
+
+The game runs on the [Godot Engine](https://godotengine.org), which is MIT
+licensed and carries its own third-party notices; those travel with the engine
+and with any export made from it, not with this repository.

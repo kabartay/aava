@@ -126,6 +126,24 @@ thing placed by hand is placed by the child, and that is the game.
 hand-modelled art in the foundation: vertex-coloured terrain, a shader for water,
 and a sun with a sky. What separates a warm sunlit valley from a pile of coloured
 polygons is the angle of the light, the colour it throws, how far you can see
-before air takes over, and how the sky moves across an evening. Free CC0 model
-kits (Kenney, Quaternius) fill the world in; the light is what makes it look like
-somewhere.
+before air takes over, and how the sky moves across an evening.
+
+The plan once was to fill the world in with free CC0 model kits. It never needed
+them: every shape in the game, the animals, the rides and the children included,
+is built in code, and every sound is synthesised. There are no third-party art or audio files in the repository.
+
+## Rules that came from playing it
+
+- **A stray tap destroys nothing.** Spending, selling, deleting, resetting and
+  leaving are held, not tapped (a ring fills while the finger stays), or are an
+  answered question with a cross and a tick. A three-year-old taps a phone at
+  random while the others play, and `toddler_fuzz.gd` checks it.
+- **Anything a grown-up owns is held, and is out of the way.** The volume, the
+  reset and the language live behind the menu; the controls a toddler is likely
+  to reach are 9 mm or larger.
+- **A ride never lets go of a paid child.** The bars come down before it moves
+  and stay down until it stops.
+- **A machine is never a trap.** It slows softly at a wall, a bank or steep
+  ground, and a child is put down rather than stranded.
+- **A map is pictures.** Every place is a sticker, the way is shown by a badge and
+  a dotted line, and the key is optional; no label is needed to find the swing.

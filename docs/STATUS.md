@@ -3,7 +3,7 @@
 What exists in the game today, and how finished each part is. Written so that
 someone returning after a month knows what they can play and what they cannot.
 
-Last updated: 2026-09-21.
+Last updated: 2026-11-04 (code as of the commit after v0.7.0).
 
 ## Legend
 
@@ -40,17 +40,18 @@ Last updated: 2026-09-21.
 | Boats | Done | Five boats, each its own colour, wait round the shore of the big pond in wading depth. A boat is a mount that rides only on water: it carries a child across at twice swimming speed and puts them down where the bed comes up, leaving the boat floating at the far shore. |
 | Horses | Done | Twenty, turned out across the valley on the golden angle — one near the spawn, the rest on dry, gentle, unreserved ground — five coats between them, grazing with their heads down until somebody rides one. A horse swims deep water with its rider in the saddle, trots and gallops with the stick, and is solid where it stands. |
 | Shop | Done | A place you walk to, north-east and 455 m out: a green-boarded gabled barn with a porch, display windows, a shingled roof and a weather vane. Five bicycles and two motorcycles standing on the floor, the small goods on stands and on four shelves behind the counter, somebody in an apron behind it, and five lamps on the ceiling. Its shelf is pictures and prices with no words: tap for what a thing is, press buy to buy it. What you buy is left standing outside the door. |
-| Shop stock | Done | Nine things, in price order: chocolate 1, bottle 19, axe 29, shears 39, lantern 49, whistle 59, saddle 79, bicycle 99, motorcycle 299. Chocolate is the one thing that is used up rather than owned. The shop also buys wool, at four a fleece — the first thing it has ever bought. |
+| Shop stock | Done | Ten things, in price order: chocolate 1, bottle 19, axe 29, shears 39, lantern 49, whistle 59, saddle 79, bicycle 99, quad 199, motorcycle 299. Chocolate is the one thing that is used up rather than owned. The shelf fits a notched phone and scrolls; a machine already owned is greyed, and a full purse refuses a sale before the child is got off the machine. The shop also buys wool, at four a fleece. |
 | Sheep and cows | Done | A hundred sheep and fifty cows in the meadows. A sheep offers itself only to somebody carrying shears and gives a fleece worth four coins; a cow gives milk, drunk where you stand, worth a third of your energy. Both take a minute or two to be ready again, and neither pays coins. |
 | Ducks | Done | Five on each pond, paddling about and turning back at the bank. They give nothing and want nothing, which is the point of them. |
 | Motorcycle | Done | The fastest thing in the valley and the best climber — steeper than a saddled horse. Everything within thirty metres leaves while the engine is running. A racing engine synthesised from nothing: fifty-four firings a second, three gears, rising in pitch and loudness as it pulls away. |
 | Saddle | Done | Bought at the shop; a horse under one takes ground it would otherwise slide off. The one purchase that makes the map bigger rather than the journey shorter. |
 | Population | Done | Written down rather than fallen into: squirrels 300, sheep 100, cows 50, cats 50, dogs 50, beavers 30, horses 20, ducks 10. A check counts the whole map and fails if it drifts. |
-| Minimap | Done | Three sizes, cycled by tapping: small, large, and the whole valley. Baked on a worker thread, so opening it no longer freezes the game. Every destination is a picture on every size — a place off the map sits on the rim pointing at itself — and the worn paths are drawn between them. |
+| Minimap | Done | Three sizes, cycled by tapping bare map: small, large, and the whole valley. A painted picture baked on a worker thread: hill-shading, shoreline, forest crowns, cased paths, footprints of the places. Pinch, wheel or +/− zoom from 40 m to 1,400 m across, a drag pans, a target button brings it back to the child. Every destination is a picture sticker; a tap chooses one and a badge on the play screen points the way, with a dotted route on the map, until the child arrives. A small "?" opens a key to every picture. The small map shows home, the chosen place and the nearest three. |
 | Football pitch | Done | Levelled inside the height field itself, so the ground is flat by construction rather than by flattening afterwards. |
 | Balls and kicking | Done | `RigidBody3D` with continuous collision detection. Kick sets velocity directly. |
-| Kick power and loft | Done | Held button charges strength; a separate control sets the angle. |
-| Goals | Done | Judged by the pitch geometry, with a sound. |
+| Kick power and aim | Done | Held button charges strength; sliding the thumb on it turns the shot up to 60 degrees and lifts it to a chip. A tap is flat and straight the way the child faces. The same slide aims a basketball throw. The bow takes the same slide: hold to draw, slide to turn and lift. |
+| Goals | Done | Judged by the pitch geometry, with a sound. Posts ring, the net holds the ball for the cheer, and lines and corner flags are drawn as meshes rather than painted into the ground. |
+| Dribbling | Done | A touch takes the ball along at any pace up to a full run, holds it 0.75 m ahead, follows turns and traps it when the child stops; a kick or a lofted ball is left alone for 0.3 s. The kick carries the child's run along the aim, and a guest's body carries its real pace so the host's ball is pushed the same way. |
 | Collecting | Done | Sticks, stones, reeds, seeds and cones, streamed and gathered by walking over them. |
 | Rock jumping | Done | Points for clearing a boulder. |
 
@@ -91,12 +92,11 @@ Last updated: 2026-09-21.
 | Part | State | Notes |
 |---|---|---|
 | Coins | Done | Earned from animals and from what trees pay when they mature or are felled. |
-| Shop | Done | Five items with icons, an aligned price column, and affordability dimming. |
 | Water bottle | Done | Fills in the shallows automatically; several drinks; waters animals. |
 | Axe | Done | Fells a tree for its wood, leaving a stump; wood feeds a campfire. The felling is saved. |
 | Lantern | Done | Lights a circle at night. Lit automatically — there is no interesting decision in "would you like to see?". |
 | Whistle | Done | Calls every animal within earshot for a few seconds, shy ones included. |
-| Bicycle | Done | Rideable, faster than the horse on the flat, refuses hills and water. Appears at camp when bought. |
+| Bicycle | Done | Rideable, faster than the horse on the flat, refuses hills and water. Left standing outside the shop door when bought. |
 | Energy | Done | Running drains, walking and resting restore; resting near a lit campfire restores much faster. At zero, walking is unaffected. |
 
 ## Night and the bow
@@ -114,16 +114,16 @@ Last updated: 2026-09-21.
 | Part | State | Notes |
 |---|---|---|
 | Swimming | Done | Forgiving by design: no drowning, buoyancy pushes a child back up, capped so nobody launches out of deep water. A small hysteresis band now keeps a stationary swimmer from flickering between walking and swimming physics at the exact threshold depth. |
-| Swimming pool | Done | Off the football pitch's long side, thirty metres clear of the touchline and parallel to it: 28 m by 18 m, seven tenths of the pitch, dug into the height field so the hole and the water are the same shape by construction, filled to a brim the fence and the water sheet are both built from, with steps at the shallow end and a block to jump from at the deep. Fenced, with a turnstile that costs five coins and lets a child inside straight out, a ticket booth whose sign shows the price as a coin and five pips, loungers, a lifebuoy and two lamps. Paths arrive at its gate, and a horse cannot be ridden into it. |
-| Playground | Done | Two swing frames with two seats each, pumped rather than wound up — each push adds to the arc up to a limit, and a swing pumped to the top runs for a minute — a three-metre slide with a leaning ladder that gathers speed on the way down, a trampoline that bounces, a basketball hoop with three balls that are thrown at it, two benches with bins, a running fountain that fills the bottle, four flower beds, three lamps that come on one by one at dusk, and a lumpy clipped hedge round the lot. Everything is solid, to the child and to the animals, which steer round it. Laid out in bands on a 14 m pad so it reads as a place rather than a heap. |
-| Café | Done | A building a child walks into: a bar along the back with what is on offer laid along it — cake, a bun, a teapot and cups, coffee, a jug of water — shelves and a menu board behind, three stools, three tables with chairs, a sofa with cushions and a low table, pendant lights; outside, an awning and sign, two tables under umbrellas, pots, a menu board, two lamps that light at dusk, a bin. Solid throughout. A meal costs coins, restores a large fraction of the energy bar, sits the child down at the nearest seat and puts a tray with a steaming cup on their table. |
-| Fairground | Done | Forty by a hundred and seventy metres of fenced sand on the east bank, levelled by the height field the way the pitch is, with nothing growing or lying about on it. Five rides: a carousel whose horses stand along the circle and turn with the floor, two thirty-metre moving walkways running opposite ways with treads that visibly move, a trampoline twice the playground's, a thirty-metre big wheel turning in the plane along the river, and a wooden coaster running the length of the ground — five single cars, shoulder harnesses that drop as the train leaves the platform, a five-second stop to be boarded, and a speed integrated from the track's own slope under real gravity: eighteen metres a second at the bottom of the first drop, three over the crests. A kiosk at the gate sells rides at ten coins; the trampoline and the walkways are free. Everything a child can stand on that moves carries them, and every frame is solid. |
+| Swimming pool | Done | Off the football pitch's long side, thirty metres clear of the touchline and parallel to it: 28 m by 18 m, seven tenths of the pitch, dug into the height field so the hole and the water are the same shape by construction, filled to a brim the fence and the water sheet are both built from, with steps at the shallow end and a block to jump from at the deep. Fenced, with a turnstile that costs five coins and lets a child inside straight out, a ticket booth whose sign shows the price as a coin and five pips, loungers, a lifebuoy and two lamps. Paths arrive at its gate, and a horse cannot be ridden into it. The fence and turnstile are three metres tall, so a sprint-jump cannot clear them; the shelf is at most 40 degrees and walkable on all four sides, so a swimmer can climb out anywhere; one ticket is one entry, and a ticket pressed from inside or away from the bar charges nothing. |
+| Playground | Done | Two swing frames with two seats each, pumped rather than wound up — each push adds to the arc up to a limit, and a swing pumped to the top runs for a minute — a three-metre slide with a leaning ladder that gathers speed on the way down, a trampoline that bounces, a basketball hoop with three balls that are thrown at it, two benches with bins, a running fountain that fills the bottle, four flower beds, three lamps that come on one by one at dusk, and a lumpy clipped hedge round the lot. Everything is solid, to the child and to the animals, which steer round it. Laid out in bands on a 14 m pad so it reads as a place rather than a heap. Rubber mats lie under the swings, slide and trampoline, the swing frames are yellow, a sandpit has a bucket, the slide platform has rails, and the hoop stands on a blue court with lines and a key. Grass never grows through any of it (`ClearGround`). |
+| Café | Done | A building a child walks into: a bar along the back with a till and a coffee machine, a picture menu of six dishes (juice, ice cream, pancake, soup, pizza, cake — 1 to 6 coins, each with its own worth in energy), shelves, stools, tables with chairs, a sofa, pendant lights; outside, an awning and sign, two tables under umbrellas, pots, two lamps that light at dusk, a bin. Solid throughout. A meal sits the child down at the nearest seat, serves the chosen dish on the table in front of whichever seat they took, and is eaten in bites. |
+| Fairground | Done | Forty by two hundred and twenty-six metres of fenced sand on the east bank, levelled by the height field the way the pitch is, with nothing growing on it. Seven rides: a carousel (painted prancing horses, a pig, a rooster, swan chariots), two moving walkways running opposite ways, a trampoline twice the playground's, a fifty-metre big wheel, a wooden coaster running the length of the ground (speed integrated from the track's own slope under real gravity), a drop tower and a pirate ship. The drop tower, ship, wheel and coaster do not move until every bar or harness is down and hold a paid child in the seat until they are up. A kiosk at the gate sells rides at ten coins; the trampoline and the walkways are free. The ground is dressed: paved avenue and ring, fifteen lamps that glow at dusk, bunting, picture signs, five stalls, benches and bins, and the wheel, coaster, tower and ship hum and clatter quietly when near. Everything a child can stand on that moves carries them, and every frame is solid. |
 | Bridge | Done | The only crossing for anything on wheels, at the camp's own latitude where the river is twenty-five metres from the door. One swept deck rather than a row of planks, so there is no step anywhere along it, meeting the bank flush at both ends and arching three metres over the water; solid handrails, trestles, and its name on an enamel plate at the near end. |
 | Street signs | Done | Where the four roads meet: a post with a plate for each — Boulevard Berzeg, Avenue Kabard, Impasse de Kassag, Rue des Parents — each turned by asking Paths where its road actually goes, under an enamel plaque naming the square itself. |
 | Levelled ground | Done | Playground, pool and café are flat by construction, like the football pitch. |
 | Spread out | Done | The playground and the café sit several hundred metres from the camp, so getting to one means crossing the valley rather than a courtyard; the pitch and the pool are a short walk from the spawn, as the first afternoon's things. |
 | Tickets | Done | Rides are paid for at the kiosk and nothing is ever taken without being asked: the question comes up with a red cross and a green tick under it, which need no reading. Tickets are remembered between days. |
-| Whole-valley map | Done | Double-tap (third tap) the minimap for a view of the entire valley, with a coloured dot for every destination — a six-year-old cannot read a label, so the colour has to carry it. |
+| Whole-valley map | Done | The third size of the map; see *Minimap*. |
 
 ## Riding
 
@@ -134,6 +134,9 @@ Last updated: 2026-09-21.
 | Mounted state | Done | The mount follows the player rather than carrying them — a body parented to a moving node inherits its rotation. |
 | Camera lift | Done | Eased, not snapped: mounting feels like rising rather than teleporting. |
 | Put down, not stranded | Done | Riding onto ground the mount cannot take dismounts the child rather than trapping them. |
+| Quad | Done | Between the bicycle and the motorcycle in price and in speed. |
+| Ride feel | Done | A gentler pull-away and bounded brakes; per-machine lean; bicycle cranks tied to the wheel, bars and front wheel; quad suspension bob; the bicycle ticks and hisses instead of roaring. A wall, fence, trunk, steep ground or the bank is a soft stop that slides along it; hills slow a climb and coasting feels the slope; a parked machine stays put. The other phone sees wheels, cranks, bars and lean, derived from motion. |
+| Restraints | Done | Fairground rides wait for their bars and hold a paid child in the seat to the end. |
 
 ## Sound
 
@@ -163,12 +166,17 @@ Last updated: 2026-09-21.
 | Virtual stick | Done | Native `VirtualJoystick`; deflection sets speed. |
 | Camera pad | Done | Drag to orbit. |
 | Backpack | Done | Right-hand side, showing counts per item. |
-| Minimap | Done | Three sizes; the largest shows the whole valley. |
+| Minimap | Done | Three sizes; the largest shows the whole valley, zooms and pans. |
 | Vitals gauge | Done | Energy bar and bottle, no numbers. |
 | Three languages | Done | English, French, Russian; every string checked present in all three. |
 | Opening tasks | Done | Steps that hand the valley over, each completed by doing it. |
 | World reset | Done | Behind a five-second hold, separate from the language control. |
 | Context buttons | Done | Visit, dam, fire and sleep no longer share one screen position — a bed and a campfire are both ordinary house pieces and can be in reach at once, which the old shared-position code could not show. |
+| Android Back | Done | Closes the top panel (settings, shop, the grown-ups' room, play together, a refused-microphone notice) and leaves the game only with none open. |
+| Volume | Done | In the settings: a held mute and two rows of held bars, one for the valley's sound and one for the game's own; saved. Master ends in a 60 Hz high-pass and a limiter. |
+| Toddler-sized first run | Done | The face, colour and tick buttons are 9 mm; the first-run chooser closes by itself after 45 s idle; a sweep proves no tap spends, sells, deletes, resets or leaves. |
+| Who you are | Done | Four cartoon children and the round friend, chosen by pictures; they walk, run, jump, kick, swim, cheer and sit in every seat. |
+| Language flags | Done | Drawn flags a quarter of the area of the first ones, on a thumb-sized top bar. |
 
 ## Players, maps and worlds
 
@@ -180,7 +188,8 @@ Last updated: 2026-09-21.
 | Invitations | Done | Being invited puts you in *that* copy — you walk into your friend's house, not a picture of it. |
 | Shared vs private state | Done | Buildings, felled trees, campfires and dams belong to the world; bag, coins and journal belong to the child. |
 | Migration | Done | A valley built before profiles existed becomes the first world rather than being abandoned. |
-| Networking | Done (LAN) | One device hosts, others join on the family network. Verified across three physical phones over real Wi-Fi, which turned up and fixed bugs the two-process test on one machine couldn't: a missing Android INTERNET permission, a hosting code that could land on a subnet or broadcast address, and each device's day/night clock running independently instead of the host's being authoritative. |
+| Networking | Done (LAN) | One device hosts, others join on the family network. Verified across three physical phones over real Wi-Fi. A version hello (`Session.PROTOCOL`) comes before any rpc, so mismatched builds are refused instead of calling each other's wrong methods. |
+| Ride sync | Done | The host's rides lead and the guest's phone follows on a steered clock (about 115 bytes a second for all five); each phone keeps its own restraint rules; seats are relayed so the other child is drawn in the real seat. Checked with a scripted pair, not yet on two phones over an evening. |
 | Play-together screen | Done | The host shows one big number; the guest taps it on a keypad. No text entry anywhere. |
 | Visitors | Done | Other children drawn where they stand, with their name above them, eased between updates. The body is drawn to the same proportions as the player's own, which drifted apart once and left a visitor red and headless. |
 | Voice chat | Done | Push-to-talk only; the microphone is stopped, not merely muted, between presses. Only to children already in the valley. Never recorded. |
@@ -195,6 +204,15 @@ Last updated: 2026-09-21.
 | Tested on a real tablet | Done | Found and fixed on-device: the player launching into the sky while swimming, the game locked to portrait, a horse vanishing when mounted, mountains barely visible, night too dark, the minimap compass rotating the wrong way, a progressive stutter from chunk streaming. |
 | Frame times, thermals, battery on device | Partial | The tablet runs the game; nothing here has been logged and profiled over a long session yet. |
 
+## Saves and safety
+
+| Part | State | Notes |
+|---|---|---|
+| Hardened saves | Done | A wrong-typed field loses only itself (`SaveGame.as_int`/`as_float`/`as_bool`); the replaced save is kept as `.previous` and read back when the new one is damaged; starting again keeps a numbered copy of the valley; the family list survives a crash. |
+| Safe respawn | Done | A child is saved at the last dry ground, never mid-ride or inside a wall, and is lifted out of a closed pocket if walled in. |
+| Toddler tap fuzz | Done | `src/dev/toddler_fuzz.gd` boots the real game and taps at random like a three-year-old; a short run is part of the checks and `toddler_fuzz_run.gd` takes thousands of frames. |
+| Start-up | Done | Ambience loops bake on a worker; idle rides stop rewriting their doors and harnesses each tick; far animals step every second or fourth frame. |
+
 ## Continuous integration
 
 | Part | State | Notes |
@@ -205,7 +223,7 @@ Last updated: 2026-09-21.
 ## Not started
 
 Named here so they are not mistaken for oversights: a road leading off the map,
-collision on floors, roofs and stairs (so a second storey is not yet something
+collision on floors and stairs (roofs are solid; so a second storey is not yet something
 a child can stand on), and a longer session of frame-time, thermal and battery
 measurement on the actual tablet.
 

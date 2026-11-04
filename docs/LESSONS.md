@@ -65,6 +65,11 @@ recur.
 | Height compared from the wrong origin | The trampoline never bounced anyone; its check shared the assumption and passed | Feet-to-mat comparison; check includes a case the wrong model fails |
 | Wrong sign turning boxes onto a ring's tangent | Diagonal hedge blocks stood radially, gaps either side | θ = −a − 90° for `Basis(UP, θ)`; screenshot review |
 | Grazing turned the head joint the wrong way | Every horse in the valley stood with its head thrown back over its withers, and the check read the same angle the code wrote and passed | Check where the nose lands, through the node's transform, not the angle |
+| `AnimatableBody3D.position` read straight after setting it | A guest's body had no pace, so the host's ball was pushed by luck of where the capsule's edge met it | The pace is what the body moved since the last tick, kept by the caller |
+| A `Player` stepped by calling `_physics_process` directly | Moved by the idle frame's delta, not the step it was handed | Checks set the physics rate and wait until the engine reports it (`_set_physics_rate`) |
+| A headless `Terrain` with no `ensure_ground_at` | A fast child had no collision under them until a bake landed | `ensure_ground_at` every tick; a check rides at 30 and 60 ticks |
+| rpcs numbered by sorted method names | Two builds with different methods called each other's wrong ones | A plain-packet hello with `Session.PROTOCOL` before any rpc |
+| `quit_on_go_back` left on | Back from the settings or the shop quit the game | Off in `project.godot`; `Main` closes the top panel first |
 
 
 ## Godot 4.7
@@ -537,3 +542,41 @@ Several checks in this file once counted things and asked if they worked — the
 lamps were all there and all lit — while two of them were 470 metres from the
 shop they were meant to light. The arithmetic of a thing and the place it ends
 up are two different facts. Where a check can ask where something is, it does.
+
+## A body moved by hand reports its move later
+
+`AnimatableBody3D.position` is written at once, but the physics server hears of
+it at the next tick. Setting it and reading its pace in the same frame gave
+zero, so a guest's stand-in body pushed the host's ball only when the capsule's
+edge happened to meet it. The fix is to keep the pace yourself — what the body
+moved since the last tick — and to lerp it, not to ask the server. The same
+holds for every ride: its seats are moved by the ride, and what anything else
+learns from them is learned a tick late.
+
+## `_physics_process` called by hand is not a physics frame
+
+A check that steps a `Player` by calling `_physics_process(delta)` outside a
+physics frame has the body moved by the idle delta where the engine would use
+the physics step, and anything that asks the engine for the step gets the idle
+one. Set `Engine.physics_ticks_per_second`, then wait until
+`get_physics_process_delta_time()` really is the new step before measuring
+(`_set_physics_rate` in `ci_check.gd`); a machine ridden at 30 on a step of 120
+measures a machine a quarter as fast as the one meant.
+
+## A headless world has no streamer to catch a fall
+
+In the real game `Terrain` builds the chunk under the child before they reach
+it; in a check, with workers doing real bakes and a few hundred frames, a fast
+child can outrun it. `Terrain.ensure_ground_at` builds the chunk on the spot, and
+a headless run that moves a body must call it every tick or the body falls
+through ground that was never made.
+
+## Godot numbers rpcs by the sorted names of the methods
+
+An rpc travels as a small number: the position of its method's name among the
+sorted names of every rpc in the build. Two builds with different messages
+therefore number them differently, and each calls the other's wrong method with
+the right-looking arguments — no error, wrong behaviour. `Session` sends a hello
+that is a plain packet, not an rpc, carrying `PROTOCOL`, and sends nothing
+else to a phone that has not said hello. Bump `PROTOCOL` whenever an rpc is
+added, removed or changes its arguments.

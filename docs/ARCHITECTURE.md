@@ -31,6 +31,81 @@ cost eight extra render passes to show eight pictures, and a wall seen head-on
 is a rectangle either way. Both draw against `custom_minimum_size`, never
 `size` — see LESSONS.md for why.
 
+## Systems added since 0.7.0
+
+**The fairground is seven rides, and five of them are synchronised.**
+`src/world/park.gd` builds the fenced ground and stands the rides on it:
+`carousel.gd`, `ferris_wheel.gd`, `roller_coaster.gd`, `drop_tower.gd`,
+`pirate_ship.gd`, `walkway.gd` and a trampoline. Each ride that holds a child
+is an `AnimatableBody3D` (Godot carries a character standing on one) and owns
+its restraint rules: `strap()`, `strap_place()` and `restrained()`. A ride does
+not start until its bars are down, and `Main._fasten_to_the_ride` seats a paid
+child outright until they are up. `fair_decor.gd` dresses the ground (avenue,
+ring, lamps, bunting, stalls, benches and bins) and `ride_sounds.gd` gives the
+wheel, coaster, tower and ship a quiet positional loop each. Both are scenery
+and carry no rules.
+
+**`src/net/ride_sync.gd` makes the host's rides the rides.** The host sends
+each ride's phase, clock, booking and strap state when something that matters
+changes and once a second otherwise; the guest's phone runs the same ride on a
+clock the host steers (a little fast or slow, a hard set only when nobody is
+strapped in). Straps stay each phone's own, so a guest who drops mid-ride stays
+strapped until the bars are up. Seats are relayed so the other child is drawn
+in the real seat. A guest asks to book, board or step off; it does not decide.
+
+**The hello.** Godot numbers rpcs by the sorted names of a build's methods, so
+two builds with different methods call each other's wrong ones. `Session`
+therefore sends a plain packet — not an rpc — carrying `Session.PROTOCOL`
+before anything else, sends nothing else to a phone that has not said hello, and
+refuses one that answers with another number. Change `PROTOCOL` whenever a
+message is added, removed or changes its arguments.
+
+**The map is a small family of pure pieces around `minimap.gd`.**
+`map_view.gd` is the arithmetic of where it looks (range 40–1400 m, one `grab`
+move for drag, pinch and wheel); `map_gesture.gd` reads fingers and the mouse
+into `moved` and `tapped`; `map_painter.gd` paints the baked picture on a worker
+thread; `place_glyph.gd` is each sticker; `map_guide.gd` remembers the chosen
+place and `guide_badge.gd` points at it on the play screen; `map_route.gd`,
+`map_legend.gd`, `map_tool.gd` and `map_compass.gd` are the dotted route, the
+key, the round buttons and the peak that says where north is. Only `minimap.gd`
+is a node that knows a game exists.
+
+**Who may stand where.** `src/world/clear_ground.gd` is a registry of ground
+that is built over (shop, café, pool, court, mats, trampoline ring, sandpit),
+which grass tufts never grow through. `src/build/keep_out.gd` names the ground that
+belongs to something else, for the planting rule and for the tidy of a loaded
+valley. `src/world/respawn_spot.gd` decides where a child
+is saved and where they may reappear — at the last dry ground, never inside a
+wall, and out of a closed terrace pocket (`way_out_of_a_pocket`, applied by
+`Main._lift_out_of_a_pocket`); a position that is not finite returns to the last
+ground.
+
+**Sound has three buses and a grown-up's switch.** `src/audio/mix.gd` builds
+Master (a 60 Hz high-pass, then a limiter), World (ambience and animals,
+dulled under water) and Effects (the game's own sounds). `volume_bars.gd` is the
+picture of loudness in the settings; the mute and each bar are held, not
+tapped, and the levels are saved.
+
+**Looks and seats.** `character.gd` draws five characters over one rig,
+`rig_motion.gd` moves it and `seat_pose.gd` sits it in every seat; `look_picker.gd`
+is the picture-only chooser. Animals are smooth lofted skins (`animal_loft.gd`,
+`animal_natural.gd`, `animal_small.gd`, `horse_natural.gd`). The café's menu is
+`game/dishes.gd`; `build/plans.gd` and `build/venues.gd` are the ready-made
+buildings and what a built café or shop does.
+
+**Back.** `config/quit_on_go_back` is off in `project.godot`; `Main` handles
+the back request, asks `Hud.close_top_panel()` first and quits (after a save)
+only when nothing is open.
+
+**Saves** read through `SaveGame.as_int`/`as_float`/`as_bool`, so a wrong-typed
+field loses only itself; the file being replaced is kept as `.previous` and read
+back if the new one is damaged; starting again keeps a numbered copy of the
+valley.
+
+**`src/dev/toddler_fuzz.gd`** boots the real game and taps at random for a few
+thousand frames, the way a three-year-old does, then asserts that nothing was
+lost to a tap that was not a completed hold or an answered question.
+
 ## Networking
 
 **`src/game/profiles.gd`** draws the line the whole feature depends on: a
@@ -50,9 +125,11 @@ places its own piece immediately and *reports* it, rather than waiting for
 the host to approve it. This is a family game, not a competitive shooter — a
 child whose wall is refused because of network latency has been told the
 game is broken. Terrain, vegetation and everything else generated from the
-seed is never sent; only positions (rate-limited, unreliable) and the
+seed is never sent; only positions (rate-limited, unreliable), the
 handful of events that change the world (built, removed, felled, a stick
-given to a dam) travel, reliably, once each.
+given to a dam) which travel reliably once each, and the state of the
+fairground's rides (see *Systems added since 0.7.0*). The host decides who
+gets a contested pickup and runs a football match for two.
 
 **The short join code.** `192.168.1.161` is fifteen characters of dots and
 digits — unreadable to a six-year-old and a typing task for a ten-year-old.
