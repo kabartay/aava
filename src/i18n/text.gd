@@ -507,6 +507,11 @@ const STRINGS := {
 		EN: "cafe", FR: "café", RU: "кафе",
 	},
 	"place_shop": {EN: "the shop", FR: "la boutique", RU: "магазин"},
+	# Region names on the map; the label capitalises the first letter. "map_lake"
+	# and "map_fairground" are shared with the legend (see below).
+	"map_river": {EN: "river", FR: "rivière", RU: "река"},
+	"map_forest": {EN: "forest", FR: "forêt", RU: "лес"},
+	"map_mountains": {EN: "mountains", FR: "montagnes", RU: "горы"},
 	"say_lantern_on": {EN: "the lantern is lit", FR: "la lanterne est allumée", RU: "фонарь зажжён"},
 	"say_lantern_off": {EN: "the lantern is out", FR: "la lanterne est éteinte", RU: "фонарь погашен"},
 	"say_sheared": {
@@ -927,6 +932,28 @@ const STRINGS := {
 		RU: "И в конце кровать, чтобы спать",
 	},
 	# %s is the name of the piece.
+	# The map: what its pictures are called, and what is said when a child
+	# chooses a place to go to.
+	"map_legend": {EN: "What is on the map", FR: "Sur la carte", RU: "Что на карте"},
+	"map_home": {EN: "home", FR: "maison", RU: "дом"},
+	"map_pitch": {EN: "football", FR: "football", RU: "футбол"},
+	"map_range": {EN: "archery", FR: "tir à l'arc", RU: "стрельба"},
+	"map_fairground": {EN: "fairground", FR: "fête foraine", RU: "аттракционы"},
+	"map_bridge": {EN: "bridge", FR: "pont", RU: "мост"},
+	"map_lake": {EN: "lake", FR: "lac", RU: "озеро"},
+	"map_boats": {EN: "boats", FR: "bateaux", RU: "лодки"},
+	"map_horse": {EN: "horse", FR: "cheval", RU: "лошадь"},
+	"map_friend": {EN: "friend", FR: "ami", RU: "друг"},
+	"map_mountain": {EN: "big mountain", FR: "la montagne", RU: "большая гора"},
+	"map_you": {EN: "you", FR: "toi", RU: "ты"},
+	"map_built": {EN: "your buildings", FR: "tes maisons", RU: "постройки"},
+	"map_planted": {EN: "your trees", FR: "tes arbres", RU: "твои деревья"},
+	# %d is metres.
+	"map_metres": {EN: "%d m", FR: "%d m", RU: "%d м"},
+	# %s is the name of a place on the map.
+	"say_map_going": {EN: "Let's go: %s", FR: "On y va : %s", RU: "Идём: %s"},
+	"say_map_arrived": {EN: "Here it is: %s!", FR: "Voilà : %s !", RU: "Пришли: %s!"},
+	"say_map_far": {EN: "%s is far, far away", FR: "%s est très, très loin", RU: "%s очень далеко"},
 	"say_took_back": {EN: "took the %s back", FR: "tu as repris : %s", RU: "разобрано: %s"},
 }
 

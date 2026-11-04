@@ -57,8 +57,10 @@ func from_data(data: Dictionary) -> void:
 	var before := _counts.keys()
 	_counts.clear()
 	for key in data:
+		if key is not String and key is not StringName:
+			continue
 		var kind := StringName(key)
-		var amount := int(data[key])
+		var amount := SaveGame.as_int(data[key])
 		if amount > 0:
 			_counts[kind] = amount
 	for kind in before:

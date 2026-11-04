@@ -126,6 +126,6 @@ func to_data() -> Dictionary:
 	return {"last_finished": last_finished, "day": _day, "progress": _progress}
 
 func from_data(data: Dictionary) -> void:
-	last_finished = int(data.get("last_finished", -1))
-	_saved_day = int(data.get("day", -1))
-	_progress = maxi(0, int(data.get("progress", 0)))
+	last_finished = SaveGame.as_int(data.get("last_finished", -1), -1)
+	_saved_day = SaveGame.as_int(data.get("day", -1), -1)
+	_progress = maxi(0, SaveGame.as_int(data.get("progress", 0)))

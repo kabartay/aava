@@ -167,8 +167,15 @@ func _init(field: HeightField) -> void:
 		add_child(ball)
 		_balls.append(ball)
 		_drawn.append({"known": false, "predicting": 0.0})
+		ball.kicked.connect(_on_ball_struck.bind(ball))
 
 func _physics_process(delta: float) -> void:
+	for ball: Ball in _struck.keys():
+		var left := float(_struck[ball]) - delta
+		if left <= 0.0:
+			_struck.erase(ball)
+		else:
+			_struck[ball] = left
 	_sync_role()
 	# A guest does not play the game: the host does, and this phone only draws it.
 	if not _following:
@@ -269,6 +276,11 @@ const BODY_TELEPORT := 6.0
 ## the host sends the balls. Kinematic, so it goes where the guest's phone says
 ## and nothing here pushes a child about.
 var _bodies: Dictionary = {}
+## Where each body was last put, by guest id, for its pace.
+var _body_last: Dictionary = {}
+## And the pace it is taken to have, smoothed.
+var _body_pace: Dictionary = {}
+const BODY_PACE_GRIP := 12.0
 
 func _carry_guests(delta: float) -> void:
 	var told: Dictionary = {}
@@ -285,6 +297,8 @@ func _carry_guests(delta: float) -> void:
 		if not told.has(id):
 			(_bodies[id] as Node).queue_free()
 			_bodies.erase(id)
+			_body_last.erase(id)
+			_body_pace.erase(id)
 	for id: int in told:
 		var target: Vector3 = (told[id] as Vector3) + Vector3.UP * Player.HEIGHT * 0.5
 		var body: AnimatableBody3D = _bodies.get(id)
@@ -292,14 +306,26 @@ func _carry_guests(delta: float) -> void:
 			body = _make_body()
 			body.position = target
 			add_child(body)
+			# As for the host's own child: the body and the ball do not collide in
+			# the physics server, only in Ball.touch_velocity. The capsule's own
+			# bounce made the ball's fate depend on how it met the edge.
+			let_pass(body)
 			_bodies[id] = body
-		var from := body.position
-		if from.distance_to(target) > BODY_TELEPORT:
-			body.position = target
-		else:
-			body.position = from.move_toward(target, BODY_PACE * maxf(delta, 0.0001))
-		var pace := (body.position - from) / maxf(delta, 0.0001)
-		dribble(body.position - Vector3.UP * Player.HEIGHT * 0.5, pace, delta)
+		# Where the body was last told to be, kept here: the body syncs to the
+		# physics server, so reading its position straight after setting it gives
+		# the old one, and the pace worked out from that was always nothing.
+		var from: Vector3 = _body_last.get(id, body.position)
+		var next := target if from.distance_to(target) > BODY_TELEPORT else from.move_toward(target, BODY_PACE * maxf(delta, 0.0001))
+		body.position = next
+		_body_last[id] = next
+		# Smoothed over a tenth of a second or so: a guest's position arrives
+		# about ten times a second and the body catches up with each one at its
+		# own pace, so the raw pace alternates between running and standing, and
+		# a standing body braked the very ball it was carrying.
+		var raw := (next - from) / maxf(delta, 0.0001)
+		var pace: Vector3 = (_body_pace.get(id, Vector3.ZERO) as Vector3).lerp(raw, 1.0 - exp(-BODY_PACE_GRIP * maxf(delta, 0.0)))
+		_body_pace[id] = pace
+		dribble(next - Vector3.UP * Player.HEIGHT * 0.5, pace, delta)
 
 func _make_body() -> AnimatableBody3D:
 	var body := AnimatableBody3D.new()
@@ -333,6 +359,22 @@ func let_pass(body: PhysicsBody3D) -> void:
 		body.add_collision_exception_with(ball)
 		ball.add_collision_exception_with(body)
 
+## Balls struck by a kick a moment ago, and for how much longer. A struck ball is
+## left alone by the touch (it is not dribbled or trapped, whatever pace it
+## leaves at): only the body's contact still applies, so that the child is never
+## inside it. Covers every kick of a ball on this phone, a guest's included.
+const STRUCK_FOR := 0.3
+var _struck: Dictionary = {}
+
+func _on_ball_struck(_strength: float, _loft: float, ball: Ball) -> void:
+	_struck[ball] = STRUCK_FOR
+
+## The touch for one ball: a struck ball only meets the body, any other is dribbled.
+func _touched(ball: Ball, going: Vector3, from: Vector3, velocity: Vector3, delta: float) -> Vector3:
+	if _struck.has(ball):
+		return Ball.pushed_velocity(ball.position, going, from, velocity, delta)
+	return Ball.touch_velocity(ball.position, going, from, velocity, delta)
+
 ## A gentle touch for a child on foot at `from`, moving at `velocity`: a ball
 ## they are walking or jogging at is kept near their feet instead of being
 ## shoved off (see Ball.touch_velocity). The game of whoever hosts, or plays
@@ -343,7 +385,7 @@ func dribble(from: Vector3, velocity: Vector3, delta: float) -> void:
 	for ball in _balls:
 		if _in_the_net.has(ball):
 			continue
-		var now := Ball.touch_velocity(ball.position, ball.linear_velocity, from, velocity, delta)
+		var now := _touched(ball, ball.linear_velocity, from, velocity, delta)
 		if now != ball.linear_velocity:
 			ball.sleeping = false
 			ball.linear_velocity = now
@@ -360,7 +402,7 @@ func feel(from: Vector3, velocity: Vector3, delta: float) -> void:
 			continue
 		var ball := _balls[i]
 		var going: Vector3 = shown["guess"] if float(shown["predicting"]) > 0.0 else shown["velocity"]
-		var now := Ball.touch_velocity(ball.position, going, from, velocity, delta)
+		var now := _touched(ball, going, from, velocity, delta)
 		if now != going:
 			shown["guess"] = now
 			shown["predicting"] = maxf(float(shown["predicting"]), TOUCH_PREDICT_FOR)
@@ -612,6 +654,8 @@ func _sync_role() -> void:
 		for id: int in _bodies.keys():
 			(_bodies[id] as Node).queue_free()
 		_bodies.clear()
+		_body_last.clear()
+		_body_pace.clear()
 		# What is on the board is the host's from here, until the host says.
 		# A match won a moment ago is not carried home as it stood: its pause
 		# is cancelled here, and nothing would begin the next game.

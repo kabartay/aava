@@ -45,11 +45,24 @@ const OPEN_CUTOFF := 16000.0
 const UNDER_CUTOFF := 650.0
 const UNDER_HUSH_DB := -4.0
 
+## Below this nothing a phone's speaker, or a child's earphones, can play:
+## the wind's body, the engine's lowest thump and the water's drone put about
+## half their energy down there, where all it can do is take headroom from
+## the limiter. Cut gently, far under the lowest pitch the game's own notes
+## rely on (Sounds.SPEAKER_FLOOR), so no sound loses anything it could have
+## been heard by.
+const RUMBLE_CUTOFF := 60.0
+
 static var _last_under := -1.0
 static var _duck := 0.0
 
 static func build() -> void:
 	var master := AudioServer.get_bus_index(&"Master")
+	if _effect(master, "AudioEffectHighPassFilter") == null:
+		var rumble := AudioEffectHighPassFilter.new()
+		rumble.cutoff_hz = RUMBLE_CUTOFF
+		# First in the chain, so the limiter never spends itself on it.
+		AudioServer.add_bus_effect(master, rumble, 0)
 	if _effect(master, "AudioEffectHardLimiter") == null:
 		var limiter := AudioEffectHardLimiter.new()
 		limiter.ceiling_db = CEILING_DB

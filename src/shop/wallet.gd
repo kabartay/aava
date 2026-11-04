@@ -147,8 +147,8 @@ func to_data() -> Dictionary:
 func from_data(data: Dictionary) -> void:
 	# Clamped on the way in as well as on the way up: a save written before
 	# there was a ceiling can hold more than the purse has room to print.
-	coins = clampi(int(data.get("coins", 0)), 0, MAX_COINS)
-	tickets = maxi(0, int(data.get("tickets", 0)))
+	coins = clampi(SaveGame.as_int(data.get("coins", 0)), 0, MAX_COINS)
+	tickets = clampi(SaveGame.as_int(data.get("tickets", 0)), 0, 999999)
 	owned.clear()
 	# Two shapes. A dictionary of counts is what is written now; a bare list of
 	# names is every world saved before a child could have two of anything, and
@@ -156,8 +156,10 @@ func from_data(data: Dictionary) -> void:
 	var kept = data.get("owned", {})
 	if kept is Dictionary:
 		for item in kept:
-			owned[StringName(item)] = maxi(1, int(kept[item]))
-	else:
+			if item is String or item is StringName:
+				owned[StringName(item)] = clampi(SaveGame.as_int(kept[item], 1), 1, 999999)
+	elif kept is Array:
 		for item in kept:
-			owned[StringName(item)] = 1
+			if item is String or item is StringName:
+				owned[StringName(item)] = 1
 	changed.emit(coins)

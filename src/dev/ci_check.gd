@@ -75,6 +75,8 @@ func _initialize() -> void:
 	_check_the_rider_keeps_time_with_the_stride_and_the_reins_go_with_the_hands()
 	_check_getting_on_and_off_a_horse_is_a_climb_and_a_slide()
 	_check_the_animals_the_pickups_and_the_dams_agree_between_two_phones()
+	_check_a_guests_animal_keeps_up_with_a_running_one()
+	_check_the_ducks_stay_over_deep_water()
 	_check_the_host_arbitrates_a_pickup_a_machine_and_a_parking_two_phones_reach_together()
 	_check_a_big_valley_arrives_in_parts_and_the_panel_offers_both_ways()
 	_check_every_kind_of_day_can_be_finished()
@@ -112,6 +114,7 @@ func _initialize() -> void:
 	_check_nothing_hangs_in_the_air()
 	_check_the_voices_bake_off_thread()
 	_check_the_map_bakes_off_thread()
+	_check_the_map_is_painted_to_read()
 	_check_boats_float_on_the_pond()
 	_check_nothing_is_built_on_the_playground()
 	_check_the_cafe_serves()
@@ -176,6 +179,8 @@ func _initialize() -> void:
 	_check_one_thing_a_day()
 	_check_players_and_worlds()
 	_check_the_map_shows_the_valley()
+	await _check_the_map_zooms_pans_and_never_traps_input()
+	_check_the_map_symbols_follow_pan_and_zoom()
 	_check_playing_together()
 	_check_a_visit_survives_a_mount_and_a_handover()
 	await _check_the_together_pages_fit_the_screen()
@@ -190,6 +195,7 @@ func _initialize() -> void:
 	_check_talking_is_buffered_ducked_gated_and_explained()
 	_check_every_sound_reaches_a_phone()
 	_check_the_mix_holds_together()
+	_check_the_mix_trims_rumble_and_no_sound_shouts()
 	_check_two_valleys_stay_two_valleys()
 	_check_a_sold_machine_stays_sold()
 	_check_talking_can_be_switched_off()
@@ -222,6 +228,7 @@ func _initialize() -> void:
 	_check_the_bridge_carries_what_cannot_swim()
 	_check_the_bridge_is_walked_not_climbed()
 	_check_the_bridge_is_on_the_map()
+	await _check_the_map_symbols_and_the_way_to_them()
 	_check_a_carried_child_closes_on_the_seat_at_any_frame_rate()
 	_check_a_child_who_is_carried_is_not_still_riding()
 	_check_a_rider_is_offered_no_kick()
@@ -332,6 +339,7 @@ func _initialize() -> void:
 	_check_the_host_does_not_pass_on_what_the_network_already_relays()
 	_check_odd_numbers_and_names_in_saves_do_no_harm()
 	_check_a_damaged_save_goes_back_to_the_one_before()
+	_check_wrong_types_in_a_save_lose_nothing_else()
 	_check_a_save_keeps_the_dish_and_the_ice_cream_and_skips_junk_pieces()
 	_check_a_held_sidestep_keeps_its_side()
 	await _check_an_animal_inside_a_new_building_can_walk_out()
@@ -377,6 +385,12 @@ func _initialize() -> void:
 	_check_a_ball_left_in_the_hosts_net_is_not_a_goal_at_home()
 	_check_a_ball_that_goes_out_comes_back()
 	_check_a_gentle_touch_keeps_the_ball_at_the_feet()
+	_check_dribbling_takes_the_ball_along_at_every_pace_and_frame_rate()
+	_check_a_stopped_child_has_the_ball_at_their_feet()
+	_check_a_kick_or_a_lofted_ball_is_left_alone_by_the_touch()
+	_check_a_ball_rolled_at_a_standing_child_stops_or_bounces()
+	_check_the_touch_never_sets_the_height_and_is_the_same_on_both_phones()
+	await _check_a_child_runs_turns_stops_and_kicks_with_the_real_ball()
 	_check_the_host_hears_a_guests_kick()
 	await _check_a_guest_has_a_body_that_pushes_the_ball()
 	_check_animals_stand_on_their_feet()
@@ -1177,16 +1191,127 @@ func _check_the_map_bakes_off_thread() -> void:
 	_expect(map.is_drawn(), "and is once the bake is collected")
 	# One mark for every place a child might set out for, the crossing over the
 	# river included.
+	var marked_kinds := {}
+	for destination in map._destinations:
+		marked_kinds[(destination["glyph"] as PlaceGlyph).kind] = true
 	_expect(
-		map._destinations.size() == PlaceGlyph.Kind.size(),
-		"%d destinations are marked, one for every kind of place" % map._destinations.size()
+		marked_kinds.size() == PlaceGlyph.Kind.size(),
+		"%d destinations are marked, at least one for every kind of place (%d kinds)" % [map._destinations.size(), marked_kinds.size()]
 	)
+	# Integration change: the small map shows only home, the nearest few and the
+	# chosen place, so the playground is chosen here to be on it at all.
+	map.choose_index(1)
+	map.track(camp, 0.0, [] as Array[Vector3])
 	var home: PlaceGlyph = map._destinations[0]["glyph"]
 	var playground: PlaceGlyph = map._destinations[1]["glyph"]
 	_expect(not home.pointing, "standing at the camp, home is on the map itself")
 	_expect(playground.pointing, "and the playground, four hundred metres off, is on the rim pointing at itself")
 	var to_playground := Vector2(PlaceSpec.OFFSETS[&"playground"].x, PlaceSpec.OFFSETS[&"playground"].z).angle()
 	_expect(absf(angle_difference(playground.angle, to_playground)) < 0.05, "in the right direction")
+	map.queue_free()
+
+## The map has to read as a picture of a place, not a spreadsheet of colours:
+## hills shaded from the north-west, the classes parted by brightness as well as
+## hue, the paths and the shore drawn as lines, names that fit, and a bake whose
+## painting adds a bounded amount to the sampling it was always doing.
+func _check_the_map_is_painted_to_read() -> void:
+	print("the map is painted to read")
+	# Light from the north-west: a slope facing it is brighter than flat ground,
+	# and one facing away from it is darker.
+	var toward := MapPainter.lighting(0.35, 0.35)
+	var away := MapPainter.lighting(-0.35, -0.35)
+	_expect(toward > 1.05 and away < 0.95, "a north-west slope is lit (%.2f) and a south-east one shaded (%.2f)" % [toward, away])
+	_expect(absf(MapPainter.lighting(0.0, 0.0) - 1.0) < 0.01, "flat ground is neither lit nor shaded")
+	_expect(
+		MapPainter.luminance(MapPainter.shaded(MapPainter.GRASS, toward))
+		> MapPainter.luminance(MapPainter.shaded(MapPainter.GRASS, away)) * 1.5,
+		"the same meadow is clearly lighter on the lit side of a hill"
+	)
+	# Neighbouring classes part by brightness, so the map reads without hue.
+	_expect(MapPainter.contrast(MapPainter.WATER_DEEP, MapPainter.GRASS) >= 2.5, "water parts from meadow by brightness")
+	_expect(MapPainter.contrast(MapPainter.FOREST_MID, MapPainter.GRASS) >= 2.5, "forest parts from meadow by brightness")
+	_expect(MapPainter.contrast(MapPainter.ROCK, MapPainter.GRASS) >= 1.8, "rock parts from meadow by brightness")
+	_expect(MapPainter.contrast(MapPainter.PITCH, MapPainter.GRASS) >= 1.3, "the pitch parts from the meadow")
+	_expect(MapPainter.contrast(MapPainter.LINE_WHITE, MapPainter.PITCH) >= 3.0, "the pitch markings are white on dark turf")
+	_expect(MapPainter.contrast(MapPainter.PATH, MapPainter.PATH_CASING) >= 3.0, "a path is bright inside a dark casing")
+	_expect(MapPainter.contrast(MapPainter.PATH_CASING, MapPainter.GRASS) >= 2.0, "and the casing parts from the meadow")
+	_expect(MapPainter.contrast(MapPainter.FOAM, MapPainter.WATER_DEEP) >= 4.0, "the shoreline foam is bright against the water")
+	_expect(MapPainter.contrast(MapPainter.BUILT_INK, MapPainter.INK) >= 3.0, "a built piece is outlined darkly")
+
+	# The relief of the real valley shows: both lit and shaded ground exist, and
+	# the picture of it has the size it should.
+	var field := HeightField.new(20260903)
+	var grid := MapPainter.sample(field, Vector3.ZERO, Minimap.FULL_RANGE, 32)
+	var lit_high := 0
+	var lit_low := 0
+	for value in grid.lit:
+		if value > 1.1:
+			lit_high += 1
+		elif value < 0.9:
+			lit_low += 1
+	_expect(lit_high > 20 and lit_low > 20, "the valley has lit (%d) and shaded (%d) slopes" % [lit_high, lit_low])
+	var started := Time.get_ticks_usec()
+	var bytes := MapPainter.paint(grid, field.camp_centre())
+	var painted_ms := float(Time.get_ticks_usec() - started) / 1000.0
+	_expect(bytes.size() == 32 * MapPainter.SUPERSAMPLE * 32 * MapPainter.SUPERSAMPLE * 3, "the painted picture has %d bytes" % bytes.size())
+	# Painting is plain arithmetic over cells * 4 pixels. Generous, since the
+	# machine running the checks may be loaded; the point is that it is bounded
+	# and does not grow with the world.
+	_expect(painted_ms < 4000.0, "painting 32 cells takes %.0f ms, bounded" % painted_ms)
+
+	# Paths are lines at every scale, found from the route table: a point on a
+	# route is on it, and one far from every route is not.
+	_expect(MapPainter.path_distance(-180.0, 143.0, 5.0) < 0.5, "the route to the playground runs through its midpoint")
+	_expect(MapPainter.path_distance(300.0, -350.0, 5.0) > 4.0, "and empty hillside is nowhere near a route")
+
+	# Regions: named from the world, each inside the valley, and every name
+	# laid out inside the map and clear of the others.
+	var regions := MapPainter.scan_regions(field)
+	_expect(regions.size() >= 4, "%d regions are found" % regions.size())
+	var kinds := {}
+	for region in regions:
+		kinds[region["kind"]] = true
+		var at: Vector3 = region["at"]
+		_expect(absf(at.x) <= 600.0 and absf(at.z) <= 600.0, "region %s lies in the valley" % region["kind"])
+		_expect(Text.of(String(MapPainter.REGION_TEXT[region["kind"]])) != "", "region %s has a name" % region["kind"])
+	_expect(kinds.has(MapPainter.REGION_LAKE) and kinds.has(MapPainter.REGION_RIVER) and kinds.has(MapPainter.REGION_FAIR), "the lake, river and fairground are named")
+	for language: StringName in [Text.EN, Text.RU]:
+		Text.set_language(language)
+		for kind: StringName in MapPainter.REGION_TEXT:
+			_expect(not Text.of(String(MapPainter.REGION_TEXT[kind])).begins_with("?"), "%s has a %s name" % [kind, language])
+	Text.set_language(Text.EN)
+
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	for size: int in [Minimap.Size.LARGE, Minimap.Size.FULL]:
+		map._size = size as Minimap.Size
+		map._apply_size()
+		map._regions = regions
+		map._sync_region_labels()
+		var centre := Minimap.centre_for(map._size, field.camp_centre())
+		map._place_regions(centre, Minimap.range_of(map._size))
+		var shown: Array[Rect2] = []
+		var inside := true
+		for label in map._region_labels:
+			if label.visible:
+				var rect := Rect2(label.position, label.size)
+				if not Rect2(Vector2.ZERO, map.size).encloses(rect):
+					inside = false
+				for other in shown:
+					if other.intersects(rect):
+						inside = false
+				shown.append(rect)
+		_expect(inside, "size %d: names lie inside the map and apart (%d shown)" % [size, shown.size()])
+		if size == Minimap.Size.FULL:
+			_expect(shown.size() >= 3, "the whole-valley map names at least three regions (%d)" % shown.size())
+	# The small map has no room for names.
+	map._size = Minimap.Size.SMALL
+	map._apply_size()
+	map._place_regions(field.camp_centre(), Minimap.SMALL_RANGE)
+	var any_shown := false
+	for label in map._region_labels:
+		any_shown = any_shown or label.visible
+	_expect(not any_shown, "the small map carries no names")
 	map.queue_free()
 
 ## Five boats wait round the big pond, in wading depth, and a boat goes where
@@ -3285,6 +3410,19 @@ func _check_the_shop_is_somewhere_you_walk_to() -> void:
 	_expect(Places.SHOP_RAIL_X != 0.0 or Places.SHOP_RAIL_Z != 0.0, "there is a hitching rail outside")
 	places.queue_free()
 
+## A tap on the map: a finger that goes down and lifts in place. Taps are decided
+## on the lift now — a press alone could be the start of a drag or a pinch — so
+## the older checks that sent only a press send both.
+func _tap_map(map: Minimap) -> void:
+	var down := InputEventScreenTouch.new()
+	down.pressed = true
+	down.position = Vector2(60.0, 60.0)
+	map._gui_input(down)
+	var up := InputEventScreenTouch.new()
+	up.pressed = false
+	up.position = Vector2(60.0, 60.0)
+	map._gui_input(up)
+
 ## Every pond has a shore a child can walk out by, and its water never stands
 ## higher than the ground holding it in.
 ##
@@ -4584,7 +4722,7 @@ func _check_nothing_is_missing() -> void:
 		"Atmosphere", "PlantMeshes", "Vegetation", "VegetationTile", "Pickups",
 		"Birds", "World", "Player", "CameraRig", "CameraPad", "Hud",
 		"InputActions", "ItemKinds", "Inventory", "SaveGame", "Wiring",
-		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Hearths", "Ambience", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors", "TogetherPanel", "Voice",
+		"BuildKinds", "Structures", "BuildMode", "Backpack", "Text", "HouseParts", "Minimap", "MapPainter", "MapCompass", "PartIcon", "Sounds", "Tasks", "Animals", "AnimalKinds", "Wallet", "ShopStock", "Vitals", "Journal", "Felled", "Mounts", "MountKinds", "Archery", "Lantern", "Places", "PlaceSpec", "Paths", "Hearths", "Ambience", "Dams", "DamSpec", "Today", "Profiles", "Session", "Visitors", "TogetherPanel", "Voice",
 		"Pitch", "Ball", "Goal", "FootballGround", "Boulders", "HouseParts",
 	])
 	var missing := PackedStringArray()
@@ -8841,6 +8979,59 @@ func _check_the_mix_holds_together() -> void:
 		"and the mix is built before anything that makes a sound"
 	)
 
+## The master chain cuts what no speaker plays before the limiter, and no
+## effect is a shout beside the others: the cheer measured ten decibels over the
+## rest and played on top of the goal chime.
+func _check_the_mix_trims_rumble_and_no_sound_shouts() -> void:
+	print("the mix trims rumble and no sound shouts")
+	Mix.build()
+	Mix.build()
+	var master := AudioServer.get_bus_index(&"Master")
+	var filters := 0
+	var filter_at := -1
+	var limiter_at := -1
+	for i in AudioServer.get_bus_effect_count(master):
+		var effect := AudioServer.get_bus_effect(master, i)
+		if effect is AudioEffectHighPassFilter:
+			filters += 1
+			filter_at = i
+			_expect(
+				(effect as AudioEffectHighPassFilter).cutoff_hz < Sounds.SPEAKER_FLOOR * 0.5,
+				"the rumble filter cuts far under anything a phone plays"
+			)
+		if effect is AudioEffectHardLimiter:
+			limiter_at = i
+	_expect(filters == 1, "exactly one rumble filter however often the mix is built (%d)" % filters)
+	_expect(filter_at >= 0 and filter_at < limiter_at, "and it comes before the limiter")
+
+	var sounds := Sounds.new()
+	var levels: Array[float] = []
+	var cheer_db := 0.0
+	for key: String in Sounds.Sound.keys():
+		var wav: AudioStreamWAV = sounds._build(Sounds.Sound[key])
+		var sum := 0.0
+		var count := wav.data.size() / 2
+		for i in count:
+			var v := float(wav.data.decode_s16(i * 2)) / 32768.0
+			sum += v * v
+		var rms_db := 10.0 * log(maxf(sum / float(maxi(count, 1)), 1e-12)) / log(10.0)
+		# Footsteps are played quieter than they are built and are not compared.
+		if not key.begins_with("STEP_"):
+			levels.append(rms_db)
+		if key == "CHEER":
+			cheer_db = rms_db
+	sounds.free()
+	levels.sort()
+	var median := levels[levels.size() / 2]
+	_expect(
+		cheer_db < median + 8.0,
+		"the cheer is not a shout (%.1f dB RMS against a median of %.1f)" % [cheer_db, median]
+	)
+	var loudest := -100.0
+	for level in levels:
+		loudest = maxf(loudest, level)
+	_expect(loudest < median + 8.0, "and nothing else is either (%.1f dB loudest)" % loudest)
+
 func _check_voice_is_safe() -> void:
 	print("voice is push-to-talk and goes nowhere else")
 	var source := _code_only(FileAccess.get_file_as_string("res://src/net/voice.gd"))
@@ -9066,7 +9257,7 @@ func _check_the_map_shows_the_valley() -> void:
 	var seen_sizes: Dictionary = {}
 	for _tap in 3:
 		seen_sizes[map._size] = true
-		map._gui_input(_a_tap())
+		_tap_map(map)
 	_expect(map._size == started, "tapping three times returns to the size it started at")
 	_expect(seen_sizes.size() == 3, "and passes through all %d sizes on the way" % seen_sizes.size())
 
@@ -9608,9 +9799,7 @@ func _check_context_buttons_never_overlap() -> void:
 				]
 			)
 			# A tap on the map is what makes it bigger.
-			var tap := InputEventScreenTouch.new()
-			tap.pressed = true
-			map._gui_input(tap)
+			_tap_map(map)
 		map.hide_map()
 
 		# The shop, with something already owned tapped: the buying and the
@@ -10131,6 +10320,268 @@ func _check_the_bridge_is_on_the_map() -> void:
 			"every place on the map has a colour: %d" % kind
 		)
 	minimap.queue_free()
+
+## Every place on the map has a picture, the pictures do not lie on each other,
+## a tap on one chooses it, and the guide that follows points the right way,
+## belongs to one child and clears when they get there.
+##
+## The map showed where things were and nothing more: a child who wanted the
+## swing had to remember the map and steer by it with the map closed. And the
+## pictures were 28 pixels wide, under three millimetres on the phone, and the
+## child's own arrow was drawn over whatever stood where they did.
+func _check_the_map_symbols_and_the_way_to_them() -> void:
+	print("the map's symbols and the way to a chosen place")
+	var field := HeightField.new(20260903)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+
+	# Every kind of place has a sticker on the map, a name in every language
+	# (the key's words) and a way to be drawn.
+	for kind: int in PlaceGlyph.Kind.values():
+		var present := false
+		for index in map._destinations.size():
+			if map.glyph_at_index(index).kind == kind:
+				present = true
+		_expect(present, "every kind of place has a sticker on the map: %d" % kind)
+		_expect(
+			Text.STRINGS.has(MapLegend.name_key(kind)),
+			"every kind of place has a name for the key: %d" % kind
+		)
+	var kinds_named := {}
+	for entry in MapLegend.ENTRIES:
+		kinds_named[entry[0]] = true
+	for kind: int in PlaceGlyph.Kind.values():
+		_expect(kinds_named.has(kind), "the key lists every kind of place: %d" % kind)
+	_expect(not (PlaceGlyph.new(PlaceGlyph.Kind.MOUNTAIN)).is_destination(), "the far mountain is looked at, not walked to")
+
+	# No two stickers lie on each other, and none on the child's arrow, at any
+	# size, with the child standing where stickers crowd most: at the camp, at
+	# the pitch and at the pool, with a friend and a horse beside them.
+	var spots: Array[Vector3] = [
+		field.find_spawn_point(), Pitch.centre(),
+		PlaceSpec.centre_of(&"pool", field.camp_centre()), Vector3(300.0, 0.0, -150.0),
+	]
+	for spot in spots:
+		map.friend_source = func() -> Array: return [spot + Vector3(12.0, 0.0, -9.0)]
+		map.horse_source = func(_from: Vector3) -> Vector3: return spot + Vector3(-15.0, 0.0, 20.0)
+		for which: String in ["small", "large", "full"]:
+			map.open_at(which)
+			map.track(spot, 0.4, [] as Array[Vector3])
+			map.wait_for_bake()
+			var diameter := Minimap.glyph_diameter(map._size)
+			var canvas: Vector2 = map._canvas.size
+			var arrow: Vector2 = map._player_dot.position + map._player_dot.size * 0.5
+			var shown: Array[PlaceGlyph] = []
+			for index in map._destinations.size():
+				var glyph := map.glyph_at_index(index)
+				if glyph.visible:
+					shown.append(glyph)
+			# Integration change: the small map shows only home, the chosen place and
+			# the nearest few (it is 190 pixels across); the larger maps show all.
+			if which == "small":
+				_expect(
+					shown.size() >= 3 and shown.size() <= 2 + Minimap.SMALL_EXTRA,
+					"the small map shows home and the nearest few, not a dozen: %d" % shown.size()
+				)
+			else:
+				_expect(shown.size() >= 10, "the stickers are there at %s: %d" % [which, shown.size()])
+			var label := "at %s from %s" % [which, spot]
+			for a in shown.size():
+				var middle_a := shown[a].position + shown[a].size * 0.5
+				_expect(
+					Rect2(Vector2.ZERO, canvas).grow(-diameter * 0.4).has_point(middle_a),
+					"a sticker is on the map %s: %s" % [label, middle_a]
+				)
+				_expect(
+					middle_a.distance_to(arrow) >= MapArrow.SIZE * 0.5 + diameter * 0.3,
+					"no sticker hides the child's arrow %s" % label
+				)
+				for b in range(a + 1, shown.size()):
+					var apart := middle_a.distance_to(shown[b].position + shown[b].size * 0.5)
+					_expect(
+						apart >= diameter * 0.88,
+						"two stickers do not lie on each other %s: %.1f of %.1f" % [label, apart, diameter]
+					)
+
+	# A tap on a sticker chooses its place; again, puts it away; bare map
+	# chooses nothing, and the mountain cannot be chosen.
+	map.friend_source = Callable()
+	map.horse_source = Callable()
+	var player := field.find_spawn_point()
+	map.open_at("large")
+	map.track(player, 0.0, [] as Array[Vector3])
+	map.wait_for_bake()
+	var swing := -1
+	var mountain := -1
+	for index in map._destinations.size():
+		if map.glyph_at_index(index).kind == PlaceGlyph.Kind.PLAYGROUND:
+			swing = index
+		if map.glyph_at_index(index).kind == PlaceGlyph.Kind.MOUNTAIN:
+			mountain = index
+	var swing_glyph := map.glyph_at_index(swing)
+	var swing_middle := swing_glyph.position + swing_glyph.size * 0.5
+	_expect(map.glyph_index_at(swing_middle) == swing, "the sticker under a finger is found")
+	_expect(Minimap.hit_radius(Minimap.Size.LARGE) >= 40.0, "the big map's stickers have a finger-sized hit area")
+	map._last_symbol_tap = -1000
+	_expect(map.handle_symbol_tap(swing_middle + Vector2(6.0, 4.0)), "tapping the swing's sticker is taken")
+	_expect(
+		map.guide().active and map.guide().kind == PlaceGlyph.Kind.PLAYGROUND,
+		"and the swing is where the child is going"
+	)
+	map._last_symbol_tap = -1000
+	map.handle_symbol_tap(swing_middle)
+	_expect(not map.guide().active, "tapping it again puts the guide away")
+	map._last_symbol_tap = -1000
+	var mountain_glyph := map.glyph_at_index(mountain)
+	map.handle_symbol_tap(mountain_glyph.position + mountain_glyph.size * 0.5)
+	_expect(not map.guide().active, "the far mountain cannot be chosen")
+	map._last_symbol_tap = -1000
+	_expect(map.glyph_index_at(Vector2(-500.0, -500.0)) == -1, "bare map chooses nothing")
+	_expect(not map.handle_symbol_tap(Vector2(-500.0, -500.0)), "and a tap on it is left for the map to resize")
+	# Through the real input path too, which adds the panel's margin.
+	map._last_symbol_tap = -1000
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = swing_middle + map._canvas.position
+	# Integration change: a tap is decided on release (so a drag never chooses a
+	# symbol), so a click is a press and a release.
+	var release := click.duplicate() as InputEventMouseButton
+	release.pressed = false
+	map._gui_input(click)
+	map._gui_input(release)
+	_expect(map.guide().active and map.guide().kind == PlaceGlyph.Kind.PLAYGROUND, "a click on the sticker chooses it")
+	_expect(map._size == Minimap.Size.LARGE, "and does not also change the map's size")
+	map._last_symbol_tap = -1000
+	map._gui_input(click)
+	map._gui_input(release)
+	_expect(not map.guide().active, "a second click puts it away")
+	map._last_symbol_tap = -1000
+
+	# The guide points the right way: north is up, east is right, and turning
+	# to face west puts east behind.
+	var origin := Vector3(10.0, 0.0, 10.0)
+	_expect(is_zero_approx(MapGuide.relative_angle(origin, origin + Vector3(0.0, 0.0, -100.0), 0.0)), "north is straight ahead facing north")
+	_expect(is_equal_approx(MapGuide.relative_angle(origin, origin + Vector3(100.0, 0.0, 0.0), 0.0), PI * 0.5), "east is to the right facing north")
+	_expect(is_equal_approx(absf(MapGuide.relative_angle(origin, origin + Vector3(100.0, 0.0, 0.0), PI * 0.5)), PI), "east is behind facing west")
+	_expect(is_equal_approx(MapGuide.relative_angle(origin, origin + Vector3(-100.0, 0.0, 0.0), PI * 0.5), 0.0), "west is straight ahead facing west")
+	_expect(MapGuide.pips_for(10.0) == 1 and MapGuide.pips_for(900.0) == MapGuide.PIPS, "five little feet run from near to far")
+	_expect(MapGuide.pips_for(120.0) < MapGuide.pips_for(400.0), "and fill as it gets further")
+
+	# It follows the child, lives with the map rather than with its being open,
+	# and clears on arrival.
+	map._last_symbol_tap = -1000
+	map.choose_kind(PlaceGlyph.Kind.SHOP)
+	var shop_at: Vector3 = map._destinations[map.chosen_index()]["at"]
+	var arrivals := [0]
+	map.guide().arrived.connect(func(_kind: int) -> void: arrivals[0] += 1)
+	var start := shop_at + Vector3(0.0, 0.0, 200.0)
+	map.guide_step(start, 0.0)
+	_expect(is_equal_approx(map.guide().distance, 200.0), "the distance is metres to the place")
+	_expect(is_zero_approx(map.guide().angle), "the shop is straight ahead to the north")
+	map.guide_step(start + Vector3(100.0, 0.0, 0.0), 0.0)
+	_expect(is_equal_approx(map.guide().angle, atan2(-100.0, 200.0)), "walk east and it swings round to the left")
+	map.hide_map()
+	map.guide_step(start, 0.0)
+	_expect(map.guide().active, "the guide survives the map being shut")
+	map.guide_step(shop_at + Vector3(4.0, 0.0, 0.0), 0.0)
+	_expect(not map.guide().active and arrivals[0] == 1, "it clears, once, when the child arrives")
+
+	# Each child has their own: another map is another guide.
+	var other := Minimap.new(field)
+	get_root().add_child(other)
+	map.choose_kind(PlaceGlyph.Kind.CAFE)
+	_expect(not other.guide().active, "the other phone's child is not sent to the cafe")
+	other.choose_kind(PlaceGlyph.Kind.POOL)
+	_expect(
+		map.guide().kind == PlaceGlyph.Kind.CAFE and other.guide().kind == PlaceGlyph.Kind.POOL,
+		"two children, two destinations"
+	)
+	map.guide().clear()
+	_expect(other.guide().active, "one child arriving does not clear the other's")
+
+	# The child on the other phone is on the map, can be walked to, and the
+	# guide lets go when they leave.
+	var friend := [Vector3(60.0, 0.0, -40.0)]
+	map.friend_source = func() -> Array: return friend.duplicate()
+	map.open_at("large")
+	map.guide_step(player, 0.0)
+	map.track(player, 0.0, [] as Array[Vector3])
+	var friend_mark := -1
+	for index in map._destinations.size():
+		if map.glyph_at_index(index).kind == PlaceGlyph.Kind.FRIEND and map.glyph_at_index(index).visible:
+			friend_mark = index
+	_expect(friend_mark >= 0, "the child on the other phone is on the map")
+	map.choose_index(friend_mark)
+	_expect(map.guide().active and map.guide().at.is_equal_approx(friend[0]), "and can be walked to")
+	friend[0] = Vector3(80.0, 0.0, -40.0)
+	map.guide_step(player, 0.0)
+	_expect(map.guide().at.is_equal_approx(friend[0]), "the guide follows them as they move")
+	friend.clear()
+	map.guide_step(player, 0.0)
+	_expect(not map.guide().active, "and lets go when they leave")
+
+	# The key fits the map in every size it opens at, in every language, and
+	# is optional: shut at the start, and not on the corner map at all.
+	map.open_at("small")
+	_expect(not map.legend().visible, "no key on the corner map")
+	for which: String in ["large", "full"]:
+		map.open_at(which)
+		var key := map.legend()
+		_expect(key.visible and not key.is_open(), "the key starts shut, with its button, on the %s map" % which)
+		_expect(Rect2(Vector2.ZERO, map._canvas.size).encloses(key.button_rect()), "the key's button is on the map")
+		map._last_symbol_tap = -1000
+		_expect(map.handle_symbol_tap(key.button_rect().get_center()), "tapping the button is taken")
+		_expect(key.is_open(), "and opens the key")
+		var panel := key.panel_rect()
+		_expect(Rect2(Vector2.ZERO, map._canvas.size).encloses(panel), "the key is inside the map at %s" % which)
+		for child in key.get_children():
+			var piece := child as Control
+			_expect(
+				panel.grow(0.5).encloses(Rect2(piece.position, piece.size)),
+				"every line of the key is inside its panel at %s" % which
+			)
+		_expect(key.widest_overrun(ThemeDB.fallback_font) <= 0.0, "every name fits its column in every language: %.1f" % key.widest_overrun(ThemeDB.fallback_font))
+		map._last_symbol_tap = -1000
+		_expect(map.handle_symbol_tap(Vector2(40.0, 120.0)), "a tap on the open key is taken")
+		_expect(not key.is_open(), "and closes it")
+
+	# On the play screen: the pointer rides the screen's edge in the direction
+	# of the place, clear of the stick and buttons, and puts itself away while
+	# the map is big or a child builds.
+	for step in 24:
+		var turn := TAU * float(step) / 24.0
+		var spot := GuideBadge.spot_for(turn, Vector2(1280.0, 720.0))
+		_expect(
+			Rect2(Vector2(60.0, 40.0), Vector2(1160.0, 520.0)).has_point(spot),
+			"the pointer stays on the screen at %d degrees: %s" % [step * 15, spot]
+		)
+	_expect(GuideBadge.spot_for(0.0, Vector2(1280.0, 720.0)).y < 360.0, "ahead is above the middle")
+	_expect(GuideBadge.spot_for(PI * 0.5, Vector2(1280.0, 720.0)).x > 640.0, "right is to the right")
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var hud_map := Minimap.new(field)
+	hud.attach_minimap(hud_map)
+	hud_map.show_map()
+	hud_map.choose_kind(PlaceGlyph.Kind.PLAYGROUND)
+	var badge := hud.guide_badge()
+	_expect(badge != null and not badge.suppressed, "the pointer is up while the map is small")
+	hud_map.open_at("large")
+	hud_map.resized.emit()
+	_expect(badge.suppressed, "and put away while the map is big")
+	hud_map.open_at("small")
+	hud_map.resized.emit()
+	hud.set_building(true)
+	_expect(badge.suppressed, "and while a child builds")
+	hud.set_building(false)
+	_expect(not badge.suppressed, "and back when they stop")
+	hud.queue_free()
+
+	other.wait_for_bake()
+	other.queue_free()
+	map.wait_for_bake()
+	map.queue_free()
 
 ## The junction at the camp has its name on it, and every plate points along
 ## the road it names.
@@ -15818,6 +16269,32 @@ func _check_the_small_details_rest_where_they_are_drawn() -> void:
 	)
 	walkway.free()
 
+## The old test of "on the pond" was the lake's influence, which reaches past the
+## shore; the ground itself rose above the surface at 0.78 of the basin on the
+## short side of both ponds, and ducks paddled about on the grass there. Walked
+## here against the ground's own height, at two frame rates and with the long
+## steps a far duck takes.
+func _check_the_ducks_stay_over_deep_water() -> void:
+	print("the ducks stay over deep water")
+	var field := HeightField.new(20260903)
+	var ducks := Ducks.new()
+	get_root().add_child(ducks)
+	ducks.settle(20260903, field)
+	var shallowest := INF
+	for step: float in [1.0 / 60.0, 1.0 / 30.0, 0.25]:
+		for _frame in int(150.0 / step):
+			for i in ducks.count():
+				if ducks.duck_pond(i) < 0:
+					continue
+				var duck: Dictionary = ducks._ducks[i]
+				ducks._paddle(duck, step)
+				var at := ducks.duck_position(i)
+				shallowest = minf(
+					shallowest, Lakes.at(ducks.duck_pond(i), Lakes.POND_LEVEL) - field.height_at(at.x, at.z)
+				)
+	_expect(shallowest > 0.1, "no pond duck is ever over water shallower than a hand (%.2f m)" % shallowest)
+	ducks.queue_free()
+
 ## A duck turning back from the bank keeps bobbing and rocking: its clock used
 ## to stop while it was outside KEEP_WITHIN, freezing it mid-bob.
 func _check_a_duck_turning_from_the_bank_keeps_its_clock() -> void:
@@ -17930,10 +18407,8 @@ func _check_the_map_stays_small_while_building() -> void:
 	var map := Minimap.new(HeightField.new(20260903))
 	hud.attach_minimap(map)
 	map.show_map()
-	var tap := InputEventScreenTouch.new()
-	tap.pressed = true
-	map._gui_input(tap)
-	map._gui_input(tap)
+	_tap_map(map)
+	_tap_map(map)
 	# Its panel adds its margins to the picture, so sizes are compared by which
 	# picture they hold rather than to the pixel.
 	_expect(map.size.x >= Minimap.FULL_PIXELS, "two taps open the whole valley")
@@ -17944,14 +18419,14 @@ func _check_the_map_stays_small_while_building() -> void:
 		map.custom_minimum_size.x < Minimap.LARGE_PIXELS,
 		"opening the build palette brings it back to small: %.0f" % map.custom_minimum_size.x
 	)
-	map._gui_input(tap)
-	map._gui_input(tap)
+	_tap_map(map)
+	_tap_map(map)
 	_expect(
 		map.size.x < Minimap.LARGE_PIXELS and map.is_showing(),
 		"and taps do not make it bigger while building: %.0f" % map.size.x
 	)
 	hud.set_building(false)
-	map._gui_input(tap)
+	_tap_map(map)
 	_expect(map.size.x >= Minimap.LARGE_PIXELS, "closing the palette lets it grow again: %.0f" % map.size.x)
 	hud.queue_free()
 
@@ -18477,7 +18952,7 @@ func _check_a_ball_that_goes_out_comes_back() -> void:
 	_expect(ground.blue == 1 and ball.position == in_net, "a ball in the net is a goal and is not 'out'")
 	ground.free()
 
-## A ball walked or jogged at is taken along, and a run at it is left to fly.
+## A ball walked, jogged or run at is taken along.
 func _check_a_gentle_touch_keeps_the_ball_at_the_feet() -> void:
 	print("a gentle touch keeps the ball at the feet")
 	var field := HeightField.new(20260903)
@@ -18486,9 +18961,14 @@ func _check_a_gentle_touch_keeps_the_ball_at_the_feet() -> void:
 	_expect(walking.z < -0.1, "a ball walked at is drawn along (%.2f)" % walking.z)
 	var strolling := Ball.touch_velocity(ahead, Vector3.ZERO, Vector3.ZERO, Vector3(0.0, 0.0, -1.0), 0.016)
 	var jogging := Ball.touch_velocity(ahead, Vector3.ZERO, Vector3.ZERO, Vector3(0.0, 0.0, -4.0), 0.016)
-	_expect(absf(strolling.z) / 1.0 > absf(jogging.z) / 4.0, "the slower the child the stronger the hold")
+	# Changed intent: the hold no longer fades with pace (it used to stop at 4.6
+	# m/s); every pace up to a run takes the ball along.
+	_expect(strolling.z < 0.05 and jogging.z < -0.1, "a stroll and a jog both take it along (%.2f, %.2f)" % [strolling.z, jogging.z])
+	# Changed intent: a run at full stick (6.6 m/s) used to be left to the body's
+	# push, which booted the ball away; it is now taken along like a jog.
 	var running := Ball.touch_velocity(ahead, Vector3.ZERO, Vector3.ZERO, Vector3(0.0, 0.0, -6.6), 0.016)
-	_expect(running == Vector3.ZERO, "a run at the ball is left to the physics and goes far")
+	_expect(running.z < -0.1 and absf(running.x) < 0.01, "a run at the ball takes it along, straight ahead (%s)" % str(running))
+	_expect(absf(running.z) < 6.6 * 1.25, "and does not boot it away at more than the child's own pace (%.1f m/s)" % running.z)
 	_expect(
 		Ball.touch_velocity(Vector3(0.0, 0.24, 0.85), Vector3.ZERO, Vector3.ZERO, Vector3(0.0, 0.0, -2.0), 0.016) == Vector3.ZERO,
 		"a ball behind the child is not taken"
@@ -18519,6 +18999,298 @@ func _check_a_gentle_touch_keeps_the_ball_at_the_feet() -> void:
 	guest_ground._process(0.05)
 	_expect(shown_ball.position.x > rested.x, "a guest's phone shows its own touch at once (%.3f m)" % (shown_ball.position.x - rested.x))
 	_free_football_pair(pair)
+
+## A flat-ground model of a child and a ball for the dribbling checks: the child
+## runs `heading` at `pace`, turns 90 degrees to the left after `run_for`
+## seconds if `turn`, and lets go of the stick `turn_for` seconds later. The child
+## gathers pace at the player's own ground acceleration and loses it at its
+## friction, the ball loses speed at its roll damping, and the touch is applied
+## once a tick, as the game does. Returns what happened.
+func _dribble_run(dt: float, pace: float, turn: bool) -> Dictionary:
+	var child := Vector3.ZERO
+	var velocity := Vector3.ZERO
+	var ball := Vector3(3.5, Ball.RADIUS, 0.0)
+	var ball_v := Vector3.ZERO
+	var heading := Vector3.RIGHT
+	var target := heading * pace
+	var t := 0.0
+	var run_for := 3.0
+	var turn_for := 2.0
+	var along_min := 99.0
+	var along_max := -99.0
+	var side_max := 0.0
+	var nearest := 99.0
+	var farthest := 0.0
+	var fastest := 0.0
+	var stopped := false
+	var turned := false
+	while t < run_for + turn_for + 3.0:
+		t += dt
+		if t >= run_for and not turned and turn:
+			turned = true
+			heading = Vector3.FORWARD
+			target = heading * pace
+		var stop_at := run_for + (turn_for if turn else 0.0)
+		if t >= stop_at and not stopped:
+			stopped = true
+			target = Vector3.ZERO
+		var rate := Player.GROUND_FRICTION if target == Vector3.ZERO else Player.GROUND_ACCELERATION
+		velocity = velocity.move_toward(target, rate * dt)
+		child += velocity * dt
+		ball_v = Ball.touch_velocity(ball, ball_v, child, velocity, dt)
+		ball_v *= exp(-Ball.ROLL_DAMP * dt)
+		ball += ball_v * dt
+		var off := ball - Vector3(child.x, Ball.RADIUS, child.z)
+		if t > 2.2 and not stopped:
+			along_min = minf(along_min, off.dot(heading))
+			along_max = maxf(along_max, off.dot(heading))
+			if not turned:
+				side_max = maxf(side_max, absf(off.cross(heading).y))
+			nearest = minf(nearest, off.length())
+			farthest = maxf(farthest, off.length())
+			fastest = maxf(fastest, ball_v.length())
+	var gone := ball - Vector3(child.x, Ball.RADIUS, child.z)
+	return {
+		"along_min": along_min, "along_max": along_max, "side_max": side_max,
+		"nearest": nearest, "farthest": farthest, "fastest": fastest,
+		"rest_dist": gone.length(), "rest_ahead": gone.dot(heading), "rest_speed": ball_v.length(),
+		"ball": ball, "child": child,
+	}
+
+## A child running at a ball takes it along at every pace they can reach on a
+## phone, at 30, 60 and 120 ticks a second alike: it stays a short way ahead of
+## the feet, never inside them, rolls on the line they run, and follows a turn
+## without being shot out to the side. Before, only paces under 4.6 m/s were
+## helped and the full stick (6.6) booted the ball; a quarter turn left it 13 m
+## behind.
+func _check_dribbling_takes_the_ball_along_at_every_pace_and_frame_rate() -> void:
+	print("dribbling takes the ball along at every pace and frame rate")
+	var finals: Dictionary = {}
+	for pace: float in [2.0, 4.4, 6.6]:
+		for rate: int in [30, 60, 120]:
+			var straight := _dribble_run(1.0 / float(rate), pace, false)
+			var tag := "%.1f m/s at %d Hz" % [pace, rate]
+			_expect(float(straight["along_min"]) > 0.55 and float(straight["along_max"]) < 1.1, "running straight at %s keeps the ball %.2f to %.2f m ahead of the feet" % [tag, straight["along_min"], straight["along_max"]])
+			_expect(float(straight["side_max"]) < 0.05, "and on the line of the run (%.3f m off it)" % straight["side_max"])
+			_expect(float(straight["fastest"]) < pace * 1.2 + 0.5, "and never faster than the child (%.1f m/s)" % straight["fastest"])
+			var turning := _dribble_run(1.0 / float(rate), pace, true)
+			_expect(float(turning["nearest"]) > 0.45, "a quarter turn at %s never takes the ball inside the child (%.2f m)" % [tag, turning["nearest"]])
+			_expect(float(turning["farthest"]) < 1.7, "nor leaves it behind or off to the side (%.2f m at most)" % turning["farthest"])
+			_expect(float(turning["fastest"]) < pace * 1.2 + 1.7, "nor shoots it away (%.1f m/s)" % turning["fastest"])
+			finals["%d_%d" % [int(pace * 10.0), rate]] = turning["ball"] - (turning["child"] as Vector3)
+	for pace: float in [2.0, 4.4, 6.6]:
+		var key := int(pace * 10.0)
+		var one := finals["%d_60" % key] as Vector3
+		_expect(
+			one.distance_to(finals["%d_30" % key]) < 0.25 and one.distance_to(finals["%d_120" % key]) < 0.25,
+			"at %.1f m/s the ball ends up in the same place from the child at 30, 60 and 120 Hz" % pace
+		)
+
+## Letting go of the stick leaves the ball at rest in front of the child, within
+## the kick's reach, so they can turn to aim and strike it. Before, it rolled on
+## at walking pace for two to four metres.
+func _check_a_stopped_child_has_the_ball_at_their_feet() -> void:
+	print("a stopped child has the ball at their feet")
+	var reach := Ball.KICK_REACH + Ball.RADIUS
+	for pace: float in [2.0, 4.4, 6.6]:
+		for rate: int in [30, 60, 120]:
+			for turn: bool in [false, true]:
+				var run := _dribble_run(1.0 / float(rate), pace, turn)
+				var tag := "%.1f m/s%s at %d Hz" % [pace, " after a turn" if turn else "", rate]
+				_expect(float(run["rest_speed"]) < 0.05, "stopping from %s leaves the ball at rest (%.2f m/s)" % [tag, run["rest_speed"]])
+				_expect(float(run["rest_dist"]) <= reach - 0.05 and float(run["rest_dist"]) > 0.55, "within reach and clear of the body (%.2f m, reach %.2f)" % [run["rest_dist"], reach])
+				_expect(float(run["rest_ahead"]) > 0.5, "and in front of them (%.2f m ahead)" % run["rest_ahead"])
+	# And a ball that is already near a standing child and rolling gently on is
+	# brought to rest at the feet; a ball further off is not touched.
+	var near := Vector3(0.0, Ball.RADIUS, -0.9)
+	_expect(Ball.touch_velocity(near, Vector3(0.0, 0.0, -1.5), Vector3.ZERO, Vector3.ZERO, 0.016).length() < 1.4, "a gentle roll near a standing child is braked")
+	_expect(
+		Ball.touch_velocity(Vector3(0.0, Ball.RADIUS, -3.0), Vector3(0.0, 0.0, -1.5), Vector3.ZERO, Vector3.ZERO, 0.016) == Vector3(0.0, 0.0, -1.5),
+		"one rolling gently three metres off is not"
+	)
+
+## A kick is never swallowed: a ball leaving faster than the child, a lofted
+## one, and one that has just been struck are all left alone, and so is the
+## ball a kick leaves at any pace.
+func _check_a_kick_or_a_lofted_ball_is_left_alone_by_the_touch() -> void:
+	print("a kick or a lofted ball is left alone by the touch")
+	var r := Ball.RADIUS
+	var run := Vector3(6.6, 0.0, 0.0)
+	var ahead := Vector3(0.9, r, 0.0)
+	# Running, a ball goes away faster than the child: a full shot, a pass from
+	# the other phone straight and to the side.
+	for shot: Vector3 in [Vector3(12.0, 0.0, 0.0), Vector3(30.0, 0.0, 0.0), Vector3(10.5, 0.0, 3.0), Vector3(0.0, 0.0, 11.0)]:
+		_expect(Ball.touch_velocity(ahead + Vector3(0.0, 0.0, 0.1), shot, Vector3.ZERO, run, 0.016) == shot, "a ball leaving a running child at %.1f m/s is left alone" % shot.length())
+	# Standing, a tap leaves at the shortest kick and is not trapped.
+	var tap := Vector3(Ball.KICK_SPEED_MIN, 0.0, 0.0)
+	_expect(Ball.touch_velocity(ahead, tap, Vector3.ZERO, Vector3.ZERO, 0.016) == tap, "a tap at a standing child's feet leaves at its full %.1f m/s" % tap.x)
+	# In the air: rising, or over the feet.
+	var rising := Vector3(3.0, 4.0, 0.0)
+	_expect(Ball.touch_velocity(ahead, rising, Vector3.ZERO, run, 0.016) == rising, "a ball lofted off the grass is left alone")
+	_expect(Ball.touch_velocity(Vector3(0.5, 0.9, 0.0), Vector3.ZERO, Vector3.ZERO, run, 0.016) == Vector3.ZERO, "and one hanging at head height is not carried or pushed")
+	_expect(Ball.touch_velocity(Vector3(0.0, 1.2, 0.0), Vector3(0.0, -2.0, 0.0), Vector3.ZERO, run, 0.016) == Vector3(0.0, -2.0, 0.0), "nor one dropping on the child")
+
+	# On the pitch: a ball struck by a kick is left alone for a moment, whatever
+	# its pace, even a tap that a running child would otherwise take up.
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var ground: FootballGround = pair[2]
+	var ball: Ball = ground._balls[1]
+	ball.reset_to(ball.position)
+	var feet := ball.position - Vector3(0.9, r, 0.0)
+	var speed := ground.kick(ball, feet, Vector3.RIGHT, false, Ball.TAP_STRENGTH, 0.0, Vector3.RIGHT)
+	var left := ball.linear_velocity
+	_expect(speed > 0.0, "the kick was struck (%.1f m/s)" % speed)
+	ground.dribble(feet, run, 0.016)
+	_expect(ball.linear_velocity == left, "and a child running at the tapped ball does not take it back")
+	for i in 40:
+		ground._physics_process(0.016)
+	ground.dribble(ball.position - Vector3(0.9, r, 0.0), Vector3(4.0, 0.0, 0.0), 0.016)
+	_expect(ball.linear_velocity != left, "though a moment later it is theirs to dribble again")
+	_free_football_pair(pair)
+
+## A ball rolled at a standing child stops at the feet if it is slow, as a soft
+## pass is trapped, and comes back off them if it is fast.
+func _check_a_ball_rolled_at_a_standing_child_stops_or_bounces() -> void:
+	print("a ball rolled at a standing child stops or bounces")
+	for speed: float in [1.0, 2.0, 2.8]:
+		var ball := Vector3(-4.0, Ball.RADIUS, 0.0)
+		var ball_v := Vector3(speed, 0.0, 0.0)
+		var nearest := 99.0
+		for i in 600:
+			ball_v = Ball.touch_velocity(ball, ball_v, Vector3.ZERO, Vector3.ZERO, 1.0 / 60.0)
+			ball_v *= exp(-Ball.ROLL_DAMP / 60.0)
+			ball += ball_v / 60.0
+			nearest = minf(nearest, -ball.x)
+		_expect(ball_v.length() < 0.01 and nearest > Player.RADIUS + Ball.RADIUS - 0.01, "a soft pass at %.1f m/s stops short of the child, %.2f m from them" % [speed, -ball.x])
+	for speed: float in [6.0, 9.0, 14.0]:
+		var ball := Vector3(-4.0, Ball.RADIUS, 0.0)
+		var ball_v := Vector3(speed, 0.0, 0.0)
+		var through := false
+		var back := 0.0
+		for i in 180:
+			ball_v = Ball.touch_velocity(ball, ball_v, Vector3.ZERO, Vector3.ZERO, 1.0 / 60.0)
+			ball_v *= exp(-Ball.ROLL_DAMP / 60.0)
+			ball += ball_v / 60.0
+			through = through or ball.x > 0.0
+			back = minf(back, ball_v.x)
+		_expect(not through and back < -1.0, "a ball at %.0f m/s bounces off them (back at %.1f m/s) and does not pass" % [speed, -back])
+
+## The touch never sets the ball's height, so a body can neither climb onto the
+## ball nor loft it, and it is a pure function of its arguments: the host's
+## ground, the guest's phone and a guest's body on the host all get the same answer.
+func _check_the_touch_never_sets_the_height_and_is_the_same_on_both_phones() -> void:
+	print("the touch never sets the height and is the same on both phones")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261104
+	var moved := 0
+	var worst := 0.0
+	for i in 400:
+		var at := Vector3(rng.randf_range(-2.0, 2.0), rng.randf_range(0.1, 0.5), rng.randf_range(-2.0, 2.0))
+		var ball_v := Vector3(rng.randf_range(-8.0, 8.0), rng.randf_range(-1.0, 1.0), rng.randf_range(-8.0, 8.0))
+		var foot := Vector3(rng.randf_range(-6.6, 6.6), 0.0, rng.randf_range(-6.6, 6.6))
+		var now := Ball.touch_velocity(at, ball_v, Vector3.ZERO, foot, rng.randf_range(0.004, 0.05))
+		if now != ball_v:
+			moved += 1
+		worst = maxf(worst, absf(now.y - ball_v.y))
+	_expect(worst == 0.0, "a body never changes a ball's vertical speed (worst %.4f m/s)" % worst)
+	_expect(moved > 20, "and the sample did touch balls (%d of 400)" % moved)
+	# Host and guest, the same ball and the same child, the same velocity.
+	var field := HeightField.new(20260903)
+	var pair := _football_pair(field)
+	var host_ground: FootballGround = pair[2]
+	var guest_ground: FootballGround = pair[3]
+	var hosted: Ball = host_ground._balls[1]
+	hosted.linear_velocity = Vector3.ZERO
+	var feet := hosted.position - Vector3(0.9, Ball.RADIUS, 0.0)
+	var run := Vector3(6.6, 0.0, 0.0)
+	host_ground.dribble(feet, run, 0.016)
+	host_ground._send_at_once = true
+	host_ground._physics_process(0.1)
+	guest_ground._process(0.5)
+	var shown: Ball = guest_ground._balls[1]
+	var from := shown.position - Vector3(0.9, Ball.RADIUS, 0.0)
+	var drawn: Dictionary = guest_ground._drawn[1]
+	var before: Vector3 = drawn["velocity"]
+	guest_ground.feel(from, run, 0.016)
+	var theirs: Vector3 = drawn["guess"] if float(drawn["predicting"]) > 0.0 else before
+	_expect(theirs.is_equal_approx(Ball.touch_velocity(shown.position, before, from, run, 0.016)), "the guest's phone shows the touch the pure function gives")
+	var expected := Ball.touch_velocity(hosted.position - Vector3(0.0, 0.0, 0.0), Vector3.ZERO, feet, run, 0.016)
+	_expect(expected.x > 0.0, "and the host's ball took the same touch (%.2f m/s ahead)" % expected.x)
+	_free_football_pair(pair)
+
+## Real physics: a real child driven by the stick runs at a real ball on a flat
+## slab, carries it, turns, lets go and stands over it, and a kick struck then (a
+## tap, a full shot) leaves at the speed the kick gives. Before: the ball was
+## booted off to the side, and after stopping rolled on out of reach.
+func _check_a_child_runs_turns_stops_and_kicks_with_the_real_ball() -> void:
+	print("a child runs, turns, stops and kicks with the real ball")
+	var field := HeightField.new(20260903)
+	var made := _football_floor(_pitch_spot(field))
+	var away: Vector3 = (made[1] as Vector3) + Vector3(0.0, 0.0, -8.0)
+	var ground := FootballGround.new(field)
+	get_root().add_child(ground)
+	var ball: Ball = ground._balls[1]
+	var child := Player.new()
+	get_root().add_child(child)
+	ground.let_pass(child)
+	child.global_position = away + Vector3(-3.5, 0.1, 0.0)
+	child.camera_yaw = -PI / 2.0
+	for i in 20:
+		await physics_frame
+	ground._cooldown = 0.0
+	ball.reset_to(away)
+	await physics_frame
+	var tick := 1.0 / float(Engine.physics_ticks_per_second)
+	Input.action_press(InputActions.MOVE_FORWARD, 1.0)
+	var ahead_min := 99.0
+	var ahead_max := -99.0
+	var side := 0.0
+	var turn_far := 0.0
+	var turn_near := 99.0
+	for i in 150:
+		await physics_frame
+		ground.dribble(child.global_position, child.velocity, tick)
+		var off := ball.position - child.global_position
+		off.y = 0.0
+		if i >= 100 and i < 120:
+			ahead_min = minf(ahead_min, off.x)
+			ahead_max = maxf(ahead_max, off.x)
+			side = maxf(side, absf(off.z))
+		if i == 120:
+			child.camera_yaw += PI / 2.0
+		if i > 120:
+			turn_far = maxf(turn_far, off.length())
+			turn_near = minf(turn_near, off.length())
+	_expect(ahead_min > 0.5 and ahead_max < 1.1, "running straight keeps the ball %.2f to %.2f m ahead" % [ahead_min, ahead_max])
+	_expect(side < 0.1, "and on the line (%.2f m off)" % side)
+	_expect(turn_far < 1.7 and turn_near > 0.45, "a quarter turn keeps it %.2f to %.2f m from the child" % [turn_near, turn_far])
+	Input.action_release(InputActions.MOVE_FORWARD)
+	for i in 120:
+		await physics_frame
+		ground.dribble(child.global_position, child.velocity, tick)
+	var rest := ball.position - child.global_position
+	rest.y = 0.0
+	_expect(ball.linear_velocity.length() < 0.1, "letting go leaves the ball at rest (%.2f m/s)" % ball.linear_velocity.length())
+	_expect(rest.length() < Ball.KICK_REACH + Ball.RADIUS and rest.length() > 0.55, "within kick reach of the child (%.2f m)" % rest.length())
+	_expect(Ball.within_reach(ball.position, child.global_position), "so the kick can strike it")
+	# A kick from there leaves at what the kick gives, a tap and a full shot.
+	for strength: float in [Ball.TAP_STRENGTH, 1.0]:
+		var feet := child.global_position
+		var facing := rest.normalized()
+		var speed := ground.kick(ball, feet, facing, false, strength, 0.0, facing)
+		var fastest := 0.0
+		for i in 6:
+			await physics_frame
+			ground.dribble(child.global_position, child.velocity, tick)
+			fastest = maxf(fastest, ball.linear_velocity.length())
+		_expect(speed > 0.0 and fastest > speed * 0.95, "a kick of strength %.2f leaves at %.1f m/s of its %.1f" % [strength, fastest, speed])
+		ground._struck.clear()
+		ball.reset_to(child.global_position + rest)
+		await physics_frame
+	child.queue_free()
+	ground.queue_free()
+	(made[0] as Node).queue_free()
 
 ## The host makes the sound of a kick a guest asked for.
 func _check_the_host_hears_a_guests_kick() -> void:
@@ -18563,7 +19335,10 @@ func _check_a_guest_has_a_body_that_pushes_the_ball() -> void:
 	get_root().add_child(floor_body)
 
 	var ball: Ball = host_ground._balls[1]
-	ball.reset_to(Vector3(centre.x, surface, centre.z))
+	# On a line of its own, six metres off the halfway line: earlier checks leave
+	# grounds standing, and their balls lie on the halfway line, in this ball's
+	# way (they stopped it short of the guest's run, from run to run).
+	ball.reset_to(Vector3(centre.x, surface, centre.z + 6.0))
 	for other in host_ground._balls:
 		if other != ball:
 			other.reset_to(Vector3(centre.x + 15.0, surface, centre.z - 9.0))
@@ -18585,21 +19360,37 @@ func _check_a_guest_has_a_body_that_pushes_the_ball() -> void:
 	)
 	_expect(body.position.distance_to(foot + Vector3.UP * Player.HEIGHT * 0.5) < 0.05, "standing where the guest says")
 
-	# The guest runs at the ball at six metres a second: past the gentle touch,
-	# so it is the body that pushes it.
+	# The guest runs at the ball at six metres a second: the host's dribble
+	# takes it along (the body and ball do not collide in the physics server, so
+	# how the ball met the capsule's edge cannot decide it).
 	var start_x := ball.position.x
 	# Eight metres of running, five of them past the ball: over only the first
 	# three the push was a few centimetres either side of the metre asked for,
 	# depending on how the ball happened to roll off the capsule.
-	for _i in 80:
-		foot.x += 0.1
+	# Counted in physics ticks, not loop turns: a machine under load can run two
+	# ticks between turns of this loop, and the guest would then have run at half
+	# the pace for them.
+	var ticked := Engine.get_physics_frames()
+	var run_to := foot.x + 8.0
+	while foot.x < run_to - 0.001:
+		var ticks := maxi(Engine.get_physics_frames() - ticked, 1)
+		ticked = Engine.get_physics_frames()
+		foot.x += 0.1 * float(ticks)
 		host.guest_positions[guest._link_id] = foot
 		await get_root().get_tree().physics_frame
 	_expect(ball.position.x > start_x + 1.0, "running into the ball pushes it on the host (%.2f m)" % (ball.position.x - start_x))
+	# The body's pace is what it moved since the last tick (it used to read as
+	# nothing, because the body only syncs to the physics server later, and the
+	# push depended on how the capsule's edge happened to meet the ball): the
+	# ball is carried a short way ahead of the guest's feet.
+	_expect(ball.position.x - foot.x > 0.4 and ball.position.x - foot.x < 1.6, "and is carried ahead of the guest's feet (%.2f m)" % (ball.position.x - foot.x))
 
 	# And the guest sees it: the host sends the balls. Stopped first, so that
 	# "where it is" is one place and not wherever it has rolled on to.
 	_expect(ball.linear_velocity.x > 0.0, "(the ball is still rolling away from the body)")
+	# A second without the guest moving, so that the body's pace has settled to
+	# nothing and the dribble leaves the ball alone.
+	host_ground._physics_process(1.0)
 	ball.linear_velocity = Vector3.ZERO
 	host_ground._send_at_once = true
 	host_ground._physics_process(0.1)
@@ -24175,6 +24966,44 @@ func _check_a_child_sits_at_the_cafe_table_and_the_other_phone_sees_it() -> void
 	_expect(structures.seat_under(seat_at, Places.DINING_SINK, Places.DINING_ACROSS, Places.DINING_ABOUT).is_empty(), "and one walking by it is not")
 	structures.queue_free()
 
+## The host's animal flees or answers a whistle at three to six metres a second;
+## the guest's copy walked at a fixed 1.4 x its pace, fell eight metres behind
+## within seconds, and was then set down at the host's spot in one jump. The copy
+## must close the gap by walking, with no frame moving it further than a run.
+func _check_a_guests_animal_keeps_up_with_a_running_one() -> void:
+	print("a guest's animal keeps up with a running one without jumping")
+	var field := HeightField.new(20260903)
+	var host := Animals.new(field, 20260903)
+	var guest := Animals.new(field, 20260903)
+	get_root().add_child(host)
+	get_root().add_child(guest)
+	guest.following = true
+	var camp := field.camp_centre()
+	var at := Vector3(camp.x + 5.0, 0.0, camp.z + 5.0)
+	at.y = field.height_at(at.x, at.z)
+	var runs := {AnimalKinds.COW: 2.85, AnimalKinds.DOG: 4.2}
+	for kind: StringName in runs:
+		var hosts := host.put_one_at(kind, at)
+		var guests := guest.put_one_at(kind, at)
+		var hn := hosts["node"] as Node3D
+		var gn := guests["node"] as Node3D
+		var worst := 0.0
+		var before := gn.position
+		for frame in 600:
+			hn.position.x = at.x + float(runs[kind]) * float(frame) / 60.0
+			hn.position.y = field.height_at(hn.position.x, hn.position.z)
+			if frame % 24 == 0:
+				var here: Array[Vector3] = [hn.position]
+				guest.tell(host.states_near(here))
+			guest._step(guests, 1.0 / 60.0)
+			worst = maxf(worst, Vector2(gn.position.x - before.x, gn.position.z - before.z).length())
+			before = gn.position
+		var gap := Vector2(gn.position.x - hn.position.x, gn.position.z - hn.position.z).length()
+		_expect(worst < 0.25, "the guest's %s never jumps (largest step %.2f m in a frame)" % [kind, worst])
+		_expect(gap < 4.0, "and stays within %.1f m of the host's running %s" % [gap, kind])
+	host.queue_free()
+	guest.queue_free()
+
 ## The four bites the plate shows are four trips of the hand to the mouth, the
 ## hand at the mouth at the moment each leaves the plate and back down between.
 func _check_the_bites_are_in_time_with_the_plate() -> void:
@@ -24589,7 +25418,7 @@ func _check_a_child_pushes_a_basketball_the_way_they_push_a_football() -> void:
 	for lying: Ball in places._balls:
 		passes = passes and child.get_collision_exceptions().has(lying)
 	_expect(passes, "the child's body passes through every basketball")
-	# Running at a ball lying just ahead, at a pace past the gentle touch.
+	# Running at a ball lying just ahead: the body takes it along.
 	var ball: Ball = places._balls[0]
 	ball.linear_velocity = Vector3.ZERO
 	var from := ball.position - Vector3(0.5, Ball.RADIUS, 0.0)
@@ -25105,6 +25934,74 @@ func _check_an_unpaid_child_aboard_keeps_a_ride_still() -> void:
 	_expect(body.contains("_wheel_rider_paid = false\n\t\t\t_riding_without_a_ticket = true\n")
 		and body.contains("_offer_a_ride(&\"wheel\")"),
 		"a child set down from a paid turn of the wheel is asked again")
+
+## A field of the wrong kind in a save (null, a list, a table, words) used to be
+## an engine error that ended the loading function where it stood: every item
+## listed after one bad count vanished from the bag, and the autosave then wrote
+## the shortened bag over the file. The bad field is now one wrong value, and
+## everything around it loads. Also: a reset keeps a numbered copy of what it
+## wipes, never overwriting an earlier one.
+func _check_wrong_types_in_a_save_lose_nothing_else() -> void:
+	print("wrong types in a save lose nothing else")
+	_expect(SaveGame.as_int(null, 7) == 7 and SaveGame.as_int([], 7) == 7 and SaveGame.as_int({}, 7) == 7, "as_int refuses non-numbers")
+	_expect(SaveGame.as_int("12") == 12 and SaveGame.as_int(3.9) == 3 and SaveGame.as_int("abc", -1) == -1, "as_int reads numbers and numeric text")
+	_expect(SaveGame.as_int(1.0e30) == 9000000000000000, "as_int clamps an absurd number")
+	_expect(is_finite(SaveGame.as_float("nan", 2.0)) and SaveGame.as_float("nan", 2.0) == 2.0, "as_float never returns NaN")
+	_expect(SaveGame.as_bool({}, true) and not SaveGame.as_bool([], false) and SaveGame.as_bool(1), "as_bool refuses containers")
+
+	var junk: Array = [null, [], {}, "abc", true]
+	for bad: Variant in junk:
+		var inventory := Inventory.new()
+		inventory.from_data({"a_before": 3, "bad": bad, "z_after": 5})
+		_expect(inventory.count(&"a_before") == 3 and inventory.count(&"z_after") == 5, "a bad count (%s) does not cost the bag its other items" % str(bad))
+		var wallet := Wallet.new()
+		wallet.from_data({"coins": 40, "tickets": bad, "owned": {"bike": 2, "odd": bad}})
+		_expect(wallet.coins == 40 and wallet.count_of(&"bike") == 2 and wallet.tickets >= 0, "a bad ticket or item count (%s) leaves the coins and the bike" % str(bad))
+		var purse := Wallet.new()
+		purse.from_data({"coins": bad, "owned": bad})
+		_expect(purse.coins == 0 and purse.owned.is_empty(), "a bad purse (%s) is an empty one, not an error" % str(bad))
+		var vitals := Vitals.new()
+		vitals.from_data({"energy": bad, "water": 3.0, "bottle": bad})
+		_expect(is_finite(vitals.energy) and vitals.energy >= 0.0, "bad vitals (%s) load as numbers" % str(bad))
+		var journal := Journal.new()
+		journal.from_data({"lifetime": {"built": bad, "cared": 4}, "last_seen": bad, "visits": bad})
+		_expect(int(journal.lifetime[&"cared"]) == 4 and journal.visits >= 0, "a bad journal count (%s) keeps the others" % str(bad))
+		var tasks := Tasks.new()
+		tasks.from_data({"step": bad, "sticks_found": bad})
+		var today := Today.new()
+		today.from_data({"day": bad, "progress": bad, "last_finished": bad})
+		_expect(today.last_finished == -1 and tasks.step == Tasks.Step.GATHER, "bad task and day records load as defaults")
+		tasks.free()
+
+	var field := HeightField.new(20260903)
+	var structures := Structures.new(field)
+	get_root().add_child(structures)
+	var spawn := field.find_spawn_point()
+	structures.from_data([
+		{"kind": "campfire", "x": null, "y": [], "z": {}, "spin": "x", "age": null, "paid": []},
+		{"kind": 5},
+		{"kind": "campfire", "x": spawn.x + 6.0, "y": spawn.y, "z": spawn.z + 6.0},
+	])
+	_expect(structures.to_data().size() >= 1, "a piece with wrong-typed fields does not stop the pieces after it")
+	structures.queue_free()
+
+	var folder := "user://aava-keep-copy-check"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(folder))
+	var path := folder + "/world.json"
+	_expect(SaveGame.keep_copy(path).is_empty(), "nothing to keep is nothing kept")
+	SaveGame.write({"structures": [1, 2, 3]}, path)
+	var first := SaveGame.keep_copy(path)
+	SaveGame.write({"structures": []}, path)
+	var second := SaveGame.keep_copy(path)
+	_expect(not first.is_empty() and not second.is_empty() and first != second, "a second reset keeps its own copy")
+	_expect(
+		(SaveGame.parse_quietly(FileAccess.get_file_as_string(first)) as Dictionary)["structures"] == [1, 2, 3] \
+		or (SaveGame.parse_quietly(FileAccess.get_file_as_string(first)) as Dictionary)["structures"] == [1.0, 2.0, 3.0],
+		"and the first copy still holds the first valley"
+	)
+	for leftover in DirAccess.get_files_at(folder):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(folder + "/" + leftover))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(folder))
 
 ## The raised end decks of the pirate ship have sides, drawn and solid, so a
 ## child cannot walk off the edge of one.
@@ -30242,4 +31139,325 @@ func _carousel_rider_is_held_and_set_down(game: Node, world: World, player: Play
 		player.global_position.x - carousel.global_position.x, player.global_position.z - carousel.global_position.z
 	).length() < Carousel.RADIUS,
 		"carousel: stopped, the child is put down on its deck, free to walk off")
+
+## A finger event on the map, for the zoom and pan checks.
+func _map_touch(map: Minimap, index: int, down: bool, at: Vector2) -> void:
+	var event := InputEventScreenTouch.new()
+	event.index = index
+	event.pressed = down
+	event.position = at
+	map._gui_input(event)
+func _map_drag(map: Minimap, index: int, at: Vector2) -> void:
+	var event := InputEventScreenDrag.new()
+	event.index = index
+	event.position = at
+	map._gui_input(event)
+
+func _map_wheel(map: Minimap, up: bool, at: Vector2) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_WHEEL_UP if up else MOUSE_BUTTON_WHEEL_DOWN
+	event.pressed = true
+	event.position = at
+	map._gui_input(event)
+
+## The map can be looked around, not only cycled: a pinch or the wheel zooms about
+## the point under the fingers within limits, a drag pans, "back to me" returns,
+## a drag or pinch is never a tap, closing the map in the middle of a gesture
+## leaves nothing held, and the picture's cost does not grow with the zoom.
+func _check_the_map_zooms_pans_and_never_traps_input() -> void:
+	print("the map zooms, pans and never traps input")
+	var field := HeightField.new(20260903)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	var camp := field.camp_centre()
+	map.show_map()
+	map._cycle_size()
+	_expect(map.size.x >= Minimap.LARGE_PIXELS, "the large map is the one to explore")
+	map.track(camp, 0.0, [] as Array[Vector3])
+	var px := map._view.px
+	var start_range := map.view_range()
+	_expect(is_equal_approx(start_range, Minimap.LARGE_RANGE), "it opens at its own range")
+
+	# Pinch out about a point off the middle: closer in, and the world point under
+	# the fingers' midpoint has not moved.
+	var mid := Vector2(px * 0.7, px * 0.3)
+	var under := map._view.world_at(mid)
+	_map_touch(map, 0, true, mid - Vector2(40.0, 0.0))
+	_map_touch(map, 1, true, mid + Vector2(40.0, 0.0))
+	_map_drag(map, 1, mid + Vector2(80.0, 0.0))
+	var zoomed := map.view_range()
+	_expect(zoomed < start_range, "spreading two fingers zooms in: %.0f to %.0f m" % [start_range, zoomed])
+	var after := map._view.world_at(mid + Vector2(20.0, 0.0))
+	_expect(
+		after.distance_to(under) < 0.05,
+		"and the point under the fingers stays under them: %.3f m off" % after.distance_to(under)
+	)
+	_map_touch(map, 1, false, mid + Vector2(80.0, 0.0))
+	_map_touch(map, 0, false, mid - Vector2(40.0, 0.0))
+	_expect(map.size.x >= Minimap.LARGE_PIXELS and map._size == Minimap.Size.LARGE, "a pinch is not a tap")
+
+	# The wheel: in and out, about the pointer, and clamped at both ends.
+	var pointer := Vector2(px * 0.25, px * 0.8)
+	var held := map._view.world_at(pointer)
+	_map_wheel(map, true, pointer)
+	_expect(map.view_range() < zoomed, "a wheel turn forward zooms in")
+	_expect(map._view.world_at(pointer).distance_to(held) < 0.05, "about the pointer")
+	for _turn in 80:
+		_map_wheel(map, true, pointer)
+	_expect(
+		is_equal_approx(map.view_range(), MapView.MIN_RANGE),
+		"zooming in stops at %.0f m, a few dozen metres: %.1f" % [MapView.MIN_RANGE, map.view_range()]
+	)
+	for _turn in 120:
+		_map_wheel(map, false, pointer)
+	_expect(
+		is_equal_approx(map.view_range(), MapView.MAX_RANGE),
+		"zooming out stops at %.0f m, the whole valley and a margin: %.1f" % [MapView.MAX_RANGE, map.view_range()]
+	)
+	_expect(MapView.MAX_RANGE >= Minimap.FULL_RANGE, "so the whole-valley range is reachable")
+
+	# A drag pans by exactly what the finger moved, north stays up, and it is not
+	# a tap. Back to me returns.
+	map.zoom_to(200.0)
+	map.recentre()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	var home := map.view_centre()
+	_expect(home.distance_to(Vector2(camp.x, camp.z)) < 0.01, "following: the middle is the child")
+	var grabbed := Vector2(px * 0.5, px * 0.5)
+	var world_before := map._view.world_at(grabbed)
+	_map_touch(map, 0, true, grabbed)
+	_map_drag(map, 0, grabbed + Vector2(60.0, 0.0))
+	_map_drag(map, 0, grabbed + Vector2(100.0, 30.0))
+	_map_touch(map, 0, false, grabbed + Vector2(100.0, 30.0))
+	_expect(
+		map._view.world_at(grabbed + Vector2(100.0, 30.0)).distance_to(world_before) < 0.05,
+		"dragging keeps the ground under the finger"
+	)
+	_expect(map._free and map.view_centre().x < home.x, "the map moved west when pulled east, and stays put")
+	_expect(map._size == Minimap.Size.LARGE, "a drag is not a tap")
+	map.track(camp, 0.0, [] as Array[Vector3])
+	_expect(map.view_centre().distance_to(home) > 10.0, "even as the child's position is tracked")
+	# The arrow is still where the child is, not where the middle is.
+	var arrow_at := map._player_dot.position + map._player_dot.size * 0.5
+	_expect(
+		arrow_at.distance_to(map._view.pixel_of(Vector2(camp.x, camp.z))) < 1.0,
+		"the arrow stays on the child, %.0f px east of the middle" % (arrow_at.x - px * 0.5)
+	)
+	map.recentre()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	_expect(map.view_centre().distance_to(home) < 0.01, "back to me returns to the child")
+	_expect(not map._free, "and follows again")
+
+	# A press that wobbles inside the slop is still a tap.
+	_map_touch(map, 0, true, grabbed)
+	_map_drag(map, 0, grabbed + Vector2(5.0, 3.0))
+	_map_touch(map, 0, false, grabbed + Vector2(5.0, 3.0))
+	_expect(map._size == Minimap.Size.FULL, "a tap that wobbles a little still is one")
+	map._cycle_size()
+	map._cycle_size()
+	_expect(map._size == Minimap.Size.LARGE, "and the cycle still comes round")
+
+	# The buttons ease towards a goal and stop at the limits.
+	map.zoom_to(Minimap.LARGE_RANGE)
+	var before := map.view_range()
+	map.zoom_button(1)
+	map.advance(1.0)
+	_expect(
+		absf(map.view_range() - before / MapView.STEP) < 0.5,
+		"plus zooms in one step: %.1f from %.1f" % [map.view_range(), before]
+	)
+	for _press in 20:
+		map.zoom_button(-1)
+	map.advance(1.0)
+	_expect(is_equal_approx(map.view_range(), MapView.MAX_RANGE), "minus stops at the whole valley")
+	_expect(map._zoom_in_button.size.x >= 44.0, "the buttons are thumb-sized")
+
+	# Closing the map mid-gesture leaves nothing held.
+	_map_touch(map, 0, true, grabbed)
+	_map_drag(map, 0, grabbed + Vector2(50.0, 0.0))
+	_expect(map._gesture.is_active(), "a finger is down")
+	map.hide_map()
+	_expect(not map._gesture.is_active(), "closing the map lets go of it")
+	_expect(not map.visible, "and it is out of the way of every touch")
+	map.show_map()
+	_expect(map.view_range() == Minimap.range_of(Minimap.Size.SMALL), "it reopens at its own view")
+
+	# A bake costs the same however far in the child has zoomed, and there is
+	# never more than one in flight.
+	_expect(Minimap.CELLS * Minimap.CELLS <= 22000, "a bake is bounded: %d samples" % (Minimap.CELLS * Minimap.CELLS))
+	map.zoom_to(MapView.MIN_RANGE)
+	map.track(camp, 0.0, [] as Array[Vector3])
+	var task := map._bake_task
+	for _frame in 5:
+		map.zoom_to(maxf(MapView.MIN_RANGE, map.view_range() * 1.3))
+		map.track(camp, 0.0, [] as Array[Vector3])
+	_expect(map._bake_task == task or map._bake_task == -1, "zooming in flight starts no second bake")
+	map.wait_for_bake()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	map.wait_for_bake()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	var covered := map._drawn_range / map.view_range()
+	_expect(
+		covered >= 0.99 and covered <= 1.5,
+		"and the sharp picture lands around the range zoomed to: %.0f of %.0f m" % [map._drawn_range, map.view_range()]
+	)
+	# Walking a little only slides the picture: no new bake for a few metres.
+	map.zoom_to(Minimap.SMALL_RANGE)
+	map.track(camp, 0.0, [] as Array[Vector3])
+	map.wait_for_bake()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	map.wait_for_bake()
+	map.track(camp, 0.0, [] as Array[Vector3])
+	_expect(map._bake_task == -1, "the map settles with nothing left to bake")
+	map.track(camp + Vector3(6.0, 0.0, 0.0), 0.0, [] as Array[Vector3])
+	_expect(map._bake_task == -1, "six metres walked starts no new bake")
+	map.track(camp + Vector3(80.0, 0.0, 0.0), 0.0, [] as Array[Vector3])
+	_expect(map._bake_task != -1, "but eighty does")
+	map.wait_for_bake()
+	# Every size fits the screen it is laid out on, and has a way out.
+	map.queue_free()
+	var hud := Hud.new()
+	get_root().add_child(hud)
+	await process_frame
+	var shown := Minimap.new(field)
+	hud.attach_minimap(shown)
+	shown.show_map()
+	var closed := [0]
+	shown.close_requested.connect(func() -> void: closed[0] += 1)
+	for _size_step in 3:
+		await process_frame
+		hud._layout()
+		await process_frame
+		var screen := hud.get_viewport().get_visible_rect()
+		var rect := Rect2(shown.position, shown.size)
+		_expect(
+			screen.encloses(rect),
+			"map size %d fits the screen: %s in %s" % [shown._size, rect, screen]
+		)
+		if shown._size != Minimap.Size.SMALL:
+			_expect(shown._close_button.visible, "and has a close button")
+		shown._cycle_size()
+	shown._close_button.pressed.emit()
+	_expect(closed[0] == 1, "which asks for the map to be put away")
+	hud.queue_free()
+
+## Integration check: everything laid over the picture goes through the one view
+## transform, so a sticker, the route, a region's name, a building's mark and the
+## child's arrow are where the world says they are after any pan or zoom — and the
+## picture itself is shifted under them to match.
+func _check_the_map_symbols_follow_pan_and_zoom() -> void:
+	print("the map's symbols, route and labels follow a pan and a zoom")
+	var field := HeightField.new(20260903)
+	var map := Minimap.new(field)
+	get_root().add_child(map)
+	var camp := field.camp_centre()
+	var house := camp + Vector3(14.0, 0.0, 9.0)
+	var built: Array[Vector3] = [house]
+	map.open_at("large")
+	map.choose_kind(PlaceGlyph.Kind.PLAYGROUND)
+	var views: Array[Array] = [
+		[Minimap.LARGE_RANGE, Vector2.ZERO],
+		[200.0, Vector2(20.0, 0.0)],
+		[200.0, Vector2(0.0, 0.0)],
+		[90.0, Vector2(-30.0, 25.0)],
+		[700.0, Vector2(120.0, 80.0)],
+	]
+	var exact: Array[Dictionary] = []
+	for view: Array in views:
+		var range_metres: float = view[0]
+		var shift: Vector2 = view[1]
+		map.set_view(range_metres, Vector2(camp.x + shift.x, camp.z + shift.y))
+		map.track(camp, 0.3, built)
+		map.wait_for_bake()
+		map.track(camp, 0.3, built)
+		var px: float = map._view.px
+		var diameter := Minimap.glyph_diameter(map._size)
+		var inset := diameter * 0.82 + 3.0
+		var inner := Rect2(Vector2(inset, inset), Vector2(px, px) - Vector2(inset, inset) * 2.0)
+		var label := "at %.0f m, %s" % [range_metres, shift]
+		var found := {}
+		for index in map._destinations.size():
+			var glyph := map.glyph_at_index(index)
+			if not glyph.visible:
+				continue
+			var at: Vector3 = map._destinations[index]["at"]
+			var want: Vector2 = map._view.pixel_of(Vector2(at.x, at.z))
+			var have := glyph.position + glyph.size * 0.5
+			if inner.has_point(want):
+				_expect(
+					have.distance_to(want) <= diameter * 1.6,
+					"a sticker stands on its place %s: %.1f px off" % [label, have.distance_to(want)]
+				)
+				if have.distance_to(want) < 1.0:
+					found[index] = have
+			else:
+				_expect(
+					Rect2(Vector2.ZERO, Vector2(px, px)).has_point(have),
+					"a place off the view is pinned to the rim %s" % label
+				)
+		exact.append(found)
+		# The route: from the arrow to the chosen sticker.
+		var chosen := map.chosen_index()
+		_expect(chosen >= 0, "a place stays chosen across the view %s" % label)
+		var goal := map.glyph_at_index(chosen)
+		_expect(
+			map._route.has_target == goal.visible
+			and map._route.target_at.distance_to(goal.position + goal.size * 0.5) < 0.5,
+			"the route ends on the chosen sticker %s" % label
+		)
+		var arrow: Vector2 = map._player_dot.position + map._player_dot.size * 0.5
+		_expect(map._route.player_at.distance_to(arrow) < 0.5, "and starts at the child's arrow %s" % label)
+		var me: Vector2 = map._view.pixel_of(Vector2(camp.x, camp.z))
+		var rim: float = px * 0.5 - map._player_dot.size.x * 0.5 - 2.0
+		if absf(me.x - px * 0.5) < rim and absf(me.y - px * 0.5) < rim:
+			_expect(arrow.distance_to(me) < 0.5, "the arrow is where the child stands %s" % label)
+		# Region names stand on their regions, and are dropped when the region has
+		# left the view.
+		for i in mini(map._regions.size(), map._region_labels.size()):
+			var at: Vector3 = map._regions[i]["at"]
+			var want: Vector2 = map._view.pixel_of(Vector2(at.x, at.z))
+			var name_label: Label = map._region_labels[i]
+			if name_label.visible:
+				_expect(
+					(name_label.position + name_label.size * 0.5).distance_to(want) < px * 0.4,
+					"a region's name is near its region %s" % label
+				)
+			if not Rect2(Vector2.ZERO, Vector2(px, px)).grow(px * 0.2).has_point(want):
+				_expect(not name_label.visible, "a region far off the view has no name on it %s" % label)
+		# The picture is shifted under all of it, and the house's mark is on the
+		# house.
+		var picture_middle: Vector2 = map._picture.position + map._picture.size * 0.5
+		var drawn: Vector2 = map._view.pixel_of(Vector2(map._drawn_at.x, map._drawn_at.z))
+		_expect(picture_middle.distance_to(drawn) < 0.5, "the picture is centred on what it was drawn around %s" % label)
+		var column := int((house.x - map._drawn_at.x + map._drawn_range * 0.5) / map._drawn_range * float(Minimap.PIXELS))
+		var row := int((house.z - map._drawn_at.z + map._drawn_range * 0.5) / map._drawn_range * float(Minimap.PIXELS))
+		if column > 4 and row > 4 and column < Minimap.PIXELS - 4 and row < Minimap.PIXELS - 4:
+			_expect(_close_colours(map._image.get_pixel(column, row), Minimap.BUILT), "the house is marked on the picture %s" % label)
+			var on_screen: Vector2 = map._picture.position + Vector2(
+				(float(column) + 0.5) / float(Minimap.PIXELS), (float(row) + 0.5) / float(Minimap.PIXELS)
+			) * map._picture.size
+			var truth: Vector2 = map._view.pixel_of(Vector2(house.x, house.z))
+			_expect(
+				on_screen.distance_to(truth) < map._picture.size.x / float(Minimap.PIXELS) * 2.0,
+				"and that mark is on the house's spot on screen %s: %.1f px" % [label, on_screen.distance_to(truth)]
+			)
+	# Panned and zoomed between views: a sticker that was exact in both moved by
+	# exactly what the view's transform says.
+	var moved_by_pan := 0
+	for index: int in exact[1]:
+		if exact[2].has(index):
+			var delta: Vector2 = (exact[2][index] as Vector2) - (exact[1][index] as Vector2)
+			var expected := Vector2(20.0, 0.0) / 200.0 * Minimap.LARGE_PIXELS
+			_expect(delta.distance_to(expected) < 1.0, "a pan moves a sticker by the pan: %s" % delta)
+			moved_by_pan += 1
+	_expect(moved_by_pan >= 1, "at least one sticker was checked across the pan: %d" % moved_by_pan)
+	var seen := 0
+	for found: Dictionary in exact:
+		seen += found.size()
+	_expect(seen >= 3, "stickers were found exactly on their places in the views: %d" % seen)
+	map.queue_free()
+
+## Colours as an 8-bit picture keeps them.
+func _close_colours(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) < 0.02 and absf(a.g - b.g) < 0.02 and absf(a.b - b.b) < 0.02
 

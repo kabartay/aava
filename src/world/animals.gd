@@ -415,6 +415,9 @@ const TOLD_FOR := 2.5
 ## Further than this from where the host has it, an animal is set down there
 ## rather than walked across the meadow.
 const TOLD_SNAP := 8.0
+## How many metres a second a guest's animal walks for each metre it is behind
+## where the host has it: see `_step`.
+const TOLD_CATCH_UP := 2.5
 ## How near a child an animal must be for the host to bother telling anyone, and
 ## the most it will tell in one go.
 const TELLING_REACH := 70.0
@@ -595,7 +598,17 @@ func _step(animal: Dictionary, delta: float) -> void:
 		there.y = _footing(there.x, there.z)
 		animal["target"] = there
 		animal["rest"] = 1.0
-		animal["speed"] = maxf(Animals.pace_of(animal["kind"]) * 1.4, SPEED)
+		# A fixed 1.4x pace let a fleeing or whistled animal outrun its copy: the
+		# host's dog at 4-6 m/s left the guest's one at 2.7, the gap passed
+		# TOLD_SNAP within seconds and the animal slid and then jumped. The speed
+		# also grows with the gap (a gap of g closes in 0.4 s), so the copy keeps
+		# up with whatever the host's animal does, and still walks at a walking
+		# pace when the host's one stands about.
+		var gap := Vector2(there.x - node.position.x, there.z - node.position.z).length()
+		animal["speed"] = clampf(
+			maxf(maxf(Animals.pace_of(animal["kind"]) * 1.4, SPEED), gap * TOLD_CATCH_UP),
+			SPEED, FLEE_SPEED * RACKET_FLIGHT * 1.3
+		)
 	elif afloat:
 		_head_for_the_bank(animal)
 	animal["cooldown"] = maxf(0.0, float(animal["cooldown"]) - delta)

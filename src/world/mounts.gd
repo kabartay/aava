@@ -226,6 +226,22 @@ func exists(kind: StringName) -> bool:
 func position_of(kind: StringName) -> Vector3:
 	return _positions.get(kind, Vector3.ZERO)
 
+## Where the nearest mount of a kind stands that a child could walk to and
+## ride — not the one being ridden, nor one somebody else is on — or
+## Vector3.INF if there is none. For the map's horse.
+func nearest_standing(kind: StringName, from: Vector3) -> Vector3:
+	var best := Vector3.INF
+	var best_distance := INF
+	for id in _nodes:
+		if MountKinds.kind_of(id) != kind or id == riding or _remote.has(id) or not exists(id):
+			continue
+		var at: Vector3 = _positions[id]
+		var distance := Vector2(at.x - from.x, at.z - from.z).length()
+		if distance < best_distance:
+			best_distance = distance
+			best = at
+	return best
+
 ## The mount within reach, or an empty name. Never returns one already ridden.
 ## Sell one of a kind back: the one at the shop door if there is one there,
 ## and otherwise the one furthest from the child — that being the one they have

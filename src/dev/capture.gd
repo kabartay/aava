@@ -23,6 +23,12 @@ extends Node3D
 ##   --atshop=1     the same for the shop's site (z negative is out in front)
 ##   --atpitch=1    stand the player on the football pitch instead of the spawn
 ##   --lang=en|fr|ru  which language to draw the interface in
+##   --map=SIZE[,METRES[,DX,DZ]]  open the map at that size (small|large|full,
+##                  or 1|2|3), looking METRES across at DX,DZ metres from the
+##                  middle of the valley
+##   --guide=KIND   with --map: choose that place (playground, pitch...) as the
+##                  destination; --legend=1 opens the key; --mapat=X,Z stands
+##                  the child there first; --friend=X,Z puts a friend there
 ##   --zoom=METRES  pull the camera this far further out than its default
 ##   --together=choice|host|type  open the play-together panel on a page
 ##   --shop=1  open the shop panel, with coins to spend
@@ -103,6 +109,14 @@ var _flash := -1
 var _zoom := 0.0
 var _shop := false
 var _together := ""
+## --map=SIZE[,METRES[,DX,DZ]] opens the map (see the header); --guide=KIND picks
+## that place as the destination; --legend=1 opens the legend; --mapat=X,Z stands
+## the child there first.
+var _map := ""
+var _friend := Vector2.INF
+var _guide := ""
+var _legend := false
+var _map_at := Vector2.INF
 var _energy := 1.0
 var _chop := 0
 var _mounts := false
@@ -193,6 +207,8 @@ func _ready() -> void:
 		_build_mode.set_material(StringName(_wall_material))
 	if not _palette_group.is_empty() and _hud != null:
 		_hud._show_group(StringName(_palette_group))
+	if _map != "" and _hud != null and _hud.minimap() != null:
+		await _settle_the_map()
 	if _test_house or not _palette_group.is_empty():
 		# A few frames for the new pieces to be drawn, and the ghost aimed
 		# again at what is now chosen.
@@ -354,6 +370,7 @@ func _spawn_player() -> void:
 		}
 	)
 
+	_open_the_map()
 	if _demo:
 		_stand_up_a_camp(spawn)
 	if _build:
@@ -398,6 +415,49 @@ func _spawn_player() -> void:
 		"type":
 			_hud.together.open()
 			_hud.together._start_typing()
+
+## Open the map at the size asked for, with a destination chosen and the legend
+## up if wanted, the way a child's taps would leave it.
+func _open_the_map() -> void:
+	if _map == "":
+		return
+	var parts := _map.split(",")
+	if _map_at != Vector2.INF:
+		_player.position = Vector3(_map_at.x, _world.field.height_at(_map_at.x, _map_at.y) + 1.2, _map_at.y)
+	var map := _hud.minimap()
+	map.horse_source = func(from: Vector3) -> Vector3:
+		return _world.mounts.nearest_standing(MountKinds.HORSE, from)
+	if _friend != Vector2.INF:
+		var friend_at := Vector3(_friend.x, 0.0, _friend.y)
+		map.friend_source = func() -> Array: return [friend_at]
+	# The size by name or by number: 1 small, 2 large, 3 the whole valley.
+	var named: String = {"1": "small", "2": "large", "3": "full"}.get(parts[0], parts[0])
+	map.open_at(named)
+	_hud._layout()
+	if parts.size() >= 4:
+		map.set_view(parts[1].to_float(), Vector2(parts[2].to_float(), parts[3].to_float()))
+	elif parts.size() >= 2:
+		map.zoom_to(parts[1].to_float())
+	if _guide != "":
+		map.choose_named(_guide)
+	map.set_legend_open(_legend)
+
+## Let the map draw: a few frames for the layout, then a bake waited for and
+## collected, then frames for the new picture to reach the screen.
+func _settle_the_map() -> void:
+	var map := _hud.minimap()
+	map._follow_player = _player
+	for _i in 3:
+		await get_tree().process_frame
+	var stand := _player.global_position if _player != null else Vector3.ZERO
+	for _round in 4:
+		map.track(stand, 0.0, [] as Array[Vector3])
+		map.wait_for_bake()
+		map.track(stand, 0.0, [] as Array[Vector3])
+		if map.is_drawn():
+			break
+	for _i in 3:
+		await RenderingServer.frame_post_draw
 
 func _stand_up_a_camp(spawn: Vector3) -> void:
 	for kind in ItemKinds.ALL:
@@ -807,6 +867,18 @@ func _parse_arguments() -> void:
 				_shop = value.to_int() != 0
 			"together":
 				_together = value
+			"map":
+				_map = value
+			"guide":
+				_guide = value
+			"legend":
+				_legend = value.to_int() != 0
+			"friend":
+				var fz := value.split(",")
+				_friend = Vector2(fz[0].to_float(), fz[1].to_float())
+			"mapat":
+				var xz := value.split(",")
+				_map_at = Vector2(xz[0].to_float(), xz[1].to_float())
 			"energy":
 				_energy = value.to_float()
 			"chop":

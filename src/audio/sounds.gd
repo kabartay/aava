@@ -285,7 +285,9 @@ func _cheer(seconds: float) -> AudioStreamWAV:
 		# Wavering between roughly 520 and 700 cycles: well above what a
 		# phone's speaker drops.
 		var voice := sin(TAU * (600.0 + 90.0 * sin(TAU * 6.0 * t)) * t)
-		_write(data, i, (last * 0.5 + voice * 0.18) * envelope)
+		# Held under the goal's own chime, which plays beside it: it measured
+		# ten decibels louder than any other sound here.
+		_write(data, i, (last * 0.3 + voice * 0.11) * envelope)
 	return _wav(data)
 
 ## Filtered noise under a soft envelope: water has no pitch, so a tone is

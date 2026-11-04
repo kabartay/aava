@@ -91,6 +91,6 @@ func to_data() -> Dictionary:
 func from_data(data: Dictionary) -> void:
 	# Clamped, because a step past FREE is neither a task nor finished: no
 	# instruction is shown and the thread never ends.
-	step = clampi(int(data.get("step", 0)), Step.GATHER, Step.FREE) as Step
-	_sticks_at_start = int(data.get("sticks_at_start", -1))
-	_found = maxi(0, int(data.get("sticks_found", 0)))
+	step = clampi(SaveGame.as_int(data.get("step", 0)), Step.GATHER, Step.FREE) as Step
+	_sticks_at_start = SaveGame.as_int(data.get("sticks_at_start", -1), -1)
+	_found = maxi(0, SaveGame.as_int(data.get("sticks_found", 0)))

@@ -24,7 +24,12 @@ const SPEED := 0.55
 const TURN := 0.8
 ## How far out into the pond they keep, as a fraction of its basin. They turn
 ## back at this, so nobody watches a duck walk up a bank.
-const KEEP_WITHIN := 0.78
+##
+## 0.78 put a duck on dry bank on the short side of the ponds: the water's edge
+## is at 0.72 of the basin there (the ground is already 0.35 m above the surface
+## at 0.78), so ducks sat on the grass. 0.62 leaves them over water at every
+## bearing of both ponds, with room to turn.
+const KEEP_WITHIN := 0.62
 ## How wide a duck is to bump into. Small, but not nothing: swimming straight
 ## through one reads as the duck not being there, which is what it was.
 const GIRTH := 0.22

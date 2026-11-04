@@ -1285,24 +1285,28 @@ func from_data(data: Array) -> void:
 		# it is skipped, and the pieces around it are still built.
 		if entry is not Dictionary:
 			continue
-		var kind := StringName(entry.get("kind", ""))
+		var kind := StringName(str(entry.get("kind", "")))
 		if not BuildKinds.INFO.has(kind) and not HouseParts.is_house_part(kind):
 			continue
 		# A piece set down off the edge of the world, or at a position that is
 		# not a number, would be streamed towards or drawn at infinity.
-		var placed_at := Vector3(float(entry.get("x", 0.0)), float(entry.get("y", 0.0)), float(entry.get("z", 0.0)))
+		var placed_at := Vector3(
+			SaveGame.as_float(entry.get("x", 0.0)),
+			SaveGame.as_float(entry.get("y", 0.0)),
+			SaveGame.as_float(entry.get("z", 0.0))
+		)
 		if not RespawnSpot.in_the_world(placed_at):
 			continue
 		var record := {
 			"kind": kind,
 			"position": placed_at,
-			"spin": float(entry.get("spin", 0.0)),
-			"age": maxf(0.0, float(entry.get("age", 0.0))),
+			"spin": SaveGame.as_float(entry.get("spin", 0.0)),
+			"age": maxf(0.0, SaveGame.as_float(entry.get("age", 0.0))),
 			"stage": 0,
 			"node": null,
 			"shared": false,
 			# Everything saved before this mark existed was built by this child.
-			"paid": bool(entry.get("paid", true)),
+			"paid": SaveGame.as_bool(entry.get("paid", true), true),
 			"extent": Vector2i(_squares(entry.get("across", 1)), _squares(entry.get("along", 1))),
 			"material": HouseParts.material_from(entry.get("material", HouseParts.DEFAULT_MATERIAL)),
 		}

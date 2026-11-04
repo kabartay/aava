@@ -177,6 +177,29 @@ static func set_aside(path: String) -> String:
 	push_warning("kept the unreadable save as %s" % kept)
 	return kept
 
+## Copy a save that is about to be wiped on purpose to a name of its own, and
+## return where it went (empty if there was nothing to copy or it failed).
+##
+## "Start again" is behind a grown-up hold, but a grown-up can hold it by
+## mistake, and the next write moves the old valley into `.previous` for only
+## one autosave: twenty seconds later it is gone. Each call makes a new
+## numbered file and never overwrites an earlier one, so a second reset cannot
+## replace the kept valley with the empty one.
+static func keep_copy(path: String, label := "before-reset") -> String:
+	if not FileAccess.file_exists(path):
+		return ""
+	var kept := "%s.%s" % [path, label]
+	var n := 1
+	while FileAccess.file_exists(kept):
+		n += 1
+		kept = "%s.%s-%d" % [path, label, n]
+	if DirAccess.copy_absolute(
+		ProjectSettings.globalize_path(path), ProjectSettings.globalize_path(kept)
+	) != OK:
+		push_warning("could not keep a copy of %s" % path)
+		return ""
+	return kept
+
 ## The contents of a JSON document, or null if it is not one.
 ##
 ## Asked of a JSON object rather than of JSON.parse_string, which prints an
@@ -188,6 +211,38 @@ static func parse_quietly(text: String) -> Variant:
 	if json.parse(text) != OK:
 		return null
 	return json.data
+
+## A whole number out of a value read from a save, or `fallback`.
+##
+## `int(x)` is an engine error, not a zero, for null, a list or a table, and the
+## error ends the function it is in: a bag file with one bad count lost every
+## item listed after it, and the autosave then wrote the shortened bag over the
+## file. Numbers and numeric text are taken; anything else is `fallback`.
+static func as_int(value: Variant, fallback := 0) -> int:
+	if value is int:
+		return value
+	if value is float or (value is String and (value as String).is_valid_float()):
+		var number := float(value)
+		if is_finite(number):
+			return int(clampf(number, -9.0e15, 9.0e15))
+	return fallback
+
+## `as_int` for a decimal number; never NaN or infinite.
+static func as_float(value: Variant, fallback := 0.0) -> float:
+	if value is int or value is float or (value is String and (value as String).is_valid_float()):
+		var number := float(value)
+		if is_finite(number):
+			return number
+	return fallback
+
+## `bool()` that does not stop on a list or a table: true and false, 1 and 0
+## are taken, anything else is `fallback`.
+static func as_bool(value: Variant, fallback := false) -> bool:
+	if value is bool:
+		return value
+	if value is int or value is float:
+		return as_float(value) != 0.0
+	return fallback
 
 static func absolute_path(path := PATH) -> String:
 	return ProjectSettings.globalize_path(path)

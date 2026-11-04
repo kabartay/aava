@@ -156,8 +156,8 @@ func from_data(data: Dictionary) -> void:
 	for key in ALL:
 		# String keys, because JSON has no StringName and a save written by an
 		# earlier version must still load.
-		lifetime[key] = maxi(0, int(stored.get(String(key), 0)))
-		last_visit[key] = maxi(0, int(previous.get(String(key), 0)))
+		lifetime[key] = maxi(0, SaveGame.as_int(stored.get(String(key), 0)))
+		last_visit[key] = maxi(0, SaveGame.as_int(previous.get(String(key), 0)))
 		session[key] = 0
-	last_seen = int(data.get("last_seen", 0))
-	visits = int(data.get("visits", 0))
+	last_seen = maxi(0, SaveGame.as_int(data.get("last_seen", 0)))
+	visits = maxi(0, SaveGame.as_int(data.get("visits", 0)))

@@ -424,41 +424,87 @@ static func launch_velocity(at: Vector3, from: Vector3, facing: Vector3, sprinti
 	var lift := lerpf(LIFT_FLAT, LIFT_HIGH, clampf(loft, 0.0, 1.0))
 	return (direction + Vector3.UP * lift).normalized() * speed
 
-## A child jogging at a ball should be able to take it along rather than boot it
-## away, so below this pace the ball is eased onto the child's own line: a
-## gentle touch. Faster than this it is left to the physics, which is how a run
-## at the ball still sends it far.
-const TOUCH_SPEED := 4.6
-## Below this the child is standing, not dribbling, and the ball is left alone.
+## Dribbling. A child on a phone runs at one of two paces, a walk and the full
+## RUN_SPEED of 6.6 m/s, so taking a ball along has to work at every pace up to
+## that, not only a jog: the ball is held a short way in front of the feet and
+## steered onto the line the child is running, which turns with them. It used to
+## be eased only below 4.6 m/s and a child at full stick hit the ball with the
+## body instead, which sent it off at the run pace and a bit over, along the line
+## from the body to the ball: a boot, and a sideways squirt whenever the ball was
+## not exactly ahead.
+##
+## Below this the child is standing, not dribbling: a slow ball is stopped at
+## their feet (TRAP_SPEED) and a fast one bounces off.
 const TOUCH_MIN_SPEED := 0.3
-## How far from the feet a ball can be and still be taken along, and how far
-## ahead of them it is kept: just clear of the capsule's own 0.58 of contact, so
-## the ball rolls on in front instead of being shoved and chased.
+## How far from the feet a ball can be and still be taken along: this much and a
+## tenth of a metre for each metre a second of the child's pace, since a faster
+## child meets the ball in a stride and has to be able to take it up before the
+## body is on it.
 const TOUCH_REACH := 1.25
-const TOUCH_AHEAD := 0.85
+const TOUCH_REACH_PER_PACE := 0.1
+## Where the ball is held, ahead of the feet: just clear of the capsule's own 0.58
+## of contact, and well inside the kick's reach (KICK_REACH plus the ball's
+## radius), so a child who stops has it where they can strike it.
+const TOUCH_AHEAD := 0.75
+## How strongly the ball is steered onto its place, in metres a second for each
+## metre it is out; and how quickly it takes up the pace it is steered to, per
+## second. The grip is applied as 1 - e^(-grip * delta), so a frame twice as long
+## takes twice the step and the ball does the same at 30, 60 and 120 Hz.
+const TOUCH_SPRING := 10.0
+const TOUCH_GRIP := 22.0
+## The most the steering adds to the child's own pace, in metres a second: a ball
+## well out of place is brought back at a walking pace over the child's, never
+## whipped across (which sent it past the child and, being then faster than the
+## child, out of the touch altogether). Less than TOUCH_LEAVES.
+const TOUCH_CATCH_UP := 2.0
+## A ball already travelling with the child (at least this fraction of their
+## pace) is kept while it is beside them, so it follows a turn; one lying still
+## has to be in front of them (within about 70 degrees) to be taken at all.
+const TOUCH_CARRIED := 0.5
+const TOUCH_CONE := 0.35
+const TOUCH_CARRIED_CONE := -0.25
+## A ball moving away from the child faster than this over their own pace has
+## been kicked (or passed) and is left alone. A carried ball runs ahead of a
+## child who is braking or turning by up to two metres a second (the pace dips
+## by 30% through a quarter turn); this is more than that.
+const TOUCH_LEAVES := 3.5
+## A ball whose centre is above this over the feet, or rising faster than
+## TOUCH_LOFT_SPEED, is in the air: the feet go under it.
+const TOUCH_LOFT := 0.6
+const TOUCH_LOFT_SPEED := 1.5
+## A standing child traps a ball within KICK_REACH plus its radius that is moving
+## slower than this: it is braked to rest at TRAP_BRAKE a second (a fraction of
+## its pace, exponentially) and stopped when it is slower than TRAP_STOP.
+const TRAP_SPEED := 3.0
+const TRAP_BRAKE := 12.0
+const TRAP_STOP := 0.15
 
-## How much of a child's own pace a ball leaves their body with when they run
-## into it: a little more than they have, so it rolls on ahead and is caught up
-## with and pushed again rather than being carried stuck to the shins.
-const PUSH_BOUNCE := 0.25
+## How much of its pace a ball rolled at a standing child gives back when it hits
+## the body: nothing for a soft pass (it stops at the feet), half of it
+## from PUSH_BOUNCE_FROM up, in between smoothly. Over TRAP_SPEED the ball is
+## then not stopped again by the trap.
+const PUSH_BOUNCE := 0.5
+const PUSH_SOFT := 3.0
+const PUSH_BOUNCE_FROM := 5.0
 ## How fast a ball is eased out from under a child who has stepped onto it.
 const PUSH_OUT := 1.0
 ## How hard a ball that has sunk into a child running with it is nudged back out
-## to the front, in metres a second for each metre it has sunk. The air drag
-## takes a few centimetres a second off a rolling ball every tick and the push
-## only brings it back to the child's own pace, so over a long run the ball crept
-## in 7 cm a second until it sat inside the child and then behind them; this
-## holds it at arm's length instead, without ever launching it.
+## to the front, in metres a second for each metre it has sunk.
 const PUSH_LEAD := 3.0
+## How much of the line the body pushes a ball along is the way the child runs,
+## when they are running: pushed along the line from body to ball alone it
+## squirted off to the side whenever the ball was off the line of the run.
+const PUSH_RUN_LINE := 0.8
 
 ## What the child's body does to a ball it is touching, flat along the ground.
 ## The ball and the child's capsule do not collide with one another in the
 ## physics server (the capsule stopped dead against the ball, a running child
 ## stood still, and one that kept going climbed onto it): this is the whole of
-## their meeting. A ball that the body is closing on leaves along the line
-## between them with the body's own pace and a little over; a ball coming at a
-## standing child bounces off; the ball's height is never touched, so a body
-## can neither pass through the ball nor launch it into the air.
+## their meeting. A ball that the body is closing on leaves with the body's own
+## pace and a little over, along the way the child runs (or, for a standing
+## child, the line between them); a ball coming at a standing child stops if it
+## is soft and bounces off if it is hard; the ball's height is never touched, so
+## a body can neither pass through the ball nor launch it into the air.
 ##
 ## The body is taken to have swept the ground it covered in `delta`, not only to
 ## stand where it ends: a frame that takes a tenth of a second (a chunk of
@@ -489,12 +535,20 @@ static func pushed_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v:
 		if run.length_squared() < 0.01:
 			return ball_v
 		way = run.normalized()
+	# A running child sends the ball along their run, not off at a tangent.
+	if run.length_squared() > 1.0:
+		var heading := run.normalized()
+		if way.dot(heading) > 0.0:
+			way = way.lerp(heading, PUSH_RUN_LINE).normalized()
 	var body_n := foot_v.dot(way)
 	var ball_n := ball_v.dot(Vector3(way.x, 0.0, way.z))
 	var want := ball_n
 	if ball_n - body_n < 0.0:
-		# Closing: leave at the body's pace plus a rebound of what was closing.
-		want = body_n + (body_n - ball_n) * PUSH_BOUNCE
+		# Closing: leave at the body's pace plus a rebound of the ball's own
+		# pace toward the body (none of a soft pass); a running child meeting a
+		# ball at rest is not bounced off it at 1.25 times their pace.
+		var coming := maxf(-ball_n, 0.0)
+		want = body_n + coming * PUSH_BOUNCE * smoothstep(PUSH_SOFT, PUSH_BOUNCE_FROM, coming)
 	if gap < contact - 0.08:
 		want = maxf(want, PUSH_OUT)
 	if body_n > 0.5:
@@ -503,30 +557,46 @@ static func pushed_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v:
 
 ## What a ball at `at` moving at `ball_v` does in this step, for a child at
 ## `from` moving at `foot_v`. Pure, so the host can apply it for its own child
-## and for each guest's body, and a guest's phone can show the same thing. The
-## slower the child, the stronger the pull, fading to nothing at TOUCH_SPEED,
-## and only for a ball that is in front of them and on the ground.
+## and for each guest's body, and a guest's phone can show the same thing.
+##
+## A ball a running child is at or has beside them is taken along and steered
+## onto the child's line a short way ahead of the feet; once the child stands it
+## is stopped at their feet if it is slow. A ball leaving faster than the child
+## (a kick, a pass) or in the air is left alone, except that the body is never
+## passed through it (pushed_velocity).
 static func touch_velocity(at: Vector3, ball_v: Vector3, from: Vector3, foot_v: Vector3, delta: float) -> Vector3:
-	ball_v = pushed_velocity(at, ball_v, from, foot_v, delta)
+	var rise := at.y - from.y
+	if rise > TOUCH_LOFT or ball_v.y > TOUCH_LOFT_SPEED:
+		return ball_v
 	var run := Vector3(foot_v.x, 0.0, foot_v.z)
 	var pace := run.length()
-	if pace < TOUCH_MIN_SPEED or pace >= TOUCH_SPEED:
-		return ball_v
-	var offset := at - from
-	var rise := offset.y
-	offset.y = 0.0
-	if offset.length() > TOUCH_REACH or rise > 0.8 or rise < -0.5:
-		return ball_v
-	var way := run / pace
-	if offset.length() > 0.05 and offset.normalized().dot(way) < 0.5:
-		return ball_v
-	# Where the ball would like to be, and the pace that gets it there while
-	# keeping up with the child.
-	var spot := from + way * TOUCH_AHEAD
-	var want := run + Vector3(spot.x - at.x, 0.0, spot.z - at.z) * 4.0
-	var pull := (1.0 - smoothstep(2.0, TOUCH_SPEED, pace)) * clampf(delta * 10.0, 0.0, 1.0)
-	var flat := Vector3(ball_v.x, 0.0, ball_v.z).lerp(want, pull)
-	return Vector3(flat.x, ball_v.y, flat.z)
+	var flat_v := Vector3(ball_v.x, 0.0, ball_v.z)
+	var offset := Vector3(at.x - from.x, 0.0, at.z - from.z)
+	var gap := offset.length()
+	var out := offset / gap if gap > 0.01 else Vector3.ZERO
+	var kept := ball_v
+	if pace >= TOUCH_MIN_SPEED:
+		var way := run / pace
+		var reach := TOUCH_REACH + TOUCH_REACH_PER_PACE * pace
+		var leaving := flat_v.length() > pace + TOUCH_LEAVES and flat_v.dot(out) > 0.0
+		var ahead := out.dot(way)
+		var carried := flat_v.dot(way) > pace * TOUCH_CARRIED
+		if rise >= -0.5 and gap <= reach and not leaving and ahead > (TOUCH_CARRIED_CONE if carried else TOUCH_CONE):
+			var spot := Vector3(from.x, 0.0, from.z) + way * TOUCH_AHEAD
+			var steer := (spot - Vector3(at.x, 0.0, at.z)) * TOUCH_SPRING
+			steer = steer.limit_length(TOUCH_CATCH_UP)
+			var want := run + steer
+			var grip := 1.0 - exp(-TOUCH_GRIP * clampf(delta, 0.0, 0.25))
+			var flat := flat_v.lerp(want, grip)
+			kept = Vector3(flat.x, ball_v.y, flat.z)
+	elif gap <= KICK_REACH + RADIUS and flat_v.length() < TRAP_SPEED:
+		# Stopped: a slow ball near the feet is brought to rest where it is.
+		var slowed := flat_v * exp(-TRAP_BRAKE * clampf(delta, 0.0, 0.25))
+		if slowed.length() < TRAP_STOP:
+			slowed = Vector3.ZERO
+		kept = Vector3(slowed.x, ball_v.y, slowed.z)
+	# The body is never passed through, however the ball is being handled.
+	return pushed_velocity(at, kept, from, foot_v, delta)
 
 ## The softest strike the button gives: even the shortest tap has to move the
 ## ball, or a child taps it and concludes the button is broken. One number for the

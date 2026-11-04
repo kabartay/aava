@@ -8,7 +8,7 @@ extends Control
 ## which read as neither. An arrow says both at once and lets everything else
 ## stay put.
 
-const SIZE := 20.0
+const SIZE := 30.0
 
 func _init() -> void:
 	custom_minimum_size = Vector2(SIZE, SIZE)

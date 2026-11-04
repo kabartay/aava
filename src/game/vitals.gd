@@ -123,9 +123,9 @@ func to_data() -> Dictionary:
 	return {"energy": energy, "water": water, "bottle": has_bottle}
 
 func from_data(data: Dictionary) -> void:
-	energy = clampf(float(data.get("energy", MAX_ENERGY)), 0.0, MAX_ENERGY)
-	water = clampf(float(data.get("water", 0.0)), 0.0, MAX_WATER)
-	has_bottle = bool(data.get("bottle", false))
+	energy = clampf(SaveGame.as_float(data.get("energy", MAX_ENERGY), MAX_ENERGY), 0.0, MAX_ENERGY)
+	water = clampf(SaveGame.as_float(data.get("water", 0.0)), 0.0, MAX_WATER)
+	has_bottle = SaveGame.as_bool(data.get("bottle", false))
 	# No bottle, no water in it: the rule take_bottle() keeps.
 	if not has_bottle:
 		water = 0.0

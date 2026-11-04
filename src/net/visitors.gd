@@ -333,6 +333,18 @@ func clear() -> void:
 func count() -> int:
 	return _visitors.size()
 
+## Where each child on another phone stands, for the map. Only those whose
+## position has arrived: one that has not moved yet is at the origin, and
+## would be marked in the middle of nowhere.
+func positions() -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for id in _visitors:
+		var record: Dictionary = _visitors[id]
+		var node: Node3D = record["node"]
+		if record["seen"] and is_instance_valid(node):
+			out.append(node.position)
+	return out
+
 ## A position arrived from another machine.
 func move(id: int, at: Vector3, facing: float, mount := &"") -> void:
 	if not _visitors.has(id):

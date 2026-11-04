@@ -135,17 +135,17 @@ func _ready() -> void:
 		save[key] = shared[key]
 	# The language is read before anything is built, so the first frame is
 	# already in the right one rather than flashing English.
-	Text.set_language(StringName(save.get("language", Text.EN)))
+	Text.set_language(StringName(str(save.get("language", Text.EN))))
 	# Talking is allowed unless a parent has said otherwise, and the answer is
 	# remembered: a switch that forgets is a switch nobody trusts.
-	_voice_allowed = bool(save.get("voice_allowed", true))
-	_first_person = bool(save.get("first_person", false))
-	_cafe_paid = bool(save.get("cafe_paid", false))
+	_voice_allowed = SaveGame.as_bool(save.get("voice_allowed", true), true)
+	_first_person = SaveGame.as_bool(save.get("first_person", false))
+	_cafe_paid = SaveGame.as_bool(save.get("cafe_paid", false))
 	# Clamped, not just checked for -1. The index off the network is validated
 	# in session.gd and this one was not, so a hand-edited save — or the
 	# palette ever losing a colour — indexed off the end of SHIRTS during
 	# startup and the game never reached the valley at all.
-	_shirt = int(save.get("shirt", -1))
+	_shirt = SaveGame.as_int(save.get("shirt", -1), -1)
 	if _shirt < -1 or _shirt >= Visitors.SHIRTS.size():
 		_shirt = -1
 	# Who this child is drawn as. A save from before there were characters has
@@ -156,7 +156,7 @@ func _ready() -> void:
 	# Offered once, to a child with nothing saved yet. A child who has been
 	# playing for weeks is not stopped in front of a panel they have no reason
 	# to expect; they find it in the settings.
-	_look_offered = bool(save.get("look_offered", save.has("player")))
+	_look_offered = SaveGame.as_bool(save.get("look_offered", save.has("player")), save.has("player"))
 
 	# The world's map decides the seed, not the save: everyone in one copy of the
 	# valley must get the same ground, even though their own progress is in
@@ -201,9 +201,9 @@ func _ready() -> void:
 			vitals.grant_bottle()
 
 	_free_meal_after = _play_seconds() + clampf(
-		float(save.get("free_meal_in", 0.0)), 0.0, Venues.FREE_WAIT
+		SaveGame.as_float(save.get("free_meal_in", 0.0)), 0.0, Venues.FREE_WAIT
 	)
-	_built_a_house = bool(save.get("built_house", false))
+	_built_a_house = SaveGame.as_bool(save.get("built_house", false))
 
 	lantern = Lantern.new()
 	lantern.name = "Lantern"
@@ -235,10 +235,13 @@ func _ready() -> void:
 		add_child(PerfLog.new())
 
 func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
-	if save.has("pickups_taken"):
+	# Every container is checked for its kind before it is handed over: a typed
+	# parameter given the wrong kind is an engine error that ends this whole
+	# function, so one damaged field kept the child out of the valley.
+	if save.get("pickups_taken") is Array:
 		world.pickups.from_data(save["pickups_taken"])
 	if save.has("time_of_day"):
-		world.atmosphere.set_time(float(save["time_of_day"]))
+		world.atmosphere.set_time(SaveGame.as_float(save["time_of_day"], 8.0))
 	world.pickups.collected.connect(_on_collected)
 
 	structures = Structures.new(world.field)
@@ -253,7 +256,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	world.mounts.in_the_way.append(structures.blocks)
 	# And an animal is not born in one (tiles loaded from here on).
 	world.animals.built_blocks = structures.blocks
-	if save.has("structures"):
+	if save.get("structures") is Array:
 		structures.from_data(save["structures"])
 
 	# After the structures exist and have been restored: the greeting ages
@@ -351,19 +354,19 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		hud.announce(Text.of("say_basket"), 1.6)
 		journal.record(Journal.GOALS))
 	world.boulders.jumped.connect(_on_boulder_jumped)
-	if save.has("boulders"):
+	if save.get("boulders") is Dictionary:
 		world.boulders.from_data(save["boulders"])
 	if save.get("tasks") is Dictionary:
 		tasks.from_data(save["tasks"])
-	if save.has("animals"):
+	if save.get("animals") is Array:
 		world.animals.from_data(save["animals"])
-	if save.has("felled"):
+	if save.get("felled") is Array:
 		world.felled.from_data(save["felled"])
-	if save.has("mounts"):
+	if save.get("mounts") is Dictionary:
 		world.mounts.from_data(save["mounts"])
-	if save.has("hearths"):
+	if save.get("hearths") is Array:
 		world.hearths.from_data(save["hearths"])
-	if save.has("dams"):
+	if save.get("dams") is Dictionary:
 		world.dams.from_data(save["dams"])
 		# The height field has to know before anything is generated against it.
 		world.field.dams_built = world.dams.built.duplicate()
@@ -435,7 +438,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 		hud.announce(reward, 4.5))
 	tasks.changed.connect(func(_instruction: String) -> void: hud.set_task(_task_line()))
 	today.progressed.connect(func() -> void: hud.set_task(_task_line()))
-	if save.has("football"):
+	if save.get("football") is Dictionary:
 		world.football.from_data(save["football"])
 
 	player = Player.new()
@@ -443,7 +446,11 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	var start := spawn
 	if save.has("player"):
 		var at: Dictionary = save["player"] if save["player"] is Dictionary else {}
-		start = Vector3(float(at.get("x", spawn.x)), float(at.get("y", spawn.y)), float(at.get("z", spawn.z)))
+		start = Vector3(
+			SaveGame.as_float(at.get("x", spawn.x), spawn.x),
+			SaveGame.as_float(at.get("y", spawn.y), spawn.y),
+			SaveGame.as_float(at.get("z", spawn.z), spawn.z)
+		)
 	# Never below the ground as it is *now*. A saved height is only as good as
 	# the terrain it was saved against, and the terrain can change between
 	# sessions: the day the playground stopped being a thirty-metre pit, a child
@@ -498,7 +505,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	# apply it to.
 	camera_rig.set_first_person(_first_person)
 	if save.has("camera_yaw"):
-		camera_rig.yaw = float(save["camera_yaw"])
+		camera_rig.yaw = SaveGame.as_float(save["camera_yaw"], camera_rig.yaw)
 	player.add_child(camera_rig)
 	# Carried by the child, so the light moves with them.
 	player.hold(lantern)
@@ -534,7 +541,7 @@ func _on_world_ready(spawn: Vector3, save: Dictionary) -> void:
 	hud.set_first_person(_first_person)
 	hud.set_cafe_paid(_cafe_paid)
 	hud.restore_cafe_choices(_cafe_paid, StringName(str(save.get("dish", Dishes.USUAL))))
-	_cooled_for = clampf(float(save.get("cooled_for", 0.0)), 0.0, Dishes.COOL_SECONDS)
+	_cooled_for = clampf(SaveGame.as_float(save.get("cooled_for", 0.0)), 0.0, Dishes.COOL_SECONDS)
 	# Turning up is the whole of a visiting day, and nothing was ever telling
 	# today that anybody had: one day in six asks only that a child opens the
 	# game, and on that day the task sat there uncompletable and its eight
@@ -1605,6 +1612,12 @@ func _on_reset() -> void:
 		sounds.play(Sounds.Sound.REFUSE)
 		hud.announce(Text.of("say_reset_visiting"), 3.0)
 		return
+	# What is about to go is first copied aside, valley and bag both, so a
+	# reset pressed by mistake can be put right by hand.
+	if _may_save and _world_ready:
+		_write_save()
+		SaveGame.keep_copy(profiles.current_world_path())
+		SaveGame.keep_copy(profiles.current_save_path())
 	if structures != null:
 		structures.from_data([])
 		# Its campfires are gone, so no fire can go on burning without one.
@@ -1650,6 +1663,12 @@ func _show_guests_the_valley_again() -> void:
 ## connected to nothing: a child could press talk and never be heard, and open
 ## "play together" onto a page whose buttons did nothing at all.
 func _connect_the_rest_of_the_hud() -> void:
+	# The map shows the children on other phones, and the nearest horse.
+	var map := hud.minimap()
+	if map != null:
+		map.friend_source = visitors.positions
+		map.horse_source = func(from: Vector3) -> Vector3:
+			return world.mounts.nearest_standing(MountKinds.HORSE, from)
 	voice.allowed = _voice_allowed
 	hud.voice_allowed_changed.connect(func(allowed: bool) -> void:
 		_voice_allowed = allowed

@@ -161,8 +161,10 @@ const PENALTY_DEPTH := 7.0
 const GOAL_AREA_HALF_WIDTH := 5.0
 const GOAL_AREA_DEPTH := 2.8
 ## Penalty spot, from the goal line (11 m on a real pitch), and the arc round it
-## that keeps everyone else back (9.15 m).
-const PENALTY_SPOT := 5.0
+## that keeps everyone else back (9.15 m). It was 5 m, where the shortest kick
+## (3.5 m/s, which rolls about 4.8 m) stopped on the line and a soft shot from
+## the spot never scored; at 4 m a tap into the middle goes in.
+const PENALTY_SPOT := 4.0
 const PENALTY_ARC_RADIUS := 3.5
 const CENTRE_CIRCLE_RADIUS := 4.0
 const CORNER_ARC_RADIUS := 1.0

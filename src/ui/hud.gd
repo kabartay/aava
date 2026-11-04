@@ -152,6 +152,7 @@ signal talk_released()
 var _stick: VirtualJoystick
 var _backpack: Backpack
 var _minimap: Minimap
+var _guide_badge: GuideBadge
 var _build_button: Button
 var _palette: HFlowContainer
 var _palette_buttons: Dictionary = {}
@@ -1780,6 +1781,7 @@ func _toggle_map() -> void:
 	else:
 		_minimap.show_map()
 	_map_button.modulate = Color.WHITE if _minimap.is_showing() else Color(1.0, 1.0, 1.0, 0.5)
+	_refresh_guide_badge()
 	_layout()
 
 ## Opens on whichever page matches what is already happening, so a child who
@@ -2061,6 +2063,7 @@ func set_building(enabled: bool) -> void:
 	_building = enabled
 	if _minimap != null:
 		_minimap.keep_small(enabled)
+	_refresh_guide_badge()
 	_palette.visible = enabled
 	_tabs.visible = enabled
 	_place_button.visible = enabled
@@ -2171,6 +2174,10 @@ func set_ball_in_reach(in_reach: bool, throwing := false) -> void:
 	_kick_button.visible = in_reach
 	_layout()
 
+## The map, for the screenshot tool and the checks.
+func minimap() -> Minimap:
+	return _minimap
+
 ## The map is built by whoever owns the world, because it needs the height
 ## field, and the HUD is not the place to know about terrain.
 func attach_minimap(minimap: Minimap) -> void:
@@ -2180,7 +2187,52 @@ func attach_minimap(minimap: Minimap) -> void:
 	# Where the map goes depends on how big it is, and it changes size by
 	# itself when tapped.
 	minimap.resized.connect(_layout)
+	minimap.close_requested.connect(_toggle_map)
+	# The pointer to a place chosen on the map. Under everything else the
+	# interface draws, so that no panel ever opens beneath it.
+	_guide_badge = GuideBadge.new()
+	_guide_badge.bind(minimap.guide())
+	_guide_badge.keep_clear = _rects_under_the_badge
+	add_child(_guide_badge)
+	move_child(_guide_badge, 0)
+	minimap.resized.connect(_refresh_guide_badge)
+	minimap.place_tapped.connect(_on_place_tapped)
+	minimap.guide().arrived.connect(_on_guide_arrived)
+	_refresh_guide_badge()
 	_layout()
+
+## Where the buttons, the stick and the map are, so that the pointer to a chosen
+## place never lies on one: every visible control of the play screen that takes a
+## touch, in screen coordinates.
+func _rects_under_the_badge() -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	for child in get_children():
+		var control := child as Control
+		if control == null or control == _guide_badge or not control.visible:
+			continue
+		if control is BaseButton or control is VirtualJoystick or control is Minimap:
+			rects.append(control.get_global_rect().grow(6.0))
+	return rects
+
+## The pointer to the chosen place, for the checks.
+func guide_badge() -> GuideBadge:
+	return _guide_badge
+
+## The pointer hides while the map is big (the map shows the way then) and
+## while a child builds, when nothing may lie over the play field.
+func _refresh_guide_badge() -> void:
+	if _guide_badge != null:
+		_guide_badge.suppressed = _building or (_minimap != null and _minimap.is_big())
+
+func _on_place_tapped(kind: int, going: bool) -> void:
+	var named := Text.of(MapLegend.name_key(kind))
+	if going:
+		announce(Text.format("say_map_going", [named]), 2.4)
+	elif kind == PlaceGlyph.Kind.MOUNTAIN:
+		announce(Text.format("say_map_far", [named]), 2.4)
+
+func _on_guide_arrived(kind: int) -> void:
+	announce(Text.format("say_map_arrived", [Text.of(MapLegend.name_key(kind))]), 3.0)
 
 func track_map(world_position: Vector3, yaw: float, built: Array[Vector3]) -> void:
 	if _minimap != null:
@@ -2540,6 +2592,9 @@ func _layout() -> void:
 		# is wider than SMALL_PIXELS by those: compared with the picture alone,
 		# every map counted as opened up and the small one sat in the middle of
 		# the screen, over the storey buttons and the line saying why not.
+		# Never taller than the room under the instruction line: the whole-valley
+		# map used to run off the bottom of the screen.
+		_minimap.fit_to(safe.end.y - MARGIN - (map_top + 44.0 + 10.0) - Minimap.PANEL_MARGINS)
 		var opened_up := _minimap.size.x > Minimap.SMALL_PIXELS + Minimap.PANEL_MARGINS + 1.0
 		_minimap.position = Vector2(
 			(
